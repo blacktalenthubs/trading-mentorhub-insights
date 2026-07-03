@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trade Ideas — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as trading/today redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .conf,
+body.terminal .tagl,body.terminal .badge,body.terminal .note,body.terminal .lens,
+body.terminal .theme,body.terminal select,body.terminal .srch,body.terminal .xpand,
+body.terminal .evc{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+body.terminal .why,body.terminal .subtitle{font-family:var(--mono);font-size:11px}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR (shared shell) ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.clock{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--bull2);letter-spacing:.04em}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.open{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--bull);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;text-transform:uppercase}
+.chip.ok{background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.chip .b{width:6px;height:6px;border-radius:50%;background:var(--bull)}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+
+/* ── PAGE HEAD ── */
+.phead{display:flex;align-items:center;gap:14px;padding:14px 18px 4px;flex-wrap:wrap;max-width:1280px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.subtitle{font-size:12px;color:var(--tm)}
+.pmeta{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pmeta .ago{font-family:var(--mono);font-size:10.5px;color:var(--tf)}
+select{font-family:var(--mono);font-size:11px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);border-radius:6px;padding:5px 8px}
+.wrap{max-width:1280px;margin:0 auto;padding:0 18px 40px}
+
+/* ── CONFLUENCE STRIP — the overlap, turned into the headline ── */
+.confs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0 4px}
+@media(max-width:1100px){.confs{grid-template-columns:1fr}}
+.conf{background:var(--s1);border:1px solid rgba(245,183,61,.3);border-radius:11px;padding:11px 13px;cursor:pointer;transition:border-color .15s}
+.conf:hover{border-color:var(--amber)}
+.conf .top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.conf .sym{font-family:var(--mono);font-size:16px;font-weight:800}
+.conf .score{margin-left:auto;font-family:var(--mono);font-size:15px;font-weight:800;color:var(--bull2)}
+.conf .why{font-size:11px;color:var(--tm);line-height:1.45}
+.conf .why em{font-style:normal;color:var(--ts)}
+.badge{font-family:var(--mono);font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase}
+.badge.e{background:rgba(245,183,61,.14);color:var(--amber2);border:1px solid rgba(245,183,61,.3)}
+.badge.c{background:rgba(59,130,246,.14);color:var(--blu2);border:1px solid rgba(59,130,246,.32)}
+.badge.l{background:rgba(167,139,250,.14);color:var(--vio2);border:1px solid rgba(167,139,250,.32)}
+.badge.dim{background:var(--s2);color:var(--tf);border:1px solid var(--line)}
+
+/* grade dot */
+.gr{font-family:var(--mono);font-size:10.5px;font-weight:800;width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center}
+.gr.a{background:rgba(34,197,94,.16);color:var(--bull2);border:1px solid rgba(34,197,94,.35)}
+.gr.b{background:rgba(59,130,246,.14);color:var(--blu2);border:1px solid rgba(59,130,246,.32)}
+.gr.c{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+
+/* ── LENS + FILTER ROW (replaces the 5 tabs) ── */
+.lensbar{display:flex;align-items:center;gap:8px;margin:14px 0 10px;flex-wrap:wrap}
+.lens{font-family:var(--mono);font-size:11px;font-weight:700;padding:6px 12px;border-radius:7px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.lens .n{opacity:.6;font-weight:600}
+.lens.on{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.lens .sw{width:8px;height:8px;border-radius:2px}
+.lensbar .sep{width:1px;height:20px;background:var(--line2);margin:0 2px}
+.theme{font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer}
+.theme.on{color:var(--amber2);border-color:rgba(245,183,61,.4);background:rgba(245,183,61,.08)}
+.srch{margin-left:auto;display:flex;align-items:center;gap:7px;background:var(--s2);border:1px solid var(--line2);border-radius:7px;padding:5px 10px;min-width:180px}
+.srch input{background:none;border:none;color:var(--ts);font-size:12px;width:100%;outline:none;font-family:var(--sans)}
+.wlnote{font-size:11px;color:var(--amber2);font-weight:600}
+
+/* ── UNIFIED TABLE ── */
+.tblwrap{overflow-x:auto;background:var(--s1);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:980px}
+th{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);text-align:right;padding:9px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+th.l,td.l{text-align:left}
+td{font-family:var(--mono);font-size:11.5px;padding:9px 10px;border-bottom:1px solid var(--line);text-align:right;color:var(--ts);white-space:nowrap}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--s2)}
+tr.xrow td{background:rgba(59,130,246,.05)}
+td .sym{font-size:13px;font-weight:800;color:var(--tp)}
+td .co{display:block;font-family:var(--sans);font-size:10px;color:var(--tf)}
+td .boards{display:inline-flex;gap:4px}
+.why{font-family:var(--sans);font-size:11px;color:var(--tm);white-space:normal;line-height:1.4;max-width:280px}
+.why em{font-style:normal;color:var(--ts)}
+/* rs + score bars */
+.bar{display:inline-flex;align-items:center;gap:7px;justify-content:flex-end}
+.bar .tr{width:64px;height:5px;border-radius:3px;background:var(--s3);position:relative;overflow:hidden}
+.bar .tr i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}
+.scoreN{font-weight:800;color:var(--tp)}
+.addbtn{font-family:var(--mono);font-size:12px;font-weight:800;width:24px;height:24px;border-radius:6px;border:1px solid var(--line2);background:var(--s2);color:var(--blu2);cursor:pointer}
+.addbtn:hover{border-color:rgba(59,130,246,.5)}
+.addbtn.own{color:var(--bull2);border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.08)}
+
+/* ── EXPANDED ROW DETAIL ── */
+.xpand{background:rgba(59,130,246,.04)}
+.xpand td{white-space:normal}
+.xbody{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:14px;align-items:start;padding:4px 2px 6px;text-align:left}
+@media(max-width:1100px){.xbody{grid-template-columns:1fr 1fr}}
+.xk{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--tf);margin-bottom:6px}
+.evc{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 8px;border-radius:5px;margin:0 5px 5px 0;background:var(--s2);border:1px solid var(--line2);color:var(--ts)}
+.evc.ok{color:var(--bull2);border-color:rgba(34,197,94,.3)}
+.evc.no{color:var(--bear2);border-color:rgba(239,68,68,.25);opacity:.75}
+.xstat{font-family:var(--mono);font-size:11.5px;line-height:1.9;color:var(--ts)}
+.xstat span{color:var(--tf)}
+.xact{display:flex;flex-direction:column;gap:7px}
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:18px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR — shared shell -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · IDEAS</span></div>
+  <div class="clock">10:18:40</div>
+  <div class="pill open"><span class="b"></span>Market Open</div>
+  <div class="regime">
+    <span class="chip ok"><span class="b"></span>SPY Healthy</span>
+    <span class="chip ok"><span class="b"></span>BTC Healthy</span>
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- PAGE HEAD -->
+<div class="phead">
+  <h1>Trade Ideas</h1>
+  <span class="subtitle">One pipeline — every name, from first turn to proven leader. No tabs to dig through.</span>
+  <div class="pmeta">
+    <select><option>Latest run — 10:15 ET</option><option>Yesterday 3:45p</option><option>Jul 1 · 3:45p</option></select>
+    <span class="ago">refreshed 3m ago</span>
+    <button class="btn pri">↻ Run scan</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- CONFLUENCE — names on 2-3 boards used to hide across tabs; now they lead the page -->
+  <div class="sh" style="margin-top:12px">🔥 On Multiple Boards <span class="sub">— when the early-turn, conviction, and long-term scans agree, that's the trade</span></div>
+  <div class="confs">
+    <div class="conf">
+      <div class="top"><span class="sym">NVDA</span><span class="badge e">Turn</span><span class="badge c">Conviction</span><span class="badge l">Core</span><span class="score">94</span></div>
+      <div class="why"><em>All three boards.</em> Stage-2 turn 3 wks ago · Strong Buy, +18% target · Rev +62%, 71% margin.</div>
+    </div>
+    <div class="conf">
+      <div class="top"><span class="sym">MU</span><span class="badge e">Turn</span><span class="badge c">Conviction</span><span class="score">88</span></div>
+      <div class="why">Fresh 30-wk cross on 2.4× volume · analysts upgraded into the dip · <em>not yet on the long-term board — margins still recovering.</em></div>
+    </div>
+    <div class="conf">
+      <div class="top"><span class="sym">VRTX</span><span class="badge c">Conviction</span><span class="badge l">Core</span><span class="score">86</span></div>
+      <div class="why">Proven leader, 2% off 52-wk high · Strong Buy · <em>no early-turn entry — extended, wait for a base.</em></div>
+    </div>
+  </div>
+
+  <!-- LENS BAR — replaces Social / AI Scans / Conviction / Emerging / Long Term tabs -->
+  <div class="lensbar">
+    <span class="lens on">All <span class="n">31</span></span>
+    <span class="lens"><span class="sw" style="background:var(--amber)"></span>Early turn <span class="n">9</span></span>
+    <span class="lens"><span class="sw" style="background:var(--blu)"></span>Conviction <span class="n">14</span></span>
+    <span class="lens"><span class="sw" style="background:var(--vio)"></span>Long-term core <span class="n">8</span></span>
+    <span class="sep"></span>
+    <span class="theme on">All themes</span>
+    <span class="theme">AI Chips</span>
+    <span class="theme">Semicap</span>
+    <span class="theme">Software</span>
+    <span class="theme">Health</span>
+    <div class="srch">🔍 <input placeholder="Search 31 names…"></div>
+    <span class="wlnote">★ 9 already on your watchlist</span>
+  </div>
+
+  <!-- UNIFIED TABLE -->
+  <div class="tblwrap">
+  <table>
+    <thead><tr>
+      <th class="l">#</th><th class="l">GR</th><th class="l">Symbol</th><th class="l">Boards</th>
+      <th class="l">Why it's here</th><th>RS vs SPY</th><th>Score</th><th>Price</th><th>Off 52wH</th><th>Add</th>
+    </tr></thead>
+    <tbody>
+      <tr class="row xrow">
+        <td class="l">1</td><td class="l"><span class="gr a">A</span></td>
+        <td class="l"><span class="sym">NVDA</span><span class="co">NVIDIA · AI Chips</span></td>
+        <td class="l"><span class="boards"><span class="badge e">T</span><span class="badge c">C</span><span class="badge l">L</span></span></td>
+        <td class="l"><div class="why"><em>Triple agreement</em> — turn + analysts + fundamentals all firing.</div></td>
+        <td><span class="bar"><span class="tr"><i style="width:88%;background:var(--bull)"></i></span><span class="pos">+31%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:94%;background:var(--bull)"></i></span><span class="scoreN">94</span></span></td>
+        <td>194.83</td><td>-8%</td>
+        <td><button class="addbtn own">✓</button></td>
+      </tr>
+      <!-- EXPANDED DETAIL — one click, everything the 3 old tabs knew about this name -->
+      <tr class="xpand"><td colspan="10">
+        <div class="xbody">
+          <div>
+            <div class="xk">Scorecard — early turn + long-term</div>
+            <span class="evc ok">✓ Stage-2 turn</span><span class="evc ok">✓ RS leadership</span><span class="evc ok">✓ Vol surge 2.1×</span><span class="evc ok">✓ Sector tailwind</span><br>
+            <span class="evc ok">✓ Rev +62%</span><span class="evc ok">✓ Margin 71%</span><span class="evc ok">✓ Near 52wH</span><span class="evc no">✗ Accumulation</span>
+          </div>
+          <div>
+            <div class="xk">Street</div>
+            <div class="xstat"><span>Rating</span> Strong Buy · 58 analysts<br><span>Target</span> $231 <b class="pos">+18%</b><br><span>Weekly stage</span> Stage 2 · wk 3</div>
+          </div>
+          <div>
+            <div class="xk">Tape</div>
+            <div class="xstat"><span>20d ret</span> <b class="pos">+11.2%</b><br><span>Above 50MA</span> 92% of days<br><span>Mkt cap</span> $4.7T</div>
+          </div>
+          <div class="xact">
+            <button class="btn pri">Open in Trading →</button>
+            <button class="btn">★ On watchlist</button>
+          </div>
+        </div>
+      </td></tr>
+
+      <tr class="row">
+        <td class="l">2</td><td class="l"><span class="gr a">A</span></td>
+        <td class="l"><span class="sym">MU</span><span class="co">Micron · Semicap</span></td>
+        <td class="l"><span class="boards"><span class="badge e">T</span><span class="badge c">C</span></span></td>
+        <td class="l"><div class="why">Fresh 30-wk cross on volume · upgraded into the dip.</div></td>
+        <td><span class="bar"><span class="tr"><i style="width:74%;background:var(--bull)"></i></span><span class="pos">+22%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:88%;background:var(--bull)"></i></span><span class="scoreN">88</span></span></td>
+        <td>67.04</td><td>-31%</td>
+        <td><button class="addbtn own">✓</button></td>
+      </tr>
+      <tr class="row">
+        <td class="l">3</td><td class="l"><span class="gr a">A</span></td>
+        <td class="l"><span class="sym">VRTX</span><span class="co">Vertex · Health</span></td>
+        <td class="l"><span class="boards"><span class="badge c">C</span><span class="badge l">L</span></span></td>
+        <td class="l"><div class="why">Proven leader 2% off highs — <em>wait for a base to enter.</em></div></td>
+        <td><span class="bar"><span class="tr"><i style="width:62%;background:var(--bull)"></i></span><span class="pos">+17%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:86%;background:var(--bull)"></i></span><span class="scoreN">86</span></span></td>
+        <td>499.65</td><td>-2%</td>
+        <td><button class="addbtn">+</button></td>
+      </tr>
+      <tr class="row">
+        <td class="l">4</td><td class="l"><span class="gr b">B</span></td>
+        <td class="l"><span class="sym">SNDK</span><span class="co">Sandisk · Semicap</span></td>
+        <td class="l"><span class="badge e">T</span></td>
+        <td class="l"><div class="why">Early — first weekly close above the 30-wk in 14 months.</div></td>
+        <td><span class="bar"><span class="tr"><i style="width:48%;background:var(--bull)"></i></span><span class="pos">+12%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:79%;background:var(--bull)"></i></span><span class="scoreN">79</span></span></td>
+        <td>61.20</td><td>-44%</td>
+        <td><button class="addbtn">+</button></td>
+      </tr>
+      <tr class="row">
+        <td class="l">5</td><td class="l"><span class="gr b">B</span></td>
+        <td class="l"><span class="sym">AVGO</span><span class="co">Broadcom · AI Chips</span></td>
+        <td class="l"><span class="badge l">L</span></td>
+        <td class="l"><div class="why">Core compounder — Rev +44%, institutions adding 6 quarters.</div></td>
+        <td><span class="bar"><span class="tr"><i style="width:55%;background:var(--bull)"></i></span><span class="pos">+14%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:81%;background:var(--bull)"></i></span><span class="scoreN">81</span></span></td>
+        <td>318.44</td><td>-5%</td>
+        <td><button class="addbtn own">✓</button></td>
+      </tr>
+      <tr class="row">
+        <td class="l">6</td><td class="l"><span class="gr b">B</span></td>
+        <td class="l"><span class="sym">NOW</span><span class="co">ServiceNow · Software</span></td>
+        <td class="l"><span class="badge c">C</span></td>
+        <td class="l"><div class="why">Strong Buy, +21% target · reclaimed the 50-day this week.</div></td>
+        <td><span class="bar"><span class="tr"><i style="width:41%;background:var(--bull)"></i></span><span class="pos">+8%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:74%;background:var(--bull)"></i></span><span class="scoreN">74</span></span></td>
+        <td>1104.60</td><td>-12%</td>
+        <td><button class="addbtn">+</button></td>
+      </tr>
+      <tr class="row">
+        <td class="l">7</td><td class="l"><span class="gr c">C</span></td>
+        <td class="l"><span class="sym">NBIS</span><span class="co">Nebius Group · AI Chips</span></td>
+        <td class="l"><span class="badge e">T</span></td>
+        <td class="l"><div class="why">Turn forming — 2 of 4 checks; <em>needs the volume surge.</em></div></td>
+        <td><span class="bar"><span class="tr"><i style="width:33%;background:var(--bull)"></i></span><span class="pos">+6%</span></span></td>
+        <td><span class="bar"><span class="tr"><i style="width:58%;background:var(--s4)"></i></span><span class="scoreN" style="color:var(--tm)">58</span></span></td>
+        <td>41.87</td><td>-38%</td>
+        <td><button class="addbtn">+</button></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="foot">Boards: <b style="color:var(--amber2)">T</b> Early turn (stage-2 cross forming) · <b style="color:var(--blu2)">C</b> Conviction (analysts + trend confirmed) · <b style="color:var(--vio2)">L</b> Long-term core (proven fundamentals).<br>
+  Screeners, not trade plans — click a row for the full scorecard, or open in Trading for levels. Educational purposes only — not financial advice.</div>
+</div>
+
+<div class="note">◔ Mockup — Social + AI Scans removed · 3 tabs merged into one pipeline with lens filters. Row 1 shown expanded. Toggle <b>▢/▣</b> and <b>🌙/☀️</b>.</div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+</script>
+</body></html>

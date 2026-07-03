@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watchlist — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as the other redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .tab,
+body.terminal .tagl,body.terminal .badge,body.terminal .note,body.terminal .tile,
+body.terminal select,body.terminal .srch,body.terminal .lrow,body.terminal .panel,
+body.terminal .vgrid > div,body.terminal .case > div,body.terminal .grow,
+body.terminal input{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR (shared shell) ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.clock{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--bull2);letter-spacing:.04em}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.open{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--bull);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;text-transform:uppercase}
+.chip.ok{background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.chip .b{width:6px;height:6px;border-radius:50%;background:var(--bull)}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.btn.adm{color:var(--vio2);border-color:rgba(167,139,250,.35)}
+
+/* ── PAGE HEAD + TABS ── */
+.phead{display:flex;align-items:center;gap:14px;padding:14px 18px 0;flex-wrap:wrap;max-width:1280px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.subtitle{font-size:12px;color:var(--tm)}
+.tabbar{display:flex;gap:4px;margin-left:auto}
+.tab{font-family:var(--mono);font-size:11.5px;font-weight:700;padding:7px 14px;border-radius:8px;color:var(--tm);cursor:pointer;border:1px solid transparent;display:inline-flex;gap:7px;align-items:center}
+.tab .n{opacity:.6;font-weight:600}
+.tab:hover{background:var(--s2)}
+.tab.on{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.wrap{max-width:1280px;margin:0 auto;padding:12px 18px 40px}
+.pane{display:none}
+.pane.on{display:block}
+
+/* ── RESEARCH: MASTER-DETAIL ── */
+.md{display:grid;grid-template-columns:252px 1fr;gap:14px;align-items:start}
+@media(max-width:1000px){.md{grid-template-columns:1fr}}
+.master{background:var(--s1);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:sticky;top:12px}
+.srch{display:flex;align-items:center;gap:7px;background:var(--s2);border-bottom:1px solid var(--line);padding:8px 12px}
+.srch input{background:none;border:none;color:var(--ts);font-size:12px;width:100%;outline:none;font-family:var(--sans)}
+.ghead{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--tf);padding:9px 12px 4px;display:flex;align-items:center;gap:6px}
+.ghead .sw{width:7px;height:7px;border-radius:2px}
+.lrow{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-left:3px solid transparent}
+.lrow:hover{background:var(--s2)}
+.lrow.sel{background:rgba(59,130,246,.08);border-left-color:var(--blu)}
+.lrow .sym{font-family:var(--mono);font-size:13px;font-weight:800;flex:1}
+.lrow.sel .sym{color:var(--blu2)}
+.tagl{font-family:var(--mono);font-size:8.5px;font-weight:800;letter-spacing:.04em;padding:2px 6px;border-radius:4px;text-transform:uppercase}
+.tagl.sb{background:rgba(34,197,94,.16);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.tagl.b{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.3)}
+.tagl.h{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+.lrow .st{width:7px;height:7px;border-radius:50%}
+.st.fresh{background:var(--bull)} .st.stale{background:var(--amber)} .st.none{background:transparent;border:1px solid var(--tf)}
+.legend{font-size:9.5px;color:var(--tf);padding:9px 12px;border-top:1px solid var(--line);line-height:1.6}
+.legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px}
+
+/* ── DOSSIER ── */
+.dossier{display:flex;flex-direction:column;gap:12px}
+.panel{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.dhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.dhead .sym{font-family:var(--mono);font-size:24px;font-weight:800}
+.dhead .co{font-size:12px;color:var(--tm)}
+.dhead .co b{color:var(--ts);font-weight:600}
+.dhead .acts{margin-left:auto;display:flex;gap:7px;align-items:center}
+.freshline{font-family:var(--mono);font-size:10px;color:var(--tf);margin-top:8px}
+.freshline b{color:var(--tm);font-weight:600}
+
+/* stat tiles */
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+@media(max-width:1100px){.tiles{grid-template-columns:repeat(3,1fr)}}
+.tile{background:var(--s2);border:1px solid var(--line2);border-radius:9px;padding:8px 10px}
+.tile .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--tf);text-transform:uppercase}
+.tile .v{font-family:var(--mono);font-size:16px;font-weight:800;margin-top:2px}
+.tile .s{font-family:var(--mono);font-size:9.5px;color:var(--tf);margin-top:1px}
+
+/* price position strip */
+.posgrid{display:grid;grid-template-columns:1fr 1fr 2fr;gap:8px;align-items:stretch}
+@media(max-width:900px){.posgrid{grid-template-columns:1fr}}
+.range{background:var(--s2);border:1px solid var(--line2);border-radius:9px;padding:8px 12px}
+.range .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--tf);text-transform:uppercase;display:flex;justify-content:space-between}
+.rtrack{height:6px;border-radius:3px;background:var(--s4);position:relative;margin:9px 0 5px}
+.rtrack .fill{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,var(--bear),var(--amber),var(--bull))}
+.rtrack .mark{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--tp);box-shadow:0 0 6px rgba(0,0,0,.6)}
+.range .lbls{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--tf)}
+.range .lbls b{color:var(--ts)}
+
+/* analyst bar */
+.abar{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:9px 0 7px}
+.abar i{display:block;height:100%}
+.akey{display:flex;gap:14px;font-family:var(--mono);font-size:10px;color:var(--tm);flex-wrap:wrap}
+.akey i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+
+/* brief */
+.lede{font-size:13.5px;line-height:1.6;color:var(--ts);max-width:72ch}
+.lede b{color:var(--tp)}
+.case{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+@media(max-width:900px){.case{grid-template-columns:1fr}}
+.case > div{background:var(--s2);border:1px solid var(--line2);border-radius:9px;padding:10px 12px}
+.case .k{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--tm);margin-bottom:5px;display:flex;gap:6px;align-items:center}
+.case p{margin:0;font-size:12px;line-height:1.55;color:var(--ts)}
+.case .bull{border-color:rgba(34,197,94,.28);background:rgba(34,197,94,.05)}
+.case .bull .k{color:var(--bull2)}
+.case .risk{border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.04)}
+.case .risk .k{color:var(--bear2)}
+/* verdict band */
+.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+@media(max-width:900px){.vgrid{grid-template-columns:1fr}}
+.vgrid > div{border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.06);border-radius:9px;padding:10px 12px}
+.vgrid .k{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--blu2);margin-bottom:5px}
+.vgrid p{margin:0;font-size:12px;line-height:1.55;color:var(--ts)}
+.bmeta{display:flex;align-items:center;gap:10px;margin-top:10px;font-family:var(--mono);font-size:10px;color:var(--tf)}
+details.desc{margin-top:2px}
+details.desc summary{cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--tm);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+details.desc p{font-size:12px;color:var(--tm);line-height:1.6;max-width:78ch}
+
+/* ── SYMBOLS TAB ── */
+.addbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.addbar input{background:var(--s2);border:1px solid var(--line2);border-radius:7px;color:var(--ts);padding:7px 11px;font-size:12.5px;outline:none;min-width:200px}
+.qchip{font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer}
+.grow{background:var(--s1);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.growhead{display:flex;align-items:center;gap:9px;padding:10px 14px;cursor:pointer}
+.growhead .sw{width:9px;height:9px;border-radius:3px}
+.growhead b{font-family:var(--mono);font-size:12.5px}
+.growhead .n{font-family:var(--mono);font-size:10.5px;color:var(--tf)}
+.growhead .car{margin-left:auto;color:var(--tf);font-size:11px}
+.srow{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid var(--line)}
+.srow:hover{background:var(--s2)}
+.srow .star{color:var(--amber2);width:14px;cursor:pointer}
+.srow .star.off{color:var(--s4)}
+.srow .sym{font-family:var(--mono);font-size:13px;font-weight:800;width:74px}
+.srow .co{font-size:11px;color:var(--tf);flex:1}
+.srow select{font-family:var(--mono);font-size:10.5px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);border-radius:6px;padding:3px 6px}
+.srow .rm{color:var(--tf);cursor:pointer;font-size:13px}
+.srow .rm:hover{color:var(--bear2)}
+
+/* ── EARNINGS TAB ── */
+.tblwrap{overflow-x:auto;background:var(--s1);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:760px}
+th{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);text-align:right;padding:9px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}
+th.l,td.l{text-align:left}
+td{font-family:var(--mono);font-size:11.5px;padding:9px 12px;border-bottom:1px solid var(--line);text-align:right;color:var(--ts);white-space:nowrap}
+tr:hover td{background:var(--s2)}
+td .sym{font-size:13px;font-weight:800;color:var(--tp)}
+.soon{font-weight:800;color:var(--amber2)}
+.badge{font-family:var(--mono);font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.04em;text-transform:uppercase}
+.badge.bmo{background:rgba(245,183,61,.14);color:var(--amber2);border:1px solid rgba(245,183,61,.3)}
+.badge.amc{background:rgba(167,139,250,.14);color:var(--vio2);border:1px solid rgba(167,139,250,.3)}
+.badge.cf{background:rgba(34,197,94,.14);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.badge.est{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:18px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR — shared shell -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · WATCHLIST</span></div>
+  <div class="clock">11:32:05</div>
+  <div class="pill open"><span class="b"></span>Market Open</div>
+  <div class="regime">
+    <span class="chip ok"><span class="b"></span>SPY Healthy</span>
+    <span class="chip ok"><span class="b"></span>BTC Healthy</span>
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- PAGE HEAD -->
+<div class="phead">
+  <h1>Watchlist</h1>
+  <span class="subtitle">27 names · 7 sectors</span>
+  <div class="tabbar">
+    <span class="tab" data-pane="p-symbols">Symbols <span class="n">27</span></span>
+    <span class="tab" data-pane="p-earnings">Earnings <span class="n">6 this wk</span></span>
+    <span class="tab on" data-pane="p-research">Research</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ══ RESEARCH (was "Details") — master-detail dossier ══ -->
+  <div class="pane on" id="p-research">
+    <div class="md">
+
+      <!-- MASTER: pick a name -->
+      <div class="master">
+        <div class="srch">🔍 <input placeholder="Search 27 names…"></div>
+        <div class="ghead"><span class="sw" style="background:var(--blu)"></span>AI CHIPS</div>
+        <div class="lrow sel"><span class="st fresh"></span><span class="sym">NVDA</span><span class="tagl sb">Str Buy</span></div>
+        <div class="lrow"><span class="st fresh"></span><span class="sym">AVGO</span><span class="tagl sb">Str Buy</span></div>
+        <div class="lrow"><span class="st stale"></span><span class="sym">NBIS</span><span class="tagl b">Buy</span></div>
+        <div class="ghead"><span class="sw" style="background:var(--amber)"></span>SEMICAP</div>
+        <div class="lrow"><span class="st fresh"></span><span class="sym">MU</span><span class="tagl b">Buy</span></div>
+        <div class="lrow"><span class="st none"></span><span class="sym">SNDK</span><span class="tagl h">—</span></div>
+        <div class="ghead"><span class="sw" style="background:var(--vio)"></span>SOFTWARE</div>
+        <div class="lrow"><span class="st fresh"></span><span class="sym">MSFT</span><span class="tagl sb">Str Buy</span></div>
+        <div class="lrow"><span class="st stale"></span><span class="sym">NOW</span><span class="tagl b">Buy</span></div>
+        <div class="lrow"><span class="st fresh"></span><span class="sym">CRM</span><span class="tagl h">Hold</span></div>
+        <div class="ghead"><span class="sw" style="background:var(--bull)"></span>HEALTH</div>
+        <div class="lrow"><span class="st fresh"></span><span class="sym">VRTX</span><span class="tagl sb">Str Buy</span></div>
+        <div class="lrow"><span class="st none"></span><span class="sym">UNH</span><span class="tagl h">—</span></div>
+        <div class="legend">
+          <i style="background:var(--bull)"></i>fresh · <i style="background:var(--amber)"></i>stale ·
+          <i style="border:1px solid var(--tf)"></i>not fetched<br>
+          Numbers refresh nightly · briefs on demand
+        </div>
+      </div>
+
+      <!-- DETAIL: the dossier -->
+      <div class="dossier">
+
+        <!-- HEAD -->
+        <div class="panel">
+          <div class="dhead">
+            <span class="sym">NVDA</span>
+            <span class="tagl sb" style="font-size:9.5px;padding:3px 8px">Strong Buy</span>
+            <span class="co"><b>NVIDIA Corp</b> · Semiconductors · $4.7T</span>
+            <div class="acts">
+              <button class="btn">↻ Numbers</button>
+              <button class="btn adm">✦ Regenerate brief</button>
+              <button class="btn pri">Open in Trading →</button>
+            </div>
+          </div>
+          <div class="freshline">NUMBERS <b>2h ago</b> · BRIEF <b>yesterday 6:04p</b> · nothing here is a trade plan — levels live on the Trading page</div>
+        </div>
+
+        <!-- KEY NUMBERS -->
+        <div class="panel">
+          <div class="sh" style="margin-bottom:10px">📊 Key Numbers</div>
+          <div class="tiles">
+            <div class="tile"><div class="k">EPS ttm</div><div class="v">3.10</div></div>
+            <div class="tile"><div class="k">EPS fwd</div><div class="v">4.42</div></div>
+            <div class="tile"><div class="k">EPS growth</div><div class="v pos">+43%</div></div>
+            <div class="tile"><div class="k">P/E</div><div class="v">62.8</div><div class="s">fwd 44.1</div></div>
+            <div class="tile"><div class="k">Rev growth</div><div class="v pos">+62%</div></div>
+            <div class="tile"><div class="k">Margins</div><div class="v">71%</div><div class="s">net 49%</div></div>
+          </div>
+        </div>
+
+        <!-- WHERE THE STOCK IS -->
+        <div class="panel">
+          <div class="sh" style="margin-bottom:10px">📍 Where It's Trading</div>
+          <div class="posgrid">
+            <div class="tile"><div class="k">vs 50-day MA</div><div class="v pos">+4.2%</div><div class="s">above · rising</div></div>
+            <div class="tile"><div class="k">vs 200-day MA</div><div class="v pos">+18.9%</div><div class="s">above · rising</div></div>
+            <div class="range">
+              <div class="k"><span>52-week range</span><span>92nd percentile</span></div>
+              <div class="rtrack"><div class="fill" style="width:100%"></div><div class="mark" style="left:92%"></div></div>
+              <div class="lbls"><span>L <b>86.62</b></span><span>NOW <b class="pos">194.83</b></span><span>H <b>212.19</b></span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- STREET -->
+        <div class="panel">
+          <div class="sh" style="margin-bottom:4px">🏛 The Street <span class="sub">— 58 analysts</span></div>
+          <div class="abar">
+            <i style="width:69%;background:var(--bull)"></i>
+            <i style="width:24%;background:rgba(34,197,94,.45)"></i>
+            <i style="width:7%;background:var(--s4)"></i>
+          </div>
+          <div class="akey">
+            <span><i style="background:var(--bull)"></i>Strong buy 40</span>
+            <span><i style="background:rgba(34,197,94,.45)"></i>Buy 14</span>
+            <span><i style="background:var(--s4)"></i>Hold 4</span>
+            <span><i style="background:var(--bear);opacity:.5"></i>Sell 0</span>
+          </div>
+        </div>
+
+        <!-- AI INVESTMENT BRIEF — structured, not a wall of text -->
+        <div class="panel">
+          <div class="sh" style="margin-bottom:10px">🧠 Investment Brief <span class="sub">— AI-generated · verify before acting</span></div>
+          <p class="lede"><b>The AI-infrastructure monopoly, priced like one.</b> NVIDIA supplies the compute layer of the AI buildout with no serious rival at the top end. Growth is still accelerating off a massive base; the debate is not the business, it's the multiple.</p>
+
+          <div class="case">
+            <div><div class="k">🏰 Business &amp; moat</div><p>CUDA lock-in plus a full-stack data-center platform — switching costs compound every generation. Networking and software attach are widening the moat beyond silicon.</p></div>
+            <div><div class="k">📈 Growth &amp; margins</div><p>Revenue +62% y/y with 71% gross margins — hyperscaler capex guides keep rising, and supply, not demand, is the constraint through next year.</p></div>
+            <div><div class="k">💰 Valuation</div><p>62.8× trailing collapses to 44× forward on current estimates. Expensive vs the market, cheap vs its own growth — a multiple that only works while beats continue.</p></div>
+            <div><div class="k">🏛 Analyst take</div><p>93% of the Street is at buy or better; estimate revisions still trending up after four consecutive beats.</p></div>
+          </div>
+
+          <div class="case">
+            <div class="bull"><div class="k">🟢 Bull case</div><p>Blackwell cycle + sovereign-AI orders extend visibility into 2027; software/networking mix pushes margins higher still, and the multiple never gets the chance to compress.</p></div>
+            <div class="risk"><div class="k">🔴 Key risks</div><p>Hyperscalers' custom silicon chips away at share · export controls cap the China business · at 92% of its 52-week range, any guide that's merely in-line gets sold hard.</p></div>
+          </div>
+
+          <div class="vgrid">
+            <div><div class="k">⏱ Short-term (weeks)</div><p>Extended after the run — chasing here is paying the 92nd percentile. Better odds on a pullback toward the 50-day (~$187).</p></div>
+            <div><div class="k">🗓 Long-term (quarters+)</div><p>Core holding while the data-center buildout persists and margins hold. Position size for the volatility, not the story.</p></div>
+          </div>
+
+          <div class="bmeta">GENERATED YESTERDAY 6:04P · <button class="btn adm" style="padding:3px 9px">✦ Regenerate</button></div>
+        </div>
+
+        <!-- COMPANY BOILERPLATE — least useful, lives last, collapsed -->
+        <div class="panel">
+          <details class="desc">
+            <summary>About NVIDIA Corp</summary>
+            <p>NVIDIA Corporation provides graphics, compute and networking solutions. The company operates through two segments: Compute &amp; Networking and Graphics. Its products are used in gaming, professional visualization, data center, and automotive markets…</p>
+          </details>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SYMBOLS — manage the list ══ -->
+  <div class="pane" id="p-symbols">
+    <div class="addbar">
+      <input placeholder="Add a symbol — e.g. AAPL">
+      <button class="btn pri">+ Add</button>
+      <span class="qchip">SPY</span><span class="qchip">QQQ</span><span class="qchip">NVDA</span><span class="qchip">BTC-USD</span>
+      <span style="margin-left:auto"></span>
+      <button class="btn">Sync editor's sectors</button>
+      <button class="btn">+ New sector</button>
+    </div>
+
+    <div class="grow">
+      <div class="growhead"><span class="sw" style="background:var(--blu)"></span><b>AI Chips</b><span class="n">3 names</span><span class="car">▾</span></div>
+      <div class="srow"><span class="star">★</span><span class="sym">NVDA</span><span class="co">NVIDIA Corp</span><select><option>AI Chips</option><option>Semicap</option><option>Software</option></select><span class="rm">✕</span></div>
+      <div class="srow"><span class="star">★</span><span class="sym">AVGO</span><span class="co">Broadcom Inc</span><select><option>AI Chips</option></select><span class="rm">✕</span></div>
+      <div class="srow"><span class="star off">★</span><span class="sym">NBIS</span><span class="co">Nebius Group</span><select><option>AI Chips</option></select><span class="rm">✕</span></div>
+    </div>
+    <div class="grow">
+      <div class="growhead"><span class="sw" style="background:var(--amber)"></span><b>Semicap</b><span class="n">2 names</span><span class="car">▾</span></div>
+      <div class="srow"><span class="star">★</span><span class="sym">MU</span><span class="co">Micron Technology</span><select><option>Semicap</option></select><span class="rm">✕</span></div>
+      <div class="srow"><span class="star off">★</span><span class="sym">SNDK</span><span class="co">Sandisk</span><select><option>Semicap</option></select><span class="rm">✕</span></div>
+    </div>
+    <div class="grow">
+      <div class="growhead"><span class="sw" style="background:var(--vio)"></span><b>Software</b><span class="n">3 names</span><span class="car">▸</span></div>
+    </div>
+    <div class="foot" style="text-align:left;padding:6px 2px">★ = Focus — same flag the Trading sidebar uses · fold the star into this page so focus is managed in one place.</div>
+  </div>
+
+  <!-- ══ EARNINGS ══ -->
+  <div class="pane" id="p-earnings">
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th class="l">Symbol</th><th>In</th><th class="l">Date</th><th class="l">When</th><th>EPS est</th><th>Last surprise</th><th class="l">Status</th></tr></thead>
+        <tbody>
+          <tr><td class="l"><span class="sym">MU</span></td><td class="soon">2d</td><td class="l">Wed Jul 8</td><td class="l"><span class="badge amc">AMC</span></td><td>1.84</td><td class="pos">+12.4%</td><td class="l"><span class="badge cf">Confirmed</span></td></tr>
+          <tr><td class="l"><span class="sym">NVDA</span></td><td class="soon">5d</td><td class="l">Mon Jul 13</td><td class="l"><span class="badge amc">AMC</span></td><td>1.02</td><td class="pos">+8.1%</td><td class="l"><span class="badge cf">Confirmed</span></td></tr>
+          <tr><td class="l"><span class="sym">VRTX</span></td><td>11d</td><td class="l">Mon Jul 20</td><td class="l"><span class="badge bmo">BMO</span></td><td>4.31</td><td class="neg">-2.2%</td><td class="l"><span class="badge est">Estimated</span></td></tr>
+          <tr><td class="l"><span class="sym">MSFT</span></td><td>19d</td><td class="l">Tue Jul 28</td><td class="l"><span class="badge amc">AMC</span></td><td>3.68</td><td class="pos">+4.9%</td><td class="l"><span class="badge cf">Confirmed</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="foot" style="text-align:left;padding:8px 2px">Names inside 7 days get the amber countdown — they also badge in the Research list and on Trading watchlist rows.</div>
+  </div>
+
+  <div class="foot">Educational purposes only — not financial advice.</div>
+</div>
+
+<div class="note">◔ Mockup — "Details" renamed <b>Research</b> · master-detail dossier replaces the card stack. Tabs up top switch panes. Toggle <b>▢/▣</b> · <b>🌙/☀️</b></div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+document.querySelectorAll('.tab').forEach(function(el){
+  el.addEventListener('click', function(){
+    document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')});
+    document.querySelectorAll('.pane').forEach(function(x){x.classList.remove('on')});
+    el.classList.add('on');
+    document.getElementById(el.dataset.pane).classList.add('on');
+  });
+});
+document.querySelectorAll('.lrow').forEach(function(el){
+  el.addEventListener('click', function(){
+    document.querySelectorAll('.lrow').forEach(function(x){x.classList.remove('sel')});
+    el.classList.add('sel');
+  });
+});
+</script>
+</body></html>

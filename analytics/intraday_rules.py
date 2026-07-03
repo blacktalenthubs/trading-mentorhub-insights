@@ -7747,6 +7747,7 @@ def evaluate_rules(
     daily_plan: dict | None = None,
     is_crypto: bool = False,
     spy_gate: dict | None = None,
+    queue_symbols: set[str] | None = None,
 ) -> list[AlertSignal]:
     """Evaluate all rules for a symbol and return fired signals.
 
@@ -8473,8 +8474,13 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
-        # --- Gap-and-Go ---
-        if AlertType.GAP_AND_GO.value in ENABLED_RULES:
+        # --- Gap-and-Go — QUEUE-SCOPED (2026-07-03) ---
+        # Fires ONLY for symbols in today's premarket Gap-and-Go Queue (the
+        # quality-vetted top gappers), NOT globally via ENABLED_RULES. queue_symbols
+        # defaults to None → the gate is empty → gap-and-go stays OFF for every other
+        # caller (tv_webhook etc.), so this is regression-safe. check_gap_and_go still
+        # requires a real ≥1% gap + 2× volume, so a queue name only alerts on a setup.
+        if symbol.upper() in (queue_symbols or set()):
             sig = check_gap_and_go(
                 symbol, intraday_bars, prior_close, bar_vol, avg_vol,
             )
