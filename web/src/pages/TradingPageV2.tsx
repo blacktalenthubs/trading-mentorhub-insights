@@ -1207,19 +1207,6 @@ export default function TradingPageV2() {
     setSignalsOnly((v) => { if (!v) setFocusOnly(false); return !v; });
   }
 
-  // Idea-source filter — hides conviction / long-term names that the scanner
-  // folded into Today, leaving only your own watchlist symbols. Default shows them.
-  const [hideIdeas, setHideIdeas] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("watchlist_hide_ideas") === "1";
-  });
-  function toggleHideIdeas() {
-    setHideIdeas((v) => {
-      try { localStorage.setItem("watchlist_hide_ideas", v ? "0" : "1"); } catch {}
-      return !v;
-    });
-  }
-
   /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
   const copySectors = useCopySectorsWatchlist();
@@ -1393,7 +1380,7 @@ export default function TradingPageV2() {
     )
     ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
     ?.filter((s) => !signalsOnly || signalTodaySet.has(s.symbol.toUpperCase()))
-    ?.filter((s) => !hideIdeas || s.source === "watchlist")
+    ?.filter((s) => s.source === "watchlist")   // watchlist only — scanner "ideas" live on the Trade Ideas tab
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
     .sort((a, b) => {
@@ -1583,21 +1570,6 @@ export default function TradingPageV2() {
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(245,183,61,0.7)]" />
               Signals <span className="opacity-70 font-normal">{signalTodaySet.size}</span>
             </button>
-            {/* Ideas chip — only shown when the scanner folded conviction /
-                long-term ideas into Today. Toggles their visibility. */}
-            {signals?.some((s) => s.source !== "watchlist") && (
-              <button
-                onClick={toggleHideIdeas}
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
-                  !hideIdeas
-                    ? "bg-bullish/15 text-bullish-text border-bullish/40"
-                    : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
-                }`}
-                title="Conviction + long-term ideas the scanner folded into Today — only when they meet entry. Click to hide."
-              >
-                Ideas <span className="opacity-70 font-normal">{signals?.filter((s) => s.source !== "watchlist").length ?? 0}</span>
-              </button>
-            )}
             {focusSymbols.size > 0 && (
               <button
                 onClick={() => clearFocusMut.mutate()}
