@@ -1497,9 +1497,10 @@ export default function TradingPageV2() {
             {watchlistExpanded && (
               <button
                 onClick={cycleWatchSort}
-                className="px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono text-text-muted hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
-                title="Sort watchlist (cycles A–Z · %↓ · %↑ · $↓) — persists"
+                className="flex items-center gap-1 rounded border border-border-subtle px-1.5 py-0.5 text-[10px] font-semibold font-mono text-text-muted hover:border-accent/40 hover:text-text-secondary hover:bg-surface-2/60 transition-colors"
+                title="Sort watchlist — click to cycle A–Z · %↓ · %↑ · $↓ (persists)"
               >
+                <span className="text-text-faint">⇅</span>
                 {watchSort === "change_desc" ? "%↓" : watchSort === "change_asc" ? "%↑" : watchSort === "price_desc" ? "$↓" : "A–Z"}
               </button>
             )}
