@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useGroupsPremarket, type GroupPremarketSummary, type GroupSymbolQuote } from "../api/hooks";
 import Card from "../components/ui/Card";
 import PremarketGapsTab from "../components/PremarketGapsTab";
+import MarketClock from "../components/MarketClock";
+import ThemeToggle from "../components/ThemeToggle";
 import { Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, ChevronDown, ChevronRight } from "lucide-react";
 
 function fmtPct(v: number | null | undefined): string {
@@ -123,6 +125,11 @@ export default function PremarketPage() {
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-6 space-y-4">
+      {/* status strip — live market clock + theme toggle (same shell as Today/Trading) */}
+      <div className="flex items-center gap-3 border-b border-border-subtle pb-3">
+        <MarketClock />
+        <div className="ml-auto"><ThemeToggle /></div>
+      </div>
       <div className="flex items-center gap-2">
         <Activity className="h-5 w-5 text-accent" />
         <h1 className="font-display text-2xl font-bold">Premarket</h1>
