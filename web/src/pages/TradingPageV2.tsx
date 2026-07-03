@@ -823,7 +823,7 @@ function SignalFeedTab({
           </p>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+        <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
           {listAlerts.map((a) => {
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
@@ -852,86 +852,95 @@ function SignalFeedTab({
         return (
           <div
             key={a.id}
-            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-2.5 hover:border-accent/30 transition-colors cursor-pointer${colLabel ? " opacity-40" : nrLabel ? " opacity-55" : ""}`}
+            className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-3 hover:border-accent/40 transition-colors cursor-pointer${colLabel ? " opacity-40" : nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
-            {/* identity — symbol (anchor) · direction · (AI) ··· (NOT SENT) · time */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm font-bold text-text-primary">{a.symbol}</span>
-                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${dirCls}`}>{dirText}</span>
-                {isAIScan && (
-                  <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
-                )}
-              </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                {colLabel && (
+            {/* row 1 — symbol · direction · (AI · NOT SENT) ··· R:R · time */}
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[15px] font-bold text-text-primary">{a.symbol}</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${dirCls}`}>{dirText}</span>
+              {isAIScan && (
+                <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
+              )}
+              {colLabel && (
+                <span
+                  title={`Collapsed by dedup — ${a.suppressed_reason}. Recorded, not delivered (one alert per price level).`}
+                  className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+                >
+                  ⋯ {colLabel}
+                </span>
+              )}
+              {nrLabel && (
+                <span
+                  title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
+                  className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
+                >
+                  NOT SENT
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-2 shrink-0">
+                {rr != null && (
                   <span
-                    title={`Collapsed by dedup — ${a.suppressed_reason}. Recorded, not delivered (one alert per price level).`}
-                    className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+                    className={`font-mono text-[15px] font-bold ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}
+                    title={rr >= 2 ? "Reward ≥ 2× the risk" : "Reward-to-risk"}
                   >
-                    ⋯ {colLabel}
+                    {rr.toFixed(1)}R
                   </span>
                 )}
-                {nrLabel && (
-                  <span
-                    title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
-                    className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
-                  >
-                    NOT SENT
-                  </span>
-                )}
-                <span className="text-[10px] font-mono text-text-faint">{time}</span>
+                <span className="font-mono text-[10px] text-text-faint">{time}</span>
               </div>
             </div>
 
-            {/* the why + quality — setup · grade · R:R (the decision, right-aligned & bold) */}
-            <div className="mt-1.5 flex items-center justify-between gap-2">
+            {/* row 2 — setup name · grade */}
+            <div className="mt-1.5 flex items-center gap-2">
               <span
-                className="text-[12px] text-text-secondary truncate cursor-help"
+                className="text-[13px] font-semibold text-text-primary truncate cursor-help"
                 title={a.description || formatSetup(a.alert_type)}
               >
                 {formatSetup(a.alert_type)}
               </span>
-              <div className="flex items-center gap-2 shrink-0">
-                {a.grade && (() => {
-                  const g = a.grade;
-                  const gCls = g === "A" ? "bg-bullish text-white border-bullish"
-                    : g === "B" ? "bg-warning/80 text-white border-warning"
-                    : "bg-surface-4 text-text-faint border-border-subtle";
-                  const slope = a.vwap_slope_pct != null ? ` · slope ${a.vwap_slope_pct > 0 ? "+" : ""}${a.vwap_slope_pct.toFixed(2)}%` : "";
-                  const vol = a.volume_ratio != null ? ` · vol ${a.volume_ratio.toFixed(2)}×` : "";
-                  const gTitle = (g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
-                    : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
-                    : "Grade C — no quality gate passed") + vol + slope;
-                  return (
-                    <span title={gTitle} className={`text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>{g}</span>
-                  );
-                })()}
-                {rr != null && (
-                  <span className={`text-[12px] font-bold font-mono ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}>{rr.toFixed(1)}R</span>
-                )}
-              </div>
+              {a.grade && (() => {
+                const g = a.grade;
+                const gCls = g === "A" ? "bg-bullish text-white border-bullish"
+                  : g === "B" ? "bg-warning/80 text-white border-warning"
+                  : "bg-surface-4 text-text-faint border-border-subtle";
+                const slope = a.vwap_slope_pct != null ? ` · slope ${a.vwap_slope_pct > 0 ? "+" : ""}${a.vwap_slope_pct.toFixed(2)}%` : "";
+                const vol = a.volume_ratio != null ? ` · vol ${a.volume_ratio.toFixed(2)}×` : "";
+                const gTitle = (g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
+                  : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
+                  : "Grade C — no quality gate passed") + vol + slope;
+                return (
+                  <span title={gTitle} className={`ml-auto shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>{g}</span>
+                );
+              })()}
             </div>
 
             {/* plain-English meaning — what the setup IS, so jargon ("Rc 4h Hrec") isn't the only label */}
             {setupBlurb(a.alert_type) && (
-              <p className="mt-0.5 text-[10px] leading-snug text-text-faint line-clamp-2">
+              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">
                 {setupBlurb(a.alert_type)}
               </p>
             )}
 
-            {/* the plan — muted, lighter than the decision above */}
+            {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
             {a.entry != null ? (
-              <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono text-text-faint">
-                <span className="font-semibold text-accent">{fmtPrice(a.entry)}</span>
-                <span>→</span>
-                <span className="text-bullish-text/80">{fmtPrice(a.target_1)}</span>
-                <span>· stop {fmtPrice(a.stop)}</span>
+              <div className="mt-2 grid grid-cols-3 gap-px rounded-md overflow-hidden bg-surface-3">
+                <div className="bg-surface-1 px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Entry</div>
+                  <div className="font-mono text-[12px] font-bold text-accent">{fmtPrice(a.entry)}</div>
+                </div>
+                <div className="bg-surface-1 px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Target</div>
+                  <div className="font-mono text-[12px] font-bold text-bullish-text">{fmtPrice(a.target_1)}</div>
+                </div>
+                <div className="bg-surface-1 px-2 py-1.5">
+                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Stop</div>
+                  <div className="font-mono text-[12px] font-bold text-bearish-text">{fmtPrice(a.stop)}</div>
+                </div>
               </div>
             ) : (
               a.message && (
-                <p className="mt-1.5 text-[10px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
+                <p className="mt-2 text-[11px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
               )
             )}
           </div>
