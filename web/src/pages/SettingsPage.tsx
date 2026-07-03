@@ -195,69 +195,43 @@ function NotificationChannels() {
     setSynced(true);
   }
 
-  const dirty = synced && notifPrefs && telegramOn !== notifPrefs.telegram_enabled;
-
   return (
     <Section title="Notifications" icon={<Bell className="h-4 w-4 text-text-muted" />}>
-      <div className="space-y-3">
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={telegramOn}
-            onChange={(e) => setTelegramOn(e.target.checked)}
-            className="rounded border-border-subtle"
-          />
-          <Send className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
-          <div className="flex-1">
-            <span className="text-sm text-text-primary">Telegram alerts</span>
-            <p className="text-[10px] text-text-faint">Master switch — turn all Telegram alerts on or off.</p>
+      <div className="divide-y divide-border-subtle/40">
+        <div className="flex items-center gap-3 py-3">
+          <Send className="h-4 w-4 shrink-0 text-text-faint" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-text-primary">Telegram alerts</div>
+            <p className="text-[11px] text-text-faint">Master switch — turn all Telegram alerts on or off.</p>
           </div>
-        </label>
-
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={desktopOn}
-            onChange={(e) => toggleDesktop(e.target.checked)}
-            className="rounded border-border-subtle"
+          <Toggle
+            on={telegramOn}
+            disabled={!notifPrefs || updateNotifs.isPending}
+            onClick={() => { const n = !telegramOn; setTelegramOn(n); if (notifPrefs) updateNotifs.mutate({ ...notifPrefs, telegram_enabled: n }); }}
           />
-          <Bell className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
-          <div className="flex-1">
-            <span className="text-sm text-text-primary">Desktop alerts</span>
-            <p className="text-[10px] text-text-faint">Pop up new signals on this device — click one to jump to its chart.</p>
-          </div>
-        </label>
+        </div>
 
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <input
-            type="checkbox"
-            checked={!!notifPrefs?.daytrade_focus_only}
+        <div className="flex items-center gap-3 py-3">
+          <Bell className="h-4 w-4 shrink-0 text-text-faint" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-text-primary">Desktop alerts</div>
+            <p className="text-[11px] text-text-faint">Pop up new signals on this device — click one to jump to its chart.</p>
+          </div>
+          <Toggle on={desktopOn} onClick={() => toggleDesktop(!desktopOn)} />
+        </div>
+
+        <div className="flex items-center gap-3 py-3">
+          <ShieldCheck className="h-4 w-4 shrink-0 text-text-faint" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm text-text-primary">Day-trade alerts: my Focus list only</div>
+            <p className="text-[11px] text-text-faint">Off = your whole watchlist (default). On = push day-trade alerts only for symbols on your Focus tab — the rest are still tracked in the feed, marked “not in Focus.” Swing &amp; long-term always cover your whole watchlist.</p>
+          </div>
+          <Toggle
+            on={!!notifPrefs?.daytrade_focus_only}
             disabled={!notifPrefs}
-            onChange={(e) => updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), daytrade_focus_only: e.target.checked })}
-            className="rounded border-border-subtle"
+            onClick={() => notifPrefs && updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), daytrade_focus_only: !notifPrefs.daytrade_focus_only })}
           />
-          <ShieldCheck className="h-3.5 w-3.5 text-text-faint group-hover:text-text-muted" />
-          <div className="flex-1">
-            <span className="text-sm text-text-primary">Day-trade alerts: my Focus list only</span>
-            <p className="text-[10px] text-text-faint">Off = your whole watchlist (default). On = push day-trade alerts only for symbols on your Focus tab — the rest are still tracked in the feed, marked “not in Focus.” Swing &amp; long-term always cover your whole watchlist.</p>
-          </div>
-        </label>
-
-        {dirty && (
-          <button
-            onClick={() => updateNotifs.mutate({
-              ...(notifPrefs as NotificationPrefs),
-              telegram_enabled: telegramOn,
-            })}
-            disabled={updateNotifs.isPending}
-            className="text-xs bg-accent hover:bg-accent-hover text-white px-4 py-1.5 rounded-md transition-colors disabled:opacity-50"
-          >
-            {updateNotifs.isPending ? "Saving..." : "Save"}
-          </button>
-        )}
-        {updateNotifs.isSuccess && !dirty && (
-          <span className="text-[10px] text-bullish-text flex items-center gap-1"><Check className="h-3 w-3" /> Saved</span>
-        )}
+        </div>
       </div>
     </Section>
   );
@@ -478,12 +452,7 @@ function ThemeToggle() {
           <p className="text-sm font-medium text-text-primary">{isDark ? "Dark Mode" : "Light Mode"}</p>
           <p className="text-xs text-text-muted">Switch between dark and light themes</p>
         </div>
-        <button
-          onClick={toggle}
-          className={`relative w-12 h-6 rounded-full transition-colors ${isDark ? "bg-accent" : "bg-surface-4"}`}
-        >
-          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${isDark ? "" : "translate-x-6"}`} />
-        </button>
+        <Toggle on={isDark} onClick={toggle} />
       </div>
 
       <div className="flex items-center justify-between mt-4 pt-4 border-t border-border-subtle">

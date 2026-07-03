@@ -71,21 +71,43 @@ body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-
 .pad{padding:12px 14px}
 .divide{border-top:1px solid var(--line)}
 
-/* ── WATCHLIST ── */
+/* ── WATCHLIST — first-class citizen: type, sorting, groups, sparklines ── */
 .wlhead{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 8px}
 .tabs{display:flex;gap:6px;padding:0 14px 10px}
 .tab{font-family:var(--mono);font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer}
 .tab.on{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
 .tab .n{opacity:.6;font-weight:600}
-.srch{margin:0 14px 10px;display:flex;align-items:center;gap:7px;background:var(--s2);border:1px solid var(--line2);border-radius:7px;padding:6px 10px}
+.srch{margin:0 14px 8px;display:flex;align-items:center;gap:7px;background:var(--s2);border:1px solid var(--line2);border-radius:7px;padding:6px 10px}
 .srch input{background:none;border:none;color:var(--ts);font-size:12px;width:100%;outline:none;font-family:var(--sans)}
-.wlrow{display:flex;align-items:center;gap:9px;padding:8px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+/* sortable column header */
+.wlcols{display:grid;grid-template-columns:14px 1fr 44px 58px 54px;gap:8px;align-items:center;
+  padding:5px 14px;border-bottom:1px solid var(--line2);position:sticky;top:0;background:var(--s1);z-index:2}
+.wlcols span{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);cursor:pointer;user-select:none}
+.wlcols span:hover{color:var(--ts)}
+.wlcols .rt{text-align:right}
+.wlcols .on{color:var(--blu2)}
+/* group headers (mirror the user's TV sections: FOCUS / DAY TRADE / GENERAL) */
+.wlgrp{display:flex;align-items:center;gap:7px;padding:7px 14px 4px;font-family:var(--mono);
+  font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);cursor:pointer}
+.wlgrp .n{color:var(--tf);font-weight:600}
+.wlgrp .car{margin-left:auto;color:var(--tf);font-size:9px}
+/* rows — tabular numerals, aligned grid, sparkline, signal dot */
+.wlrow{display:grid;grid-template-columns:14px 1fr 44px 58px 54px;gap:8px;align-items:center;
+  padding:6px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-variant-numeric:tabular-nums}
 .wlrow:hover{background:var(--s2)}
 .wlrow.sel{background:rgba(59,130,246,.08);box-shadow:inset 3px 0 0 var(--blu)}
-.star{color:var(--amber2);font-size:12px;width:12px}
-.wlrow .sym{font-family:var(--mono);font-weight:700;font-size:14px;flex:1}
-.wlrow .px{font-family:var(--mono);font-size:13px;font-weight:600;text-align:right}
-.wlrow .ch{font-family:var(--mono);font-size:11px;text-align:right;min-width:52px}
+.star{color:var(--amber2);font-size:11px}
+.star.off{color:var(--s4)}
+.wlrow .symc{display:flex;align-items:center;gap:6px;min-width:0}
+.wlrow .sym{font-family:var(--mono);font-weight:800;font-size:13.5px;letter-spacing:.01em}
+.wlrow .sig{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 5px var(--amber);flex-shrink:0}
+.wlrow .spark{width:44px;height:16px}
+.wlrow .spark path{fill:none;stroke-width:1.3}
+.wlrow .px{font-family:var(--mono);font-size:12.5px;font-weight:650;text-align:right;color:var(--tp)}
+.wlrow .ch{font-family:var(--mono);font-size:10.5px;font-weight:700;text-align:right;padding:2px 6px;border-radius:5px;justify-self:end}
+.wlrow .ch.pos{background:rgba(34,197,94,.1)}
+.wlrow .ch.neg{background:rgba(239,68,68,.1)}
+.wlfoot{font-family:var(--mono);font-size:9.5px;color:var(--tf);padding:8px 14px}
 
 /* ── CHART HEADER ── */
 .chhead{display:flex;align-items:center;gap:16px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -174,27 +196,44 @@ body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-
 </div>
 
 <div class="app">
-  <!-- WATCHLIST -->
+  <!-- WATCHLIST — sortable, grouped, sparklines, signal dots -->
   <div class="col wl">
-    <div class="wlhead"><div class="sh"><span class="i">📋</span>Watchlist</div><span class="mono" style="font-size:11px;color:var(--tf)">40</span></div>
+    <div class="wlhead"><div class="sh"><span class="i">📋</span>Watchlist</div><span class="mono" style="font-size:10px;color:var(--tf)">40 · live 21s</span></div>
     <div class="tabs">
       <span class="tab on">All <span class="n">40</span></span>
       <span class="tab">★ Focus <span class="n">18</span></span>
-      <span class="tab">Ideas <span class="n">19</span></span>
+      <span class="tab">⚡ Signals <span class="n">3</span></span>
     </div>
     <div class="srch">🔍 <input placeholder="Search 40 symbols…"></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">SOXS</span><span class="px">4.51</span><span class="ch pos">+17.1%</span></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">FROG</span><span class="px">94.81</span><span class="ch pos">+5.2%</span></div>
-    <div class="wlrow"><span class="star">★</span><span class="sym">AAPL</span><span class="px">308.63</span><span class="ch pos">+4.7%</span></div>
-    <div class="wlrow"><span class="star">★</span><span class="sym">HOOD</span><span class="px">112.73</span><span class="ch pos">+4.4%</span></div>
-    <div class="wlrow"><span class="star">★</span><span class="sym">PLTR</span><span class="px">129.30</span><span class="ch pos">+3.1%</span></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">ETH-USD</span><span class="px">1733</span><span class="ch pos">+2.1%</span></div>
-    <div class="wlrow sel"><span class="star">★</span><span class="sym">NVDA</span><span class="px">194.83</span><span class="ch neg">-1.1%</span></div>
-    <div class="wlrow"><span class="star">★</span><span class="sym">MSFT</span><span class="px">390.49</span><span class="ch pos">+1.4%</span></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">BTC-USD</span><span class="px">61772</span><span class="ch pos">+0.5%</span></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">SPY</span><span class="px">744.78</span><span class="ch neg">-0.0%</span></div>
-    <div class="wlrow"><span class="star">★</span><span class="sym">AMZN</span><span class="px">242.67</span><span class="ch pos">+0.0%</span></div>
-    <div class="wlrow"><span class="star">&nbsp;</span><span class="sym">GOOGL</span><span class="px">359.91</span><span class="ch neg">-0.4%</span></div>
+
+    <!-- sortable header — click cycles ▼/▲ · sorts within each group -->
+    <div class="wlcols" id="wlcols">
+      <span></span>
+      <span data-k="sym">Symbol</span>
+      <span></span>
+      <span class="rt" data-k="px">Last</span>
+      <span class="rt on" data-k="ch">Chg% ▼</span>
+    </div>
+
+    <div class="wlgrp">★ Focus <span class="n">6</span><span class="car">▾</span></div>
+    <div class="wlrow" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">AAPL</span><span class="sig" title="signal fired today"></span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,12 L8,10 L15,11 L22,7 L29,8 L36,4 L43,3"/></svg><span class="px">308.63</span><span class="ch pos">+4.7%</span></div>
+    <div class="wlrow" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">HOOD</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,13 L8,11 L15,12 L22,9 L29,6 L36,7 L43,4"/></svg><span class="px">112.73</span><span class="ch pos">+4.4%</span></div>
+    <div class="wlrow" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">PLTR</span><span class="sig"></span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,11 L8,12 L15,9 L22,10 L29,7 L36,6 L43,5"/></svg><span class="px">129.30</span><span class="ch pos">+3.1%</span></div>
+    <div class="wlrow sel" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">NVDA</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bear2)" d="M1,5 L8,6 L15,4 L22,8 L29,9 L36,11 L43,12"/></svg><span class="px">194.83</span><span class="ch neg">-1.1%</span></div>
+    <div class="wlrow" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">MSFT</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,12 L8,11 L15,10 L22,10 L29,8 L36,8 L43,6"/></svg><span class="px">390.49</span><span class="ch pos">+1.4%</span></div>
+    <div class="wlrow" data-g="0"><span class="star">★</span><span class="symc"><span class="sym">AMZN</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--tm)" d="M1,8 L8,9 L15,7 L22,9 L29,8 L36,9 L43,8"/></svg><span class="px">242.67</span><span class="ch pos">+0.0%</span></div>
+
+    <div class="wlgrp">Day Trade <span class="n">4</span><span class="car">▾</span></div>
+    <div class="wlrow" data-g="1"><span class="star off">★</span><span class="symc"><span class="sym">SOXS</span><span class="sig"></span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,14 L8,13 L15,10 L22,6 L29,7 L36,3 L43,2"/></svg><span class="px">4.51</span><span class="ch pos">+17.1%</span></div>
+    <div class="wlrow" data-g="1"><span class="star off">★</span><span class="symc"><span class="sym">FROG</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,12 L8,9 L15,10 L22,6 L29,5 L36,6 L43,3"/></svg><span class="px">94.81</span><span class="ch pos">+5.2%</span></div>
+    <div class="wlrow" data-g="1"><span class="star off">★</span><span class="symc"><span class="sym">SPY</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--tm)" d="M1,7 L8,8 L15,6 L22,9 L29,8 L36,9 L43,9"/></svg><span class="px">744.78</span><span class="ch neg">-0.0%</span></div>
+    <div class="wlrow" data-g="1"><span class="star off">★</span><span class="symc"><span class="sym">GOOGL</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bear2)" d="M1,6 L8,7 L15,8 L22,7 L29,9 L36,10 L43,11"/></svg><span class="px">359.91</span><span class="ch neg">-0.4%</span></div>
+
+    <div class="wlgrp">General Market <span class="n">2</span><span class="car">▾</span></div>
+    <div class="wlrow" data-g="2"><span class="star off">★</span><span class="symc"><span class="sym">ETH-USD</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--bull2)" d="M1,11 L8,10 L15,8 L22,9 L29,6 L36,5 L43,4"/></svg><span class="px">1,733</span><span class="ch pos">+2.1%</span></div>
+    <div class="wlrow" data-g="2"><span class="star off">★</span><span class="symc"><span class="sym">BTC-USD</span></span><svg class="spark" viewBox="0 0 44 16"><path stroke="var(--tm)" d="M1,8 L8,7 L15,9 L22,8 L29,7 L36,8 L43,7"/></svg><span class="px">61,772</span><span class="ch pos">+0.5%</span></div>
+
+    <div class="wlfoot">● amber dot = signal fired today · click Chg%/Last/Symbol to sort · groups mirror your watchlist sectors</div>
   </div>
 
   <!-- CENTER: CHART -->
@@ -290,5 +329,36 @@ function toggleStyle(){
   var t = document.body.classList.toggle('terminal');
   document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
 }
+// watchlist sort — click a column header; cycles desc → asc; sorts WITHIN each group
+(function(){
+  var dir = -1, key = 'ch';
+  var heads = document.querySelectorAll('#wlcols [data-k]');
+  function val(row, k){
+    if(k === 'sym') return row.querySelector('.sym').textContent;
+    var t = row.querySelector(k === 'px' ? '.px' : '.ch').textContent.replace(/[+%,]/g,'');
+    return parseFloat(t) || 0;
+  }
+  heads.forEach(function(h){
+    h.addEventListener('click', function(){
+      var k = h.dataset.k;
+      dir = (k === key) ? -dir : -1;
+      key = k;
+      heads.forEach(function(x){ x.classList.remove('on'); x.textContent = x.textContent.replace(/ [▲▼]/,''); });
+      h.classList.add('on');
+      h.textContent = h.textContent.replace(/ [▲▼]/,'') + (dir < 0 ? ' ▼' : ' ▲');
+      [0,1,2].forEach(function(g){
+        var rows = Array.prototype.slice.call(document.querySelectorAll('.wlrow[data-g="'+g+'"]'));
+        if(!rows.length) return;
+        var anchor = rows[rows.length-1].nextElementSibling;
+        var parent = rows[0].parentNode;
+        rows.sort(function(a,b){
+          var va = val(a,key), vb = val(b,key);
+          return (va < vb ? -1 : va > vb ? 1 : 0) * -dir * (key==='sym' ? -1 : 1);
+        });
+        rows.forEach(function(r){ parent.insertBefore(r, anchor); });
+      });
+    });
+  });
+})();
 </script>
 </body></html>
