@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start Here — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as the other redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .stylecard,
+body.terminal .tagl,body.terminal .badge,body.terminal .note,body.terminal .step,
+body.terminal .qchip,body.terminal .lesson,body.terminal .disc,body.terminal .tour,
+body.terminal .prog,body.terminal input{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.open{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--bull);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+
+/* ── PAGE HEAD ── */
+.phead{display:flex;align-items:baseline;gap:14px;padding:16px 18px 4px;flex-wrap:wrap;max-width:1180px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em}
+.subtitle{font-size:12.5px;color:var(--tm)}
+.wrap{max-width:1180px;margin:0 auto;padding:8px 18px 40px}
+
+/* ── DISCLAIMER — front and center, not a footer afterthought ── */
+.disc{display:flex;gap:12px;align-items:flex-start;background:rgba(245,183,61,.06);border:1px solid rgba(245,183,61,.3);border-radius:11px;padding:12px 15px;margin:10px 0 16px}
+.disc .ic{font-size:16px;line-height:1.3}
+.disc .tx{font-size:12px;color:var(--ts);line-height:1.6;max-width:88ch}
+.disc .tx b{color:var(--amber2)}
+.disc .tx small{display:block;margin-top:4px;color:var(--tf);font-size:10.5px}
+
+/* ── LAYOUT ── */
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}}
+
+/* ── STEPS ── */
+.step{background:var(--s1);border:1px solid var(--line);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.step .head{display:flex;align-items:center;gap:11px;padding:11px 15px;cursor:pointer}
+.step .num{font-family:var(--mono);font-size:12px;font-weight:800;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+.step.done .num{background:rgba(34,197,94,.16);color:var(--bull2);border-color:rgba(34,197,94,.35)}
+.step.active .num{background:rgba(59,130,246,.16);color:var(--blu2);border-color:rgba(59,130,246,.45)}
+.step .head b{font-size:14px}
+.step .head small{color:var(--tf);font-size:11px}
+.step .stat{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.step.done .stat{color:var(--bull2)} .step.active .stat{color:var(--blu2)} .step .stat.opt{color:var(--tf)}
+.step .body{padding:2px 15px 14px}
+.step.active{border-color:rgba(59,130,246,.4)}
+
+/* style cards */
+.stylegrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+@media(max-width:800px){.stylegrid{grid-template-columns:1fr}}
+.stylecard{background:var(--s2);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;cursor:pointer;text-align:left;transition:border-color .15s;position:relative}
+.stylecard:hover{border-color:rgba(59,130,246,.45)}
+.stylecard.on{border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.05)}
+.stylecard .t{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.stylecard .t b{font-size:13.5px}
+.stylecard .t .ck{margin-left:auto;font-family:var(--mono);font-size:10px;font-weight:800;color:var(--bull2)}
+.stylecard p{margin:0 0 7px;font-size:11.5px;color:var(--tm);line-height:1.45}
+.stylecard .ex{font-family:var(--mono);font-size:9.5px;color:var(--tf);line-height:1.5}
+.stylecard .lrn{display:inline-block;margin-top:7px;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--blu2)}
+.tagl{font-family:var(--mono);font-size:8.5px;font-weight:800;letter-spacing:.04em;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+.tagl.day{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.28)}
+.tagl.swing{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.28)}
+.tagl.lt{background:rgba(167,139,250,.12);color:var(--vio2);border:1px solid rgba(167,139,250,.28)}
+.tagl.new{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.28)}
+
+/* symbols step */
+.addrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.addrow input{background:var(--s2);border:1px solid var(--line2);border-radius:7px;color:var(--ts);padding:7px 11px;font-size:12.5px;outline:none;min-width:180px}
+.qchip{font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer}
+.qchip.on{color:var(--bull2);border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.07)}
+.hint{font-size:11px;color:var(--tf)}
+
+/* telegram step */
+.tgrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tgrow .why{font-size:11.5px;color:var(--tm);flex:1;min-width:200px;line-height:1.5}
+
+/* lessons */
+.lessons{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+@media(max-width:800px){.lessons{grid-template-columns:1fr}}
+.lesson{background:var(--s2);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;cursor:pointer}
+.lesson:hover{border-color:rgba(59,130,246,.45)}
+.lesson .diag{height:52px;border-radius:6px;background:var(--s1);border:1px solid var(--line);margin-bottom:8px;position:relative;overflow:hidden}
+.lesson .diag i{position:absolute;left:8%;right:8%;height:1px;background:var(--line2)}
+.lesson .diag .lv{top:34%;background:rgba(245,183,61,.55);height:1.5px}
+.lesson .diag .pth{position:absolute;inset:0}
+.lesson b{font-family:var(--mono);font-size:11.5px;display:block}
+.lesson small{font-size:10px;color:var(--tf);line-height:1.4;display:block;margin-top:2px}
+
+/* ── RIGHT RAIL ── */
+.prog{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+.prog .bar{height:7px;border-radius:4px;background:var(--s3);overflow:hidden;margin:10px 0 7px}
+.prog .bar i{display:block;height:100%;width:66%;background:var(--bull);border-radius:4px}
+.prog .line{font-family:var(--mono);font-size:10.5px;color:var(--tm)}
+.prog .line b{color:var(--bull2)}
+.tour{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px}
+.trow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+.trow:first-of-type{border-top:none;padding-top:4px}
+.trow .tt{font-family:var(--mono);font-size:9px;color:var(--tf);width:52px;text-align:right;text-transform:uppercase;padding-top:2px}
+.trow .tx{font-size:11.5px;color:var(--tm);line-height:1.45;flex:1}
+.trow .tx b{color:var(--ts)}
+.trow .tx a{color:var(--blu2);text-decoration:none;font-family:var(--mono);font-size:10px;font-weight:700}
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:18px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · START HERE</span></div>
+  <div class="pill open"><span class="b"></span>Market Open</div>
+  <div class="regime">
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- PAGE HEAD -->
+<div class="phead">
+  <h1>Start here</h1>
+  <span class="subtitle">Three steps and the desk is live. Come back any time — this page remembers where you left off.</span>
+</div>
+
+<div class="wrap">
+
+  <!-- DISCLAIMER — a new user's first screen, so it lives here, prominently -->
+  <div class="disc">
+    <span class="ic">⚖️</span>
+    <div class="tx">
+      <b>Before you begin — this is an educational tool, not financial advice.</b>
+      Signals are pattern detections, not recommendations. Nothing here knows your finances, and no win rate is a promise.
+      Trade with money you can afford to lose — and if these setups are new to you, <b>paper trade them first</b>.
+      <small>This notice also appears on every report and alert. By continuing you acknowledge you make your own decisions.</small>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- ══ LEFT: THE CHECKLIST ══ -->
+    <div>
+
+      <!-- STEP 1 — done -->
+      <div class="step done">
+        <div class="head"><span class="num">✓</span><div><b>Choose how you trade</b><br><small>Nothing is on by default — one tap enables the right alert pack.</small></div><span class="stat">Swing · 12 alerts on</span></div>
+        <div class="body">
+          <div class="stylegrid">
+            <div class="stylecard">
+              <div class="t"><span class="tagl day">Day</span><b>Day trader</b></div>
+              <p>Intraday — in and out the same day, stop at nearby structure.</p>
+              <div class="ex">PDH/PDL held + reclaim · 4h RC · ORL held · gap-and-go</div>
+              <span class="lrn">see these setups →</span>
+            </div>
+            <div class="stylecard on">
+              <div class="t"><span class="tagl swing">Swing</span><b>Swing trader</b><span class="ck">✓ ON</span></div>
+              <p>Daily chart, hold days — buy the dip, target RSI 70.</p>
+              <div class="ex">RSI oversold · 5/20 EMA cross · daily MA bounce</div>
+              <span class="lrn">see these setups →</span>
+            </div>
+            <div class="stylecard">
+              <div class="t"><span class="tagl lt">Long-term</span><b>Position</b></div>
+              <p>Weekly chart, hold weeks–months — Stage-2 entries.</p>
+              <div class="ex">weekly 10w/30w MA held / reclaim · weekly RC</div>
+              <span class="lrn">see these setups →</span>
+            </div>
+            <div class="stylecard">
+              <div class="t"><span class="tagl new">New</span><b>I'm new to this</b></div>
+              <p>A simple, high-quality 3-pack — learn one setup at a time.</p>
+              <div class="ex">PDL reclaim · 4h RC · weekly MA held</div>
+              <span class="lrn">start the lessons →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 2 — done -->
+      <div class="step done">
+        <div class="head"><span class="num">✓</span><div><b>Add your symbols</b><br><small>Alerts only fire for names on your watchlist.</small></div><span class="stat">9 symbols</span></div>
+        <div class="body">
+          <div class="addrow">
+            <input placeholder="Add a symbol — e.g. AAPL">
+            <button class="btn pri">+ Add</button>
+            <span class="qchip on">SPY ✓</span><span class="qchip on">NVDA ✓</span><span class="qchip on">AAPL ✓</span>
+            <span class="qchip">QQQ</span><span class="qchip">TSLA</span><span class="qchip">BTC-USD</span>
+          </div>
+          <span class="hint">Or start from the editor's sector lists — 27 curated names in one tap → <span class="mono" style="color:var(--blu2);font-weight:700">Watchlist</span></span>
+        </div>
+      </div>
+
+      <!-- STEP 3 — active -->
+      <div class="step active">
+        <div class="head"><span class="num">3</span><div><b>Connect Telegram</b><br><small>Alerts and morning notes, delivered where you already are.</small></div><span class="stat">1 tap left</span></div>
+        <div class="body">
+          <div class="tgrow">
+            <span class="why">The 8:30 morning notes, gap &amp; go queue, live signals and the EOD recap all arrive as Telegram messages — no need to keep the app open.</span>
+            <button class="btn pri" style="padding:8px 16px">📨 Open the bot &amp; link</button>
+            <button class="btn">Skip — use email</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 4 — optional, the education link that never existed -->
+      <div class="step">
+        <div class="head"><span class="num">4</span><div><b>Learn the setups</b><br><small>Every alert links to its lesson — entry, stop, target, and why it works.</small></div><span class="stat opt">Optional</span></div>
+        <div class="body">
+          <div class="lessons">
+            <div class="lesson">
+              <div class="diag">
+                <i class="lv"></i>
+                <svg class="pth" viewBox="0 0 100 52" preserveAspectRatio="none"><path d="M4,40 L20,34 L32,42 L44,30 L56,20 L72,24 L96,10" fill="none" stroke="var(--bull)" stroke-width="1.6"/></svg>
+              </div>
+              <b>PDL reclaim</b>
+              <small>Price loses yesterday's low, then takes it back — the trap reverses.</small>
+            </div>
+            <div class="lesson">
+              <div class="diag">
+                <i class="lv"></i>
+                <svg class="pth" viewBox="0 0 100 52" preserveAspectRatio="none"><path d="M4,14 L20,26 L34,38 L50,30 L62,36 L76,22 L96,12" fill="none" stroke="var(--blu)" stroke-width="1.6"/></svg>
+              </div>
+              <b>4-hour reclaim</b>
+              <small>The 4h level breaks, holds, and momentum flips back with it.</small>
+            </div>
+            <div class="lesson">
+              <div class="diag">
+                <i class="lv"></i>
+                <svg class="pth" viewBox="0 0 100 52" preserveAspectRatio="none"><path d="M4,44 L24,36 L40,30 L56,32 L70,24 L84,18 L96,14" fill="none" stroke="var(--vio)" stroke-width="1.6"/></svg>
+              </div>
+              <b>Weekly MA held</b>
+              <small>The 10-week holds on a test — the long-term trend defends itself.</small>
+            </div>
+          </div>
+          <span class="hint" style="display:block;margin-top:8px">Full library: every pattern with anatomy diagrams → <span class="mono" style="color:var(--blu2);font-weight:700">Signal Library</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ RIGHT RAIL ══ -->
+    <div>
+      <!-- PROGRESS — persisted, unlike today -->
+      <div class="prog">
+        <div class="sh">🚀 Setup Progress</div>
+        <div class="bar"><i></i></div>
+        <div class="line"><b>2 of 3 done</b> — link Telegram and your first alerts can reach you today.</div>
+      </div>
+
+      <!-- YOUR DAY WITH THE DESK — orientation, the missing mental model -->
+      <div class="tour">
+        <div class="sh" style="margin-bottom:6px">🗺 Your Day With the Desk</div>
+        <div class="trow"><span class="tt">8:30a</span><span class="tx"><b>Morning notes</b> land on Telegram — market read + top gap-ups to watch. <a>Premarket →</a></span></div>
+        <div class="trow"><span class="tt">8:55a</span><span class="tx"><b>Today's Focus</b> — the day's plan, laid out in order. <a>Today →</a></span></div>
+        <div class="trow"><span class="tt">9:30a</span><span class="tx"><b>Live signals</b> fire as setups confirm — chart, levels, entries. <a>Trading →</a></span></div>
+        <div class="trow"><span class="tt">4:30p</span><span class="tx"><b>Signals grade themselves</b> — come back, tap what you took, see your edge. <a>Performance →</a></span></div>
+        <div class="trow"><span class="tt">Anytime</span><span class="tx"><b>Ideas &amp; research</b> — the leader pipeline and company dossiers. <a>Trade Ideas →</a></span></div>
+      </div>
+
+      <!-- WHAT'S ON RIGHT NOW -->
+      <div class="tour">
+        <div class="sh" style="margin-bottom:6px">🔔 Your Alerts Right Now</div>
+        <div class="trow"><span class="tt">Style</span><span class="tx"><b>Swing</b> — 12 alert types enabled</span></div>
+        <div class="trow"><span class="tt">Names</span><span class="tx"><b>9 symbols</b> being scanned every 3 minutes</span></div>
+        <div class="trow"><span class="tt">Delivery</span><span class="tx" style="color:var(--amber2)">Not connected — alerts are recorded but can't reach you yet</span></div>
+        <div class="trow"><span class="tt">Tune</span><span class="tx">Every toggle, per alert type → <a>Settings →</a></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Educational purposes only — not financial advice. Signals are pattern detections, not recommendations.</div>
+</div>
+
+<div class="note">◔ Mockup — one persistent checklist replaces the two disconnected onboarding flows · disclaimer up front · education finally linked. Toggle <b>▢/▣</b> · <b>🌙/☀️</b></div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+</script>
+</body></html>
