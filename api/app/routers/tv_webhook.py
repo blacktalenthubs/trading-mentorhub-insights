@@ -1365,6 +1365,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         else:
             alert_type_full = "tv_rc_4h_long"
 
+    # CML (current-month low) alerts RETIRED entirely (2026-07-02, user request): early in a
+    # calendar month the current-month low collapses onto the prior-day low (redundant + shows
+    # the same level twice), and the value is meaningless until the month has range. Drop
+    # cml_reclaim / cml_held at the door — not recorded, not delivered. Pines may still emit
+    # them harmlessly; the premarket engine no longer does.
+    if _dedup_base(alert_type_full) in ("cml_reclaim", "cml_held"):
+        return {"dispatched": False, "reason": "cml_retired"}
+
     # NOTE: the ORL 4h-cap pre-check that lived here (#379, 2026-06-21) referenced
     # `db` before it was assigned (the session opens further down) → UnboundLocalError
     # on EVERY tv_staged_orl_held, swallowed by _dispatch_background = a silent ORL
