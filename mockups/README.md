@@ -70,6 +70,15 @@ Status bar + 3 columns: watchlist / chart / right rail (signals with Entry-Targe
 - Pattern Edge table (EDGE/CUT/BUILDING verdicts) fed by auto-grades + user overlay; R-based equity curve (kill fake $50k dollar sizing); Passed On gets the ✓/✗ "would it have worked" verdict (= `real_outcome` joined onto skipped alerts — currently stubbed in `DeclinedTrades.tsx`).
 - Cleanup: unify the two took/report flows; delete orphaned `PerformanceDashboard.tsx`, `EquityCurve.tsx`, unused hooks.
 
+## 7. `start_here_redesign_mockup.html` — Start Here
+
+**One persistent checklist replaces the two disconnected onboarding flows** (`/onboarding` register-wizard uses category-based `useUpdateAlertPrefs`; `/start-here` uses `trade_group` bulk toggles — they conflict and neither persists). Redesign:
+- **Disclaimer front and center** — a new user's first screen carries the full educational/not-financial-advice notice (amber panel, top of page), not just a footer. Keep the footer versions everywhere else.
+- Numbered steps with real state: 1) Choose how you trade (the 4 style cards, kept) → 2) Add symbols (quick chips + editor's-sectors shortcut) → 3) Connect Telegram → 4) Learn the setups (optional). Progress bar persists server-side (add an onboarding-state record — today "Enabled ✓" is lost on refresh).
+- **Education finally linked**: each style card gets "see these setups →" to `/pattern/:code`; step 4 shows 3 lesson cards with anatomy mini-diagrams; register-wizard and this page should converge on ONE alert model (recommend the `trade_group` bulk model; retire the category model or map it).
+- Right rail: "Your Day With the Desk" timeline (8:30 notes → Today 8:55 → Trading at open → Performance after close) — the orientation/mental-model tour that exists nowhere today; plus "Your Alerts Right Now" status (style/symbols/delivery), which surfaces the killer misconfiguration: alerts enabled but no delivery channel.
+- Fixes to carry: the "I'm new" 3-pack codes (`weekly_ma_held` doesn't exist in the catalog; `staged_pdl_reclaim` unverified) must be validated against real `alert_type` values — today the card can show "Enabled ✓" while enabling nothing. Add Start Here to mobile nav (currently desktop-rail only). Route register → this page instead of the separate wizard.
+
 ---
 
 *Mocks by Claude · design decisions confirmed with the product owner in-session. Educational product — keep the not-financial-advice footers.*
