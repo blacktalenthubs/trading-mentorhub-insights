@@ -820,6 +820,8 @@ export interface PremarketGapEntry {
   catalyst: string | null;
   quality_score?: number;        // Gap-and-Go quality 0-100
   queue_rank?: number | null;    // 1..3 for the queued top gappers, else null
+  is_ai?: boolean;               // AI / tech-and-business space
+  sector?: string | null;        // Finnhub industry
 }
 
 export interface PremarketGapsResponse {

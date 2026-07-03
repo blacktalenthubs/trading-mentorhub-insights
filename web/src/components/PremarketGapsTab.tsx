@@ -105,6 +105,61 @@ function Bucket({ title, items, watchSet, onChart, onAdd, adding }: {
   );
 }
 
+/** Gap-and-Go Queue card — a top-3 quality-ranked gapper as a rich card: rank +
+ *  symbol + gap% + quality, catalyst, derived flags, a Watch/Go/Stop/Invalidation
+ *  plan grid (from PDH/PDL/prior-close), and the pipeline outcomes (a queued name IS
+ *  in the 8:30 notes, on Today, and armed). Levels derived; no new backend. */
+function QueueCard({ e, onChart }: { e: PremarketGapEntry; onChart: () => void }) {
+  const abovePdh = e.pm_last != null && e.pdh != null && e.pm_last > e.pdh;
+  const flags: { t: string; cls: "ok" | "info" | "warn" }[] = [];
+  if (e.pm_dollar_vol != null) flags.push({ t: `✓ ${fmtVol(e.pm_dollar_vol)} PM vol`, cls: "ok" });
+  flags.push(abovePdh ? { t: "✓ above PDH", cls: "ok" } : { t: "◔ below PDH — needs reclaim", cls: "warn" });
+  if (e.catalyst) flags.push({ t: "✓ catalyst", cls: "ok" });
+  if (e.is_ai) flags.push({ t: "AI space", cls: "info" });
+  if (e.on_watchlist) flags.push({ t: "★ on watchlist", cls: "warn" });
+  if (e.bucket === "momentum") flags.push({ t: "⚠ momentum — half size", cls: "warn" });
+  const fcls = (c: "ok" | "info" | "warn") =>
+    c === "ok" ? "bg-bullish/10 text-bullish-text border-bullish/25"
+      : c === "info" ? "bg-accent/10 text-accent border-accent/25"
+      : "bg-warning/10 text-warning-text border-warning/25";
+  const Cell = ({ k, v, tone }: { k: string; v: string; tone: string }) => (
+    <div className="bg-surface-1 px-2 py-1.5">
+      <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">{k}</div>
+      <div className={`font-mono text-[12.5px] font-bold ${tone}`}>{v}</div>
+    </div>
+  );
+  return (
+    <button
+      onClick={onChart}
+      className={`overflow-hidden rounded-xl border text-left transition-colors hover:border-warning/60 ${e.queue_rank === 1 ? "border-warning/45 bg-warning/[0.06]" : "border-border-subtle bg-surface-1"}`}
+    >
+      <div className="flex items-center gap-2 border-b border-border-subtle/60 px-3 py-2.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-warning text-[11px] font-bold text-surface-0">{e.queue_rank}</span>
+        <span className="font-mono text-[17px] font-bold text-text-primary">{e.symbol}</span>
+        <span className={`font-mono text-[13px] font-bold ${gapColor(e.gap_pct)}`}>{fmtGap(e.gap_pct)}</span>
+        <span className="ml-auto text-[10px] uppercase tracking-wide text-text-faint">Quality <b className="text-[13px] text-warning-text">{e.quality_score ?? "—"}</b></span>
+      </div>
+      <div className="space-y-2.5 p-3">
+        {e.catalyst && <p className="line-clamp-2 text-[11.5px] text-text-muted">{e.catalyst}</p>}
+        <div className="flex flex-wrap gap-1">
+          {flags.map((f, i) => <span key={i} className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${fcls(f.cls)}`}>{f.t}</span>)}
+        </div>
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-lg bg-surface-3">
+          <Cell k="Watch" v={fmtPx(e.pm_last)} tone="text-text-secondary" />
+          <Cell k="Go over" v={fmtPx(e.pdh)} tone="text-warning-text" />
+          <Cell k="Stop" v={fmtPx(e.pdl)} tone="text-bearish-text" />
+          <Cell k="Invalid" v={fmtPx(e.prior_close)} tone="text-text-muted" />
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9.5px] text-text-faint">
+          <span>📨 in 8:30 notes <b className="text-bullish-text">✓</b></span>
+          <span>☀️ on Today <b className="text-bullish-text">✓</b></span>
+          <span>🔔 alert armed <b className="text-bullish-text">✓</b></span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export default function PremarketGapsTab() {
   const { data, isLoading, error } = usePremarketGaps();
   const refresh = useRefreshPremarketGaps();
@@ -120,6 +175,7 @@ export default function PremarketGapsTab() {
   const entries = data?.entries ?? [];
   const clean = entries.filter((e) => e.bucket === "clean");
   const momentum = entries.filter((e) => e.bucket === "momentum");
+  const queue = entries.filter((e) => e.queue_rank != null).sort((a, b) => (a.queue_rank ?? 9) - (b.queue_rank ?? 9)).slice(0, 3);
 
   function onChart(s: string) { navigate(`/trading?symbol=${encodeURIComponent(s)}`); }
 
@@ -155,6 +211,20 @@ export default function PremarketGapsTab() {
         />
       ) : (
         <div className="space-y-5">
+          {queue.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-xl border border-warning/30 bg-warning/5 px-3.5 py-2.5 text-[11px] text-text-muted">
+                <span className="font-bold text-warning-text">🚀 Gap &amp; Go Queue</span>
+                <span>→ top 3 by quality →</span>
+                <span>📨 8:30 notes <b className="text-bullish-text">sent</b> →</span>
+                <span>☀️ Today's tab <b className="text-bullish-text">published</b> →</span>
+                <span>🔔 alerts <b className="text-bullish-text">armed</b> (5m close over trigger · 2× vol)</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-3">
+                {queue.map((e) => <QueueCard key={e.symbol} e={e} onChart={() => onChart(e.symbol)} />)}
+              </div>
+            </div>
+          )}
           <Bucket title="Clean gaps" items={clean} watchSet={watchSet} onChart={onChart} onAdd={(s) => addSymbol.mutate(s)} adding={addSymbol.isPending} />
           <Bucket title="Momentum gappers" items={momentum} watchSet={watchSet} onChart={onChart} onAdd={(s) => addSymbol.mutate(s)} adding={addSymbol.isPending} />
         </div>
