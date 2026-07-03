@@ -598,6 +598,22 @@ function MarketGateSection() {
 
 /* ── Alert Types (per-type enable/disable) ────────────────────────── */
 
+/* iOS-style pill toggle — the mock's on/off control (green when on). */
+function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? "bg-bullish-text" : "bg-surface-3"}`}
+    >
+      <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${on ? "translate-x-4" : ""}`} />
+    </button>
+  );
+}
+
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
   const toggle = useToggleAlertConfig();
@@ -624,85 +640,43 @@ function AlertTypesSection() {
         {types && <span className="text-text-faint"> · {enabledCount} of {total} on</span>}
       </div>
 
-      {total > 0 && (
-        <div className="flex items-center gap-2 mb-4">
-          <button
-            onClick={() => toggleAll.mutate({ enabled: false })}
-            disabled={busy || enabledCount === 0}
-            className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
-          >
-            Uncheck all
-          </button>
-          <button
-            onClick={() => toggleAll.mutate({ enabled: true })}
-            disabled={busy || enabledCount === total}
-            className="rounded-md border border-border-subtle bg-surface-1 px-3 py-1.5 text-[11px] font-semibold text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
-          >
-            Check all
-          </button>
-        </div>
-      )}
-
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
 
-      <div className="space-y-5">
-        {orderedGroups.map((category) => {
-          const items = grouped[category];
+      <div className="space-y-6">
+        {orderedGroups.map((group) => {
+          const items = grouped[group];
           const onCount = items.filter((i) => i.enabled).length;
+          const clusters = Object.entries(
+            items.reduce((acc, t) => { (acc[t.category] ??= []).push(t); return acc; }, {} as Record<string, AlertTypeConfigItem[]>),
+          );
           return (
-            <div key={category}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">
-                  {category}
-                </span>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`text-[10px] font-semibold ${
-                      onCount > 0 ? "text-accent" : "text-text-faint"
-                    }`}
-                  >
-                    {onCount}/{items.length} on
-                  </span>
-                  <button
-                    onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: category })}
-                    disabled={busy}
-                    title={`Turn this whole group ${onCount === items.length ? "off" : "on"} in one click`}
-                    className="rounded border border-border-subtle px-2 py-0.5 text-[10px] font-semibold text-text-muted transition-colors hover:bg-surface-2 hover:text-text-primary disabled:opacity-50"
-                  >
-                    {onCount === items.length ? "Disable all" : "Enable all"}
-                  </button>
+            <div key={group}>
+              {/* Group header + master toggle */}
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</span>
+                  <span className="text-[10px] text-text-faint">{onCount} of {items.length} on · group</span>
                 </div>
+                <Toggle on={onCount === items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
               </div>
-              <div className="space-y-3">
-                {Object.entries(
-                  items.reduce((acc, t) => { (acc[t.category] ??= []).push(t); return acc; }, {} as Record<string, AlertTypeConfigItem[]>),
-                ).map(([cluster, rows]) => (
+              <div className="space-y-4">
+                {clusters.map(([cluster, rows]) => (
                   <div key={cluster}>
-                    <div className="mb-1.5 border-b border-border-subtle/40 pb-1 font-mono text-[10px] uppercase tracking-wide text-text-faint">{cluster}</div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-text-faint">{cluster}</div>
+                    <div className="divide-y divide-border-subtle/40 rounded-lg border border-border-subtle bg-surface-1 px-3">
                       {rows.map((t) => {
                         const isShort = /\bshort\b/i.test(t.label);
+                        const [name, ...rest] = t.label.split(" — ");
+                        const desc = rest.join(" — ");
                         return (
-                          <button
-                            key={t.alert_type}
-                            onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })}
-                            disabled={busy}
-                            role="switch"
-                            aria-checked={t.enabled}
-                            title={t.description || undefined}
-                            className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
-                              t.enabled ? "border-accent/50 bg-accent/10" : "border-border-subtle bg-surface-1 hover:bg-surface-2"
-                            }`}
-                          >
-                            <span className={`mt-0.5 shrink-0 h-4 w-4 rounded flex items-center justify-center ${t.enabled ? "bg-accent" : "bg-surface-3 border border-border-subtle"}`}>
-                              {t.enabled && <Check className="h-3 w-3 text-white" />}
-                            </span>
-                            <span className={`min-w-0 flex-1 text-[11px] leading-snug ${t.enabled ? "text-text-primary font-medium" : "text-text-muted"}`}>
-                              {isShort && <span className="mr-1 rounded bg-bearish-subtle px-1 py-0.5 text-[8px] font-bold uppercase text-bearish-text">short</span>}
-                              {t.label}
-                              {t.description && <span className="ml-1 cursor-help text-text-faint" title={t.description}>ⓘ</span>}
-                            </span>
-                          </button>
+                          <div key={t.alert_type} className="flex items-center gap-2.5 py-2.5">
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
+                            <div className="min-w-0 flex-1">
+                              <span className={`text-[12px] font-semibold ${t.enabled ? "text-text-primary" : "text-text-secondary"}`}>{name}</span>
+                              {desc && <span className="ml-2 text-[11px] text-text-faint">{desc}</span>}
+                            </div>
+                            <Toggle on={t.enabled} disabled={busy} onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })} />
+                          </div>
                         );
                       })}
                     </div>
