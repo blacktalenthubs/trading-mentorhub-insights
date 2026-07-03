@@ -135,20 +135,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
-    # Index reclaim long (#65, from index_reclaim_long.pine) — the one backtested
-    # day-trade edge for SPY/QQQ/DRAM: morning reclaim of the ORH or PDH after a
-    # ~0.18% shakeout, with room to the next resistance → long, take profit into it.
-    # Long-only (the short mirror has no edge). Default OFF (opt-in).
-    ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room + ~ATM strike (now in rc.pine)", "Index reclaim", False),
-    # staged_orl_held REVIVED 2026-06-27 — the rc.pine OR-channel plays (orl_held/
-    # orl_reclaim/orh_reject) were too NOISY (especially ORL) → retired to OBSOLETE. This is
-    # the original 60m opening-range-low held (levels_day_vwap.pine). It's noisy by nature, so
-    # it's SCOPED to a user-editable symbol allowlist (staged_orl_symbols in Settings; default
-    # index SPY/QQQ/IWM, but add whatever you want). Off the list = Not-routed. Default OFF.
-    ("staged_orl_held", "ORL held (30m opening-range low) — bounce off the OR low; NOISY, fires only for symbols in your ORL allowlist (Settings → Noisy alerts)", "Index reclaim", False),
-    # ORH break (2026-06-28) — the high-side momentum breakout the user asked for (the ORH
-    # rejection SHORT was retired; this is a LONG). Close above the 30m OR high on volume.
-    ("orh_break", "ORH break — close above the 30m opening-range high on volume (momentum breakout long)", "Index reclaim", False),
+    # Index-reclaim group (reclaim_long · staged_orl_held · orh_break) RETIRED 2026-07-03
+    # → OBSOLETE_ALERT_TYPES. ORL/ORH opening-range plays fully retired (user); day-trade
+    # is now clean PDH/PDL/PWH/PWL level breaks (levels_break.pine), not opening-range.
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -165,11 +154,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
     # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
     ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
-    # CML — the CURRENT-month low defended intraday (rc.pine, 2026-06-25). Distinct
-    # from monthly_rc (prior month): cml_reclaim = price swept the month floor (new low)
-    # and reclaimed it; cml_held = price tagged it from above and held. Both BUY, OFF.
-    ("cml_reclaim", "CML reclaim — undercut & reclaim of the CURRENT-month low (month floor swept & held)", "Monthly trend", False),
-    ("cml_held", "CML held — tag & hold of the CURRENT-month low as support", "Monthly trend", False),
+    # CML (current-month low: cml_reclaim · cml_held) RETIRED 2026-07-03 → OBSOLETE_ALERT_TYPES
+    # (part of the ORL/ORH/opening-range + intraday-month-floor cleanup). pml_held (prior-month) kept.
     ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
@@ -281,7 +267,6 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "staged_pwh_reclaim": "Stock gapped above last week's high, dipped back below it, then reclaimed it on a bullish bar — weekly-level continuation.",
 
     # Spec 60 breakouts — vol + slope confluence.
-    "orh_break":                "Stock closed above its 30-minute opening-range high on expanding volume — the first-half-hour momentum breakout (long). Stop = the OR high (now reclaimed support); first target = the nearest overhead level (PDH/PWH). Once per session.",
     "staged_pdh_break":         "Stock broke above yesterday's high with above-average volume and rising VWAP — confirmed continuation.",
     "staged_pwh_break":         "Stock broke above last week's high with above-average volume and rising VWAP — weekly breakout.",
     "gap_up_continuation_long": "Stock opened above yesterday's high and held it as support — gap-up continuation.",
@@ -306,7 +291,6 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
     "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
     "rc_daily_long": "Daily RC: price undercut the prior-DAY low (PDL) then reclaimed it intraday — swept-low bounce on the daily level. Stop = the day's swept low. ≈ PDL reclaim, RC-model. A day-trade/swing heads-up.",
-    "reclaim_long": "Index reclaim long (SPY/QQQ/DRAM, 15m): in the morning, price was ABOVE the opening-range high or the prior-day high, dipped ~0.18% under it (shakeout), and RECLAIMED it — WITH room to the next resistance (no buying into a ceiling). ENTRY = the reclaim close · STOP = the dip low · TARGET = take profit INTO the next resistance (sell the whole position there). Long-only — the short mirror has no backtested edge. Backtested 77% win / +0.80R over 3yr; ~10–16 fires/yr (rare). The big down-moves and bottom-bounces are deliberately skipped (no edge).",
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
@@ -332,6 +316,10 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-07-03 — ORL/ORH opening-range plays + current-month-low (CML) fully RETIRED
+    # (user: "retire ORL and ORH completely"). Day-trade is now clean PDH/PDL/PWH/PWL
+    # level breaks (levels_break.pine). Startup purges any stale rows; webhook drops arrivals.
+    "orh_break", "reclaim_long", "staged_orl_held", "cml_reclaim", "cml_held",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
