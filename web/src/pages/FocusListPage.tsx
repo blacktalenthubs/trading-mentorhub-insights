@@ -8,9 +8,9 @@
  *  per-symbol scorecard.)
  */
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Target, Plus, Check, ChevronRight, RefreshCw } from "lucide-react";
+import { Target, Plus, Check, ChevronRight, RefreshCw, Info } from "lucide-react";
 import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
@@ -19,11 +19,51 @@ import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, We
    Core (Growth). One row per symbol carries whichever boards flagged it. ── */
 type Board = "T" | "C" | "L";
 const BOARD_ORDER: Board[] = ["T", "C", "L"];
-const BOARD_META: Record<Board, { label: string; cls: string; dot: string }> = {
-  T: { label: "Early Turn", cls: "border-warning/40 bg-warning/10 text-warning-text", dot: "bg-warning" },
-  C: { label: "Conviction", cls: "border-accent/40 bg-accent/10 text-accent", dot: "bg-accent" },
-  L: { label: "Long-term Core", cls: "border-violet-400/40 bg-violet-400/10 text-violet-400", dot: "bg-violet-400" },
+const BOARD_META: Record<Board, { label: string; desc: string; cls: string; dot: string }> = {
+  T: { label: "Early Turn", desc: "just turning up from a base (Stage 1→2) — the earliest entry, higher risk/reward", cls: "border-warning/40 bg-warning/10 text-warning-text", dot: "bg-warning" },
+  C: { label: "Conviction", desc: "an established leader in a healthy weekly uptrend (above a rising 30-week MA)", cls: "border-accent/40 bg-accent/10 text-accent", dot: "bg-accent" },
+  L: { label: "Long-term Core", desc: "a fundamentally strong growth leader to hold for the long run", cls: "border-violet-400/40 bg-violet-400/10 text-violet-400", dot: "bg-violet-400" },
 };
+
+/* Plain-language key — the boards + metrics are jargon to a busy trader, and this is an
+   education-first product. Collapsed by default; one tap teaches the whole vocabulary. */
+function Legend() {
+  const Row = ({ b, children }: { b: Board; children: ReactNode }) => (
+    <li className="flex gap-1.5">
+      <span className={`h-fit shrink-0 rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
+      <span>{children}</span>
+    </li>
+  );
+  return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-[11px] leading-relaxed">
+      <div className="grid gap-5 sm:grid-cols-3">
+        <div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">The three boards</div>
+          <ul className="space-y-1.5 text-text-muted">
+            <Row b="T"><b className="text-text-secondary">Early Turn</b> — {BOARD_META.T.desc}.</Row>
+            <Row b="C"><b className="text-text-secondary">Conviction</b> — {BOARD_META.C.desc}.</Row>
+            <Row b="L"><b className="text-text-secondary">Long-term Core</b> — {BOARD_META.L.desc}.</Row>
+          </ul>
+        </div>
+        <div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">Setup terms</div>
+          <ul className="space-y-1.5 text-text-muted">
+            <li><b className="text-text-secondary">Stage 2</b> — Weinstein's "advancing" phase: price above a rising 30-week MA — the uptrend sweet spot. (1 base → 2 advance → 3 top → 4 decline.)</li>
+            <li><b className="text-text-secondary">On N boards</b> — how many of the three scans flagged the name. Two or three independent signals agreeing is the strongest read.</li>
+          </ul>
+        </div>
+        <div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">The numbers</div>
+          <ul className="space-y-1.5 text-text-muted">
+            <li><b className="text-text-secondary">RS</b> — relative strength vs the S&amp;P 500. Higher = a stronger leader.</li>
+            <li><b className="text-text-secondary">Off 52wH</b> — % below the 52-week high. Closer to 0 = near new highs.</li>
+            <li><b className="text-text-secondary">GR</b> — grade A/B/C · <b className="text-text-secondary">Score</b> — a 0–100 composite quality read.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type MergedRow = {
   symbol: string;
@@ -81,7 +121,7 @@ function Boards({ boards }: { boards: Board[] }) {
   return (
     <div className="flex gap-1">
       {BOARD_ORDER.filter((b) => boards.includes(b)).map((b) => (
-        <span key={b} title={BOARD_META[b].label} className={`rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
+        <span key={b} title={`${BOARD_META[b].label} — ${BOARD_META[b].desc}`} className={`rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
       ))}
     </div>
   );
@@ -231,6 +271,7 @@ export default function FocusListPage() {
   const ownedInIdeas = useMemo(() => rows.filter((r) => owned.has(r.symbol)).length, [rows, owned]);
 
   const [lens, setLens] = useState<"all" | Board>("all");
+  const [showLegend, setShowLegend] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<{ k: SortKey; dir: "asc" | "desc" }>({ k: "score", dir: "desc" });
   const onSort = (k: SortKey) => setSort((s) => (s.k === k ? { k, dir: s.dir === "asc" ? "desc" : "asc" } : { k, dir: k === "symbol" ? "asc" : "desc" }));
@@ -268,7 +309,10 @@ export default function FocusListPage() {
             <Target className="h-5 w-5 text-accent" />
             <div>
               <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
-              <p className="text-[11px] text-text-muted">Early turns, conviction leaders, and long-term core — one pipeline, ranked.</p>
+              <p className="text-[11px] text-text-muted">
+                Early turns, conviction leaders, and long-term core — one pipeline, ranked.{" "}
+                <button onClick={() => setShowLegend((v) => !v)} className="inline-flex items-center gap-0.5 align-baseline text-accent hover:underline"><Info className="h-3 w-3" /> What these mean</button>
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-text-faint">
@@ -280,6 +324,8 @@ export default function FocusListPage() {
             )}
           </div>
         </div>
+
+        {showLegend && <Legend />}
 
         <ConfluenceStrip rows={rows} onChart={goChart} />
 
