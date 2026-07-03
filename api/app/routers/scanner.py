@@ -7,7 +7,7 @@ import time
 from functools import partial
 from typing import Dict, List, Tuple
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from app.rate_limit import limiter
 from app.schemas.scanner import (
     ActiveEntryResponse,
     SignalResultResponse,
+    SymbolLevelsResponse,
     WatchlistRankItem,
 )
 from app.services.scanner import idea_qualifies, run_scan
@@ -360,3 +361,101 @@ async def watchlist_rank(
     # Update cache
     _rank_cache[user.id] = (now, results)
     return results
+
+
+# ── Symbol level ladder (Trading page Level Map) ────────────────────
+_levels_cache: Dict[str, Tuple[float, dict]] = {}
+_LEVELS_CACHE_TTL = 120  # 2 minutes
+
+
+def _compute_symbol_levels(symbol: str) -> dict | None:
+    """Key-level ladder for one symbol from ~1y daily bars: PDH/PDL, PWH/PWL,
+    EMA21/EMA50 — each with distance % and a support/resistance role relative to
+    the current price. EMAs use adjust=False to match the chart's ta.ema lines.
+    Prior-day = the second-to-last daily bar (matches the rank convention that the
+    last bar is today's forming session)."""
+    import pandas as pd
+
+    df = _daily_bars(symbol)
+    if df is None or len(df) < 20:
+        return None
+    high, low, close = df["High"], df["Low"], df["Close"]
+    price = float(close.iloc[-1])
+    if price <= 0:
+        return None
+
+    # prior-day high/low (iloc[-2] = last completed session before today's bar)
+    pdh = float(high.iloc[-2])
+    pdl = float(low.iloc[-2])
+
+    # prior-week high/low — the last 5 sessions BEFORE the current ISO week
+    pwh = pwl = None
+    try:
+        wk = df.index.isocalendar()
+        cur = ~((wk.year == wk.year.iloc[-1]) & (wk.week == wk.week.iloc[-1])).values
+        if cur.any():
+            recent = df[cur].tail(5)
+            pwh = float(recent["High"].max())
+            pwl = float(recent["Low"].min())
+    except Exception:
+        pass
+
+    ema21 = float(close.ewm(span=21, adjust=False).mean().iloc[-1])
+    ema50 = float(close.ewm(span=50, adjust=False).mean().iloc[-1]) if len(close) >= 50 else None
+
+    # RSI (Wilder) + ATR14 for the "NOW" row
+    delta = close.diff()
+    avg_gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+    avg_loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
+    rs = avg_gain / avg_loss
+    rsi_val = float((100 - 100 / (1 + rs)).iloc[-1]) if len(close) >= 14 else None
+    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
+    atr_val = float(tr.rolling(14).mean().iloc[-1]) if len(close) >= 14 else None
+
+    levels: List[dict] = []
+    for label, lvl in (("PWH", pwh), ("PDH", pdh), ("EMA21", ema21),
+                       ("EMA50", ema50), ("PDL", pdl), ("PWL", pwl)):
+        if lvl is None or lvl <= 0:
+            continue
+        levels.append({
+            "label": label,
+            "price": round(lvl, 2),
+            "dist_pct": round((lvl - price) / price * 100.0, 2),
+            "role": "resistance" if lvl > price else "support",
+        })
+    levels.sort(key=lambda x: -x["price"])  # high → low
+
+    return {
+        "symbol": symbol,
+        "price": round(price, 2),
+        "rsi": round(rsi_val, 1) if rsi_val is not None else None,
+        "atr": round(atr_val, 2) if atr_val is not None else None,
+        "levels": levels,
+    }
+
+
+@router.get("/levels", response_model=SymbolLevelsResponse)
+@limiter.limit("40/minute")
+async def symbol_levels(
+    request: Request,
+    symbol: str,
+    user: User = Depends(get_current_user),
+):
+    """Computed key-level ladder for one symbol (Trading page Level Map). Cached 2 min.
+    Additive read-only GET — no schema/migration, can't affect the alert feed."""
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    now = time.time()
+    cached = _levels_cache.get(sym)
+    if cached and (now - cached[0]) < _LEVELS_CACHE_TTL:
+        return cached[1]
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, partial(_compute_symbol_levels, sym))
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No level data for {sym}")
+
+    _levels_cache[sym] = (now, result)
+    return result

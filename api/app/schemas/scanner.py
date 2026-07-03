@@ -76,3 +76,19 @@ class ActiveEntryResponse(BaseModel):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+class SymbolLevel(BaseModel):
+    label: str            # PDH / PDL / PWH / PWL / EMA21 / EMA50
+    price: float
+    dist_pct: float       # (level - price) / price * 100  (signed: + above, - below)
+    role: str             # "resistance" (above price) | "support" (below price)
+
+
+class SymbolLevelsResponse(BaseModel):
+    """Computed key-level ladder for one symbol — the Trading page Level Map."""
+    symbol: str
+    price: float
+    rsi: Optional[float] = None
+    atr: Optional[float] = None
+    levels: list[SymbolLevel]   # sorted high → low by price
