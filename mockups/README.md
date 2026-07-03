@@ -79,6 +79,22 @@ Status bar + 3 columns: watchlist / chart / right rail (signals with Entry-Targe
 - Right rail: "Your Day With the Desk" timeline (8:30 notes → Today 8:55 → Trading at open → Performance after close) — the orientation/mental-model tour that exists nowhere today; plus "Your Alerts Right Now" status (style/symbols/delivery), which surfaces the killer misconfiguration: alerts enabled but no delivery channel.
 - Fixes to carry: the "I'm new" 3-pack codes (`weekly_ma_held` doesn't exist in the catalog; `staged_pdl_reclaim` unverified) must be validated against real `alert_type` values — today the card can show "Enabled ✓" while enabling nothing. Add Start Here to mobile nav (currently desktop-rail only). Route register → this page instead of the separate wizard.
 
+## 8. `settings_redesign_mockup.html` — Settings
+
+**One endless scroll → nav rail with 5 sections** (Alerts / Delivery / Risk & sizing / Appearance / Account), replacing the 9 stacked cards in `web/src/pages/SettingsPage.tsx` (944-line single file). Key decisions:
+- **Uniform save model**: everything saves instantly (today it's a mix of instant saves and dirty-state Save buttons) — say so once in the rail.
+- **Alert Types wall → clustered toggle rows**: short plain-English name + one-line trigger + Long/Short tag. Day Trade clusters: *PDH/PDL core levels* / *4h reclaims* / *Weekly-monthly wick tests* / *Noisy*. Group master switch per Day/Swing/Long-term header + ON/OFF legend (ON = Telegram+feed, OFF = records silently).
+- **Scoping systems unified in place**: the SPY 8/21 market gate renders as a banner INSIDE the Day Trade group (it gates day-trade longs); the ORL allowlist (`orl_always_symbols`) renders as chips ON the ORL row — delete the separate MarketGateSection/OrlScopeSection cards.
+- Delivery = Telegram connect/test + channel toggles; Risk = position sizing; Account absorbs referrals.
+
+### ⚠️ Alert catalog retirement spec (decided 2026-07-03, NOT yet implemented — for the coding agent)
+Retire exactly these four types (add to `OBSOLETE_ALERT_TYPES` in `api/app/models/alert_type_config.py` and remove from `_BASE_CATALOG`, same pattern as the June retirements; startup seed deletes rows, webhook drops arrivals):
+- `orh_break` — ORH-based, opening-range levels retired from the day-trade book
+- `reclaim_long` — ORH-based morning reclaim (its PDH half is covered by `rc_daily_hrec`)
+- `cml_reclaim`, `cml_held` — CML re-retired (was retired May 2026 by user request; re-added 2026-06-25 in error)
+
+Explicitly KEEP: `staged_orl_held` (the one OR survivor — already scoped to the user-editable ORL allowlist, which is the noise control) and both 4h RC types. No dedup/group moves were approved. Also fix the `pullback_long` zombie (present in both `_BASE_CATALOG` and `OBSOLETE_ALERT_TYPES`; obsolete deletion wins on startup — remove it from the catalog). Net: 33 → 29 types, Day Trade 15 → 13.
+
 ---
 
 *Mocks by Claude · design decisions confirmed with the product owner in-session. Educational product — keep the not-financial-advice footers.*
