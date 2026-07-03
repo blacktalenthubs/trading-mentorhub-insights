@@ -13,6 +13,8 @@ import { ShieldCheck } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import GapGoQueue from "../components/GapGoQueue";
+import MarketClock from "../components/MarketClock";
+import ThemeToggle from "../components/ThemeToggle";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -527,6 +529,11 @@ export default function TodayPage() {
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-6 pb-16">
+        {/* status strip — live market clock + theme toggle (same shell as Trading) */}
+        <div className="mb-4 flex items-center gap-3 border-b border-border-subtle pb-3">
+          <MarketClock />
+          <div className="ml-auto"><ThemeToggle /></div>
+        </div>
         {/* market read + posture */}
         <header className="pb-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
