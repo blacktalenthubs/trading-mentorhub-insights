@@ -139,6 +139,65 @@ async def intraday(
     return bars
 
 
+def _spark_closes(symbol: str, n: int = 16) -> List[float]:
+    """~n evenly-spaced intraday closes for a sparkline. Reuses the per-symbol
+    intraday cache (a charted symbol is instant); fetches + caches on miss."""
+    key = f"intraday:{symbol.upper()}"
+    bars = cache_get(key)
+    if bars is None:
+        bars = _fetch_and_serialize_intraday(symbol.upper())
+        if bars:
+            cache_set(key, bars, _INTRADAY_TTL)
+    closes = [b["close"] for b in (bars or []) if b.get("close") is not None]
+    if len(closes) <= n:
+        return closes
+    step = len(closes) / n
+    return [closes[min(len(closes) - 1, int(i * step))] for i in range(n)]
+
+
+@router.get("/sparklines")
+async def sparklines(user: User = Depends(get_current_user)):
+    """~16 recent intraday closes per watchlist symbol → the watchlist panel's
+    sparklines. Reuses the per-symbol intraday cache; the whole response is cached
+    ~2 min per user, and the (cold) fetch is bounded-parallel so it can't hang."""
+    ckey = f"spark:{user.id}"
+    cached = cache_get(ckey)
+    if cached is not None:
+        return cached
+
+    from app.database import get_db as get_db_dep
+    from sqlalchemy import select
+    from app.models.watchlist import WatchlistItem
+
+    symbols: List[str] = []
+    async for db in get_db_dep():
+        rows = await db.execute(select(WatchlistItem.symbol).where(WatchlistItem.user_id == user.id))
+        symbols = [r[0] for r in rows.all()][:60]
+        break
+    if not symbols:
+        return {"sparklines": {}}
+
+    def _all(syms: List[str]) -> dict:
+        from concurrent.futures import ThreadPoolExecutor
+        out: dict = {}
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futs = {ex.submit(_spark_closes, s): s for s in syms}
+            for fut, s in futs.items():
+                try:
+                    cl = fut.result(timeout=8)
+                    if cl:
+                        out[s.upper()] = cl
+                except Exception:
+                    pass
+        return out
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, partial(_all, symbols))
+    payload = {"sparklines": result}
+    cache_set(ckey, payload, 120)
+    return payload
+
+
 @router.get("/prior-day/{symbol}", response_model=Optional[PriorDayResponse])
 @limiter.limit("20/minute")
 async def prior_day(
