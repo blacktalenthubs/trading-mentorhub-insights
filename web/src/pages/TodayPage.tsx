@@ -201,22 +201,36 @@ function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: 
   let sigs: PmSignal[] = [];
   try { sigs = (body ? (JSON.parse(body).signals as PmSignal[]) : []) ?? []; } catch { sigs = []; }
   if (sigs.length === 0) return null;
+  // ONE per symbol (a name can tag several levels — prefer a breakout over a hold),
+  // ranked by move size so the biggest movers lead, capped so it's focusable not a dump.
+  const bySym = new Map<string, PmSignal>();
+  for (const s of sigs) {
+    const cur = bySym.get(s.symbol.toUpperCase());
+    if (!cur || (s.alert_type.includes("break") && !cur.alert_type.includes("break"))) {
+      bySym.set(s.symbol.toUpperCase(), s);
+    }
+  }
+  const ranked = [...bySym.values()].sort((a, b) => Math.abs(b.gap_pct) - Math.abs(a.gap_pct));
+  const TOP = 6;
+  const top = ranked.slice(0, TOP);
+  const more = ranked.length - top.length;
   return (
     <div className="rounded-xl border border-accent/25 bg-accent/5 p-3">
-      <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-accent">📡 Moving premarket · {sigs.length} at a level</div>
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-accent">📡 Moving premarket · biggest {top.length} of {ranked.length}</div>
       <div className="flex flex-wrap gap-1.5">
-        {sigs.map((s) => (
+        {top.map((s) => (
           <button
-            key={s.symbol + s.alert_type}
+            key={s.symbol}
             onClick={() => onChart(s.symbol)}
             title={`${PM_LABEL[s.alert_type] ?? s.alert_type} · entry $${s.entry} · stop $${s.stop}`}
             className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-surface-1 px-2.5 py-1 text-[11px] transition-colors hover:border-accent"
           >
             <b className="text-text-primary">{s.symbol}</b>
-            <span className={s.gap_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}>{s.gap_pct >= 0 ? "+" : ""}{s.gap_pct}%</span>
+            <span className={`font-semibold ${s.gap_pct >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{s.gap_pct >= 0 ? "+" : ""}{s.gap_pct}%</span>
             <span className="text-text-faint">{PM_LABEL[s.alert_type] ?? s.alert_type}</span>
           </button>
         ))}
+        {more > 0 && <span className="inline-flex items-center px-2 py-1 text-[11px] text-text-faint">+{more} more</span>}
       </div>
     </div>
   );
