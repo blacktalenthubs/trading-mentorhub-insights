@@ -186,29 +186,21 @@ function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => 
           </div>
         )}
       </section>
-      <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Extended · strong trend — wait for a pullback to the 20</h3>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-          {extended.map((r) => (
-            <button key={r.symbol} onClick={() => onChart(r.symbol)} className="text-left rounded-lg border border-border-subtle bg-surface-1 p-2.5 hover:border-accent transition-colors">
-              <div className="flex items-center justify-between">
-                <span className="text-[12px] font-bold text-text-secondary">{r.symbol}</span>
-                <span className="text-[10px] text-text-faint">ADX {r.adx}</span>
-              </div>
-              <div className="mt-0.5 text-[11px] text-text-muted">+{r.dist_pct}% above · 20 @ ${r.ema20}</div>
-            </button>
-          ))}
+      {/* Non-actionable context — collapsed to thin count chips (not big grids).
+          Extended = wait for a pullback; Rolling off = lost the 20, not an entry. */}
+      {(extended.length > 0 || rolling.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px]">
+          {extended.length > 0 && (
+            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text-faint">
+              <b className="text-text-muted">Extended · {extended.length}</b> — strong trend, wait for a pullback to the 20
+            </span>
+          )}
+          {rolling.length > 0 && (
+            <span className="rounded-md bg-surface-2 px-2.5 py-1 text-text-faint opacity-80">
+              <b className="text-text-muted">Rolling off · {rolling.length}</b> — lost the 20, not an entry
+            </span>
+          )}
         </div>
-      </section>
-      {rolling.length > 0 && (
-        <section className="space-y-1.5">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Rolling off · lost the 20 (not a trend entry)</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {rolling.map((r) => (
-              <button key={r.symbol} onClick={() => onChart(r.symbol)} className="rounded-md bg-surface-2 px-2 py-1 text-[11px] text-text-faint hover:text-text-secondary transition-colors">{r.symbol}</button>
-            ))}
-          </div>
-        </section>
       )}
     </div>
   );
