@@ -1284,6 +1284,32 @@ export function useChartLevels(symbol: string) {
   });
 }
 
+/* ── Computed key-level ladder (Trading page Level Map) ── */
+export interface SymbolLevel {
+  label: string;
+  price: number;
+  dist_pct: number;               // signed: + above price, - below
+  role: "support" | "resistance";
+}
+export interface SymbolLevels {
+  symbol: string;
+  price: number;
+  rsi: number | null;
+  atr: number | null;
+  levels: SymbolLevel[];          // sorted high → low
+}
+
+/** PDH/PDL/PWH/PWL/EMA21/EMA50 for one symbol, with distance + role. Polls 2 min. */
+export function useSymbolLevels(symbol: string) {
+  return useQuery({
+    queryKey: ["symbol-levels", symbol],
+    queryFn: () => api.get<SymbolLevels>(`/scanner/levels?symbol=${encodeURIComponent(symbol)}`),
+    enabled: !!symbol,
+    staleTime: 120_000,
+    refetchInterval: 120_000,
+  });
+}
+
 export function useAddChartLevel() {
   const qc = useQueryClient();
   return useMutation({
