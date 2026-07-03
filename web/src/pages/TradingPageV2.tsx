@@ -42,6 +42,7 @@ import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
 import ThemeToggle from "../components/ThemeToggle";
+import LevelMap from "../components/LevelMap";
 import NewSignalToast from "../components/NewSignalToast";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import {
@@ -1084,6 +1085,8 @@ export default function TradingPageV2() {
   // Chart-hero default: signals panel open on wide screens, on-demand below 1280px so the
   // chart isn't crammed; the user's choice persists. New fires still surface via the pop-up
   // over the chart when the panel is closed (#64-E de-densify).
+  // Right sidebar tab — the live Signals feed or the per-symbol Level Map.
+  const [rightTab, setRightTab] = useState<"signals" | "levels">("signals");
   const [showRightPanel, setShowRightPanel] = useState(() => {
     if (typeof window === "undefined") return true;
     const saved = localStorage.getItem("trading_right_panel");
@@ -2225,42 +2228,57 @@ export default function TradingPageV2() {
       {/* ── RIGHT: Signals feed (desktop) ── */}
       {showRightPanel && (
         <aside className="hidden lg:flex flex-col w-[320px] bg-surface-0 border-l border-border-subtle shrink-0">
-          {/* Header — title, count, session picker */}
+          {/* Header — Signals | Levels tabs + (session picker on the Signals tab) */}
           <div className="flex items-center gap-2 border-b border-border-subtle shrink-0 h-14 px-3">
-            <Zap className="h-4 w-4 text-accent" />
-            <span className="text-sm font-bold text-text-primary">Signals</span>
-            {feedCount > 0 && (
-              <span className="text-[9px] font-bold min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-accent/15 text-accent px-1">
-                {feedCount}
-              </span>
+            <Zap className="h-4 w-4 text-accent shrink-0" />
+            <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[11px] font-semibold">
+              <button
+                onClick={() => setRightTab("signals")}
+                className={`px-2.5 py-1 transition-colors ${rightTab === "signals" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                Signals{" "}
+                {feedCount > 0 && <span className="opacity-70 font-normal">{feedCount}</span>}
+              </button>
+              <button
+                onClick={() => setRightTab("levels")}
+                title="Key-level ladder for the selected chart symbol"
+                className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${rightTab === "levels" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                Levels
+              </button>
+            </div>
+            {rightTab === "signals" && (
+              <select
+                value={signalDate}
+                onChange={(e) => setSignalDate(e.target.value)}
+                title="Review a past session"
+                className="ml-auto bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
+              >
+                <option value="">Today</option>
+                {(sessionDates ?? []).slice(1).map((d) => (
+                  <option key={d} value={d}>{formatSessionDate(d)}</option>
+                ))}
+              </select>
             )}
-            <select
-              value={signalDate}
-              onChange={(e) => setSignalDate(e.target.value)}
-              title="Review a past session"
-              className="ml-auto bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
-            >
-              <option value="">Today</option>
-              {(sessionDates ?? []).slice(1).map((d) => (
-                <option key={d} value={d}>{formatSessionDate(d)}</option>
-              ))}
-            </select>
           </div>
 
-          {/* Signal feed — AI scanner + TradingView signals.
-              Asset (All/Stocks/Crypto) now lives INSIDE the Filters popover with
-              grade + types (was a redundant top-level row; the popover copy was
-              also inert because the props weren't passed). One less control row. */}
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <SignalFeedTab
-              alerts={filterAlertsByAsset(activeAlerts)}
-              alertsError={activeAlertsError}
-              onSelectSymbol={selectSymbol}
-              signalDate={signalDate}
-              assetFilter={assetFilter}
-              onAssetFilterChange={changeAssetFilter}
-            />
-          </div>
+          {rightTab === "levels" ? (
+            /* Per-symbol key-level ladder (the selected chart symbol). */
+            <LevelMap symbol={selectedSymbol} />
+          ) : (
+            /* Signal feed — AI scanner + TradingView signals. Asset filter lives
+               inside the Filters popover with grade + types (one less control row). */
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <SignalFeedTab
+                alerts={filterAlertsByAsset(activeAlerts)}
+                alertsError={activeAlertsError}
+                onSelectSymbol={selectSymbol}
+                signalDate={signalDate}
+                assetFilter={assetFilter}
+                onAssetFilterChange={changeAssetFilter}
+              />
+            </div>
+          )}
         </aside>
       )}
 
