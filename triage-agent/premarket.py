@@ -537,12 +537,58 @@ def format_picks_block(picks: list[dict]) -> str:
     return f"<pre>{chr(10).join(rows)}</pre>"
 
 
+def load_gap_queue() -> list[dict]:
+    """Top-3 Gap-and-Go Queue from the latest premarket gap snapshot — the entries
+    ranked queue_rank 1-3 (scored by premarket_gaps.gap_quality_score). Empty list
+    if there's no snapshot or nothing queued yet."""
+    try:
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT entries FROM premarket_gap_snapshot ORDER BY captured_at DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+    except Exception:
+        logger.warning("gap queue load failed", exc_info=True)
+        return []
+    if not row:
+        return []
+    entries = row["entries"]
+    if isinstance(entries, str):
+        import json
+        try:
+            entries = json.loads(entries or "[]")
+        except Exception:
+            return []
+    queued = [e for e in (entries or []) if e.get("queue_rank")]
+    queued.sort(key=lambda e: e["queue_rank"])
+    return queued[:3]
+
+
+def format_queue_block(queue: list[dict]) -> str:
+    """Telegram HTML for the Gap-and-Go Queue — one line per name:
+    rank · symbol · gap% · quality score · (▲PDH if gapping over the prior-day high) · catalyst."""
+    def esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    rows = []
+    for e in queue:
+        gap = e.get("gap_pct")
+        gap_s = f"{gap:+.1f}%" if gap is not None else "—"
+        pm, pdh = e.get("pm_last"), e.get("pdh")
+        over = " ▲PDH" if (pm and pdh and pm > pdh) else ""
+        cat = e.get("catalyst")
+        cat_s = f" · {esc(cat[:60])}" if cat else ""
+        rows.append(f"{e.get('queue_rank')}. {e.get('symbol', '?')} {gap_s} · Q{e.get('quality_score', '?')}{over}{cat_s}")
+    return "<pre>" + "\n".join(rows) + "</pre>"
+
+
 def build_premarket_brief(
     quotes: dict[str, PriceMove],
     breadths: list[SectorBreadth],
     focus: list[SectorBreadth],
     avoid: list[SectorBreadth],
     picks: list[dict],
+    queue: list[dict],
     polish: Optional[str],
     now: datetime,
 ) -> str:
@@ -563,6 +609,11 @@ def build_premarket_brief(
     if avoid:
         parts.append(f"Avoid: <b>{', '.join(s.name for s in avoid)}</b> (red breadth)")
     parts.append("")
+
+    if queue:
+        parts.append("<b>🚀 Gap &amp; Go Queue</b>")
+        parts.append(format_queue_block(queue))
+        parts.append("")
 
     if picks:
         parts.append("<b>⭐ Top Picks</b>")
@@ -715,6 +766,10 @@ def run_premarket_brief(send: bool = True) -> dict:
     # 5. Top picks
     picks = pick_top_stocks(focus, setups, n=4)
 
+    # 5b. Gap-and-Go Queue — top-3 quality-ranked gappers from the premarket snapshot.
+    queue = load_gap_queue()
+    logger.info("premarket: %d gap-queue names", len(queue))
+
     # 6. Heavy LLM polish: news + catalysts
     polish = None
     if LLM_TIER in ("standard", "heavy"):
@@ -728,7 +783,7 @@ def run_premarket_brief(send: bool = True) -> dict:
         polish = polish_with_llm(quotes, breadths, focus, avoid, picks, news)
 
     # 7. Build the brief
-    brief = build_premarket_brief(quotes, breadths, focus, avoid, picks, polish, et)
+    brief = build_premarket_brief(quotes, breadths, focus, avoid, picks, queue, polish, et)
 
     # 8. Persist for EOD grading
     persist_morning_picks(picks, focus, avoid, et)
