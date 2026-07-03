@@ -43,6 +43,7 @@ import CandlestickChart from "../components/CandlestickChart";
 import SpyRegimeStrip from "../components/SpyRegimeStrip";
 import ThemeToggle from "../components/ThemeToggle";
 import LevelMap from "../components/LevelMap";
+import AlertLog from "../components/AlertLog";
 import NewSignalToast from "../components/NewSignalToast";
 import { SkeletonRow } from "../components/ui/Skeleton";
 import {
@@ -1085,8 +1086,8 @@ export default function TradingPageV2() {
   // Chart-hero default: signals panel open on wide screens, on-demand below 1280px so the
   // chart isn't crammed; the user's choice persists. New fires still surface via the pop-up
   // over the chart when the panel is closed (#64-E de-densify).
-  // Right sidebar tab — the live Signals feed or the per-symbol Level Map.
-  const [rightTab, setRightTab] = useState<"signals" | "levels">("signals");
+  // Right sidebar tab — Signals feed · per-symbol Level Map · Alert Log tape.
+  const [rightTab, setRightTab] = useState<"signals" | "levels" | "log">("signals");
   const [showRightPanel, setShowRightPanel] = useState(() => {
     if (typeof window === "undefined") return true;
     const saved = localStorage.getItem("trading_right_panel");
@@ -2246,8 +2247,15 @@ export default function TradingPageV2() {
               >
                 Levels
               </button>
+              <button
+                onClick={() => setRightTab("log")}
+                title="Running tape of every alert that fired this session"
+                className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${rightTab === "log" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                Log
+              </button>
             </div>
-            {rightTab === "signals" && (
+            {rightTab !== "levels" && (
               <select
                 value={signalDate}
                 onChange={(e) => setSignalDate(e.target.value)}
@@ -2265,6 +2273,9 @@ export default function TradingPageV2() {
           {rightTab === "levels" ? (
             /* Per-symbol key-level ladder (the selected chart symbol). */
             <LevelMap symbol={selectedSymbol} />
+          ) : rightTab === "log" ? (
+            /* Running tape of every alert that fired this session (newest first). */
+            <AlertLog alerts={activeAlerts} onSelectSymbol={selectSymbol} />
           ) : (
             /* Signal feed — AI scanner + TradingView signals. Asset filter lives
                inside the Filters popover with grade + types (one less control row). */
