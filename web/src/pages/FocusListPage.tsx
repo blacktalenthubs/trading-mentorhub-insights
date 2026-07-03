@@ -8,9 +8,9 @@
  *  per-symbol scorecard.)
  */
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Target, Plus, Check } from "lucide-react";
+import { Target, Plus, Check, ChevronRight } from "lucide-react";
 import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol } from "../api/hooks";
 import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
 
@@ -125,6 +125,75 @@ function sortVal(r: MergedRow, k: SortKey): number | string {
 const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const fmtPx = (v: number | null) => (v == null ? "—" : `$${v.toFixed(2)}`);
 
+/* ── Expanded per-symbol scorecard (mock's row-expand): the merged scorecard checklist,
+   Street fundamentals, Tape stats, and actions. All from the boards' entries; the four
+   mock fields we don't have (20d return, %days>50MA, mkt cap, analyst target) are dropped
+   in favour of what the scans actually carry. ── */
+const humanize = (k: string) => k.replace(/_/g, " ");
+
+function ScoreItem({ label, status }: { label: string; status: string }) {
+  const ok = status === "pass", no = status === "fail";
+  return (
+    <div className="flex items-center gap-1.5 text-[11px]">
+      <span className={ok ? "text-bullish-text" : no ? "text-bearish-text" : "text-text-faint"}>{ok ? "✓" : no ? "✗" : "◔"}</span>
+      <span className={ok ? "text-text-secondary" : "text-text-muted"}>{label}</span>
+    </div>
+  );
+}
+
+function Kv({ k, v }: { k: string; v: string }) {
+  return <div className="flex justify-between gap-2"><dt className="text-text-faint">{k}</dt><dd className="font-mono text-text-secondary">{v}</dd></div>;
+}
+
+function DetailRow({ r, onChart, owned, onAdd, adding }: { r: MergedRow; onChart: (s: string) => void; owned: boolean; onAdd: () => void; adding: boolean }) {
+  const scorecard = { ...(r.gr?.scorecard ?? {}), ...(r.em?.scorecard ?? {}) };
+  const scItems = Object.entries(scorecard);
+  const stage = r.wk?.stage_label ?? (r.gr?.stage2 ? "Stage 2 · Advancing" : r.em?.stage_turn ? "Stage turn" : "—");
+  return (
+    <tr className="bg-surface-1/50">
+      <td colSpan={10} className="px-3.5 py-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">Scorecard</div>
+            <div className="space-y-1">
+              {scItems.length ? scItems.map(([k, v]) => <ScoreItem key={k} label={humanize(k)} status={v} />) : <span className="text-[11px] text-text-faint">—</span>}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">Street</div>
+            <dl className="space-y-1 text-[11px]">
+              <Kv k="Rating" v={r.gr?.consensus ?? "—"} />
+              <Kv k="Rev growth" v={r.gr?.rev_growth_pct != null ? `${r.gr.rev_growth_pct >= 0 ? "+" : ""}${r.gr.rev_growth_pct}%` : "—"} />
+              <Kv k="Gross margin" v={r.gr?.gross_margin_pct != null ? `${r.gr.gross_margin_pct}%` : "—"} />
+              <Kv k="Stage" v={stage} />
+            </dl>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">Tape</div>
+            <dl className="space-y-1 text-[11px]">
+              <Kv k="RS vs SPY" v={r.rs != null ? `${r.rs >= 0 ? "+" : ""}${Math.round(r.rs)}` : "—"} />
+              <Kv k="Vol surge" v={r.em?.vol_surge != null ? `${r.em.vol_surge.toFixed(1)}×` : "—"} />
+              <Kv k="Off 52w high" v={fmtPct(r.off52)} />
+              <Kv k="Vs 30w MA" v={r.wk?.dist_vs_ma_pct != null ? `${r.wk.dist_vs_ma_pct >= 0 ? "+" : ""}${r.wk.dist_vs_ma_pct.toFixed(1)}%` : "—"} />
+            </dl>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-faint">Actions</div>
+            <div className="space-y-1.5">
+              <button onClick={() => onChart(r.symbol)} className="block w-full rounded-lg bg-accent/15 px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/25">Open in Trading →</button>
+              {owned ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-bullish-text"><Check className="h-3.5 w-3.5" /> On watchlist</div>
+              ) : (
+                <button onClick={onAdd} disabled={adding} className="block w-full rounded-lg border border-border-subtle px-3 py-1.5 text-[11px] text-text-secondary transition-colors hover:border-accent disabled:opacity-50">★ Add to watchlist</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function FocusListPage() {
   const nav = useNavigate();
   const goChart = (s: string) => nav(`/trading?symbol=${encodeURIComponent(s)}`);
@@ -145,6 +214,7 @@ export default function FocusListPage() {
   const ownedInIdeas = useMemo(() => rows.filter((r) => owned.has(r.symbol)).length, [rows, owned]);
 
   const [lens, setLens] = useState<"all" | Board>("all");
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<{ k: SortKey; dir: "asc" | "desc" }>({ k: "score", dir: "desc" });
   const onSort = (k: SortKey) => setSort((s) => (s.k === k ? { k, dir: s.dir === "asc" ? "desc" : "asc" } : { k, dir: k === "symbol" ? "asc" : "desc" }));
 
@@ -227,8 +297,11 @@ export default function FocusListPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filtered.map((r, i) => (
-                  <tr key={r.symbol} onClick={() => goChart(r.symbol)} className="cursor-pointer transition-colors hover:bg-surface-2/50">
-                    <td className="px-2.5 py-2 text-text-faint tabular-nums">{i + 1}</td>
+                  <Fragment key={r.symbol}>
+                  <tr onClick={() => setExpanded((s) => (s === r.symbol ? null : r.symbol))} className="cursor-pointer transition-colors hover:bg-surface-2/50">
+                    <td className="px-2.5 py-2 text-text-faint">
+                      <span className="inline-flex items-center gap-1"><ChevronRight className={`h-3 w-3 transition-transform ${expanded === r.symbol ? "rotate-90" : ""}`} /><span className="tabular-nums">{i + 1}</span></span>
+                    </td>
                     <td className="px-2.5 py-2"><GradeDot g={r.grade} /></td>
                     <td className="px-2.5 py-2">
                       <div className="font-mono font-bold text-text-primary">{r.symbol}</div>
@@ -250,6 +323,8 @@ export default function FocusListPage() {
                       )}
                     </td>
                   </tr>
+                  {expanded === r.symbol && <DetailRow r={r} onChart={goChart} owned={owned.has(r.symbol)} onAdd={() => addSym.mutate(r.symbol)} adding={addSym.isPending} />}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
