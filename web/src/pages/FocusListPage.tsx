@@ -1,163 +1,260 @@
-/** Trade Ideas — forward-looking ideas across three boards: Conviction (weekly-stage
- *  leaders), Emerging (early momentum turns), and Long Term (growth leaders). Old
- *  /focus-list · /conviction · /dashboard routes redirect here (App.tsx).
+/** Trade Ideas — ONE unified pipeline (the mock merges the old 3 tabs into a single
+ *  lens-filtered table). Three scan boards feed it: Early Turn (Emerging), Conviction
+ *  (Weekly Stage), Long-term Core (Growth). Each symbol becomes one row carrying the
+ *  union of the boards' data; a name on ≥2 boards floats up in the Confluence strip.
  *
- *  AI Scans + Social Buzz were REMOVED (no longer part of the product). Above the three
- *  boards sits the CONFLUENCE strip — names showing up on ≥2 boards at once, which is
- *  the strongest read (independent scans agreeing). Computed here by intersecting the
- *  three boards' symbols; no new backend.
+ *  AI Scans + Social Buzz were REMOVED (retired features). All computed frontend-side
+ *  from the existing board snapshots — no new backend. (Work 3b will add the expandable
+ *  per-symbol scorecard.)
  */
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Target, Gem, Compass, TrendingUp } from "lucide-react";
-import { useEmerging, useWeeklyStage, useGrowth } from "../api/hooks";
-import { ConvictionTabView } from "./ConvictionPage";
-import { GrowthLeadersTabView } from "./GrowthLeadersPage";
-import { EmergingTabView } from "./EmergingLeadersPage";
+import { Target, Plus, Check } from "lucide-react";
+import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol } from "../api/hooks";
+import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
 
-type IdeasTab = "conviction" | "emerging" | "long_term";
-
-const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
-  { id: "conviction", label: "Conviction", icon: Gem },
-  { id: "emerging", label: "Emerging", icon: Compass },
-  { id: "long_term", label: "Long Term", icon: TrendingUp },
-];
-
-/* ── Confluence — the mock's "🔥 On Multiple Boards": a name that surfaces on two or
-   three independent boards is the highest-conviction read. Board keys map to the tabs:
-   T = Turn (Emerging) · C = Conviction (Weekly Stage) · L = Long-term Core (Growth). ── */
+/* ── Boards. T = Early Turn (Emerging) · C = Conviction (Weekly Stage) · L = Long-term
+   Core (Growth). One row per symbol carries whichever boards flagged it. ── */
 type Board = "T" | "C" | "L";
-type RankedConf = { symbol: string; boards: Board[]; why: string[]; conf: number };
-
-const BOARD_META: Record<Board, { label: string; cls: string }> = {
-  T: { label: "Early Turn", cls: "border-warning/40 bg-warning/10 text-warning-text" },
-  C: { label: "Conviction", cls: "border-accent/40 bg-accent/10 text-accent" },
-  L: { label: "Long-term Core", cls: "border-violet-400/40 bg-violet-400/10 text-violet-400" },
+const BOARD_ORDER: Board[] = ["T", "C", "L"];
+const BOARD_META: Record<Board, { label: string; cls: string; dot: string }> = {
+  T: { label: "Early Turn", cls: "border-warning/40 bg-warning/10 text-warning-text", dot: "bg-warning" },
+  C: { label: "Conviction", cls: "border-accent/40 bg-accent/10 text-accent", dot: "bg-accent" },
+  L: { label: "Long-term Core", cls: "border-violet-400/40 bg-violet-400/10 text-violet-400", dot: "bg-violet-400" },
 };
 
-function ConfCard({ c, onChart }: { c: RankedConf; onChart: (s: string) => void }) {
-  const order: Board[] = ["T", "C", "L"];
+type MergedRow = {
+  symbol: string;
+  sector: string | null;
+  boards: Board[];
+  price: number | null;
+  rs: number | null;        // RS vs SPY
+  off52: number | null;     // % off the 52-week high
+  score: number | null;     // best board score (0–100)
+  grade: string | null;     // best board grade
+  why: string;
+  em?: EmergingEntry;
+  wk?: WeeklyStageEntry;
+  gr?: GrowthEntry;
+};
+
+const GRANK: Record<string, number> = { A: 0, "A-": 0.5, B: 1, "B-": 1.5, C: 2, "C-": 2.5, D: 3 };
+const bestGrade = (a: string | null, b: string): string => (!a ? b : (GRANK[a] ?? 9) <= (GRANK[b] ?? 9) ? a : b);
+
+function buildRows(em?: EmergingSnapshot, wk?: WeeklyStageSnapshot, gr?: GrowthSnapshot): MergedRow[] {
+  const m = new Map<string, MergedRow>();
+  const base = (symbol: string): MergedRow => {
+    const k = symbol.toUpperCase();
+    let r = m.get(k);
+    if (!r) { r = { symbol: k, sector: null, boards: [], price: null, rs: null, off52: null, score: null, grade: null, why: "" }; m.set(k, r); }
+    return r;
+  };
+  for (const e of gr?.entries ?? []) {
+    const r = base(e.symbol); r.boards.push("L"); r.gr = e;
+    r.sector ??= e.sector; r.price ??= e.last_price; r.rs ??= e.rs_vs_spy; r.off52 ??= e.pct_off_52wh;
+    r.score = Math.max(r.score ?? 0, e.score); r.grade = bestGrade(r.grade, e.grade);
+    if (!r.why) r.why = `long-term core${e.stage2 ? " · stage 2" : ""}`;
+  }
+  for (const e of em?.entries ?? []) {
+    const r = base(e.symbol); r.boards.push("T"); r.em = e;
+    r.sector ??= e.sector; r.price ??= e.last_price; r.rs ??= e.rs_vs_spy; r.off52 ??= e.pct_off_52wh;
+    r.score = Math.max(r.score ?? 0, e.score); r.grade = bestGrade(r.grade, e.grade);
+    if (!r.why) r.why = e.why || "early turn";
+  }
+  for (const e of wk?.entries ?? []) {
+    const r = base(e.symbol); r.boards.push("C"); r.wk = e;
+    r.price ??= e.price;
+    if (!r.why) r.why = e.stage_label || "conviction";
+  }
+  return [...m.values()];
+}
+
+function GradeDot({ g }: { g: string | null }) {
+  if (!g) return <span className="text-text-faint">—</span>;
+  const c = g.startsWith("A") ? "bg-bullish-subtle text-bullish-text" : g.startsWith("B") ? "bg-accent/15 text-accent" : "bg-surface-3 text-text-muted";
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${c}`}>{g}</span>;
+}
+
+function Boards({ boards }: { boards: Board[] }) {
   return (
-    <button onClick={() => onChart(c.symbol)} className="rounded-xl border border-border-subtle bg-surface-1 p-3 text-left transition-colors hover:border-warning/50">
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-[16px] font-bold text-text-primary">{c.symbol}</span>
-        <div className="flex gap-1">
-          {order.filter((b) => c.boards.includes(b)).map((b) => (
-            <span key={b} title={BOARD_META[b].label} className={`rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
-          ))}
-        </div>
-        <span className="ml-auto font-mono text-[15px] font-bold text-bullish-text">{c.conf}</span>
-      </div>
-      <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
-        On <b className="text-text-secondary">{c.boards.length} boards</b> · {c.why.slice(0, 2).join(" · ")}
-      </p>
-    </button>
+    <div className="flex gap-1">
+      {BOARD_ORDER.filter((b) => boards.includes(b)).map((b) => (
+        <span key={b} title={BOARD_META[b].label} className={`rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
+      ))}
+    </div>
   );
 }
 
-function ConfluenceStrip({ onChart }: { onChart: (s: string) => void }) {
-  const { data: em } = useEmerging();
-  const { data: wk } = useWeeklyStage();
-  const { data: gr } = useGrowth();
-  const items = useMemo<RankedConf[]>(() => {
-    const boards = new Map<string, Set<Board>>();
-    const scores = new Map<string, number[]>();
-    const whys = new Map<string, string[]>();
-    const touch = (symbol: string, b: Board, score: number | null, why: string) => {
-      const k = symbol.toUpperCase();
-      if (!boards.has(k)) { boards.set(k, new Set()); scores.set(k, []); whys.set(k, []); }
-      boards.get(k)!.add(b);
-      if (score != null) scores.get(k)!.push(score);
-      if (why) whys.get(k)!.push(why);
-    };
-    for (const e of em?.entries ?? []) touch(e.symbol, "T", e.score, e.why || "early turn");
-    for (const e of wk?.entries ?? []) touch(e.symbol, "C", null, e.stage_label || "");
-    for (const e of gr?.entries ?? []) touch(e.symbol, "L", e.score, `long-term ${e.grade}${e.rs_vs_spy != null ? ` · RS ${e.rs_vs_spy >= 0 ? "+" : ""}${Math.round(e.rs_vs_spy)}` : ""}`);
-    return [...boards.entries()]
-      .filter(([, set]) => set.size >= 2)
-      .map(([symbol, set]) => {
-        const s = scores.get(symbol)!;
-        return {
-          symbol,
-          boards: [...set],
-          why: whys.get(symbol)!,
-          conf: s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : 70,
-        };
-      })
-      .sort((a, b) => b.boards.length - a.boards.length || b.conf - a.conf)
-      .slice(0, 6);
-  }, [em, wk, gr]);
-
+/* ── Confluence — names on ≥2 boards (the strongest cross-board read). ── */
+function ConfluenceStrip({ rows, onChart }: { rows: MergedRow[]; onChart: (s: string) => void }) {
+  const items = useMemo(
+    () => rows.filter((r) => r.boards.length >= 2).sort((a, b) => b.boards.length - a.boards.length || (b.score ?? 0) - (a.score ?? 0)).slice(0, 6),
+    [rows],
+  );
   if (items.length === 0) return null;
   return (
     <div className="space-y-2">
       <h2 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-warning-text">🔥 On Multiple Boards</h2>
       <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
-        {items.map((c) => <ConfCard key={c.symbol} c={c} onChart={onChart} />)}
+        {items.map((c) => (
+          <button key={c.symbol} onClick={() => onChart(c.symbol)} className="rounded-xl border border-border-subtle bg-surface-1 p-3 text-left transition-colors hover:border-warning/50">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[16px] font-bold text-text-primary">{c.symbol}</span>
+              <Boards boards={c.boards} />
+              <span className="ml-auto font-mono text-[15px] font-bold text-bullish-text">{c.score ?? "—"}</span>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-snug text-text-muted"><b className="text-text-secondary">On {c.boards.length} boards</b> · {c.why}</p>
+          </button>
+        ))}
       </div>
     </div>
   );
 }
 
+type SortKey = "score" | "rs" | "off52" | "price" | "symbol";
+function sortVal(r: MergedRow, k: SortKey): number | string {
+  switch (k) {
+    case "symbol": return r.symbol;
+    case "rs": return r.rs ?? -Infinity;
+    case "off52": return r.off52 ?? -Infinity;
+    case "price": return r.price ?? -Infinity;
+    default: return r.score ?? -Infinity;
+  }
+}
+const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+const fmtPx = (v: number | null) => (v == null ? "—" : `$${v.toFixed(2)}`);
+
 export default function FocusListPage() {
   const nav = useNavigate();
   const goChart = (s: string) => nav(`/trading?symbol=${encodeURIComponent(s)}`);
-  const [tab, setTab] = useState<IdeasTab>(() => {
-    if (typeof window === "undefined") return "conviction";
-    // Deep-link from a notification tap: ?tab=emerging (or any valid Ideas tab).
-    const valid: IdeasTab[] = ["conviction", "emerging", "long_term"];
-    const q = new URLSearchParams(window.location.search).get("tab");
-    if (q && valid.includes(q as IdeasTab)) return q as IdeasTab;
-    const saved = localStorage.getItem("ideas_active_tab");
-    return valid.includes(saved as IdeasTab) ? (saved as IdeasTab) : "conviction";  // drop legacy social/ai/day/swing
-  });
-  function pickTab(t: IdeasTab) {
-    setTab(t);
-    try { localStorage.setItem("ideas_active_tab", t); } catch { /* ignore */ }
-  }
+  const { data: em, isLoading: lEm } = useEmerging();
+  const { data: wk, isLoading: lWk } = useWeeklyStage();
+  const { data: gr, isLoading: lGr } = useGrowth();
+  const { data: watchlist } = useWatchlist();
+  const addSym = useAddSymbol();
+  const owned = useMemo(() => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())), [watchlist]);
+
+  const rows = useMemo(() => buildRows(em, wk, gr), [em, wk, gr]);
+  const counts = useMemo(() => ({
+    all: rows.length,
+    T: rows.filter((r) => r.boards.includes("T")).length,
+    C: rows.filter((r) => r.boards.includes("C")).length,
+    L: rows.filter((r) => r.boards.includes("L")).length,
+  }), [rows]);
+  const ownedInIdeas = useMemo(() => rows.filter((r) => owned.has(r.symbol)).length, [rows, owned]);
+
+  const [lens, setLens] = useState<"all" | Board>("all");
+  const [sort, setSort] = useState<{ k: SortKey; dir: "asc" | "desc" }>({ k: "score", dir: "desc" });
+  const onSort = (k: SortKey) => setSort((s) => (s.k === k ? { k, dir: s.dir === "asc" ? "desc" : "asc" } : { k, dir: k === "symbol" ? "asc" : "desc" }));
+
+  const filtered = useMemo(() => {
+    const base = lens === "all" ? rows : rows.filter((r) => r.boards.includes(lens));
+    const arr = [...base];
+    arr.sort((a, b) => {
+      const va = sortVal(a, sort.k), vb = sortVal(b, sort.k);
+      const c = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+      return sort.dir === "asc" ? c : -c;
+    });
+    return arr;
+  }, [rows, lens, sort]);
+
+  const loading = lEm || lWk || lGr;
+  const LENSES: { id: "all" | Board; label: string; n: number; dot?: string }[] = [
+    { id: "all", label: "All", n: counts.all },
+    { id: "T", label: "Early Turn", n: counts.T, dot: BOARD_META.T.dot },
+    { id: "C", label: "Conviction", n: counts.C, dot: BOARD_META.C.dot },
+    { id: "L", label: "Long-term Core", n: counts.L, dot: BOARD_META.L.dot },
+  ];
+  const Th = ({ k, label, right }: { k: SortKey; label: string; right?: boolean }) => (
+    <th className={`px-2.5 py-2 font-medium ${right ? "text-right" : "text-left"}`}>
+      <button onClick={() => onSort(k)} className="inline-flex items-center gap-0.5 hover:text-text-secondary">{label}{sort.k === k ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}</button>
+    </th>
+  );
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
-        {/* Header + tab bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Target className="h-5 w-5 text-accent" />
-            <div>
-              <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
-              <p className="text-[11px] text-text-muted">
-                High-conviction, emerging, and long-term ideas — what to look at this session.
-              </p>
-            </div>
-          </div>
-          <div className="flex bg-surface-2 rounded-lg p-0.5">
-            {IDEAS_TABS.map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => pickTab(t.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    tab === t.id
-                      ? "bg-surface-4 text-text-primary shadow-sm"
-                      : "text-text-muted hover:text-text-secondary"
-                  }`}
-                >
-                  <Icon className="h-3 w-3" />
-                  {t.label}
-                </button>
-              );
-            })}
+        {/* Header */}
+        <div className="flex items-center gap-2">
+          <Target className="h-5 w-5 text-accent" />
+          <div>
+            <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
+            <p className="text-[11px] text-text-muted">Early turns, conviction leaders, and long-term core — one pipeline, ranked.</p>
           </div>
         </div>
 
-        {/* Confluence — names on ≥2 boards, the strongest cross-board read (all boards) */}
-        <ConfluenceStrip onChart={goChart} />
+        <ConfluenceStrip rows={rows} onChart={goChart} />
 
-        {tab === "conviction" && <ConvictionTabView />}
-        {tab === "emerging" && <EmergingTabView />}
-        {tab === "long_term" && <GrowthLeadersTabView />}
+        {/* Lens bar */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {LENSES.map((l) => (
+            <button
+              key={l.id}
+              onClick={() => setLens(l.id)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                lens === l.id ? "border-accent bg-accent/10 text-text-primary" : "border-border-subtle text-text-muted hover:text-text-secondary"
+              }`}
+            >
+              {l.dot && <span className={`h-1.5 w-1.5 rounded-full ${l.dot}`} />}
+              {l.label} <span className="text-text-faint">{l.n}</span>
+            </button>
+          ))}
+          {ownedInIdeas > 0 && <span className="ml-auto text-[11px] text-warning-text">★ {ownedInIdeas} already on your watchlist</span>}
+        </div>
+
+        {/* Unified table */}
+        {loading && rows.length === 0 ? (
+          <div className="p-8 text-center text-sm text-text-muted">Loading ideas…</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center text-sm text-text-muted">No ideas on this lens yet.</div>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-[12px]">
+              <thead className="border-b border-border text-text-faint">
+                <tr>
+                  <th className="px-2.5 py-2 text-left font-medium">#</th>
+                  <th className="px-2.5 py-2 text-left font-medium">GR</th>
+                  <Th k="symbol" label="Symbol" />
+                  <th className="px-2.5 py-2 text-left font-medium">Boards</th>
+                  <th className="px-2.5 py-2 text-left font-medium">Why</th>
+                  <Th k="rs" label="RS" right />
+                  <Th k="score" label="Score" right />
+                  <Th k="price" label="Price" right />
+                  <Th k="off52" label="Off 52wH" right />
+                  <th className="px-2.5 py-2 text-right font-medium">Add</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filtered.map((r, i) => (
+                  <tr key={r.symbol} onClick={() => goChart(r.symbol)} className="cursor-pointer transition-colors hover:bg-surface-2/50">
+                    <td className="px-2.5 py-2 text-text-faint tabular-nums">{i + 1}</td>
+                    <td className="px-2.5 py-2"><GradeDot g={r.grade} /></td>
+                    <td className="px-2.5 py-2">
+                      <div className="font-mono font-bold text-text-primary">{r.symbol}</div>
+                      {r.sector && <div className="text-[10px] text-text-faint">{r.sector}</div>}
+                    </td>
+                    <td className="px-2.5 py-2"><Boards boards={r.boards} /></td>
+                    <td className="px-2.5 py-2 max-w-[240px] whitespace-normal text-[11px] leading-snug text-text-muted">{r.why}</td>
+                    <td className={`px-2.5 py-2 text-right font-mono tabular-nums ${(r.rs ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{r.rs == null ? "—" : `${r.rs >= 0 ? "+" : ""}${Math.round(r.rs)}`}</td>
+                    <td className="px-2.5 py-2 text-right font-mono font-semibold tabular-nums text-text-secondary">{r.score ?? "—"}</td>
+                    <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-secondary">{fmtPx(r.price)}</td>
+                    <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-faint">{fmtPct(r.off52)}</td>
+                    <td className="px-2.5 py-2 text-right">
+                      {owned.has(r.symbol) ? (
+                        <Check className="ml-auto h-4 w-4 text-bullish-text" />
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); addSym.mutate(r.symbol); }} disabled={addSym.isPending} className="ml-auto rounded p-1 text-accent hover:bg-accent/10 disabled:opacity-50" title={`Add ${r.symbol}`}>
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
