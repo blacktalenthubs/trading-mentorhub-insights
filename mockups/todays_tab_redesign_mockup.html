@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Today Tab — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as trading_page_redesign_mockup.html ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,
+body.terminal .tile,body.terminal .plan,body.terminal .spot,body.terminal .tl,
+body.terminal .pmrow,body.terminal .tagl,body.terminal .badge,
+body.terminal .note,body.terminal .pick,body.terminal .empty,body.terminal .eod,
+body.terminal .rchip,body.terminal select{border-radius:2px}
+body.terminal .csec{padding:12px 14px}
+body.terminal .pick{border-color:var(--line2)}
+body.terminal .why,body.terminal .greet small{font-family:var(--mono)}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .i{opacity:.9}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none;margin-left:2px}
+
+/* ── STATUS BAR (shared shell with trading page) ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.clock{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--bull2);letter-spacing:.04em}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.open{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--bull);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;text-transform:uppercase}
+.chip.ok{background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.chip.warn{background:rgba(245,183,61,.1);color:var(--amber2);border:1px solid rgba(245,183,61,.25)}
+.chip .b{width:6px;height:6px;border-radius:50%;background:var(--bull)}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+
+/* ── GREETING BAND ── */
+.greet{display:flex;align-items:baseline;gap:14px;padding:14px 18px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--s0)}
+.greet h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.greet .date{font-family:var(--mono);font-size:12px;color:var(--tm);font-weight:600}
+.greet .posture{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  padding:4px 10px;border-radius:6px;background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.greet small{margin-left:auto;font-size:11px;color:var(--tf)}
+
+/* ── LAYOUT ── */
+.app{display:grid;grid-template-columns:218px 1fr;height:calc(100vh - 104px)}
+@media(max-width:1200px){.app{grid-template-columns:190px 1fr}}
+.col{overflow-y:auto;min-height:0}
+.rail{background:var(--s1);border-right:1px solid var(--line);padding:12px 0}
+.center{background:var(--s0)}
+.center .csec{max-width:980px}
+
+/* ── LEFT: DAY TIMELINE (replaces tabs + report chips) ── */
+.railhead{padding:0 14px 8px}
+.tl{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;border-left:3px solid transparent}
+.tl:hover{background:var(--s2)}
+.tl.on{background:rgba(59,130,246,.08);border-left-color:var(--blu)}
+.tl .tt{font-family:var(--mono);font-size:9px;color:var(--tf);width:42px;text-align:right;text-transform:uppercase;letter-spacing:.02em}
+.tl.on .tt{color:var(--blu2)}
+.tl .lb{font-size:12.5px;font-weight:600;color:var(--ts);flex:1}
+.tl.on .lb{color:var(--tp)}
+.tl .st{font-family:var(--mono);font-size:10px;font-weight:700}
+.tl .st.done{color:var(--bull2)} .tl .st.live{color:var(--amber2)} .tl .st.wait{color:var(--tf)}
+.tl .cnt{font-family:var(--mono);font-size:10px;font-weight:800;color:#16181f;background:var(--amber);border-radius:16px;padding:1px 7px}
+.raildiv{border-top:1px solid var(--line);margin:10px 0}
+.railfoot{padding:4px 14px;display:flex;flex-direction:column;gap:8px}
+.railfoot label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--tf)}
+select{font-family:var(--mono);font-size:11px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);border-radius:6px;padding:5px 8px;width:100%}
+.railnote{font-size:10px;color:var(--tf);line-height:1.5;padding:0 14px}
+.bridge{display:block;margin:2px 14px;padding:9px 11px;background:rgba(245,183,61,.07);border:1px solid rgba(245,183,61,.28);border-radius:9px;text-decoration:none;cursor:pointer}
+.bridge:hover{background:rgba(245,183,61,.12)}
+.bridge .bk{display:block;font-family:var(--mono);font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--amber2)}
+.bridge .bv{display:block;font-size:11.5px;color:var(--ts);margin:3px 0}
+.bridge .bv b{color:var(--tp)}
+.bridge .bgo{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--blu2)}
+body.terminal .bridge{border-radius:2px}
+
+/* ── CENTER SECTIONS ── */
+.csec{padding:14px 18px}
+.csec + .csec{border-top:1px solid var(--line)}
+.chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.chead .meta{font-family:var(--mono);font-size:10px;color:var(--tf)}
+
+/* spotlight hero — the "SPY CROSSED WH" card language from the reference shots */
+.spot{background:var(--s1);border:1px solid rgba(34,197,94,.35);border-radius:12px;overflow:hidden}
+.spot .strip{display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(34,197,94,.1);border-bottom:1px solid rgba(34,197,94,.25)}
+.spot .strip .sym{font-family:var(--mono);font-size:18px;font-weight:800}
+.spot .strip .hl{font-size:12.5px;color:var(--ts);font-weight:600}
+.spot .body{padding:12px 14px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.tile{background:var(--s2);border:1px solid var(--line2);border-radius:9px;padding:8px 10px;text-align:center}
+.tile .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--tf);text-transform:uppercase}
+.tile .v{font-family:var(--mono);font-size:17px;font-weight:800;margin-top:2px}
+.plan{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2);border-radius:8px;overflow:hidden;margin-bottom:10px}
+.plan div{background:var(--s2);padding:7px 10px}
+.plan .k{font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:var(--tf);text-transform:uppercase}
+.plan .val{font-family:var(--mono);font-size:13px;font-weight:700;margin-top:1px}
+.ctx{background:var(--s2);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;font-size:11.5px;color:var(--tm);line-height:1.5}
+.ctx b{color:var(--bull2)} .ctx .lv{color:var(--ts);font-family:var(--mono);font-size:11px}
+.ctx .act{color:var(--tp);font-weight:600;display:block;margin-top:3px}
+.tagl{font-family:var(--mono);font-size:9px;font-weight:800;letter-spacing:.06em;padding:2px 6px;border-radius:5px}
+.tagl.long{background:rgba(34,197,94,.14);color:var(--bull2);border:1px solid rgba(34,197,94,.28)}
+.tagl.short{background:rgba(239,68,68,.14);color:var(--bear2);border:1px solid rgba(239,68,68,.28)}
+.tagl.swing{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.3)}
+.tagl.day{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.3)}
+.tagl.gr{background:var(--bull);color:#16181f}
+.tagl.ns{background:rgba(239,68,68,.1);color:var(--bear2);border:1px solid rgba(239,68,68,.3)}
+
+/* focus pick cards */
+.subh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--tm);margin:12px 0 8px}
+.subh:first-child{margin-top:0}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+@media(max-width:1400px){.pgrid{grid-template-columns:1fr}}
+.pick{background:var(--s1);border:1px solid var(--line2);border-radius:10px;padding:11px 12px;cursor:pointer;transition:border-color .15s}
+.pick:hover{border-color:rgba(59,130,246,.45)}
+.pick .top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.pick .sym{font-family:var(--mono);font-size:15px;font-weight:800}
+.pick .px{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ts);font-weight:600}
+.pick .setup{font-size:12.5px;font-weight:600;margin-bottom:6px}
+.pick .kv{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;margin-bottom:7px}
+.pick .kv span{color:var(--tf)} .pick .kv b{font-weight:700}
+.why{font-size:11px;color:var(--tm);line-height:1.45}
+.why em{font-style:normal;color:var(--ts)}
+
+/* premarket signals */
+.pmcols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:1400px){.pmcols{grid-template-columns:1fr}}
+.pmrow{display:flex;align-items:center;gap:10px;background:var(--s1);border:1px solid var(--line2);border-radius:9px;padding:9px 11px;margin-bottom:7px}
+.pmrow .sym{font-family:var(--mono);font-size:14px;font-weight:800;width:56px}
+.pmrow .lab{font-size:11px;color:var(--ts);flex:1}
+.pmrow .lab small{display:block;color:var(--tf);font-size:10px}
+.pmrow .nums{font-family:var(--mono);font-size:11px;text-align:right;line-height:1.5}
+.pmrow .nums span{color:var(--tf)}
+.empty{background:var(--s1);border:1px dashed var(--line2);border-radius:9px;padding:10px 12px;font-size:11.5px;color:var(--tm)}
+.empty b{color:var(--ts)}
+.near{display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:11px;padding:6px 2px;color:var(--ts)}
+.near .d{margin-left:auto;color:var(--tf)}
+
+/* trend table */
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);text-align:right;padding:4px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td{font-family:var(--mono);font-size:11.5px;padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;color:var(--ts)}
+td b{color:var(--tp);font-weight:700}
+tr:hover td{background:var(--s2)}
+.rchips{display:flex;gap:6px;margin-top:9px}
+.rchip{font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:6px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer}
+
+/* eod pending */
+.eod{display:flex;align-items:center;gap:12px;background:var(--s1);border:1px solid var(--line2);border-radius:10px;padding:12px 14px}
+.eod .clock2{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--tf)}
+.eod .msg{font-size:12px;color:var(--tm);flex:1}
+.eod a{color:var(--blu2);font-size:11.5px;text-decoration:none;font-weight:600}
+
+/* ── STATE BADGES (bottom watch) ── */
+.badge{font-family:var(--mono);font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:4px;letter-spacing:.03em;text-transform:uppercase}
+.badge.buy{background:rgba(34,197,94,.16);color:var(--bull2);border:1px solid rgba(34,197,94,.3)}
+.badge.os{background:rgba(245,183,61,.14);color:var(--amber2);border:1px solid rgba(245,183,61,.28)}
+.badge.rec{background:rgba(59,130,246,.14);color:var(--blu2);border:1px solid rgba(59,130,246,.3)}
+.badge.app{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:14px;line-height:1.5;max-width:980px}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR — same shell as the trading page redesign -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · TODAY</span></div>
+  <div class="clock">09:52:14</div>
+  <div class="pill open"><span class="b"></span>Market Open</div>
+  <span class="mono" style="font-size:11px;color:var(--tm)">reports mirror Telegram</span>
+  <div class="regime">
+    <span class="chip ok"><span class="b"></span>SPY Healthy</span>
+    <span class="chip ok"><span class="b"></span>BTC Healthy</span>
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- GREETING -->
+<div class="greet">
+  <h1>Good morning</h1>
+  <span class="date">FRIDAY · JUL 3</span>
+  <span class="posture">🛡 Stops on every position · Normal</span>
+  <small>Everything below is your trading day, top to bottom — premarket to the close.</small>
+</div>
+
+<div class="app">
+
+  <!-- LEFT: DAY TIMELINE — replaces Signals/Bottom-Watch/Reports tabs + 5 report chips -->
+  <div class="col rail">
+    <div class="railhead"><div class="sh"><span class="i">🕘</span>Your Day</div></div>
+    <div class="tl" data-go="s-brief"><span class="tt">4:30a</span><span class="lb">Premarket brief</span><span class="st done">✓</span></div>
+    <div class="tl on" data-go="s-focus"><span class="tt">8:55a</span><span class="lb">Today's Focus</span><span class="st done">✓</span></div>
+    <div class="tl" data-go="s-pm"><span class="tt">9:45a</span><span class="lb">Premarket signals</span><span class="st done">✓</span></div>
+    <div class="tl" data-go="s-trend"><span class="tt">ALL·DAY</span><span class="lb">Trend setups</span><span class="st live">6</span></div>
+    <div class="tl" data-go="s-bottom"><span class="tt">ALL·DAY</span><span class="lb">Bottom watch</span><span class="st live">4</span></div>
+    <div class="tl" data-go="s-eod"><span class="tt">4:10p</span><span class="lb">EOD recap</span><span class="st wait">—</span></div>
+    <div class="raildiv"></div>
+    <!-- bridge to the live cockpit — the feed itself lives on the Trading page only -->
+    <a class="bridge" href="#">
+      <span class="bk">⚡ Live now</span>
+      <span class="bv"><b>3 signals fired</b> · last 09:47</span>
+      <span class="bgo">Open Trading →</span>
+    </a>
+    <div class="raildiv"></div>
+    <div class="railfoot">
+      <label>Session</label>
+      <select><option>Latest — Fri Jul 3</option><option>Thu Jul 2</option><option>Wed Jul 1</option><option>Mon Jun 29</option></select>
+    </div>
+    <div class="raildiv"></div>
+    <div class="railnote">✓ published · amber = updating live · — publishes after the close. Same reports as Telegram, reviewable by session.</div>
+  </div>
+
+  <!-- CENTER: THE DAY, IN ORDER -->
+  <div class="col center">
+
+    <!-- SPOTLIGHT -->
+    <div class="csec" id="s-focus">
+      <div class="chead"><div class="sh"><span class="i">☀️</span>Morning Spotlight <span class="sub">— best risk/reward on the desk right now</span></div><span class="chead meta mono">09:52 ET</span></div>
+      <div class="spot">
+        <div class="strip">
+          <span class="sym">AAPL</span>
+          <span class="hl">Monthly breakout — sitting at the buy point</span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <span class="tagl gr">A</span><span class="tagl long">LONG</span><span class="tagl swing">SWING</span>
+          </span>
+        </div>
+        <div class="body">
+          <div class="tiles">
+            <div class="tile"><div class="k">AAPL now</div><div class="v">$308.63</div></div>
+            <div class="tile"><div class="k">Buy point</div><div class="v amb">$309.20</div></div>
+            <div class="tile"><div class="k">Away</div><div class="v pos">0.18%</div></div>
+          </div>
+          <div class="plan">
+            <div><div class="k">Buy zone</div><div class="val amb">$308.40–310.10</div></div>
+            <div><div class="k">Target</div><div class="val pos">$321.50</div></div>
+            <div><div class="k">Stop</div><div class="val neg">$302.90</div></div>
+            <div><div class="k">Risk / Reward</div><div class="val pos">2.6R</div></div>
+          </div>
+          <div class="ctx">
+            <b>🟢 BULL</b> — <span class="lv">PDH 305.10 · MH 312.40 · EMA21 rising · RSI 62 · RVol 1.8×</span>
+            <span class="act">→ Buy the break of 309.20 on volume · half size into the range · stop below 302.90.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TODAY'S FOCUS -->
+    <div class="csec">
+      <div class="chead"><div class="sh"><span class="i">🎯</span>Today's Focus <span class="sub">— published 8:55 ET</span></div><span class="chead meta mono">5 names</span></div>
+
+      <div class="subh">Swing · monthly breakout</div>
+      <div class="pgrid">
+        <div class="pick">
+          <div class="top"><span class="sym">HOOD</span><span class="tagl long">LONG</span><span class="tagl swing">SWING</span><span class="px">$112.73</span></div>
+          <div class="setup">Cup base — buy point $114.20</div>
+          <div class="kv"><span>RANGE <b class="amb">113.6–115.9</b></span><span>STOP <b class="neg">$107.40</b></span><span>SIZE <b>½</b></span></div>
+          <div class="why"><em>3 weeks tight above the 10-week</em> · RVol building · group leader in brokers.</div>
+        </div>
+        <div class="pick">
+          <div class="top"><span class="sym">PLTR</span><span class="tagl long">LONG</span><span class="tagl swing">SWING</span><span class="px">$129.30</span></div>
+          <div class="setup">Flat base retest — buy point $131.00</div>
+          <div class="kv"><span>RANGE <b class="amb">130.4–132.9</b></span><span>STOP <b class="neg">$124.10</b></span><span>SIZE <b>½</b></span></div>
+          <div class="why">Held the 21-day on the pullback · <em>still 4% under the pivot — let it come to you.</em></div>
+        </div>
+      </div>
+
+      <div class="subh">Day trade · the turn / hold / breakout</div>
+      <div class="pgrid">
+        <div class="pick">
+          <div class="top"><span class="sym">NVDA</span><span class="tagl long">LONG</span><span class="tagl day">DAY</span><span class="px">$194.83</span></div>
+          <div class="setup">The hold — defend EMA21 at $191.20</div>
+          <div class="kv"><span>ENTRY <b class="amb">191.4–192.2</b></span><span>STOP <b class="neg">$188.30</b></span><span>RSI <b>43</b></span></div>
+          <div class="why">Bounce entry only on reclaim with volume · lose PDL 188.40 → stand down.</div>
+        </div>
+        <div class="pick">
+          <div class="top"><span class="sym">SOXS</span><span class="tagl short">FADE</span><span class="tagl day">DAY</span><span class="px">$4.51</span></div>
+          <div class="setup">The turn — +17% gap into weekly supply</div>
+          <div class="kv"><span>ENTRY <b class="amb">4.62–4.70</b></span><span>STOP <b class="neg">$4.84</b></span><span>RSI <b>78</b></span></div>
+          <div class="why">Extended 3 ATRs · <em>only on a failed retest of the opening high.</em></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREMARKET SIGNALS -->
+    <div class="csec" id="s-pm">
+      <div class="chead"><div class="sh"><span class="i">📡</span>Premarket Signals <span class="sub">— published 9:45 ET</span></div><span class="chead meta mono">2 breaking · 0 at support</span></div>
+      <div class="pmcols">
+        <div>
+          <div class="subh">Breaking out</div>
+          <div class="pmrow">
+            <span class="sym">FROG</span>
+            <span class="lab">PDH break — gapping through yesterday's high<small>held above $92.80 all premarket</small></span>
+            <span class="nums"><span>ENTRY</span> <b class="amb">94.90</b> · <span>STOP</span> <b class="neg">91.60</b><br><span>GAP</span> <b class="pos">+5.2%</b></span>
+          </div>
+          <div class="pmrow">
+            <span class="sym">AMZN</span>
+            <span class="lab">10-wk MA held — weekly support defended<small>reclaimed $241.20 into the open</small></span>
+            <span class="nums"><span>ENTRY</span> <b class="amb">243.10</b> · <span>STOP</span> <b class="neg">238.70</b><br><span>GAP</span> <b class="pos">+0.9%</b></span>
+          </div>
+        </div>
+        <div>
+          <div class="subh">At support</div>
+          <!-- the empty-state fix: one compact line + what's NEAREST, not a giant empty box -->
+          <div class="empty">
+            <b>No Focus name is at a level right now.</b> Nearest to one:
+            <div class="near"><b>MSFT</b> <span style="color:var(--tf)">→ EMA21 388.10</span><span class="d">0.6% away</span></div>
+            <div class="near"><b>NVDA</b> <span style="color:var(--tf)">→ EMA21 191.20</span><span class="d">1.9% away</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TREND SETUPS -->
+    <div class="csec" id="s-trend">
+      <div class="chead"><div class="sh"><span class="i">📈</span>Trend Setups <span class="sub">— at a rising 20 EMA</span></div><span class="chead meta mono">6 ready</span></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Symbol</th><th>Price</th><th>20 EMA</th><th>Dist</th><th>ADX</th><th>Stop</th></tr></thead>
+        <tbody>
+          <tr><td><b>MSFT</b></td><td>390.49</td><td>388.10</td><td class="pos">+0.6%</td><td>31</td><td class="neg">383.20</td></tr>
+          <tr><td><b>AMZN</b></td><td>242.67</td><td>240.90</td><td class="pos">+0.7%</td><td>27</td><td class="neg">236.40</td></tr>
+          <tr><td><b>V</b></td><td>341.65</td><td>338.20</td><td class="pos">+1.0%</td><td>29</td><td class="neg">333.10</td></tr>
+          <tr><td><b>COST</b></td><td>1012.40</td><td>1004.80</td><td class="pos">+0.8%</td><td>24</td><td class="neg">989.50</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="rchips"><span class="rchip">Extended · 3</span><span class="rchip">Rolling off · 2</span></div>
+    </div>
+
+    <!-- BOTTOM WATCH — promoted to a full section (all-day report; not on the Trading page) -->
+    <div class="csec" id="s-bottom">
+      <div class="chead"><div class="sh"><span class="i">🪤</span>Bottom Watch <span class="sub">— washed-out names, ranked by daily RSI</span></div><span class="chead meta mono">4 in buy zone</span></div>
+      <div style="overflow-x:auto">
+      <table>
+        <thead><tr><th>Symbol</th><th>RSI</th><th style="text-align:left">Setup</th><th>vs 200MA</th><th>P/E</th><th style="text-align:left">Rating</th><th>Upside</th><th style="text-align:left">Sector</th></tr></thead>
+        <tbody>
+          <tr><td><b>NKE</b></td><td class="neg">24</td><td style="text-align:left"><span class="badge buy">Buy zone</span></td><td class="neg">-18%</td><td>19.2</td><td style="text-align:left">Buy</td><td class="pos">+31%</td><td style="text-align:left">Consumer</td></tr>
+          <tr><td><b>PYPL</b></td><td class="neg">27</td><td style="text-align:left"><span class="badge buy">Buy zone</span></td><td class="neg">-14%</td><td>13.8</td><td style="text-align:left">Buy</td><td class="pos">+27%</td><td style="text-align:left">Finance</td></tr>
+          <tr><td><b>UNH</b></td><td class="amb">31</td><td style="text-align:left"><span class="badge rec">Reclaimed 30</span></td><td class="neg">-22%</td><td>11.4</td><td style="text-align:left">Strong Buy</td><td class="pos">+38%</td><td style="text-align:left">Health</td></tr>
+          <tr><td><b>MU</b></td><td class="amb">29</td><td style="text-align:left"><span class="badge os">Oversold</span></td><td class="neg">-9%</td><td>9.7</td><td style="text-align:left">Buy</td><td class="pos">+22%</td><td style="text-align:left">Tech</td></tr>
+          <tr><td><b>SBUX</b></td><td>36</td><td style="text-align:left"><span class="badge app">Approaching</span></td><td class="neg">-6%</td><td>22.1</td><td style="text-align:left">Hold</td><td class="pos">+12%</td><td style="text-align:left">Consumer</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <div class="why" style="margin-top:8px"><em>Reclaimed 30</em> = RSI crossed back above 30 — the earliest turn signal · row click opens the chart on the Trading page.</div>
+    </div>
+
+    <!-- EOD -->
+    <div class="csec" id="s-eod">
+      <div class="chead"><div class="sh"><span class="i">🌙</span>EOD Recap</div></div>
+      <div class="eod">
+        <span class="clock2">4:10p</span>
+        <span class="msg">Publishes after the close — how the Focus names resolved, what fired, what to carry into Monday.</span>
+        <a href="#">Yesterday's recap →</a>
+      </div>
+    </div>
+
+    <div class="foot">Educational purposes only — not financial advice. New to these setups? Paper trade them first.</div>
+  </div>
+
+</div>
+
+<div class="note">◔ Mockup — Today = the briefing room (plan + reports); live feed lives on the <b>Trading</b> page only. Toggle <b>▢/▣</b> and <b>🌙/☀️</b> in the top bar.</div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+// timeline rail → scroll the center column
+document.querySelectorAll('.tl').forEach(function(el){
+  el.addEventListener('click', function(){
+    document.querySelectorAll('.tl').forEach(function(x){x.classList.remove('on')});
+    el.classList.add('on');
+    var t = document.getElementById(el.dataset.go);
+    if(t) t.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+});
+</script>
+</body></html>

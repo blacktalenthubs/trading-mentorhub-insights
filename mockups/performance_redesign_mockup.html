@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as the other redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .lens,
+body.terminal .tagl,body.terminal .badge,body.terminal .note,body.terminal .tile,
+body.terminal .panel,body.terminal .rowc,body.terminal .exp,body.terminal select,
+body.terminal input{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.clock{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--tm);letter-spacing:.04em}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.closed{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--tm);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;text-transform:uppercase}
+.chip.ok{background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.chip .b{width:6px;height:6px;border-radius:50%;background:var(--bull)}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+
+/* ── PAGE HEAD ── */
+.phead{display:flex;align-items:center;gap:14px;padding:14px 18px 4px;flex-wrap:wrap;max-width:1320px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.subtitle{font-size:12px;color:var(--tm)}
+.pmeta{margin-left:auto;display:flex;gap:8px;align-items:center}
+select{font-family:var(--mono);font-size:11px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);border-radius:6px;padding:5px 8px}
+.wrap{max-width:1320px;margin:0 auto;padding:4px 18px 40px}
+
+/* lens */
+.lensbar{display:flex;align-items:center;gap:8px;margin:10px 0 12px;flex-wrap:wrap}
+.lens{font-family:var(--mono);font-size:11px;font-weight:700;padding:6px 12px;border-radius:7px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.lens .n{opacity:.6;font-weight:600}
+.lens.on{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.gradenote{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tf)}
+.gradenote b{color:var(--bull2)}
+
+/* scoreboard */
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
+@media(max-width:1100px){.tiles{grid-template-columns:repeat(3,1fr)}}
+.tile{background:var(--s1);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.tile .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--tf);text-transform:uppercase}
+.tile .v{font-family:var(--mono);font-size:19px;font-weight:800;margin-top:2px}
+.tile .s{font-family:var(--mono);font-size:9.5px;color:var(--tf);margin-top:1px}
+
+/* layout */
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;align-items:start}
+@media(max-width:1100px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:14px}
+.panel .chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px}
+.panel .meta{font-family:var(--mono);font-size:10px;color:var(--tf)}
+
+/* report card rows */
+.subh{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--tm);margin:12px 0 7px}
+.subh:first-of-type{margin-top:0}
+.rowc{display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--line2);border-radius:9px;padding:8px 11px;margin-bottom:6px;flex-wrap:wrap}
+.rowc .sym{font-family:var(--mono);font-size:13.5px;font-weight:800;width:64px}
+.rowc .pat{font-size:11px;color:var(--tm);flex:1;min-width:150px}
+.rowc .pat em{font-style:normal;color:var(--ts)}
+.rowc .nums{font-family:var(--mono);font-size:10.5px;color:var(--tf);text-align:right}
+.rowc .nums b{font-size:11.5px}
+.tagl{font-family:var(--mono);font-size:8.5px;font-weight:800;letter-spacing:.04em;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+.tagl.day{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.28)}
+.tagl.swing{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.28)}
+.tagl.lt{background:rgba(167,139,250,.12);color:var(--vio2);border:1px solid rgba(167,139,250,.28)}
+.badge{font-family:var(--mono);font-size:9px;font-weight:800;letter-spacing:.05em;padding:3px 8px;border-radius:5px;text-transform:uppercase}
+.badge.win{background:rgba(34,197,94,.16);color:var(--bull2);border:1px solid rgba(34,197,94,.32)}
+.badge.loss{background:rgba(239,68,68,.14);color:var(--bear2);border:1px solid rgba(239,68,68,.3)}
+.badge.trk{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.3)}
+.badge.inc{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+.callout{font-size:10.5px;color:var(--tm);background:rgba(245,183,61,.06);border:1px solid rgba(245,183,61,.22);border-radius:7px;padding:7px 10px;margin:4px 0 8px;line-height:1.5}
+.callout b{color:var(--amber2)}
+
+/* pattern table */
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);text-align:right;padding:7px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+th.l,td.l{text-align:left}
+td{font-family:var(--mono);font-size:11.5px;padding:8px;border-bottom:1px solid var(--line);text-align:right;color:var(--ts);white-space:nowrap}
+tr:hover td{background:var(--s2)}
+td b{color:var(--tp)}
+.vdt{font-family:var(--mono);font-size:8.5px;font-weight:800;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+.vdt.edge{background:rgba(34,197,94,.16);color:var(--bull2);border:1px solid rgba(34,197,94,.32)}
+.vdt.cut{background:rgba(239,68,68,.14);color:var(--bear2);border:1px solid rgba(239,68,68,.3)}
+.vdt.bld{background:var(--s3);color:var(--tm);border:1px solid var(--line2)}
+
+/* equity curve */
+.curve{position:relative}
+.curve svg{display:block;width:100%;height:150px}
+.curve .end{position:absolute;right:8px;top:8px;font-family:var(--mono);font-size:15px;font-weight:800;color:var(--bull2)}
+.curve .end small{display:block;font-size:9px;color:var(--tf);font-weight:600;text-align:right}
+
+/* explainer */
+.exp{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+.exp:first-of-type{border-top:none;padding-top:2px}
+.exp .ic{font-size:13px;width:20px;text-align:center}
+.exp .tx{font-size:11px;color:var(--tm);line-height:1.5}
+.exp .tx b{color:var(--ts)}
+.exp .tx .tagl{margin-right:5px}
+
+/* claim (EOD check-in) */
+.claimbar{display:flex;align-items:center;gap:10px;background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.3);border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:11.5px;color:var(--ts);flex-wrap:wrap}
+.claimbar b{color:var(--blu2)}
+.claimbar .cnt{font-family:var(--mono);font-size:10px;color:var(--tf);margin-left:auto}
+.clm{font-family:var(--mono);font-size:9px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:5px;border:1px solid var(--line2);background:var(--s1);color:var(--tm);cursor:pointer;text-transform:uppercase}
+.clm:hover{border-color:rgba(59,130,246,.5);color:var(--blu2)}
+.clm.tk{background:rgba(34,197,94,.14);color:var(--bull2);border-color:rgba(34,197,94,.32)}
+.clm.ps{background:var(--s3);color:var(--tf)}
+.catchup{display:flex;align-items:center;gap:10px;background:var(--s2);border:1px dashed var(--line2);border-radius:8px;padding:7px 11px;margin-top:8px;font-family:var(--mono);font-size:10.5px;color:var(--tm)}
+.catchup b{color:var(--amber2)}
+.catchup .go{margin-left:auto;color:var(--blu2);font-weight:700;cursor:pointer}
+
+/* declined */
+.drow{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--line);font-size:11px}
+.drow .sym{font-family:var(--mono);font-size:12px;font-weight:800;width:56px}
+.drow .pat{color:var(--tm);flex:1}
+.drow .vd{font-family:var(--mono);font-size:10px;font-weight:800}
+.insight{margin-top:9px;background:var(--s2);border:1px solid var(--line2);border-radius:8px;padding:8px 11px;font-size:11px;color:var(--tm);line-height:1.5}
+.insight b{color:var(--amber2)}
+
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:18px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR — after the close, grading done -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · PERFORMANCE</span></div>
+  <div class="clock">16:52:08</div>
+  <div class="pill closed"><span class="b"></span>Market Closed</div>
+  <span class="mono" style="font-size:11px;color:var(--tm)">today's signals graded 16:30 ✓ · EOD marks 16:45 ✓</span>
+  <div class="regime">
+    <span class="chip ok"><span class="b"></span>SPY Healthy</span>
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- PAGE HEAD -->
+<div class="phead">
+  <h1>Performance</h1>
+  <span class="subtitle">Every signal grades itself — nothing to type. Your fills are an optional correction.</span>
+  <div class="pmeta"><select><option>Last 30 days</option><option>Last 90 days</option><option>This year</option></select></div>
+</div>
+
+<div class="wrap">
+
+  <!-- STYLE LENS — the split that never existed -->
+  <div class="lensbar">
+    <span class="lens on">All <span class="n">142</span></span>
+    <span class="lens">☀ Day <span class="n">78</span></span>
+    <span class="lens">📈 Swing <span class="n">46</span></span>
+    <span class="lens">🏛 Long-term <span class="n">18</span></span>
+    <span class="gradenote">graded: day by <b>intraday R</b> · swing/long by <b>EOD close</b></span>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="tiles">
+    <div class="tile"><div class="k">Signals graded</div><div class="v">142</div><div class="s">30 days · auto</div></div>
+    <div class="tile"><div class="k">Win rate</div><div class="v pos">58%</div><div class="s">day 61 · swing 55</div></div>
+    <div class="tile"><div class="k">Avg R / signal</div><div class="v pos">+0.42</div></div>
+    <div class="tile"><div class="k">Total</div><div class="v pos">+18.6R</div><div class="s">cumulative</div></div>
+    <div class="tile"><div class="k">Your trades</div><div class="v">21</div><div class="s">of 142 · marked took</div></div>
+    <div class="tile"><div class="k">Your result</div><div class="v pos">+9.4R</div><div class="s">win rate 62%</div></div>
+  </div>
+
+  <div class="grid">
+    <!-- ══ LEFT ══ -->
+    <div>
+
+      <!-- TODAY'S REPORT CARD -->
+      <div class="panel">
+        <div class="chead"><div class="sh">📋 Report Card <span class="sub">— graded automatically at the close</span></div>
+          <select><option>Fri Jul 3 — 7 signals</option><option>Thu Jul 2 — 5 signals · unclaimed</option><option>Wed Jul 1 — 6 signals</option></select></div>
+
+        <!-- EOD CHECK-IN — claiming replaces real-time tapping -->
+        <div class="claimbar">✋ <b>Which did you take?</b> Tap to claim — the grade and R apply automatically, tonight or next week.<span class="cnt">1 claimed · 1 passed · 5 unclaimed</span></div>
+
+        <div class="subh">Day trades — intraday R race: +1R before −1R wins</div>
+        <div class="rowc">
+          <span class="sym">FROG</span><span class="tagl day">DAY</span>
+          <span class="pat"><em>PDH break</em> · fired 09:47 · long 94.90</span>
+          <span class="nums">MFE <b class="pos">+2.1R</b> · MAE <b class="neg">−0.3R</b></span>
+          <span class="badge win">Worked</span>
+          <button class="clm">✓ took</button><button class="clm">— pass</button>
+        </div>
+        <div class="callout"><b>Note:</b> FROG finished the day <b class="neg">−0.8%</b> — but the signal hit +1R at 10:12 before any −1R. Day trades are graded on the intraday move, never the close.</div>
+        <div class="rowc">
+          <span class="sym">NVDA</span><span class="tagl day">DAY</span>
+          <span class="pat"><em>EMA21 bounce</em> · fired 10:31 · long 191.40</span>
+          <span class="nums">MFE <b class="pos">+0.6R</b> · MAE <b class="neg">−1.2R</b></span>
+          <span class="badge loss">Failed</span>
+          <span class="clm ps">passed</span>
+        </div>
+        <div class="rowc">
+          <span class="sym">SOXS</span><span class="tagl day">DAY</span>
+          <span class="pat"><em>Gap fade</em> · fired 09:52 · short 4.66</span>
+          <span class="nums">MFE <b class="pos">+0.8R</b> · MAE <b class="neg">−0.4R</b></span>
+          <span class="badge inc">Inconclusive</span>
+          <button class="clm">✓ took</button><button class="clm">— pass</button>
+        </div>
+
+        <div class="subh">Swing &amp; long-term — marked at today's close, resolved at target or stop</div>
+        <div class="rowc">
+          <span class="sym">HOOD</span><span class="tagl swing">SWING</span>
+          <span class="pat"><em>Cup breakout</em> · fired Jul 1 · long 114.20 · day 3</span>
+          <span class="nums">EOD mark <b class="pos">+2.4%</b> · T1 4.1% away</span>
+          <span class="badge trk">Tracking</span>
+          <button class="clm">✓ took</button><button class="clm">— pass</button>
+        </div>
+        <div class="rowc">
+          <span class="sym">MU</span><span class="tagl swing">SWING</span>
+          <span class="pat"><em>10-wk reclaim</em> · fired Jun 26 · long 64.10 · day 6</span>
+          <span class="nums">T1 hit today 13:04 <b class="pos">+2.0R</b></span>
+          <span class="badge win">Worked</span>
+          <span class="clm tk">✓ took +2.0R</span>
+        </div>
+        <div class="rowc">
+          <span class="sym">UNH</span><span class="tagl lt">LONG-TERM</span>
+          <span class="pat"><em>Monthly base</em> · fired Jun 12 · long 288.40 · wk 3</span>
+          <span class="nums">EOD mark <b class="pos">+4.9%</b> · EOW <b class="pos">+1.1%</b></span>
+          <span class="badge trk">Tracking</span>
+          <button class="clm">✓ took</button><button class="clm">— pass</button>
+        </div>
+
+        <!-- CATCH-UP — unclaimed sessions never nag in real time, they wait here -->
+        <div class="catchup">📅 <b>Thu Jul 2</b> — 5 signals fired, none claimed yet<span class="go">claim that day →</span></div>
+      </div>
+
+      <!-- YOUR TRADES — manual typing demoted to an optional correction -->
+      <div class="panel">
+        <div class="chead"><div class="sh">👤 Your Trades <span class="sub">— built from your claims; auto-closed with the signal</span></div><span class="meta">2 open · 1 closed today</span></div>
+        <div class="rowc">
+          <span class="sym">MU</span><span class="tagl swing">SWING</span>
+          <span class="pat">took Jun 26 · <em>auto-closed at T1 68.75</em> today 13:04</span>
+          <span class="nums"><b class="pos">+2.0R</b></span>
+          <span class="badge win">Won</span>
+          <button class="btn" style="padding:3px 9px">✎ my fill differed</button>
+        </div>
+        <div class="rowc">
+          <span class="sym">HOOD</span><span class="tagl swing">SWING</span>
+          <span class="pat">took Jul 1 · open · <em>marked at tonight's close</em></span>
+          <span class="nums">mark <b class="pos">+2.4%</b> · <b class="pos">+0.9R</b></span>
+          <span class="badge trk">Open</span>
+          <button class="btn" style="padding:3px 9px">close now</button>
+        </div>
+        <div class="rowc">
+          <span class="sym">UNH</span><span class="tagl lt">LONG-TERM</span>
+          <span class="pat">took Jun 12 · open · <em>marked weekly</em></span>
+          <span class="nums">mark <b class="pos">+4.9%</b> · <b class="pos">+1.4R</b></span>
+          <span class="badge trk">Open</span>
+          <button class="btn" style="padding:3px 9px">close now</button>
+        </div>
+      </div>
+
+      <!-- PATTERN EDGE -->
+      <div class="panel">
+        <div class="chead"><div class="sh">🧪 Pattern Edge <span class="sub">— auto-graded signals + your trades, by pattern</span></div><span class="meta">min 5 to judge</span></div>
+        <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th class="l">Pattern</th><th class="l">Style</th><th>N</th><th>Win%</th><th>Avg R</th><th>Total R</th><th>You</th><th class="l">Verdict</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><b>PDH break</b></td><td class="l"><span class="tagl day">DAY</span></td><td>24</td><td class="pos">67%</td><td class="pos">+0.71</td><td class="pos">+17.0</td><td class="pos">+4.2R</td><td class="l"><span class="vdt edge">Edge</span></td></tr>
+            <tr><td class="l"><b>10-wk reclaim</b></td><td class="l"><span class="tagl swing">SWING</span></td><td>11</td><td class="pos">64%</td><td class="pos">+0.58</td><td class="pos">+6.4</td><td class="pos">+2.0R</td><td class="l"><span class="vdt edge">Edge</span></td></tr>
+            <tr><td class="l"><b>EMA21 bounce</b></td><td class="l"><span class="tagl day">DAY</span></td><td>19</td><td>47%</td><td class="neg">−0.12</td><td class="neg">−2.3</td><td class="neg">−1.1R</td><td class="l"><span class="vdt cut">Cut</span></td></tr>
+            <tr><td class="l"><b>Gap &amp; go</b></td><td class="l"><span class="tagl day">DAY</span></td><td>8</td><td class="pos">63%</td><td class="pos">+0.55</td><td class="pos">+4.4</td><td>—</td><td class="l"><span class="vdt edge">Edge</span></td></tr>
+            <tr><td class="l"><b>Monthly base</b></td><td class="l"><span class="tagl lt">LT</span></td><td>4</td><td>—</td><td>—</td><td>—</td><td>—</td><td class="l"><span class="vdt bld">Building</span></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="insight">💡 <b>EMA21 bounce is costing you</b> — 19 signals, −2.3R and you're −1.1R on the 4 you took. The system keeps sending it; consider muting it in Alerts until the regime changes.</div>
+      </div>
+    </div>
+
+    <!-- ══ RIGHT ══ -->
+    <div>
+      <!-- EQUITY CURVE (R-based) -->
+      <div class="panel">
+        <div class="chead"><div class="sh">📈 Signal Equity <span class="sub">— cumulative R</span></div><span class="meta">30d</span></div>
+        <div class="curve">
+          <span class="end">+18.6R<small>all signals</small></span>
+          <svg viewBox="0 0 300 150" preserveAspectRatio="none">
+            <line x1="0" y1="118" x2="300" y2="118" stroke="var(--line2)" stroke-width="1" stroke-dasharray="3 4"/>
+            <path d="M0,118 L20,112 L40,116 L60,104 L80,108 L100,94 L120,99 L140,86 L160,92 L180,74 L200,80 L220,62 L240,68 L260,48 L280,38 L300,30 L300,150 L0,150 Z" fill="rgba(34,197,94,.10)"/>
+            <path d="M0,118 L20,112 L40,116 L60,104 L80,108 L100,94 L120,99 L140,86 L160,92 L180,74 L200,80 L220,62 L240,68 L260,48 L280,38 L300,30" fill="none" stroke="var(--bull)" stroke-width="2"/>
+            <circle cx="300" cy="30" r="3.5" fill="var(--bull2)"/>
+          </svg>
+        </div>
+        <div class="mono" style="font-size:9.5px;color:var(--tf);margin-top:6px">R-based, one unit of risk per signal — no fake dollar sizing. Your 21 trades: <b class="pos">+9.4R</b>.</div>
+      </div>
+
+      <!-- HOW GRADING WORKS — trust panel -->
+      <div class="panel">
+        <div class="chead"><div class="sh">⚖️ How Grading Works</div></div>
+        <div class="exp"><span class="ic">☀</span><div class="tx"><span class="tagl day">DAY</span><b>Intraday R race.</b> After the signal fires we walk the 5-minute bars: +1R touched before −1R = worked. The daily close is irrelevant — a day trade can win and the stock can still finish red.</div></div>
+        <div class="exp"><span class="ic">📈</span><div class="tx"><span class="tagl swing">SWING</span><b>EOD marks until resolution.</b> Marked at each close, graded when target or stop hits — whichever comes first. No typing.</div></div>
+        <div class="exp"><span class="ic">🏛</span><div class="tx"><span class="tagl lt">LONG-TERM</span><b>Weekly mark-to-market</b> vs entry; graded at target, stop, or when the monthly trend breaks.</div></div>
+        <div class="exp"><span class="ic">👤</span><div class="tx"><b>Claim at EOD, not in the moment.</b> Come back after the close and tap "took" on what you traded — the grade and R backfill automatically. Claiming a week later works the same. Edit only if your real fill differed.</div></div>
+      </div>
+
+      <!-- DECLINED — with the verdict that was always missing -->
+      <div class="panel">
+        <div class="chead"><div class="sh">🚫 Passed On <span class="sub">— would it have worked?</span></div><span class="meta">this week</span></div>
+        <div class="drow"><span class="sym">PLTR</span><span class="pat">PDH break · Tue</span><span class="vd pos">✓ +1.8R</span></div>
+        <div class="drow"><span class="sym">AMZN</span><span class="pat">10-wk reclaim · Tue</span><span class="vd pos">✓ +1.2R</span></div>
+        <div class="drow"><span class="sym">SOXS</span><span class="pat">Gap fade · Wed</span><span class="vd neg">✗ −1.0R</span></div>
+        <div class="drow"><span class="sym">CRM</span><span class="pat">EMA21 bounce · Thu</span><span class="vd neg">✗ −1.0R</span></div>
+        <div class="drow" style="border-bottom:none"><span class="sym">MSFT</span><span class="pat">PDH break · Fri</span><span class="vd pos">✓ +0.9R</span></div>
+        <div class="insight">💡 You passed on <b>3 winners (+3.9R)</b> this week — all morning PDH breaks. Your skips in EMA21 bounces were right. Trust the pattern-edge table.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">Signal grades are computed from market data (MFE/MAE on 5-min bars · EOD closes), not user reports.<br>Educational purposes only — not financial advice.</div>
+</div>
+
+<div class="note">◔ Mockup — signals auto-grade by style · you claim took/pass at EOD (or whenever) · report card grouped by session date. Toggle <b>▢/▣</b> · <b>🌙/☀️</b></div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+</script>
+</body></html>

@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Premarket — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as the other redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .lens,
+body.terminal .tagl,body.terminal .badge,body.terminal .note,body.terminal .tile,
+body.terminal .qcard,body.terminal .plan,body.terminal .tg,body.terminal .heat,
+body.terminal .pipe,body.terminal select{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR (shared shell) ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.clock{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--amber2);letter-spacing:.04em}
+.pill{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.08em;padding:4px 10px;border-radius:20px;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px}
+.pill.pm{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.32)}
+.pill .b{width:7px;height:7px;border-radius:50%;background:var(--amber);display:inline-block}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:4px 9px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;text-transform:uppercase}
+.chip.ok{background:rgba(34,197,94,.1);color:var(--bull2);border:1px solid rgba(34,197,94,.22)}
+.chip .b{width:6px;height:6px;border-radius:50%;background:var(--bull)}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+
+/* ── PAGE HEAD ── */
+.phead{display:flex;align-items:center;gap:14px;padding:14px 18px 4px;flex-wrap:wrap;max-width:1320px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:21px;font-weight:800;letter-spacing:-.01em}
+.subtitle{font-size:12px;color:var(--tm)}
+.pmeta{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pmeta .ago{font-family:var(--mono);font-size:10.5px;color:var(--tf)}
+.wrap{max-width:1320px;margin:0 auto;padding:4px 18px 40px}
+
+/* ── GAP & GO QUEUE ── */
+.pipe{display:flex;align-items:center;gap:14px;background:var(--s1);border:1px solid rgba(245,183,61,.3);border-radius:10px;padding:8px 13px;margin:12px 0;flex-wrap:wrap}
+.pipe .k{font-family:var(--mono);font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--amber2)}
+.pipe .step{font-family:var(--mono);font-size:10.5px;color:var(--ts);display:inline-flex;gap:6px;align-items:center}
+.pipe .step b{color:var(--bull2);font-weight:800}
+.pipe .arr{color:var(--tf)}
+.qgrid{display:grid;grid-template-columns:2.2fr 1fr;gap:12px;align-items:start}
+@media(max-width:1100px){.qgrid{grid-template-columns:1fr}}
+.qcards{display:flex;flex-direction:column;gap:10px}
+.qcard{background:var(--s1);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+.qcard.q1{border-color:rgba(245,183,61,.45)}
+.qcard .strip{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--s2);border-bottom:1px solid var(--line)}
+.qcard.q1 .strip{background:rgba(245,183,61,.08)}
+.qcard .rank{font-family:var(--mono);font-size:12px;font-weight:800;color:#16181f;background:var(--amber);border-radius:6px;padding:1px 7px}
+.qcard .sym{font-family:var(--mono);font-size:17px;font-weight:800}
+.qcard .gap{font-family:var(--mono);font-size:15px;font-weight:800;color:var(--bull2)}
+.qcard .cat{font-size:11.5px;color:var(--tm);flex:1;min-width:120px}
+.qcard .cat em{font-style:normal;color:var(--ts)}
+.qs{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tf)}
+.qs b{font-size:13px;color:var(--tp)}
+.qbody{padding:10px 13px}
+.qflags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.tagl{font-family:var(--mono);font-size:8.5px;font-weight:800;letter-spacing:.04em;padding:2px 7px;border-radius:4px;text-transform:uppercase}
+.tagl.ok{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.26)}
+.tagl.info{background:rgba(59,130,246,.12);color:var(--blu2);border:1px solid rgba(59,130,246,.28)}
+.tagl.warn{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.28)}
+.plan{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line2);border-radius:8px;overflow:hidden}
+@media(max-width:900px){.plan{grid-template-columns:1fr 1fr}}
+.plan div{background:var(--s2);padding:7px 10px}
+.plan .k{font-family:var(--mono);font-size:8px;letter-spacing:.08em;color:var(--tf);text-transform:uppercase}
+.plan .val{font-family:var(--mono);font-size:12.5px;font-weight:700;margin-top:1px}
+.plan .s{font-family:var(--sans);font-size:9.5px;color:var(--tf);margin-top:2px}
+.qout{display:flex;gap:12px;margin-top:9px;font-family:var(--mono);font-size:9.5px;color:var(--tf);flex-wrap:wrap}
+.qout span{display:inline-flex;gap:5px;align-items:center}
+.qout b{color:var(--bull2)}
+
+/* telegram preview */
+.tg{background:var(--s1);border:1px solid var(--line);border-radius:12px;overflow:hidden;position:sticky;top:12px}
+.tg .head{display:flex;align-items:center;gap:8px;padding:9px 13px;background:var(--s2);border-bottom:1px solid var(--line)}
+.tg .head b{font-size:12px}
+.tg .head small{font-family:var(--mono);font-size:9.5px;color:var(--tf);margin-left:auto}
+.tg .msg{margin:12px;background:var(--s2);border:1px solid var(--line2);border-radius:10px;border-top-left-radius:3px;padding:11px 13px;font-family:var(--mono);font-size:11px;line-height:1.65;color:var(--ts)}
+.tg .msg b{color:var(--tp)}
+.tg .msg .g{color:var(--bull2)} .tg .msg .r{color:var(--bear2)} .tg .msg .a{color:var(--amber2)}
+.tg .cap{font-size:10px;color:var(--tf);padding:0 13px 12px;line-height:1.5}
+
+/* ── GAP BOARD TABLE ── */
+.lensbar{display:flex;align-items:center;gap:8px;margin:16px 0 10px;flex-wrap:wrap}
+.lens{font-family:var(--mono);font-size:11px;font-weight:700;padding:6px 12px;border-radius:7px;background:var(--s2);color:var(--tm);border:1px solid var(--line2);cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+.lens .n{opacity:.6;font-weight:600}
+.lens.on{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.lensbar .hint{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tf)}
+.tblwrap{overflow-x:auto;background:var(--s1);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;min-width:1020px}
+th{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);text-align:right;padding:9px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+th.l,td.l{text-align:left}
+td{font-family:var(--mono);font-size:11.5px;padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;color:var(--ts);white-space:nowrap}
+tr.row{cursor:pointer}
+tr.row:hover td{background:var(--s2)}
+tr.inq td{background:rgba(245,183,61,.05)}
+td .sym{font-size:13px;font-weight:800;color:var(--tp)}
+td .co{display:block;font-family:var(--sans);font-size:9.5px;color:var(--tf)}
+td .catx{font-family:var(--sans);font-size:10.5px;color:var(--tm);white-space:normal;max-width:230px;display:inline-block;line-height:1.35;text-align:left}
+.qpin{font-family:var(--mono);font-size:11px;font-weight:800;width:24px;height:24px;border-radius:6px;border:1px solid var(--line2);background:var(--s2);color:var(--tf);cursor:pointer}
+.qpin.on{color:#16181f;background:var(--amber);border-color:var(--amber)}
+.addbtn{font-family:var(--mono);font-size:12px;font-weight:800;width:24px;height:24px;border-radius:6px;border:1px solid var(--line2);background:var(--s2);color:var(--blu2);cursor:pointer}
+.addbtn.own{color:var(--bull2);border-color:rgba(34,197,94,.3);background:rgba(34,197,94,.08)}
+
+/* ── SECTOR HEAT ── */
+.heats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+@media(max-width:1100px){.heats{grid-template-columns:repeat(2,1fr)}}
+.heat{background:var(--s1);border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+.heat .top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.heat .sw{width:9px;height:9px;border-radius:3px}
+.heat b{font-family:var(--mono);font-size:12px}
+.heat .avg{margin-left:auto;font-family:var(--mono);font-size:14px;font-weight:800}
+.breadth{height:5px;border-radius:3px;background:var(--s3);overflow:hidden;margin:7px 0 5px}
+.breadth i{display:block;height:100%;background:var(--bull);border-radius:3px}
+.heat .mv{font-family:var(--mono);font-size:10px;color:var(--tf);display:flex;justify-content:space-between}
+.read{margin-top:10px;background:var(--s1);border:1px solid var(--line2);border-radius:9px;padding:9px 12px;font-size:11.5px;color:var(--tm)}
+.read b{color:var(--ts)}
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:18px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR — premarket state -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · PREMARKET</span></div>
+  <div class="clock">08:42:19</div>
+  <div class="pill pm"><span class="b"></span>Premarket · opens in 48m</div>
+  <div class="regime">
+    <span class="chip ok"><span class="b"></span>SPY Healthy</span>
+    <span class="chip ok"><span class="b"></span>BTC Healthy</span>
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<!-- PAGE HEAD -->
+<div class="phead">
+  <h1>Premarket</h1>
+  <span class="subtitle">The gap desk — ranked, queued, and armed before the bell.</span>
+  <div class="pmeta">
+    <span class="ago">scanned 4m ago · next 8:45</span>
+    <button class="btn pri">↻ Rescan</button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- THE AUTOMATION PIPELINE — gap data stops dead-ending on this page -->
+  <div class="pipe">
+    <span class="k">🚀 Gap &amp; Go Queue</span>
+    <span class="step">top 3 by quality score</span><span class="arr">→</span>
+    <span class="step">📨 8:30 morning notes <b>sent</b></span><span class="arr">→</span>
+    <span class="step">☀️ Today's tab <b>published</b></span><span class="arr">→</span>
+    <span class="step">🔔 gap-and-go alerts <b>armed</b> — fire on 5-min close over trigger w/ 2× vol</span>
+  </div>
+
+  <div class="qgrid">
+    <!-- QUEUE CARDS -->
+    <div class="qcards">
+
+      <div class="qcard q1">
+        <div class="strip">
+          <span class="rank">#1</span><span class="sym">SMCI</span><span class="gap">+8.4%</span>
+          <span class="cat"><em>Earnings beat + raised guide</em> — 4:05p last night</span>
+          <span class="qs">QUALITY <b>92</b></span>
+        </div>
+        <div class="qbody">
+          <div class="qflags">
+            <span class="tagl ok">✓ $84M PM VOL</span><span class="tagl ok">✓ ABOVE PDH</span><span class="tagl ok">✓ CATALYST</span>
+            <span class="tagl info">AI SPACE</span><span class="tagl warn">★ ON WATCHLIST</span>
+          </div>
+          <div class="plan">
+            <div><div class="k">Watch</div><div class="val amb">$48.90</div><div class="s">premarket high</div></div>
+            <div><div class="k">Go trigger</div><div class="val pos">5m close &gt; 48.90</div><div class="s">on 2× volume</div></div>
+            <div><div class="k">Stop</div><div class="val neg">$46.10</div><div class="s">premarket low</div></div>
+            <div><div class="k">Invalidation</div><div class="val neg">&lt; $44.85</div><div class="s">gap fill = no trade</div></div>
+          </div>
+          <div class="qout"><span>📨 in 8:30 notes <b>✓</b></span><span>☀️ on Today's tab <b>✓</b></span><span>🔔 alert armed <b>✓</b></span></div>
+        </div>
+      </div>
+
+      <div class="qcard">
+        <div class="strip">
+          <span class="rank">#2</span><span class="sym">MU</span><span class="gap">+4.1%</span>
+          <span class="cat"><em>Two upgrades into the dip</em> — HBM pricing</span>
+          <span class="qs">QUALITY <b>86</b></span>
+        </div>
+        <div class="qbody">
+          <div class="qflags">
+            <span class="tagl ok">✓ $52M PM VOL</span><span class="tagl ok">✓ CATALYST</span>
+            <span class="tagl warn">◔ BELOW PDH — needs reclaim</span><span class="tagl warn">★ ON WATCHLIST</span>
+          </div>
+          <div class="plan">
+            <div><div class="k">Watch</div><div class="val amb">$68.20</div><div class="s">PMH · PDH 68.75</div></div>
+            <div><div class="k">Go trigger</div><div class="val pos">5m close &gt; 68.75</div><div class="s">through both levels</div></div>
+            <div><div class="k">Stop</div><div class="val neg">$65.90</div><div class="s">premarket low</div></div>
+            <div><div class="k">Invalidation</div><div class="val neg">&lt; $64.40</div><div class="s">gap fill = no trade</div></div>
+          </div>
+          <div class="qout"><span>📨 in 8:30 notes <b>✓</b></span><span>☀️ on Today's tab <b>✓</b></span><span>🔔 alert armed <b>✓</b></span></div>
+        </div>
+      </div>
+
+      <div class="qcard">
+        <div class="strip">
+          <span class="rank">#3</span><span class="sym">NBIS</span><span class="gap">+6.7%</span>
+          <span class="cat"><em>AI-infra contract news</em> — momentum gapper</span>
+          <span class="qs">QUALITY <b>74</b></span>
+        </div>
+        <div class="qbody">
+          <div class="qflags">
+            <span class="tagl ok">✓ $31M PM VOL</span><span class="tagl ok">✓ ABOVE PDH</span><span class="tagl ok">✓ CATALYST</span>
+            <span class="tagl warn">⚠ MOMENTUM — half size</span>
+          </div>
+          <div class="plan">
+            <div><div class="k">Watch</div><div class="val amb">$44.60</div><div class="s">premarket high</div></div>
+            <div><div class="k">Go trigger</div><div class="val pos">5m close &gt; 44.60</div><div class="s">on 2× volume</div></div>
+            <div><div class="k">Stop</div><div class="val neg">$42.30</div><div class="s">premarket low</div></div>
+            <div><div class="k">Invalidation</div><div class="val neg">&lt; $41.87</div><div class="s">gap fill = no trade</div></div>
+          </div>
+          <div class="qout"><span>📨 in 8:30 notes <b>✓</b></span><span>☀️ on Today's tab <b>✓</b></span><span>🔔 alert armed <b>✓</b></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TELEGRAM PREVIEW — what the triage agent appends to the 8:30 brief -->
+    <div class="tg">
+      <div class="head">📨 <b>Morning notes — 8:30 ET</b><small>Telegram preview</small></div>
+      <div class="msg">
+        <b>🚀 GAP &amp; GO — priority at the open</b><br><br>
+        1. <b>SMCI</b> <span class="g">+8.4%</span> — earnings beat<br>
+        &nbsp;&nbsp;&nbsp;watch <span class="a">48.90</span> · go on 5m close above w/ 2× vol · stop <span class="r">46.10</span><br><br>
+        2. <b>MU</b> <span class="g">+4.1%</span> — upgrades<br>
+        &nbsp;&nbsp;&nbsp;needs PDH reclaim <span class="a">68.75</span> · stop <span class="r">65.90</span><br><br>
+        3. <b>NBIS</b> <span class="g">+6.7%</span> — AI contract · momentum, half size<br>
+        &nbsp;&nbsp;&nbsp;watch <span class="a">44.60</span> · stop <span class="r">42.30</span><br><br>
+        <span class="r">Gap fill below prior close = stand down.</span><br>
+        Full board → tradesignalwithai.com/premarket
+      </div>
+      <div class="cap">Appended to the existing Premarket Heat brief — same message, one new block. Also lands on the Today tab as part of the morning reports.</div>
+    </div>
+  </div>
+
+  <!-- FULL GAP BOARD -->
+  <div class="lensbar">
+    <div class="sh">📋 Gap Board <span class="sub">— broad scan: watchlists + mega caps + live movers</span></div>
+    <span style="flex:1"></span>
+    <span class="lens on">All <span class="n">14</span></span>
+    <span class="lens">Clean gaps <span class="n">8</span></span>
+    <span class="lens">Momentum <span class="n">6</span></span>
+    <span class="hint">gap ≥ 2% · $100k+ PM vol · $3B+ cap (curated exempt)</span>
+  </div>
+  <div class="tblwrap">
+    <table>
+      <thead><tr>
+        <th class="l">Queue</th><th class="l">Symbol</th><th>Gap</th><th>PM last</th><th>PM $vol</th><th>PM high</th><th>vs PDH</th>
+        <th class="l">Catalyst</th><th class="l">Flags</th><th>Watch</th>
+      </tr></thead>
+      <tbody>
+        <tr class="row inq">
+          <td class="l"><button class="qpin on">1</button></td>
+          <td class="l"><span class="sym">SMCI</span><span class="co">Super Micro · clean</span></td>
+          <td class="pos">+8.4%</td><td>48.42</td><td>$84M</td><td>48.90</td><td class="pos">+2.1%</td>
+          <td class="l"><span class="catx">Earnings beat, raised FY guide</span></td>
+          <td class="l"><span class="tagl info">AI</span></td>
+          <td><button class="addbtn own">✓</button></td>
+        </tr>
+        <tr class="row inq">
+          <td class="l"><button class="qpin on">2</button></td>
+          <td class="l"><span class="sym">MU</span><span class="co">Micron · clean</span></td>
+          <td class="pos">+4.1%</td><td>67.90</td><td>$52M</td><td>68.20</td><td class="neg">-0.8%</td>
+          <td class="l"><span class="catx">Two analyst upgrades — HBM pricing</span></td>
+          <td class="l"><span class="tagl info">AI</span></td>
+          <td><button class="addbtn own">✓</button></td>
+        </tr>
+        <tr class="row inq">
+          <td class="l"><button class="qpin on">3</button></td>
+          <td class="l"><span class="sym">NBIS</span><span class="co">Nebius · momentum</span></td>
+          <td class="pos">+6.7%</td><td>44.11</td><td>$31M</td><td>44.60</td><td class="pos">+3.4%</td>
+          <td class="l"><span class="catx">AI-infrastructure contract announcement</span></td>
+          <td class="l"><span class="tagl warn">MOMO</span><span class="tagl info">AI</span></td>
+          <td><button class="addbtn">+</button></td>
+        </tr>
+        <tr class="row">
+          <td class="l"><button class="qpin">+</button></td>
+          <td class="l"><span class="sym">FROG</span><span class="co">JFrog · clean</span></td>
+          <td class="pos">+5.2%</td><td>94.20</td><td>$18M</td><td>94.75</td><td class="pos">+1.5%</td>
+          <td class="l"><span class="catx">Partnership announcement</span></td>
+          <td class="l"></td>
+          <td><button class="addbtn">+</button></td>
+        </tr>
+        <tr class="row">
+          <td class="l"><button class="qpin">+</button></td>
+          <td class="l"><span class="sym">MARA</span><span class="co">Marathon · momentum</span></td>
+          <td class="pos">+9.8%</td><td>19.84</td><td>$44M</td><td>20.10</td><td class="pos">+5.2%</td>
+          <td class="l"><span class="catx">BTC breakout overnight</span></td>
+          <td class="l"><span class="tagl warn">MOMO</span></td>
+          <td><button class="addbtn">+</button></td>
+        </tr>
+        <tr class="row">
+          <td class="l"><button class="qpin">+</button></td>
+          <td class="l"><span class="sym">IONQ</span><span class="co">IonQ · momentum</span></td>
+          <td class="pos">+7.1%</td><td>38.66</td><td>$26M</td><td>39.20</td><td class="pos">+2.9%</td>
+          <td class="l"><span class="catx">Quantum sympathy move</span></td>
+          <td class="l"><span class="tagl warn">MOMO</span></td>
+          <td><button class="addbtn">+</button></td>
+        </tr>
+        <tr class="row">
+          <td class="l"><button class="qpin">+</button></td>
+          <td class="l"><span class="sym">SNDK</span><span class="co">Sandisk · clean</span></td>
+          <td class="pos">+3.8%</td><td>61.10</td><td>$12M</td><td>61.55</td><td class="neg">-1.2%</td>
+          <td class="l"><span class="catx">Sector sympathy — memory pricing</span></td>
+          <td class="l"></td>
+          <td><button class="addbtn">+</button></td>
+        </tr>
+        <tr class="row">
+          <td class="l"><button class="qpin">+</button></td>
+          <td class="l"><span class="sym">HOOD</span><span class="co">Robinhood · clean</span></td>
+          <td class="pos">+2.9%</td><td>113.40</td><td>$22M</td><td>113.90</td><td class="pos">+0.6%</td>
+          <td class="l"><span class="catx">Crypto volume tailwind</span></td>
+          <td class="l"></td>
+          <td><button class="addbtn own">✓</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SECTOR HEAT -->
+  <div class="sh" style="margin-top:18px">🌡 Sector Heat <span class="sub">— your watchlist groups, pre-bell</span></div>
+  <div class="heats">
+    <div class="heat"><div class="top"><span class="sw" style="background:var(--amber)"></span><b>Semicap</b><span class="avg pos">+3.1%</span></div>
+      <div class="breadth"><i style="width:100%"></i></div>
+      <div class="mv"><span>2/2 green</span><span>top MU +4.1%</span></div></div>
+    <div class="heat"><div class="top"><span class="sw" style="background:var(--blu)"></span><b>AI Chips</b><span class="avg pos">+2.4%</span></div>
+      <div class="breadth"><i style="width:100%"></i></div>
+      <div class="mv"><span>3/3 green</span><span>top NBIS +6.7%</span></div></div>
+    <div class="heat"><div class="top"><span class="sw" style="background:var(--vio)"></span><b>Software</b><span class="avg pos">+0.4%</span></div>
+      <div class="breadth"><i style="width:66%"></i></div>
+      <div class="mv"><span>2/3 green</span><span>top NOW +0.9%</span></div></div>
+    <div class="heat"><div class="top"><span class="sw" style="background:var(--bull)"></span><b>Health</b><span class="avg neg">-0.6%</span></div>
+      <div class="breadth"><i style="width:33%"></i></div>
+      <div class="mv"><span>1/3 green</span><span>low UNH -1.4%</span></div></div>
+  </div>
+  <div class="read"><b>Pre-bell read:</b> semis carry the tape — Semicap +3.1% and AI Chips +2.4% with full breadth · Health is the drag. Gap risk is concentrated in one theme: if semis fade at the open, all three queue names fade together.</div>
+
+  <div class="foot">Quality score = gap% × PM $-volume × catalyst × above-PDH × watchlist/theme weighting — same ranking that feeds the queue.<br>Educational purposes only — not financial advice.</div>
+</div>
+
+<div class="note">◔ Mockup — Gap &amp; Go Queue: top 3 auto-feed the 8:30 notes, Today's tab, and arm gap-and-go alerts. Toggle <b>▢/▣</b> · <b>🌙/☀️</b></div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+</script>
+</body></html>
