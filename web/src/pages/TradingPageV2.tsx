@@ -25,6 +25,8 @@ import {
   useClearWatchlistFocus,
   useLivePrices,
   useWatchlistRank,
+  useWatchlistSignalsToday,
+  useWatchlistSparklines,
   useChartLevels,
   useAddChartLevel,
   useUpdateChartLevel,
@@ -209,6 +211,21 @@ function IdeaBadge({ source, actionLabel, className = "" }: { source?: string; a
 
 /* ── Compact Watchlist Row ──────────────────────────────────────────── */
 
+/* Tiny inline sparkline — ~16 intraday closes → a colored polyline (green up / red
+   down vs the first point). currentColor lets Tailwind text-* set the stroke. */
+function Sparkline({ data, w = 42, h = 16 }: { data: number[]; w?: number; h?: number }) {
+  if (!data || data.length < 2) return null;
+  const min = Math.min(...data), max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - ((v - min) / range) * h).toFixed(1)}`).join(" ");
+  const up = data[data.length - 1] >= data[0];
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className={`shrink-0 ${up ? "text-bullish-text" : "text-bearish-text"}`}>
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1.25} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function CompactWatchlistRow({
   signal,
   selected,
@@ -219,6 +236,8 @@ function CompactWatchlistRow({
   livePrice,
   rankItem,
   collapsed,
+  hasSignal,
+  spark,
 }: {
   signal: SignalResult;
   selected: boolean;
@@ -229,6 +248,8 @@ function CompactWatchlistRow({
   livePrice?: { price: number; change_pct: number };
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
+  hasSignal?: boolean;
+  spark?: number[];
 }) {
   // Row actions reveal on hover (desktop) but are ALWAYS visible on touch
   // (pointer-coarse) — otherwise there's no way to focus/remove on mobile.
@@ -285,6 +306,8 @@ function CompactWatchlistRow({
           <span className="text-[12px] font-bold text-text-primary leading-tight truncate">
             {signal.symbol}
           </span>
+          {/* Amber "signal fired today" dot */}
+          {hasSignal && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(245,183,61,0.7)]" title="Signal fired today" />}
           {/* Source badge — conviction / long-term idea, at-entry vs approaching. */}
           <IdeaBadge source={signal.source} actionLabel={signal.action_label} />
           {/* Score badge — reveal on hover (desktop), always on touch */}
@@ -304,6 +327,8 @@ function CompactWatchlistRow({
           </span>
         </div>
       </div>
+      {/* Sparkline — intraday shape, tucked at the row's right edge */}
+      {spark && spark.length > 1 && <span className="mr-1 hidden sm:block"><Sparkline data={spark} /></span>}
       {onRemove && signal.source === "watchlist" && (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
@@ -1177,6 +1202,12 @@ export default function TradingPageV2() {
   const rankMap = new Map<string, WatchlistRankItem>();
   rankItems?.forEach((r) => rankMap.set(r.symbol, r));
 
+  // Watchlist panel redesign — amber "fired today" dot + row sparklines.
+  const { data: sigTodayData } = useWatchlistSignalsToday();
+  const signalTodaySet = new Set((sigTodayData?.symbols ?? []).map((s) => s.toUpperCase()));
+  const { data: sparkData } = useWatchlistSparklines();
+  const sparkMap = sparkData?.sparklines ?? {};
+
   // Focus filter — visual-only toggle for the sidebar. Persists in localStorage.
   // Default OFF so the full list shows; user explicitly opts in to focus view.
   const [focusOnly, setFocusOnly] = useState<boolean>(() => {
@@ -1617,6 +1648,8 @@ export default function TradingPageV2() {
               livePrice={livePrices[s.symbol]}
               rankItem={rankMap.get(s.symbol)}
               collapsed={!watchlistExpanded}
+              hasSignal={signalTodaySet.has(s.symbol.toUpperCase())}
+              spark={sparkMap[s.symbol.toUpperCase()]}
             />
           ))}
         </div>
