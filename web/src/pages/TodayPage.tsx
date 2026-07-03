@@ -238,6 +238,69 @@ function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: 
   );
 }
 
+/** Morning Spotlight — the single best pick as a hero card (top swing leader, else
+ *  the top day trade). Pulls the real pick data; target = the day-trade's target, or
+ *  a 2R measured move for a swing (no target in the report). Null when no picks. */
+function Spotlight({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
+  let parsed: { swing?: SwingPick[]; daytrade?: DayPick[]; picks?: SwingPick[] } | null = null;
+  try { parsed = body ? JSON.parse(body) : null; } catch { parsed = null; }
+  const s = (parsed?.swing ?? parsed?.picks ?? [])[0];
+  const d = (parsed?.daytrade ?? [])[0];
+  if (!s && !d) return null;
+  const isSwing = !!s;
+  const sym = isSwing ? s.symbol : d.symbol;
+  const price = isSwing ? s.price : d.price;
+  const entry = isSwing ? s.buy_point : d.entry;
+  const zone = isSwing ? s.buy_range : null;
+  const stop = isSwing ? s.stop : d.stop;
+  const reasons = (isSwing ? s.reasons : d.reasons) ?? [];
+  const risk = Math.max(entry - stop, 0.01);
+  const target = !isSwing && d.target != null ? d.target : entry + 2 * risk;
+  const rr = (target - entry) / risk;
+  const away = ((price - entry) / entry) * 100;   // + = already above the buy point
+  const headline = isSwing ? (s.pattern ? `${s.pattern} — at the buy point` : "Swing leader at the buy point")
+                           : (d.setup ?? "Day-trade leader at a key level");
+  const Tile = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
+    <div className="rounded-lg bg-surface-1 p-2">
+      <div className="text-[9px] uppercase tracking-wide text-text-faint">{k}</div>
+      <div className={`font-mono text-[15px] font-bold ${tone ?? "text-text-primary"}`}>{v}</div>
+    </div>
+  );
+  const Cell = ({ k, v, tone }: { k: string; v: string; tone: string }) => (
+    <div className="bg-surface-1 p-2">
+      <div className="text-[8px] uppercase tracking-wide text-text-faint">{k}</div>
+      <div className={`font-mono text-[12px] font-bold ${tone}`}>{v}</div>
+    </div>
+  );
+  return (
+    <button onClick={() => onChart(sym)} className="block w-full overflow-hidden rounded-xl border border-accent/40 bg-accent/5 text-left transition-colors hover:border-accent/60">
+      <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/10 px-3.5 py-2.5">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-accent">☀️ Spotlight</span>
+        <span className="ml-1 font-display text-[16px] font-bold text-text-primary">{sym}</span>
+        <span className="truncate text-[12px] text-text-muted">{headline}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">LONG</span>
+          <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{isSwing ? "SWING" : "DAY"}</span>
+        </span>
+      </div>
+      <div className="space-y-3 p-3.5">
+        <div className="grid grid-cols-3 gap-2">
+          <Tile k={`${sym} now`} v={`$${price?.toFixed(2)}`} />
+          <Tile k={isSwing ? "Buy point" : "Entry"} v={`$${entry.toFixed(2)}`} tone="text-warning-text" />
+          <Tile k="Away" v={`${away >= 0 ? "+" : ""}${away.toFixed(1)}%`} tone={away >= 0 ? "text-bullish-text" : "text-text-muted"} />
+        </div>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-surface-3 sm:grid-cols-4">
+          <Cell k={isSwing ? "Buy zone" : "Entry"} v={zone ? `$${zone[0].toFixed(2)}–${zone[1].toFixed(2)}` : `$${entry.toFixed(2)}`} tone="text-warning-text" />
+          <Cell k="Target" v={`$${target.toFixed(2)}`} tone="text-bullish-text" />
+          <Cell k="Stop" v={`$${stop.toFixed(2)}`} tone="text-bearish-text" />
+          <Cell k="Risk / Reward" v={`${rr.toFixed(1)}R`} tone="text-bullish-text" />
+        </div>
+        {reasons.length > 0 && <p className="text-[11px] leading-snug text-text-muted">{reasons.slice(0, 2).join(" · ")}</p>}
+      </div>
+    </button>
+  );
+}
+
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const nav = useNavigate();
   // Per-day review — "" = latest; pick a past session to flip back to its reports.
@@ -267,7 +330,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
         <div className="space-y-4">
-          {/* premarket movers merged IN — the live "what's at a level" read, atop the plan */}
+          {/* the #1 pick as a hero, then the live premarket movers, then the full list */}
+          <Spotlight body={mf?.body} onChart={onChart} />
           <PremarketStrip body={ps?.body} onChart={onChart} />
           {mf
             ? <FocusPicks body={mf.body} onChart={onChart} />
