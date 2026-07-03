@@ -1,14 +1,17 @@
-/** Trade Ideas — forward-looking ideas across three boards: Conviction (high-conviction
- *  names), Emerging (early momentum turns), and Long Term (growth leaders). Old
+/** Trade Ideas — forward-looking ideas across three boards: Conviction (weekly-stage
+ *  leaders), Emerging (early momentum turns), and Long Term (growth leaders). Old
  *  /focus-list · /conviction · /dashboard routes redirect here (App.tsx).
  *
- *  AI Scans + Social Buzz were REMOVED (no longer part of the product) — this file used
- *  to host both as tabs; it's now a thin shell over the three remaining boards, each a
- *  TabView imported from its own page.
+ *  AI Scans + Social Buzz were REMOVED (no longer part of the product). Above the three
+ *  boards sits the CONFLUENCE strip — names showing up on ≥2 boards at once, which is
+ *  the strongest read (independent scans agreeing). Computed here by intersecting the
+ *  three boards' symbols; no new backend.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Target, Gem, Compass, TrendingUp } from "lucide-react";
+import { useEmerging, useWeeklyStage, useGrowth } from "../api/hooks";
 import { ConvictionTabView } from "./ConvictionPage";
 import { GrowthLeadersTabView } from "./GrowthLeadersPage";
 import { EmergingTabView } from "./EmergingLeadersPage";
@@ -21,7 +24,85 @@ const IDEAS_TABS: { id: IdeasTab; label: string; icon: typeof Target }[] = [
   { id: "long_term", label: "Long Term", icon: TrendingUp },
 ];
 
+/* ── Confluence — the mock's "🔥 On Multiple Boards": a name that surfaces on two or
+   three independent boards is the highest-conviction read. Board keys map to the tabs:
+   T = Turn (Emerging) · C = Conviction (Weekly Stage) · L = Long-term Core (Growth). ── */
+type Board = "T" | "C" | "L";
+type RankedConf = { symbol: string; boards: Board[]; why: string[]; conf: number };
+
+const BOARD_META: Record<Board, { label: string; cls: string }> = {
+  T: { label: "Early Turn", cls: "border-warning/40 bg-warning/10 text-warning-text" },
+  C: { label: "Conviction", cls: "border-accent/40 bg-accent/10 text-accent" },
+  L: { label: "Long-term Core", cls: "border-violet-400/40 bg-violet-400/10 text-violet-400" },
+};
+
+function ConfCard({ c, onChart }: { c: RankedConf; onChart: (s: string) => void }) {
+  const order: Board[] = ["T", "C", "L"];
+  return (
+    <button onClick={() => onChart(c.symbol)} className="rounded-xl border border-border-subtle bg-surface-1 p-3 text-left transition-colors hover:border-warning/50">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[16px] font-bold text-text-primary">{c.symbol}</span>
+        <div className="flex gap-1">
+          {order.filter((b) => c.boards.includes(b)).map((b) => (
+            <span key={b} title={BOARD_META[b].label} className={`rounded border px-1 py-0.5 text-[8.5px] font-bold uppercase ${BOARD_META[b].cls}`}>{b}</span>
+          ))}
+        </div>
+        <span className="ml-auto font-mono text-[15px] font-bold text-bullish-text">{c.conf}</span>
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-text-muted">
+        On <b className="text-text-secondary">{c.boards.length} boards</b> · {c.why.slice(0, 2).join(" · ")}
+      </p>
+    </button>
+  );
+}
+
+function ConfluenceStrip({ onChart }: { onChart: (s: string) => void }) {
+  const { data: em } = useEmerging();
+  const { data: wk } = useWeeklyStage();
+  const { data: gr } = useGrowth();
+  const items = useMemo<RankedConf[]>(() => {
+    const boards = new Map<string, Set<Board>>();
+    const scores = new Map<string, number[]>();
+    const whys = new Map<string, string[]>();
+    const touch = (symbol: string, b: Board, score: number | null, why: string) => {
+      const k = symbol.toUpperCase();
+      if (!boards.has(k)) { boards.set(k, new Set()); scores.set(k, []); whys.set(k, []); }
+      boards.get(k)!.add(b);
+      if (score != null) scores.get(k)!.push(score);
+      if (why) whys.get(k)!.push(why);
+    };
+    for (const e of em?.entries ?? []) touch(e.symbol, "T", e.score, e.why || "early turn");
+    for (const e of wk?.entries ?? []) touch(e.symbol, "C", null, e.stage_label || "");
+    for (const e of gr?.entries ?? []) touch(e.symbol, "L", e.score, `long-term ${e.grade}${e.rs_vs_spy != null ? ` · RS ${e.rs_vs_spy >= 0 ? "+" : ""}${Math.round(e.rs_vs_spy)}` : ""}`);
+    return [...boards.entries()]
+      .filter(([, set]) => set.size >= 2)
+      .map(([symbol, set]) => {
+        const s = scores.get(symbol)!;
+        return {
+          symbol,
+          boards: [...set],
+          why: whys.get(symbol)!,
+          conf: s.length ? Math.round(s.reduce((a, b) => a + b, 0) / s.length) : 70,
+        };
+      })
+      .sort((a, b) => b.boards.length - a.boards.length || b.conf - a.conf)
+      .slice(0, 6);
+  }, [em, wk, gr]);
+
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h2 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-warning-text">🔥 On Multiple Boards</h2>
+      <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 lg:grid-cols-3">
+        {items.map((c) => <ConfCard key={c.symbol} c={c} onChart={onChart} />)}
+      </div>
+    </div>
+  );
+}
+
 export default function FocusListPage() {
+  const nav = useNavigate();
+  const goChart = (s: string) => nav(`/trading?symbol=${encodeURIComponent(s)}`);
   const [tab, setTab] = useState<IdeasTab>(() => {
     if (typeof window === "undefined") return "conviction";
     // Deep-link from a notification tap: ?tab=emerging (or any valid Ideas tab).
@@ -70,6 +151,9 @@ export default function FocusListPage() {
             })}
           </div>
         </div>
+
+        {/* Confluence — names on ≥2 boards, the strongest cross-board read (all boards) */}
+        <ConfluenceStrip onChart={goChart} />
 
         {tab === "conviction" && <ConvictionTabView />}
         {tab === "emerging" && <EmergingTabView />}
