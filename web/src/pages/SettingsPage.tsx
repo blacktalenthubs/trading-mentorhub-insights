@@ -20,6 +20,7 @@ import {
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
+  useWatchlist,
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
@@ -514,6 +515,7 @@ function ThemeToggle() {
    Saves immediately on every change. */
 function MarketGateSection() {
   const { data, isError } = useMarketGate();
+  const { data: watchlist } = useWatchlist();
   const update = useUpdateMarketGate();
   const [input, setInput] = useState("");
 
@@ -521,6 +523,8 @@ function MarketGateSection() {
 
   const enabled = !!data?.enabled;
   const symbols = (data?.exempt || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  // Autocomplete the allow-list from the user's watchlist (names not already added).
+  const wlSuggestions = (watchlist ?? []).map((w) => w.symbol.toUpperCase()).filter((s) => !symbols.includes(s));
 
   const setEnabled = (on: boolean) => update.mutate({ enabled: on });
   const addSymbol = () => {
@@ -573,9 +577,13 @@ function MarketGateSection() {
             value={input}
             onChange={(e) => setInput(e.target.value.toUpperCase())}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
-            placeholder="Add a symbol (e.g. NVDA)"
+            placeholder="Add a symbol — type or pick from your watchlist"
+            list="mg-watchlist"
             className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
           />
+          <datalist id="mg-watchlist">
+            {wlSuggestions.map((s) => <option key={s} value={s} />)}
+          </datalist>
           <button
             type="button"
             onClick={addSymbol}
