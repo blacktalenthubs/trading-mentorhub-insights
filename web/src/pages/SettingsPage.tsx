@@ -542,35 +542,31 @@ function MarketGateSection() {
         override</b> and keep receiving longs in a weak tape — it only changes your own feed.
       </p>
 
-      <label className="flex items-center justify-between py-2 cursor-pointer select-none">
+      {/* master toggle — shared green pill, consistent with Alert Types */}
+      <div className="flex items-center justify-between gap-3 border-t border-border-subtle/60 py-3">
         <span className="text-[13px] text-text-secondary">Protect my day-trade longs when SPY is weak (below its 8/21)</span>
-        <button
-          type="button"
-          onClick={() => setEnabled(!enabled)}
-          role="switch" aria-checked={enabled}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-surface-3"}`}
-        >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-        </button>
-      </label>
+        <Toggle on={enabled} onClick={() => setEnabled(!enabled)} disabled={update.isPending} />
+      </div>
 
-      <div className="mt-3">
-        <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
-          Always alert me on these — even in a weak tape
-        </label>
+      {/* allow-list — even in a weak tape */}
+      <div className="mt-1">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Always alert me on these — even in a weak tape</label>
+          {symbols.length > 0 && <span className="text-[10px] text-text-faint">{symbols.length}</span>}
+        </div>
         {symbols.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5 mb-2">
+          <div className="mb-2 flex flex-wrap gap-1.5 rounded-lg border border-border-subtle bg-surface-2/40 p-2.5">
             {symbols.map((s) => (
-              <span key={s} className="inline-flex items-center gap-1 rounded-md bg-accent/10 border border-accent/20 px-2 py-1 text-[12px] font-semibold text-accent">
+              <span key={s} className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-1 px-2 py-0.5 font-mono text-[11px] font-semibold text-text-secondary">
                 {s}
-                <button type="button" onClick={() => removeSymbol(s)} className="text-accent/70 hover:text-accent" aria-label={`Remove ${s}`}>
-                  <X className="h-3 w-3" />
+                <button type="button" onClick={() => removeSymbol(s)} className="text-text-faint transition-colors hover:text-bearish-text" aria-label={`Remove ${s}`}>
+                  <X className="h-2.5 w-2.5" />
                 </button>
               </span>
             ))}
           </div>
         ) : (
-          <p className="text-[11px] text-text-faint mb-2">No symbols yet — add the names you'll day-trade even when the market is flat.</p>
+          <p className="mb-2 text-[11px] text-text-faint">No symbols yet — add the names you'll day-trade even when the market is flat.</p>
         )}
         <div className="flex gap-2">
           <input
@@ -584,7 +580,7 @@ function MarketGateSection() {
             type="button"
             onClick={addSymbol}
             disabled={!input.trim() || update.isPending}
-            className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
           >
             {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             Add
