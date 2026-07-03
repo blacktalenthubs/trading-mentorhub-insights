@@ -160,6 +160,31 @@ function QueueCard({ e, onChart }: { e: PremarketGapEntry; onChart: () => void }
   );
 }
 
+/** Morning-notes preview — renders the 8:30 ET Telegram block the queue produces,
+ *  so you can see exactly what gets sent. Built from the same queue entries. */
+function NotesPreview({ queue }: { queue: PremarketGapEntry[] }) {
+  if (queue.length === 0) return null;
+  const px = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+  const lines = queue.map((e, i) => {
+    const abovePdh = e.pm_last != null && e.pdh != null && e.pm_last > e.pdh;
+    const trig = abovePdh ? "go on 5m close above w/ 2× vol" : `needs PDH reclaim ${px(e.pdh)}`;
+    const cat = e.catalyst ? ` — ${e.catalyst}` : "";
+    const mom = e.bucket === "momentum" ? " · momentum, half size" : "";
+    return `${i + 1}. ${e.symbol} ${fmtGap(e.gap_pct)}${cat}${mom}\n   watch ${px(e.pm_last)} · ${trig} · stop ${px(e.pdl)}`;
+  });
+  const text = `🚀 GAP & GO — priority at the open\n\n${lines.join("\n\n")}\n\nGap fill below prior close = stand down.`;
+  return (
+    <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-1">
+      <div className="flex items-center justify-between border-b border-border-subtle px-3.5 py-2">
+        <span className="text-[12px] font-bold text-text-secondary">📨 Morning notes — 8:30 ET</span>
+        <span className="text-[10px] text-text-faint">Telegram preview</span>
+      </div>
+      <pre className="whitespace-pre-wrap px-3.5 py-3 font-mono text-[11px] leading-relaxed text-text-secondary">{text}</pre>
+      <div className="border-t border-border-subtle px-3.5 py-2 text-[10px] text-text-faint">Appended to the Premarket Heat brief; the top 3 also arm gap-and-go alerts.</div>
+    </div>
+  );
+}
+
 export default function PremarketGapsTab() {
   const { data, isLoading, error } = usePremarketGaps();
   const refresh = useRefreshPremarketGaps();
@@ -223,6 +248,7 @@ export default function PremarketGapsTab() {
               <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-3">
                 {queue.map((e) => <QueueCard key={e.symbol} e={e} onChart={() => onChart(e.symbol)} />)}
               </div>
+              <NotesPreview queue={queue} />
             </div>
           )}
           <Bucket title="Clean gaps" items={clean} watchSet={watchSet} onChart={onChart} onAdd={(s) => addSymbol.mutate(s)} adding={addSymbol.isPending} />
