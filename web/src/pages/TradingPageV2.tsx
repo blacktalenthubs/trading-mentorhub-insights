@@ -17,6 +17,7 @@ import {
   useAlertSessionDates,
   useAlertsForDate,
   useWatchlist,
+  useWatchlistGroups,
   useSectorsWatchlist,
   useAddSymbol,
   useCopySectorsWatchlist,
@@ -1185,6 +1186,8 @@ export default function TradingPageV2() {
   // Watchlist panel redesign — amber "fired today" dot + row sparklines.
   const { data: sigTodayData } = useWatchlistSignalsToday();
   const signalTodaySet = new Set((sigTodayData?.symbols ?? []).map((s) => s.toUpperCase()));
+  const { data: wlGroups } = useWatchlistGroups();
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Focus filter — visual-only toggle for the sidebar. Persists in localStorage.
   // Default OFF so the full list shows; user explicitly opts in to focus view.
@@ -1427,6 +1430,43 @@ export default function TradingPageV2() {
   // is collapsed showed centered symbol-only rows with no way to favorite.
   const watchlistExpanded = !watchlistCollapsed || mobileWatchlistOpen;
 
+  // Sector groups — map each row to its watchlist group (sector), ordered by the
+  // user's sort_order; ungrouped / folded-in ideas fall into General Market / Ideas.
+  const groupedSignals = useMemo(() => {
+    const nameById = new Map<number, string>();
+    (wlGroups ?? []).forEach((g) => nameById.set(g.id, g.name));
+    const orderByName = new Map<string, number>();
+    [...(wlGroups ?? [])].sort((a, b) => a.sort_order - b.sort_order).forEach((g, i) => orderByName.set(g.name, i));
+    const symToGroup = new Map<string, string>();
+    (watchlistItems ?? []).forEach((it) => {
+      symToGroup.set(it.symbol.toUpperCase(), (it.group_id != null ? nameById.get(it.group_id) : null) ?? "General Market");
+    });
+    const groups = new Map<string, SignalResult[]>();
+    (filteredSignals ?? []).forEach((s) => {
+      const g = symToGroup.get(s.symbol.toUpperCase()) ?? (s.source === "watchlist" ? "General Market" : "Ideas");
+      let arr = groups.get(g);
+      if (!arr) { arr = []; groups.set(g, arr); }
+      arr.push(s);
+    });
+    return [...groups.entries()].sort((a, b) => (orderByName.get(a[0]) ?? 98) - (orderByName.get(b[0]) ?? 98));
+  }, [filteredSignals, watchlistItems, wlGroups]);
+
+  const renderWlRow = (s: SignalResult) => (
+    <CompactWatchlistRow
+      key={s.symbol}
+      signal={s}
+      selected={selectedSymbol === s.symbol}
+      onClick={() => selectSymbol(s.symbol)}
+      onRemove={() => _removeSymbol.mutate(s.symbol)}
+      onToggleFocus={() => toggleFocusMut.mutate(s.symbol)}
+      focused={focusSymbols.has(s.symbol)}
+      livePrice={livePrices[s.symbol]}
+      rankItem={rankMap.get(s.symbol)}
+      collapsed={!watchlistExpanded}
+      hasSignal={signalTodaySet.has(s.symbol.toUpperCase())}
+    />
+  );
+
   /* ────────────────────────────────────────────────────────────────── */
 
   return (
@@ -1632,21 +1672,32 @@ export default function TradingPageV2() {
               </button>
             </div>
           )}
-          {filteredSignals?.map((s) => (
-            <CompactWatchlistRow
-              key={s.symbol}
-              signal={s}
-              selected={selectedSymbol === s.symbol}
-              onClick={() => selectSymbol(s.symbol)}
-              onRemove={() => _removeSymbol.mutate(s.symbol)}
-              onToggleFocus={() => toggleFocusMut.mutate(s.symbol)}
-              focused={focusSymbols.has(s.symbol)}
-              livePrice={livePrices[s.symbol]}
-              rankItem={rankMap.get(s.symbol)}
-              collapsed={!watchlistExpanded}
-              hasSignal={signalTodaySet.has(s.symbol.toUpperCase())}
-            />
-          ))}
+          {/* Collapsed icon-rail → flat rows. Expanded → grouped by sector with
+              collapsible headers (the mock's "groups mirror your watchlist sectors"). */}
+          {!watchlistExpanded
+            ? filteredSignals?.map(renderWlRow)
+            : groupedSignals.map(([groupName, rows]) => {
+                const isCollapsed = collapsedGroups.has(groupName);
+                return (
+                  <div key={groupName}>
+                    <button
+                      onClick={() =>
+                        setCollapsedGroups((prev) => {
+                          const n = new Set(prev);
+                          if (n.has(groupName)) n.delete(groupName); else n.add(groupName);
+                          return n;
+                        })
+                      }
+                      className="flex w-full items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-amber-400/80 hover:text-amber-400 transition-colors"
+                    >
+                      <ChevronRight className={`h-2.5 w-2.5 transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
+                      {groupName}
+                      <span className="ml-auto font-normal text-text-faint">{rows.length}</span>
+                    </button>
+                    {!isCollapsed && rows.map(renderWlRow)}
+                  </div>
+                );
+              })}
         </div>
 
         {/* Editor's Picks — admin's curated watchlist. Collapsible; auto-
