@@ -617,16 +617,12 @@ function AlertTypesSection() {
 
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
-      <p className="text-xs text-text-muted mb-4">
-        Tap a card to route that alert type to Telegram + your Signals feed.
-        Disabled types still fire and record silently for review. Changes take
-        effect on the next alert.
-        {types && (
-          <span className="text-text-faint">
-            {" "}· {enabledCount} of {types.length} on
-          </span>
-        )}
-      </p>
+      <div className="mb-4 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2 text-[11px] leading-relaxed text-text-muted">
+        <b className="text-bullish-text">ON</b> = delivered to Telegram + your Signals feed ·{" "}
+        <b className="text-text-secondary">OFF</b> = still fires &amp; records silently for review ·
+        each <b className="text-text-secondary">family</b> toggles as a group.
+        {types && <span className="text-text-faint"> · {enabledCount} of {total} on</span>}
+      </div>
 
       {total > 0 && (
         <div className="flex items-center gap-2 mb-4">
@@ -677,50 +673,40 @@ function AlertTypesSection() {
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {items.map((t) => (
-                  <button
-                    key={t.alert_type}
-                    onClick={() =>
-                      toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })
-                    }
-                    disabled={busy}
-                    role="switch"
-                    aria-checked={t.enabled}
-                    title={t.description || undefined}
-                    className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
-                      t.enabled
-                        ? "border-accent/50 bg-accent/10"
-                        : "border-border-subtle bg-surface-1 hover:bg-surface-2"
-                    }`}
-                  >
-                    <span
-                      className={`mt-0.5 shrink-0 h-4 w-4 rounded flex items-center justify-center ${
-                        t.enabled
-                          ? "bg-accent"
-                          : "bg-surface-3 border border-border-subtle"
-                      }`}
-                    >
-                      {t.enabled && <Check className="h-3 w-3 text-white" />}
-                    </span>
-                    <span
-                      className={`text-[11px] leading-snug ${
-                        t.enabled
-                          ? "text-text-primary font-medium"
-                          : "text-text-muted"
-                      }`}
-                    >
-                      {t.label}
-                      {t.description && (
-                        <span
-                          className="ml-1 text-text-faint cursor-help"
-                          title={t.description}
-                        >
-                          ⓘ
-                        </span>
-                      )}
-                    </span>
-                  </button>
+              <div className="space-y-3">
+                {Object.entries(
+                  items.reduce((acc, t) => { (acc[t.category] ??= []).push(t); return acc; }, {} as Record<string, AlertTypeConfigItem[]>),
+                ).map(([cluster, rows]) => (
+                  <div key={cluster}>
+                    <div className="mb-1.5 border-b border-border-subtle/40 pb-1 font-mono text-[10px] uppercase tracking-wide text-text-faint">{cluster}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {rows.map((t) => {
+                        const isShort = /\bshort\b/i.test(t.label);
+                        return (
+                          <button
+                            key={t.alert_type}
+                            onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })}
+                            disabled={busy}
+                            role="switch"
+                            aria-checked={t.enabled}
+                            title={t.description || undefined}
+                            className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                              t.enabled ? "border-accent/50 bg-accent/10" : "border-border-subtle bg-surface-1 hover:bg-surface-2"
+                            }`}
+                          >
+                            <span className={`mt-0.5 shrink-0 h-4 w-4 rounded flex items-center justify-center ${t.enabled ? "bg-accent" : "bg-surface-3 border border-border-subtle"}`}>
+                              {t.enabled && <Check className="h-3 w-3 text-white" />}
+                            </span>
+                            <span className={`min-w-0 flex-1 text-[11px] leading-snug ${t.enabled ? "text-text-primary font-medium" : "text-text-muted"}`}>
+                              {isShort && <span className="mr-1 rounded bg-bearish-subtle px-1 py-0.5 text-[8px] font-bold uppercase text-bearish-text">short</span>}
+                              {t.label}
+                              {t.description && <span className="ml-1 cursor-help text-text-faint" title={t.description}>ⓘ</span>}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
