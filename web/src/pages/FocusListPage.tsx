@@ -10,8 +10,9 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Target, Plus, Check, ChevronRight } from "lucide-react";
-import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol } from "../api/hooks";
+import { Target, Plus, Check, ChevronRight, RefreshCw } from "lucide-react";
+import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth } from "../api/hooks";
+import { useFeatureGate } from "../hooks/useFeatureGate";
 import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
 
 /* ── Boards. T = Early Turn (Emerging) · C = Conviction (Weekly Stage) · L = Long-term
@@ -124,6 +125,11 @@ function sortVal(r: MergedRow, k: SortKey): number | string {
 }
 const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const fmtPx = (v: number | null) => (v == null ? "—" : `$${v.toFixed(2)}`);
+const fmtAge = (iso: string | null) => {
+  if (!iso) return "never";
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
 
 /* ── Expanded per-symbol scorecard (mock's row-expand): the merged scorecard checklist,
    Street fundamentals, Tape stats, and actions. All from the boards' entries; the four
@@ -203,6 +209,17 @@ export default function FocusListPage() {
   const { data: watchlist } = useWatchlist();
   const addSym = useAddSymbol();
   const owned = useMemo(() => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())), [watchlist]);
+  // Curate/run — the scans auto-run on the backend (weekly-stage Mon 8:00 · emerging
+  // daily 8:10 · growth on demand), but let a pro force a fresh scan of all three.
+  const { isPro } = useFeatureGate();
+  const rEm = useRefreshEmerging();
+  const rWk = useRefreshWeeklyStage();
+  const rGr = useRefreshGrowth();
+  const running = rEm.isPending || rWk.isPending || rGr.isPending;
+  const runAll = () => { rEm.mutate(); rWk.mutate(); rGr.mutate(); };
+  const scanCaps = [em?.captured_at, wk?.captured_at, gr?.captured_at].filter(Boolean) as string[];
+  const oldestScan = scanCaps.length ? scanCaps.reduce((a, b) => (a < b ? a : b)) : null;
+  const anyStale = !!(em?.stale || wk?.stale || gr?.stale);
 
   const rows = useMemo(() => buildRows(em, wk, gr), [em, wk, gr]);
   const counts = useMemo(() => ({
@@ -245,12 +262,22 @@ export default function FocusListPage() {
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden bg-surface-0">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 py-5 space-y-4">
-        {/* Header */}
-        <div className="flex items-center gap-2">
-          <Target className="h-5 w-5 text-accent" />
-          <div>
-            <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
-            <p className="text-[11px] text-text-muted">Early turns, conviction leaders, and long-term core — one pipeline, ranked.</p>
+        {/* Header + scan freshness / run control */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-accent" />
+            <div>
+              <h1 className="text-lg font-bold text-text-primary">Trade Ideas</h1>
+              <p className="text-[11px] text-text-muted">Early turns, conviction leaders, and long-term core — one pipeline, ranked.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-text-faint">
+            <span>Scanned {fmtAge(oldestScan)}{anyStale ? " · stale" : ""}</span>
+            {isPro && (
+              <button onClick={runAll} disabled={running} className="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-50">
+                <RefreshCw className={`h-3 w-3 ${running ? "animate-spin" : ""}`} /> {running ? "Scanning…" : "Run scans"}
+              </button>
+            )}
           </div>
         </div>
 
