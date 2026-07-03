@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings — Redesign Mockup</title>
+<style>
+/* ── tokens: same system as the other redesign mockups ── */
+:root{
+  --s0:#0f1117; --s1:#161923; --s2:#1c2030; --s3:#252a3a; --s4:#2e3548;
+  --line:#242a38; --line2:#2e3648;
+  --tp:#e8ecf4; --ts:#aab3c5; --tm:#7d879c; --tf:#5a6377;
+  --bull:#22c55e; --bull2:#4ade80; --bear:#ef4444; --bear2:#f87171;
+  --amber:#f5b73d; --amber2:#fbbf24;
+  --blu:#3b82f6; --blu2:#60a5fa;
+  --vio:#a78bfa; --vio2:#c4b5fd;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+body.light{
+  --s0:#eef1f6; --s1:#ffffff; --s2:#f6f8fb; --s3:#eef1f6; --s4:#e4e8f0;
+  --line:#e5e7eb; --line2:#d7dbe4;
+  --tp:#1a1d26; --ts:#3f4757; --tm:#64748b; --tf:#94a3b8;
+  --bull:#16a34a; --bull2:#15803d; --bear:#dc2626; --bear2:#b91c1c;
+  --amber:#d97706; --amber2:#b45309; --blu:#2563eb; --blu2:#1d4ed8;
+  --vio:#7c3aed; --vio2:#6d28d9;
+}
+body.terminal{font-family:var(--mono)}
+body.terminal .chip,body.terminal .btn,body.terminal .pill,body.terminal .navrow,
+body.terminal .card,body.terminal .row,body.terminal .sw,body.terminal .qchip,
+body.terminal .note,body.terminal .legend,body.terminal input,body.terminal .tstat{border-radius:2px}
+body.terminal .sh{letter-spacing:.2em}
+*{box-sizing:border-box}
+body{margin:0;background:var(--s0);color:var(--tp);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+.pos{color:var(--bull2)} .neg{color:var(--bear2)} .amb{color:var(--amber2)}
+.sh{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--amber);display:flex;align-items:center;gap:7px}
+.sh .sub{color:var(--tf);font-weight:600;letter-spacing:.06em;text-transform:none}
+
+/* ── STATUS BAR (shared shell) ── */
+.status{display:flex;align-items:center;gap:16px;padding:9px 16px;background:var(--s1);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--mono);font-weight:800;letter-spacing:.08em;display:flex;align-items:center;gap:8px}
+.brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.brand .v{font-size:10px;color:var(--tf);font-weight:600}
+.regime{display:flex;gap:6px;align-items:center;margin-left:auto}
+.btn{font-family:var(--mono);font-size:11px;font-weight:600;padding:5px 11px;border-radius:6px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);cursor:pointer}
+.btn:hover{background:var(--s3)}
+.btn.pri{background:rgba(59,130,246,.14);color:var(--blu2);border-color:rgba(59,130,246,.4)}
+.btn.ghost{background:none;border-color:transparent;color:var(--tm)}
+
+/* ── LAYOUT: nav rail + content ── */
+.phead{display:flex;align-items:baseline;gap:14px;padding:14px 18px 6px;max-width:1100px;margin:0 auto;width:100%}
+.phead h1{margin:0;font-size:21px;font-weight:800}
+.subtitle{font-size:12px;color:var(--tm)}
+.wrap{max-width:1100px;margin:0 auto;padding:6px 18px 40px;display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.nav{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:6px;position:sticky;top:12px}
+.navrow{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;cursor:pointer;color:var(--tm);font-size:13px;font-weight:600}
+.navrow:hover{background:var(--s2)}
+.navrow.on{background:rgba(59,130,246,.12);color:var(--blu2)}
+.navrow .ic{width:18px;text-align:center}
+.navrow .n{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--tf)}
+.savehint{font-size:10px;color:var(--tf);padding:10px 11px 6px;line-height:1.5;border-top:1px solid var(--line);margin-top:6px}
+.savehint b{color:var(--bull2)}
+
+.pane{display:none}
+.pane.on{display:block}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card .chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px}
+.card .desc{font-size:11.5px;color:var(--tm);margin:2px 0 10px;line-height:1.5;max-width:70ch}
+
+/* toggle switch */
+.sw{position:relative;width:34px;height:19px;border-radius:11px;background:var(--s4);cursor:pointer;flex-shrink:0;transition:background .15s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:var(--tm);transition:all .15s}
+.sw.on{background:var(--bull)}
+.sw.on::after{left:17px;background:#fff}
+
+/* alert type rows */
+.grp{margin-bottom:14px}
+.grphead{display:flex;align-items:center;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line2);margin-bottom:6px}
+.grphead b{font-family:var(--mono);font-size:12.5px;letter-spacing:.06em}
+.grphead .cnt{font-family:var(--mono);font-size:10px;color:var(--tf)}
+.grphead .sw{margin-left:auto}
+.grphead .all{font-family:var(--mono);font-size:9.5px;color:var(--tf)}
+.clust{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--tf);padding:8px 2px 4px}
+.row{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:8px;margin-bottom:2px}
+.row:hover{background:var(--s2)}
+.row .nm{font-size:13px;font-weight:600;white-space:nowrap}
+.row .why{font-size:11px;color:var(--tf);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.row .sw{margin-left:auto}
+.row.off .nm,.row.off .why{opacity:.55}
+.tagl{font-family:var(--mono);font-size:8px;font-weight:800;letter-spacing:.04em;padding:2px 6px;border-radius:4px;text-transform:uppercase;flex-shrink:0}
+.tagl.long{background:rgba(34,197,94,.12);color:var(--bull2);border:1px solid rgba(34,197,94,.26)}
+.tagl.short{background:rgba(239,68,68,.12);color:var(--bear2);border:1px solid rgba(239,68,68,.26)}
+.tagl.noisy{background:rgba(245,183,61,.12);color:var(--amber2);border:1px solid rgba(245,183,61,.28)}
+/* inline allowlist chips (the ORL + market-gate scoping, no longer separate cards) */
+.chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding:4px 10px 8px 10px}
+.qchip{font-family:var(--mono);font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;background:var(--s2);color:var(--ts);border:1px solid var(--line2);display:inline-flex;gap:6px;align-items:center}
+.qchip i{font-style:normal;color:var(--tf);cursor:pointer}
+.qchip.add{color:var(--blu2);border-style:dashed;cursor:pointer}
+.chips .lbl{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--tf);margin-right:2px}
+.legend{display:flex;gap:16px;background:var(--s2);border:1px solid var(--line2);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:11px;color:var(--tm);flex-wrap:wrap}
+.legend b{color:var(--ts)}
+.gate{display:flex;align-items:center;gap:11px;background:rgba(245,183,61,.06);border:1px solid rgba(245,183,61,.25);border-radius:9px;padding:9px 12px;margin-bottom:10px}
+.gate .tx{font-size:12px;color:var(--ts);flex:1}
+.gate .tx small{display:block;font-size:10.5px;color:var(--tf)}
+
+/* delivery / misc */
+.tstat{display:flex;align-items:center;gap:10px;background:rgba(34,197,94,.07);border:1px solid rgba(34,197,94,.28);border-radius:9px;padding:10px 13px;margin-bottom:10px}
+.tstat b{color:var(--bull2)}
+.tstat .mono{font-size:10.5px;color:var(--tf)}
+input[type=text],input[type=number],input[type=password]{background:var(--s2);border:1px solid var(--line2);border-radius:7px;color:var(--ts);padding:7px 11px;font-size:12.5px;outline:none}
+.frow{display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap}
+.frow label{font-size:12px;color:var(--tm);min-width:150px}
+.seg{display:flex;gap:2px;background:var(--s2);border:1px solid var(--line2);border-radius:7px;padding:2px}
+.seg span{font-family:var(--mono);font-size:11px;font-weight:700;padding:4px 12px;border-radius:5px;color:var(--tm);cursor:pointer}
+.seg span.on{background:var(--blu);color:#fff}
+.foot{font-size:10px;color:var(--tf);text-align:center;padding:16px;line-height:1.5}
+.note{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:var(--s3);border:1px solid var(--line2);color:var(--ts);font-size:11px;padding:8px 14px;border-radius:20px;font-family:var(--mono);box-shadow:0 6px 24px rgba(0,0,0,.5);z-index:9}
+</style></head>
+<body>
+
+<!-- STATUS BAR -->
+<div class="status">
+  <div class="brand"><span class="dot"></span>TRADING DESK <span class="v">v5 · SETTINGS</span></div>
+  <div class="regime">
+    <button class="btn" id="styleBtn" onclick="toggleStyle()">▢ Modern</button>
+    <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+</div>
+
+<div class="phead">
+  <h1>Settings</h1>
+  <span class="subtitle">everything saves instantly — no Save buttons to hunt for</span>
+</div>
+
+<div class="wrap">
+
+  <!-- NAV RAIL — replaces the single endless scroll -->
+  <div class="nav">
+    <div class="navrow on" data-pane="p-alerts"><span class="ic">⚡</span>Alerts <span class="n">18 on</span></div>
+    <div class="navrow" data-pane="p-delivery"><span class="ic">📨</span>Delivery <span class="n">TG ✓</span></div>
+    <div class="navrow" data-pane="p-trading"><span class="ic">⚖️</span>Risk &amp; sizing</div>
+    <div class="navrow" data-pane="p-appearance"><span class="ic">🎨</span>Appearance</div>
+    <div class="navrow" data-pane="p-account"><span class="ic">👤</span>Account</div>
+    <div class="savehint">Changes apply on the next alert. <b>✓ saved</b> flashes on the row you touched.</div>
+  </div>
+
+  <div>
+    <!-- ══ ALERTS — everything alert-related in ONE place ══ -->
+    <div class="pane on" id="p-alerts">
+
+      <div class="legend">
+        <span><b>ON</b> → Telegram + Signals feed</span>
+        <span><b>OFF</b> → still fires, recorded silently for review</span>
+        <span><b>Setup families</b> group related triggers — turn on the family, not 15 checkboxes</span>
+      </div>
+
+      <!-- DAY TRADE -->
+      <div class="card">
+        <div class="grp">
+          <div class="grphead"><b>DAY TRADE</b><span class="cnt">9 of 13 on</span><span class="all">group</span><span class="sw on"></span></div>
+
+          <!-- market gate lives WITH the day-trade alerts it protects, not in a distant card -->
+          <div class="gate">
+            <span>🛡</span>
+            <span class="tx">Protect day-trade longs when SPY is weak (8/21)<small>exempt — always alert: <span class="mono">SPY · QQQ</span> <span class="mono" style="color:var(--blu2);cursor:pointer">edit</span></small></span>
+            <span class="sw on"></span>
+          </div>
+
+          <div class="clust">PDH / PDL — the core levels</div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">PDH break on volume</span><span class="why">close above prior-day high · vol ≥ 2× · rising VWAP</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">PDH reclaim (RC-H)</span><span class="why">dipped under PDH, closed back above — breakout-retest</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">Gap-and-go</span><span class="why">opened above PDH and held it</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">PDL held — wick test</span><span class="why">dipped below PDL, closed back above (Buy 2)</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">PDL reclaim (RC)</span><span class="why">undercut PDL then reclaimed intraday</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl short">Short</span><span class="nm">PDH failed break</span><span class="why">accepted above PDH then lost it · stop = PDH reclaim</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl short">Short</span><span class="nm">PDH rejection</span><span class="why">rallied into PDH, rejected on volume — index</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl short">Short</span><span class="nm">PDL break</span><span class="why">index close below PDL on heavy volume</span><span class="sw on"></span></div>
+
+          <div class="clust">4h reclaims</div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">4h RC long</span><span class="why">swept the prior 4h low, closed back above</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">4h RC-H</span><span class="why">broken 4h high held as support — uptrend-gated</span><span class="sw"></span></div>
+
+          <div class="clust">Weekly / monthly wick tests</div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">PWL held</span><span class="why">prior-week low wick-tested and held (Buy 2)</span><span class="sw on"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">PML held</span><span class="why">prior-month low wick-tested and held (Buy 2)</span><span class="sw"></span></div>
+
+          <div class="clust">Noisy — fires only on YOUR symbols</div>
+          <div class="row off">
+            <span class="tagl noisy">Noisy</span><span class="nm">ORL held</span><span class="why">bounce off the 30m opening-range low</span><span class="sw"></span>
+          </div>
+          <!-- the allowlist lives ON the row it scopes — no more "see Noisy alerts card below" -->
+          <div class="chips"><span class="lbl">fires on:</span><span class="qchip">SPY <i>✕</i></span><span class="qchip">QQQ <i>✕</i></span><span class="qchip">SOXL <i>✕</i></span><span class="qchip add">+ add</span></div>
+        </div>
+      </div>
+
+      <!-- SWING -->
+      <div class="card">
+        <div class="grp">
+          <div class="grphead"><b>SWING</b><span class="cnt">6 of 9 on</span><span class="all">group</span><span class="sw on"></span></div>
+          <div class="clust">Momentum</div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">RSI 70 momentum</span><span class="why">daily RSI closed above 70</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">5/20 EMA cross</span><span class="why">daily 5 EMA crossed above 20 EMA</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">RSI oversold zone</span><span class="why">daily RSI holding 30–35 — buy zone</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">RSI 30 reclaim</span><span class="why">crossed back above 30 from oversold</span><span class="sw on"></span></div>
+          <div class="clust">MA bounces — pullback in an uptrend</div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">EMA 8 bounce</span><span class="why">pullback to the 8 EMA, bounced</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">EMA 21 bounce</span><span class="why">pullback to the 21 EMA, bounced</span><span class="sw on"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">EMA 50 bounce</span><span class="why">pullback to the 50 EMA, bounced</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">EMA 100 bounce</span><span class="why">deep pullback — position add zone</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">EMA 200 bounce</span><span class="why">the line in the sand</span><span class="sw"></span></div>
+        </div>
+      </div>
+
+      <!-- LONG TERM -->
+      <div class="card">
+        <div class="grp">
+          <div class="grphead"><b>LONG TERM</b><span class="cnt">3 of 7 on</span><span class="all">group</span><span class="sw on"></span></div>
+          <div class="clust">Weekly structure</div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">Weekly RC</span><span class="why">prior-week high/low undercut &amp; reclaim</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">10-week MA held</span><span class="why">tagged &amp; held the 10w intraday</span><span class="sw on"></span></div>
+          <div class="row"><span class="tagl long">Long</span><span class="nm">30-week MA held</span><span class="why">tagged &amp; held the 30w — long-term support</span><span class="sw on"></span></div>
+          <div class="clust">Monthly structure</div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">Monthly RC</span><span class="why">prior-month high/low reclaim (position)</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">PML held</span><span class="why">prior-month low held as support</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">MoBO box breakout</span><span class="why">cleared a locked multi-month base ceiling</span><span class="sw"></span></div>
+          <div class="row off"><span class="tagl long">Long</span><span class="nm">MoBO RC-H</span><span class="why">broke a monthly high that held as resistance</span><span class="sw"></span></div>
+        </div>
+      </div>
+      <div class="foot" style="text-align:left;padding:0 4px">Retired 2026-07-03: ORH break · Reclaim long (ORH) · CML reclaim · CML held — gone from this page, dropped by the backend.</div>
+    </div>
+
+    <!-- ══ DELIVERY ══ -->
+    <div class="pane" id="p-delivery">
+      <div class="card">
+        <div class="chead"><div class="sh">📨 Telegram</div><button class="btn">Send test</button></div>
+        <div class="tstat">✅ <b>Connected</b> <span class="mono">@mentorhub · linked Jun 12</span><button class="btn ghost" style="margin-left:auto">Disconnect</button></div>
+        <div class="desc">Alerts, morning notes, gap &amp; go queue and the EOD recap all deliver here.</div>
+      </div>
+      <div class="card">
+        <div class="chead"><div class="sh">🔔 Channels</div></div>
+        <div class="frow"><label>Telegram alerts</label><span class="sw on"></span></div>
+        <div class="frow"><label>Desktop notifications</label><span class="sw on"></span></div>
+        <div class="frow"><label>Day-trade alerts: my Focus list only</label><span class="sw"></span></div>
+      </div>
+    </div>
+
+    <!-- ══ RISK & SIZING ══ -->
+    <div class="pane" id="p-trading">
+      <div class="card">
+        <div class="chead"><div class="sh">⚖️ Position Sizing</div></div>
+        <div class="desc">Used to compute suggested share counts on alert cards.</div>
+        <div class="frow"><label>Portfolio size ($)</label><input type="number" value="50000" style="width:130px"></div>
+        <div class="frow"><label>Risk per trade (%)</label><input type="number" value="1.0" step="0.25" style="width:90px"><span class="mono" style="font-size:11px;color:var(--tf)">= $500 max risk</span></div>
+      </div>
+    </div>
+
+    <!-- ══ APPEARANCE ══ -->
+    <div class="pane" id="p-appearance">
+      <div class="card">
+        <div class="chead"><div class="sh">🎨 Appearance</div></div>
+        <div class="frow"><label>Dark mode</label><span class="sw on"></span></div>
+        <div class="frow"><label>Text size</label><span class="seg"><span>Normal</span><span class="on">Large</span><span>XL</span></span></div>
+      </div>
+    </div>
+
+    <!-- ══ ACCOUNT ══ -->
+    <div class="pane" id="p-account">
+      <div class="card">
+        <div class="chead"><div class="sh">👤 Account</div><span class="tagl long" style="font-size:9px;padding:3px 8px">PRO</span></div>
+        <div class="frow"><label>Email</label><span class="mono" style="font-size:12px;color:var(--ts)">mentorhubnetworks@gmail.com</span></div>
+        <div class="frow"><label>Display name</label><input type="text" value="B" style="width:180px"></div>
+        <div class="frow"><label>Password</label><button class="btn">Change password</button></div>
+        <div class="frow"><label>Billing</label><button class="btn">Manage subscription →</button></div>
+      </div>
+      <div class="card">
+        <div class="chead"><div class="sh">🎁 Referrals</div><span class="mono" style="font-size:10px;color:var(--tf)">3 referred · 1 rewarded</span></div>
+        <div class="frow"><input type="text" value="tradesignalwithai.com/r/MENTR8" readonly style="flex:1;min-width:220px"><button class="btn pri">Copy</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">◔ Mockup — one nav rail, 5 sections · alert wall → clustered toggle rows · ORL allowlist inline · market gate lives with day-trade. Toggle <b>▢/▣</b> · <b>🌙/☀️</b></div>
+
+<script>
+function toggleTheme(){
+  var light = document.body.classList.toggle('light');
+  document.getElementById('themeBtn').textContent = light ? '☀️ Light' : '🌙 Dark';
+}
+function toggleStyle(){
+  var t = document.body.classList.toggle('terminal');
+  document.getElementById('styleBtn').textContent = t ? '▣ Terminal' : '▢ Modern';
+}
+document.querySelectorAll('.navrow').forEach(function(el){
+  el.addEventListener('click', function(){
+    document.querySelectorAll('.navrow').forEach(function(x){x.classList.remove('on')});
+    document.querySelectorAll('.pane').forEach(function(x){x.classList.remove('on')});
+    el.classList.add('on');
+    document.getElementById(el.dataset.pane).classList.add('on');
+  });
+});
+document.querySelectorAll('.sw').forEach(function(el){
+  el.addEventListener('click', function(){ el.classList.toggle('on');
+    var r = el.closest('.row'); if(r) r.classList.toggle('off', !el.classList.contains('on'));
+  });
+});
+</script>
+</body></html>
