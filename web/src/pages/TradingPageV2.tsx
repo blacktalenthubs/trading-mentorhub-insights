@@ -1214,11 +1214,16 @@ export default function TradingPageV2() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("watchlist_focus_only") === "1";
   });
+  const [signalsOnly, setSignalsOnly] = useState(false);
   function toggleFocusOnly() {
     setFocusOnly((v) => {
       try { localStorage.setItem("watchlist_focus_only", v ? "0" : "1"); } catch {}
+      if (!v) setSignalsOnly(false);   // Focus + Signals are mutually exclusive tabs
       return !v;
     });
+  }
+  function toggleSignalsOnly() {
+    setSignalsOnly((v) => { if (!v) setFocusOnly(false); return !v; });
   }
 
   // Idea-source filter — hides conviction / long-term names that the scanner
@@ -1406,6 +1411,7 @@ export default function TradingPageV2() {
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
     ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
+    ?.filter((s) => !signalsOnly || signalTodaySet.has(s.symbol.toUpperCase()))
     ?.filter((s) => !hideIdeas || s.source === "watchlist")
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
@@ -1546,6 +1552,18 @@ export default function TradingPageV2() {
                 <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
               Focus <span className="opacity-70 font-normal">{focusSymbols.size}</span>
+            </button>
+            <button
+              onClick={toggleSignalsOnly}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+                signalsOnly
+                  ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+              }`}
+              title="Show only symbols that fired a signal today"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(245,183,61,0.7)]" />
+              Signals <span className="opacity-70 font-normal">{signalTodaySet.size}</span>
             </button>
             {/* Ideas chip — only shown when the scanner folded conviction /
                 long-term ideas into Today. Toggles their visibility. */}
