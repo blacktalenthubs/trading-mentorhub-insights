@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import ADMIN_EMAILS, MASTER_WATCHLIST_EMAIL, get_current_user, get_user_tier, is_admin_user, is_ai_user
 from app.tier import get_limits
+from app.models.alert import Alert
 from app.models.user import User
 from app.models.watchlist import WatchlistGroup, WatchlistItem
 from app.schemas.watchlist import (
@@ -323,6 +324,25 @@ async def get_watchlist(
     stmt = stmt.order_by(WatchlistItem.id)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/signals-today")
+async def watchlist_signals_today(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Symbols on the user's alerts that fired TODAY — feeds the watchlist panel's
+    'signal fired today' amber dot. Uppercase + deduped. Mirrors /alerts/today's
+    session_date filter (ET session date)."""
+    from datetime import date
+
+    today = date.today().isoformat()
+    rows = await db.execute(
+        select(Alert.symbol)
+        .where(Alert.user_id == user.id, Alert.session_date == today)
+        .distinct()
+    )
+    return {"symbols": sorted({(s or "").upper() for s in rows.scalars().all() if s})}
 
 
 @router.post("/focus/{symbol}", response_model=WatchlistItemResponse)
