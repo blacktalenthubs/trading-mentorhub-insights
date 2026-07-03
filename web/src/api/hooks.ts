@@ -453,6 +453,25 @@ export function useSectorsWatchlist() {
   });
 }
 
+// Trading-page watchlist redesign — the "signal fired today" amber dot (symbols on
+// the user's alerts for today's ET session).
+export function useWatchlistSignalsToday() {
+  return useQuery({
+    queryKey: ["watchlist-signals-today"],
+    queryFn: () => api.get<{ symbols: string[] }>("/watchlist/signals-today"),
+    refetchInterval: 60_000,
+  });
+}
+
+// Row sparklines — ~16 recent intraday closes per watchlist symbol (cached server-side).
+export function useWatchlistSparklines() {
+  return useQuery({
+    queryKey: ["watchlist-sparklines"],
+    queryFn: () => api.get<{ sparklines: Record<string, number[]> }>("/market/sparklines"),
+    refetchInterval: 120_000,
+  });
+}
+
 // Copy the admin's full watchlist structure into the caller's account —
 // preserving group names (Mega Tech, Chips, etc.) + colors + sort order.
 // Idempotent: existing groups + items are left alone; only missing ones are
