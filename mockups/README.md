@@ -95,6 +95,54 @@ Retire exactly these four types (add to `OBSOLETE_ALERT_TYPES` in `api/app/model
 
 Explicitly KEEP: `staged_orl_held` (the one OR survivor — already scoped to the user-editable ORL allowlist, which is the noise control) and both 4h RC types. No dedup/group moves were approved. Also fix the `pullback_long` zombie (present in both `_BASE_CATALOG` and `OBSOLETE_ALERT_TYPES`; obsolete deletion wins on startup — remove it from the catalog). Net: 33 → 29 types, Day Trade 15 → 13.
 
+## 9. Strategy Lab — EOD evaluation agent (spec, no mockup; decided 2026-07-03)
+
+**Concept (the owner's words):** "we have entry and we can query the price" — grading IS that. One
+nightly job: take today's sent alerts, query the post-alert prices, write down what happened against
+ENTRY and STOP only (targets are explicitly out — they're mostly wrong; MFE distributions will
+eventually *derive* correct targets instead). A weekly agent reads the accumulated rows and reports
+what's working. A working reference implementation of the whole evaluation exists from the Week-1
+manual run: see the session scripts (pull → grade → aggregate) — ~80 lines with yfinance.
+
+### Nightly job (runs with the existing 16:05/16:15/16:30 triage-agent schedule; ~16:30 ET)
+- Input: today's alerts where `suppressed_reason IS NULL` (sent only — but ALSO grade a sample of
+  suppressed ones: they're a free control group for auditing the gates).
+- Dedup: first fire per (session_date, symbol, alert_type).
+- Fetch 5m bars (yfinance RTH; Alpaca as second source for the audit). ⚠️ intraday data expires
+  (~60d) — grading must happen same-day or evidence is lost forever.
+- Per alert compute BOTH stop conventions, entry/stop only:
+  - `touch`: 5m wick through stop → stopped, R = −1
+  - `close` (PRIMARY — matches how the owner trades): 15m close through stop → stopped, R = actual
+  - plus `mfe_r` (max favorable before stop), `r_eod`, horizon per style (day → session close;
+    swing → also T+3/T+5 closes on later runs; long → weekly marks)
+- Persist to a new `alert_grades` table (alert_id, convention, stopped, r, mfe_r, horizon, data_source,
+  ambiguous flag, graded_at). Never overwrite; re-grades append with source.
+- Health counters logged every run: N graded / skipped (no-window, bad-risk, no-data) / % stops <0.3%
+  of entry / feed-agreement % on a 20-alert two-source sample.
+
+### Weekly report (Friday post-close, publishes via reports_store like the EOD recap → Telegram + Today)
+- Health first (grading coverage, stop-quality, feed agreement) — findings are gated on health.
+- Per-setup scoreboard: N · stopped% (close) · median R · clipped mean R (±3) · median MFE. Use
+  medians/clipped means — raw means are destroyed by tight-stop outliers (proven in Week 1).
+- Hypothesis ledger: findings start as HYPOTHESIS with a written forward prediction; only advance to
+  CONFIRMED on later, unseen weeks; CONFIRMED → DEGRADING → retire-proposal. Proposals are
+  human-veto ONLY — the agent never changes alert config (protected logic).
+- Baselines: report excess-R vs same-window SPY (drift check) and vs random-entry control.
+
+### Week-1 findings already in hand (2026-06-26 → 07-03, hypothesis tier)
+- 🔴 **Production grading is DOWN**: 0 of 222,136 alerts had real_outcome/mfe_r/ret_eod_pct — the
+  16:30/16:45 api jobs aren't running or fail silently. FIX FIRST (protected files → owner sign-off).
+- 🟠 **Stop-sizing bug**: 22% of sent alerts carry stops <0.3% from entry (rc_4h_short median 0.15%,
+  ma_bounce_ema8 0.20%) — floor stops at e.g. max(level, 0.5×ATR).
+- **Close-stops > wick-stops, quantified**: 18% of touch-stop-outs survived the close convention and
+  averaged +5.15R after — adopt close-based stops in grading AND alert copy.
+- Positive cells: rc_4h_long (N=34, medR +0.56) · rc_daily_hrec (N=29, +0.60) · staged_pdh_break
+  (N=6, +1.63, small). Negative: cml_reclaim −0.95 (retired same day ✓) · staged_pdl_held offers
+  1.9R MFE but 62% stop → stop too tight, not a dead setup. reclaim_long ≈ 0 and was 19% of ALL
+  pipeline fires (41,365/wk) — retirement doubly justified.
+- Data nits: tickers `BCHUSD`/`LTCUSD` malformed (missing `-USD`); grade swing/MA-bounce types at
+  T+3/T+5 before judging them (day-horizon grades are unfair).
+
 ---
 
 *Mocks by Claude · design decisions confirmed with the product owner in-session. Educational product — keep the not-financial-advice footers.*
