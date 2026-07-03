@@ -259,7 +259,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
   const sections = [
     { id: "sec-premarket", time: "4:30a", title: "Premarket brief", present: !!pre,
-      wait: "Drops pre-open (~8:30 AM ET).", render: () => <ReportBody body={pre?.body ?? ""} /> },
+      wait: "Drops pre-open (~8:30 AM ET).", render: () => <ReportBody body={pre?.body ?? ""} onChart={onChart} /> },
     { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
@@ -276,7 +276,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
     { id: "sec-eod", time: "4:10p", title: "EOD recap", present: !!eod,
-      wait: "Generated after the close (~4:05 PM ET).", render: () => <ReportBody body={eod?.body ?? ""} /> },
+      wait: "Generated after the close (~4:05 PM ET).", render: () => <ReportBody body={eod?.body ?? ""} onChart={onChart} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);
@@ -336,10 +336,27 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   );
 }
 
+/** Linkify a ticker token (an uppercase symbol immediately followed by a "$" price,
+ *  e.g. "MSTR $98.70") → a clickable chart link, without disturbing the monospace
+ *  layout (inline, no padding). Non-ticker uppercase words (RSI, ADX, MA…) aren't
+ *  followed by a "$", so they're left alone. */
+function Linked({ text, onChart }: { text: string; onChart: (s: string) => void }) {
+  const parts = text.split(/(\b[A-Z]{2,5}\b)(?=\s*\$)/g);
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1
+          ? <button key={i} onClick={() => onChart(p)} className="inline text-accent hover:underline">{p}</button>
+          : <span key={i}>{p}</span>,
+      )}
+    </>
+  );
+}
+
 /** Render a Telegram-HTML report body (premarket brief / EOD recap) as readable
  *  STRUCTURE — bold section headers, monospace cards for the <pre> tables, and plain
- *  prose — instead of one raw <pre> dump. Our own content only (b/i/pre/code tags). */
-function ReportBody({ body }: { body: string }) {
+ *  prose. Tickers ("MSTR $98.70") link to the chart. Our own content only. */
+function ReportBody({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   if (!body || !body.trim()) return null;
   const strip = (s: string) => s.replace(/<\/?(b|strong|i|em|code)>/gi, "");
   const parts = body.split(/(<pre>[\s\S]*?<\/pre>)/g).filter((p) => p.trim() !== "");
@@ -348,7 +365,7 @@ function ReportBody({ body }: { body: string }) {
       {parts.map((part, i) => {
         if (part.startsWith("<pre>")) {
           return (
-            <pre key={i} className="overflow-x-auto whitespace-pre rounded-lg border border-border-subtle bg-surface-2 p-2.5 font-mono text-[12px] leading-relaxed text-text-secondary">{strip(part.replace(/<\/?pre>/g, ""))}</pre>
+            <pre key={i} className="overflow-x-auto whitespace-pre rounded-lg border border-border-subtle bg-surface-2 p-2.5 font-mono text-[12px] leading-relaxed text-text-secondary"><Linked text={strip(part.replace(/<\/?pre>/g, ""))} onChart={onChart} /></pre>
           );
         }
         return part.split("\n").filter((l) => l.trim() !== "").map((line, j) => {
@@ -356,7 +373,7 @@ function ReportBody({ body }: { body: string }) {
           const isHeader = /^(<b>|<strong>).*(<\/b>|<\/strong>)$/i.test(t);
           return isHeader
             ? <div key={`${i}-${j}`} className="pt-1.5 text-[13px] font-bold text-text-primary">{strip(t)}</div>
-            : <p key={`${i}-${j}`} className="text-[13px] leading-relaxed text-text-secondary">{strip(t)}</p>;
+            : <p key={`${i}-${j}`} className="text-[13px] leading-relaxed text-text-secondary"><Linked text={strip(t)} onChart={onChart} /></p>;
         });
       })}
     </div>
