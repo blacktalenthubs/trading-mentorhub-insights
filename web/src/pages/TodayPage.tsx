@@ -237,6 +237,7 @@ function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: 
 }
 
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
+  const nav = useNavigate();
   // Per-day review — "" = latest; pick a past session to flip back to its reports.
   const [selectedDate, setSelectedDate] = useState("");
   const { data, isLoading } = useMarketReports(selectedDate || undefined);
@@ -286,6 +287,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     <div className="grid grid-cols-1 gap-5 md:grid-cols-[190px_1fr]">
       {/* Timeline rail — the day's reports in order; click to jump. */}
       <nav className="hidden self-start md:sticky md:top-2 md:block">
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-text-muted">🕘 Your Day</div>
         <div className="space-y-0.5">
           {sections.map((s) => (
             <button
@@ -301,19 +303,34 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             </button>
           ))}
         </div>
+
+        {/* Live now — the signal feed lives on the Trading page only. */}
+        <button
+          onClick={() => nav("/trading")}
+          className="mt-3 flex w-full flex-col gap-0.5 rounded-lg border border-accent/25 bg-accent/5 p-2.5 text-left transition-colors hover:border-accent/50"
+        >
+          <span className="text-[11px] font-bold text-accent">⚡ Live now</span>
+          <span className="text-[11px] font-semibold text-accent">Open Trading →</span>
+        </button>
+
         {reportDates.length > 0 && (
-          <select
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            title="Review a past session"
-            className="mt-3 w-full rounded-lg border border-border-subtle bg-surface-2 px-2 py-1.5 text-[11px] text-text-secondary"
-          >
-            <option value="">Latest</option>
-            {reportDates.map((d) => (
-              <option key={d} value={d}>{fmtDate(d)}</option>
-            ))}
-          </select>
+          <div className="mt-3">
+            <label className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-text-faint">Session</label>
+            <select
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              title="Review a past session"
+              className="w-full rounded-lg border border-border-subtle bg-surface-2 px-2 py-1.5 text-[11px] text-text-secondary"
+            >
+              <option value="">Latest</option>
+              {reportDates.map((d) => (
+                <option key={d} value={d}>{fmtDate(d)}</option>
+              ))}
+            </select>
+          </div>
         )}
+
+        <p className="mt-3 text-[10px] leading-snug text-text-faint">✓ published · — publishes after the close. Same reports as Telegram, reviewable by session.</p>
       </nav>
 
       {/* Content — every report section in one scroll. */}
