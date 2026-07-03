@@ -252,7 +252,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
   const [activeSec, setActiveSec] = useState<string>("sec-focus");
-  const rawText = (b?: string | null) => (b ? b.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "") : "");
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
@@ -260,7 +259,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
   const sections = [
     { id: "sec-premarket", time: "4:30a", title: "Premarket brief", present: !!pre,
-      wait: "Drops pre-open (~8:30 AM ET).", render: () => <TextReport text={rawText(pre?.body)} /> },
+      wait: "Drops pre-open (~8:30 AM ET).", render: () => <ReportBody body={pre?.body ?? ""} /> },
     { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
@@ -277,7 +276,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
     { id: "sec-eod", time: "4:10p", title: "EOD recap", present: !!eod,
-      wait: "Generated after the close (~4:05 PM ET).", render: () => <TextReport text={rawText(eod?.body)} /> },
+      wait: "Generated after the close (~4:05 PM ET).", render: () => <ReportBody body={eod?.body ?? ""} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);
@@ -337,12 +336,29 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   );
 }
 
-/** Raw-text report card (premarket brief / EOD recap) — strips Telegram HTML tags. */
-function TextReport({ text }: { text: string }) {
-  if (!text.trim()) return null;
+/** Render a Telegram-HTML report body (premarket brief / EOD recap) as readable
+ *  STRUCTURE — bold section headers, monospace cards for the <pre> tables, and plain
+ *  prose — instead of one raw <pre> dump. Our own content only (b/i/pre/code tags). */
+function ReportBody({ body }: { body: string }) {
+  if (!body || !body.trim()) return null;
+  const strip = (s: string) => s.replace(/<\/?(b|strong|i|em|code)>/gi, "");
+  const parts = body.split(/(<pre>[\s\S]*?<\/pre>)/g).filter((p) => p.trim() !== "");
   return (
-    <div className="max-w-3xl rounded-xl border border-border-subtle bg-surface-1 p-4">
-      <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{text}</pre>
+    <div className="max-w-3xl space-y-1.5 rounded-xl border border-border-subtle bg-surface-1 p-4">
+      {parts.map((part, i) => {
+        if (part.startsWith("<pre>")) {
+          return (
+            <pre key={i} className="overflow-x-auto whitespace-pre rounded-lg border border-border-subtle bg-surface-2 p-2.5 font-mono text-[12px] leading-relaxed text-text-secondary">{strip(part.replace(/<\/?pre>/g, ""))}</pre>
+          );
+        }
+        return part.split("\n").filter((l) => l.trim() !== "").map((line, j) => {
+          const t = line.trim();
+          const isHeader = /^(<b>|<strong>).*(<\/b>|<\/strong>)$/i.test(t);
+          return isHeader
+            ? <div key={`${i}-${j}`} className="pt-1.5 text-[13px] font-bold text-text-primary">{strip(t)}</div>
+            : <p key={`${i}-${j}`} className="text-[13px] leading-relaxed text-text-secondary">{strip(t)}</p>;
+        });
+      })}
     </div>
   );
 }
