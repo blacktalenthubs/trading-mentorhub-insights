@@ -66,6 +66,29 @@ LEVEL_DEDUP_WINDOW_MIN = 30
 LEVEL_DEDUP_TOLERANCE_PCT = 0.005  # 0.5%
 
 
+def _load_queue_symbols(db) -> set[str]:
+    """Symbols in today's Gap-and-Go Queue — the latest premarket gap snapshot's
+    entries with queue_rank 1-3. Gap-and-go alerts fire ONLY for these (their only
+    trigger). Empty set if there's no snapshot or nothing queued → gap-and-go stays off."""
+    try:
+        from app.models.premarket_gap import PremarketGapSnapshot
+        row = db.execute(
+            select(PremarketGapSnapshot)
+            .order_by(PremarketGapSnapshot.captured_at.desc())
+            .limit(1)
+        ).scalars().first()
+        if not row or not row.entries:
+            return set()
+        return {
+            str(e.get("symbol")).upper()
+            for e in row.entries
+            if e.get("queue_rank") and e.get("symbol")
+        }
+    except Exception:
+        logger.warning("gap-and-go queue load failed", exc_info=True)
+        return set()
+
+
 def poll_all_users(sync_session_factory) -> int:
     """Run one poll cycle for all Pro users.
 
@@ -146,6 +169,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         if not active_symbols:
             logger.info("No active market symbols — skipping poll")
             return 0
+
+        # Gap-and-Go Queue — today's quality-vetted top gappers. Gap-and-go alerts
+        # fire ONLY for these symbols (scoped to the premarket queue, not global).
+        queue_symbols = _load_queue_symbols(db)
+        if queue_symbols:
+            logger.info("Gap-and-Go queue: %s", ", ".join(sorted(queue_symbols)))
 
         # Deduplicated market data fetches (also write to app cache for API reuse)
         from app.cache import cache_get, cache_set
@@ -459,6 +488,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         is_cooled_down=symbol in cooled_symbols,
                         fired_today=fired_today,
                         is_crypto=_is_crypto,
+                        queue_symbols=queue_symbols,
                     )
 
                     # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
