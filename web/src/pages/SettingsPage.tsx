@@ -20,8 +20,6 @@ import {
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
-  useRegimeConfig,
-  useUpdateRegimeConfig,
   type AlertTypeConfigItem,
 } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
@@ -597,76 +595,6 @@ function MarketGateSection() {
   );
 }
 
-/* ── Noisy-alert symbol scope — ORL held allowlist ──────────────────────────
-   staged_orl_held (the 60m opening-range-low bounce) is noisy by nature, so it
-   fires ONLY for the symbols on this allowlist — everything else is dropped.
-   Default = index ETFs; add whatever names you want. Admin-managed (one shared
-   list). Editing it takes effect on the next alert. */
-function OrlScopeSection() {
-  const { data, isError } = useRegimeConfig();
-  const update = useUpdateRegimeConfig();
-  const [input, setInput] = useState("");
-
-  if (isError) return null;
-
-  const symbols = (data?.orl_always_symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
-
-  const addSymbol = () => {
-    const s = input.trim().toUpperCase();
-    setInput("");
-    if (!s || symbols.includes(s)) return;
-    update.mutate({ orl_always_symbols: [...symbols, s].join(",") });
-  };
-  const removeSymbol = (s: string) =>
-    update.mutate({ orl_always_symbols: symbols.filter((x) => x !== s).join(",") });
-
-  return (
-    <Section title="Noisy alerts — ORL held scope" icon={<ShieldCheck className="h-4 w-4 text-accent" />}>
-      <p className="text-[12px] leading-relaxed text-text-muted mb-3">
-        The <b>opening-range-low (ORL) held</b> bounce is a high-frequency, noisy setup, so it
-        only fires for the symbols you list here — everything else is dropped. Defaults to the
-        <b> index ETFs</b>; add whatever names you actually want it on. You still have to enable
-        <b> ORL held</b> in Alert Types below for it to fire at all.
-      </p>
-
-      <label className="block text-[12px] font-medium text-text-secondary mb-1.5">
-        Fire ORL held only for these symbols
-      </label>
-      {symbols.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {symbols.map((s) => (
-            <span key={s} className="inline-flex items-center gap-1 rounded-md bg-accent/10 border border-accent/20 px-2 py-1 text-[12px] font-semibold text-accent">
-              {s}
-              <button type="button" onClick={() => removeSymbol(s)} className="text-accent/70 hover:text-accent" aria-label={`Remove ${s}`}>
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-text-faint mb-2">No symbols — ORL held won't fire for anyone. Add the names you want it on.</p>
-      )}
-      <div className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value.toUpperCase())}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
-          placeholder="Add a symbol (e.g. NVDA)"
-          className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
-        />
-        <button
-          type="button"
-          onClick={addSymbol}
-          disabled={!input.trim() || update.isPending}
-          className="inline-flex items-center gap-1 rounded-lg bg-accent px-3 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
-        >
-          {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-          Add
-        </button>
-      </div>
-    </Section>
-  );
-}
 
 /* ── Alert Types (per-type enable/disable) ────────────────────────── */
 
@@ -807,38 +735,60 @@ function AlertTypesSection() {
    user's WATCHLIST, gated only by the per-type toggle (Alert Types) + the pine rule
    logic (e.g. MA bounce's in-pine regime gate). No per-symbol exceptions/allowlists. */
 
+/* ── Redesign: left nav + one pane at a time (settings_redesign_mockup.html).
+   Consolidates the old 9 sections into 5 panes. The ORL-scope section was dropped
+   (staged_orl_held retired). Everything still saves instantly — no Save buttons. ── */
+type SettingsPane = "alerts" | "delivery" | "risk" | "appearance" | "account";
+const SETTINGS_NAV: { id: SettingsPane; label: string; icon: typeof Zap }[] = [
+  { id: "alerts", label: "Alerts", icon: Zap },
+  { id: "delivery", label: "Delivery", icon: Send },
+  { id: "risk", label: "Risk & Sizing", icon: DollarSign },
+  { id: "appearance", label: "Appearance", icon: Sun },
+  { id: "account", label: "Account", icon: User },
+];
+
 export default function SettingsPage() {
+  const [pane, setPane] = useState<SettingsPane>(() => {
+    if (typeof window === "undefined") return "alerts";
+    const saved = localStorage.getItem("settings_pane") as SettingsPane | null;
+    return saved && SETTINGS_NAV.some((n) => n.id === saved) ? saved : "alerts";
+  });
+  const pick = (p: SettingsPane) => { setPane(p); try { localStorage.setItem("settings_pane", p); } catch { /* ignore */ } };
+
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-5">
-      <div className="max-w-3xl mx-auto space-y-5">
-        <h1 className="font-display text-xl font-bold text-text-primary">Settings</h1>
-
-        {/* Two-column on desktop: alerts left, account right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Left column: Alerts + preferences.
-             ChannelRouting, AIAlertFilters (unused since 2026-05-27) and the
-             Market-gate exempt lists (gates removed #169/#173) were deleted
-             2026-06-08 — settings focused on what's actually used. */}
-          <div className="space-y-5">
-            <TelegramSetup />
-            <NotificationChannels />
-            <MarketGateSection />
-            <OrlScopeSection />
-            <ThemeToggle />
-          </div>
-
-          {/* Right column: Account + trading */}
-          <div className="space-y-5">
-            <ProfileSection />
-            <TradingSettings />
-          </div>
+      <div className="max-w-5xl mx-auto space-y-4">
+        <div>
+          <h1 className="font-display text-xl font-bold text-text-primary">Settings</h1>
+          <p className="text-[11px] text-text-muted">Everything saves instantly — no Save buttons.</p>
         </div>
 
-        {/* Per-alert-type enable/disable */}
-        <AlertTypesSection />
+        <div className="flex flex-col gap-5 md:flex-row md:items-start">
+          {/* Left nav — a horizontal scroller on mobile, a rail on desktop */}
+          <nav className="flex gap-1 overflow-x-auto pb-1 md:w-48 md:shrink-0 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
+            {SETTINGS_NAV.map((n) => {
+              const Icon = n.icon;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => pick(n.id)}
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${pane === n.id ? "bg-accent/10 text-accent" : "text-text-muted hover:bg-surface-2 hover:text-text-secondary"}`}
+                >
+                  <Icon className="h-4 w-4" /> {n.label}
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* Referral program */}
-        <ReferralSection />
+          {/* Active pane */}
+          <div className="min-w-0 flex-1 space-y-5">
+            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /></>)}
+            {pane === "delivery" && (<><TelegramSetup /><NotificationChannels /></>)}
+            {pane === "risk" && <TradingSettings />}
+            {pane === "appearance" && <ThemeToggle />}
+            {pane === "account" && (<><ProfileSection /><ReferralSection /></>)}
+          </div>
+        </div>
       </div>
     </div>
   );
