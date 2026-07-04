@@ -1,0 +1,162 @@
+// @version=5
+//
+// KLV — Key-Level Break/Hold. THE day-trade engine. The chart IS the decision:
+// rails + arrows, nothing else. (Scoreboard removed — no one reads a table
+// during market hours; validation lives in git history if we need it back.)
+//
+// THE THREE SETUPS (all of them are PDH/PDL events):
+//   Gap-and-go    — day opens beyond PDH; the first 15m close that HOLDS above
+//                   it fires the ▲ (mechanically the same trigger as a break:
+//                   yesterday's close was below, today's close is above).
+//   PDH break / failed break — ▲ close above PDH (breakout) · ▼ close back
+//                   below it (the failed-break short).
+//   PDL reclaim / breakdown  — ▲ close above PDL after testing it (reclaim) ·
+//                   ▼ close below it (breakdown; gap-down-and-go included).
+//
+// THE STOP IS THE RAIL: a PDH long dies on a confirmed close back below PDH,
+// a PDL long must hold PDL — that give-back bar prints a small orange ✕
+// (exit), and it's usually the opposite entry arrow too.
+//
+// PWH / PWL are drawn as thin CONTEXT lines only — known chop zones, no
+// signals from them.
+//
+// Triggers are once per rail per direction per day, on confirmed 15m closes,
+// and require the rail to have been interacted with (crossed or wick-tested) —
+// price merely parked beyond a level never fires.
+//
+// Load on a 15m REGULAR-SESSION chart (ETH prints would poison the levels).
+//
+indicator("KLV · Key-Level Break/Hold", "KLV", overlay = true, max_labels_count = 20, max_lines_count = 20)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+gS = "Signals"
+winMin = input.int(390, "Signal window minutes from the open (390 = all day)", minval = 30, maxval = 390, step = 30, group = gS)
+confN  = input.int(1,   "Confirm bars — consecutive closes beyond the rail before the entry", minval = 1, maxval = 3, group = gS)
+
+gV = "Visual"
+showArr   = input.bool(true, "Entry arrows", group = gV)
+showExit  = input.bool(true, "Exit ✕ when a rail is given back (the stop)", group = gV)
+showPW    = input.bool(true, "PWH / PWL context lines (no signals)", group = gV)
+showNames = input.bool(true, "Rail name at the end of each line", group = gV)
+colUp     = input.color(color.lime,   "▲ long",  group = gV, inline = "mk")
+colDn     = input.color(color.red,    "▼ short", group = gV, inline = "mk")
+colPDH    = input.color(color.new(color.red, 0),      "PDH", group = gV, inline = "pd")
+colPDL    = input.color(color.new(color.maroon, 0),   "PDL", group = gV, inline = "pd")
+colPWH    = input.color(color.new(color.fuchsia, 35), "PWH", group = gV, inline = "pw")
+colPWL    = input.color(color.new(color.purple, 35),  "PWL", group = gV, inline = "pw")
+
+// ── Session anchor (9:30 ET on an RTH chart) ─────────────────────────────────
+nD = ta.change(time("D")) != 0
+barsPerMin = math.max(1.0, timeframe.in_seconds() / 60.0)
+winBars = math.round(winMin / barsPerMin)
+var int sbar = 0
+
+// ── The rails (COMPLETED prior bars, lookahead_on ⇒ no repaint) ───────────────
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+railPx(int i) => i == 0 ? pdh : pdl   // 0 = PDH · 1 = PDL
+
+// ── Per-session state (2 rails × 2 directions) ────────────────────────────────
+var bool[]  upFired = array.new_bool(2, false)
+var bool[]  upInval = array.new_bool(2, false)
+var float[] upLvl   = array.new_float(2, na)
+var int[]   upRun   = array.new_int(2, 0)
+var bool[]  upTouch = array.new_bool(2, false)   // this run interacted with the rail
+var bool[]  dnFired = array.new_bool(2, false)
+var bool[]  dnInval = array.new_bool(2, false)
+var float[] dnLvl   = array.new_float(2, na)
+var int[]   dnRun   = array.new_int(2, 0)
+var bool[]  dnTouch = array.new_bool(2, false)
+
+sbar := nD ? 0 : sbar + 1
+if nD
+    for i = 0 to 1
+        array.set(upFired, i, false)
+        array.set(upInval, i, false)
+        array.set(upLvl, i, na)
+        array.set(upRun, i, 0)
+        array.set(upTouch, i, false)
+        array.set(dnFired, i, false)
+        array.set(dnInval, i, false)
+        array.set(dnLvl, i, na)
+        array.set(dnRun, i, 0)
+        array.set(dnTouch, i, false)
+inWin = sbar <= winBars
+
+// ── TRIGGERS + THE STOP ───────────────────────────────────────────────────────
+bool bullSig = false
+bool bearSig = false
+bool exitSig = false
+for i = 0 to 1
+    float lvl = railPx(i)
+    if not na(lvl)
+        // confirm-run + interaction. An entry needs BOTH: N consecutive closes
+        // beyond the rail AND the rail actually touched/crossed this run.
+        if close > lvl
+            array.set(upRun, i, array.get(upRun, i) + 1)
+            if low <= lvl or close[1] <= lvl
+                array.set(upTouch, i, true)
+        else
+            array.set(upRun, i, 0)
+            array.set(upTouch, i, false)
+        if close < lvl
+            array.set(dnRun, i, array.get(dnRun, i) + 1)
+            if high >= lvl or close[1] >= lvl
+                array.set(dnTouch, i, true)
+        else
+            array.set(dnRun, i, 0)
+            array.set(dnTouch, i, false)
+        // ▲ long — PDH breakout / gap-and-go · PDL reclaim
+        if inWin and not array.get(upFired, i) and array.get(upRun, i) >= confN and array.get(upTouch, i)
+            array.set(upFired, i, true)
+            array.set(upLvl, i, lvl)
+            bullSig := true
+        // ▼ short — PDH failed break · PDL breakdown
+        if inWin and not array.get(dnFired, i) and array.get(dnRun, i) >= confN and array.get(dnTouch, i)
+            array.set(dnFired, i, true)
+            array.set(dnLvl, i, lvl)
+            bearSig := true
+        // ✕ THE STOP — the rail was given back on a confirmed close
+        if array.get(upFired, i) and not array.get(upInval, i) and close < array.get(upLvl, i)
+            array.set(upInval, i, true)
+            exitSig := true
+        if array.get(dnFired, i) and not array.get(dnInval, i) and close > array.get(dnLvl, i)
+            array.set(dnInval, i, true)
+            exitSig := true
+
+// ── CHART — arrows, exit crosses, rails, end tags. That's everything. ─────────
+plotshape(showArr and bullSig,  "Long entry",  style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(showArr and bearSig,  "Short entry", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+plotshape(showExit and exitSig, "Stop — rail given back", style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
+
+plot(pdh, "PDH", color = colPDH, linewidth = 3, style = plot.style_stepline)
+plot(pdl, "PDL", color = colPDL, linewidth = 3, style = plot.style_stepline)
+plot(showPW ? pwh : na, "PWH", color = colPWH, linewidth = 1, style = plot.style_stepline)
+plot(showPW ? pwl : na, "PWL", color = colPWL, linewidth = 1, style = plot.style_stepline)
+
+// end-of-line termination tags — one label per rail, moved to the last bar
+var label tagPDH = na
+var label tagPDL = na
+var label tagPWH = na
+var label tagPWL = na
+f_tag(label lb, bool on, float px, string nm, color c) =>
+    label res = lb
+    if not on or na(px)
+        if not na(lb)
+            label.delete(lb)
+        res := na
+    else if na(lb)
+        res := label.new(bar_index + 1, px, nm, style = label.style_label_left, color = color.new(color.black, 100), textcolor = c, size = size.small)
+    else
+        label.set_xy(lb, bar_index + 1, px)
+        label.set_text(lb, nm)
+        label.set_textcolor(lb, c)
+    res
+if barstate.islast
+    tagPDH := f_tag(tagPDH, showNames, pdh, "PDH", colPDH)
+    tagPDL := f_tag(tagPDL, showNames, pdl, "PDL", colPDL)
+    tagPWH := f_tag(tagPWH, showNames and showPW, pwh, "PWH", colPWH)
+    tagPWL := f_tag(tagPWL, showNames and showPW, pwl, "PWL", colPWL)

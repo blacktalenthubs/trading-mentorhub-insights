@@ -95,6 +95,25 @@ Retire exactly these four types (add to `OBSOLETE_ALERT_TYPES` in `api/app/model
 
 Explicitly KEEP: `staged_orl_held` (the one OR survivor — already scoped to the user-editable ORL allowlist, which is the noise control) and both 4h RC types. No dedup/group moves were approved. Also fix the `pullback_long` zombie (present in both `_BASE_CATALOG` and `OBSOLETE_ALERT_TYPES`; obsolete deletion wins on startup — remove it from the catalog). Net: 33 → 29 types, Day Trade 15 → 13.
 
+### ➕ ORB box alert family (decided 2026-07-03 after backtesting — ADD, do not replace RC)
+Owner's call: the RC alerts are powerful and stay untouched. The ORB grammar (validated by eye on
+MU/SEZL 15m with `pine_scripts/active/orb_pd.pine`) is ADDED as a new day-trade family, **scoped to
+a user-editable symbol allowlist** (same mechanism as `staged_orl_held` / `orl_always_symbols`) —
+owner starts with 4 index vehicles (SPY / QQQ / SOXL + one more of their choice) to monitor noise
+before widening. SOXL 2026-07-03 is the reference session: bull trap above ORH (orb_exit + short
+orb_break pair) and a stacked close through PDL 215.38 + ORL in one bar → the 215→172 slide. Four types, all on 15m confirmed closes,
+rails = ORH/ORL (first-15m box) + PDH/PDL, once per rail per direction per day, interaction
+required (parked-beyond never fires):
+- `orb_break` — close through a rail; payload flag `stacked: true` when one close takes ≥2 rails
+  in the same direction (the ignition bars — strongest form, worth calling out in the message)
+- `orb_held` — rail tested from the far side and held (SEZL's ORL bounce)
+- `orb_retest` — a broken rail retested and REJECTED in the break's direction (the second entry)
+- `orb_exit` — a rail given back on a confirmed close (the stop — deliver it; today users never
+  get the death notice)
+Reference logic: `pine_scripts/active/orb_pd.pine` implements the exact state machine (run/touch/
+fired/inval/retest arrays). Pipeline note: the existing confluence-collapse dedup should absorb
+overlap with `staged_pdh_break`/`staged_pdl_break` on stacked bars.
+
 ## 9. Strategy Lab — EOD evaluation agent (spec, no mockup; decided 2026-07-03)
 
 **Concept (the owner's words):** "we have entry and we can query the price" — grading IS that. One

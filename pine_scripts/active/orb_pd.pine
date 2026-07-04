@@ -1,0 +1,209 @@
+// @version=5
+//
+// ORB+PD — the 15-minute opening range HIGH/LOW + PDH/PDL. Nothing else.
+// Four rails, one grammar (same as key_levels.pine so backtest reads match):
+//
+//   ORH / ORL — high/low of the first 15 minutes, drawn across the session
+//               once the range completes.
+//   PDH / PDL — prior-day high/low, thick steplines across all history.
+//
+//   ▲ tiny green arrow — confirmed 15m close ABOVE a rail it interacted with
+//                        (break from below, or a bounce: price moved INTO the
+//                        rail from above, held it, closed back above — the
+//                        "approaching ORL becomes support" event).
+//   ▼ tiny red arrow   — mirror: close below after a break down or a rejection
+//                        at the rail from below (ORH as resistance on approach).
+//   ✕ small orange     — the rail was given back on a confirmed close (the stop).
+//   Once per rail per direction per day. Parked-beyond-a-rail never fires.
+//
+// v2 ENHANCEMENTS:
+//   ◆ green/red diamond — ROLE-FLIP RETEST (the "second entry"): a rail was
+//     BROKEN earlier, price came back to the broken edge and a confirmed close
+//     REJECTED it in the break's direction. Broken support retested as
+//     resistance (short) · broken resistance retested as support (long).
+//     Better price, stop = the edge, and it filters fake breaks (a fake break
+//     re-enters the box instead of rejecting). Once per rail per day.
+//   ▲▲ amber triangle (small, not tiny) — STACKED BREAK: one confirmed close
+//     took TWO OR MORE rails in the same direction (e.g. ORL + PDL in one
+//     bar). The launch bars on trend days self-identify.
+//
+// Load on a 15m REGULAR-SESSION chart (ETH would poison the OR and the PD rails).
+//
+indicator("ORB+PD · 15m OR + prior-day rails", "ORB+PD", overlay = true, max_labels_count = 30, max_lines_count = 300, max_boxes_count = 300)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+gS = "Signals"
+orMin  = input.int(15,  "Opening-range minutes", minval = 15, maxval = 60, step = 15, group = gS)
+winMin = input.int(390, "Signal window minutes from the open (390 = all day)", minval = 30, maxval = 390, step = 30, group = gS)
+confN  = input.int(1,   "Confirm bars — consecutive closes beyond the rail", minval = 1, maxval = 3, group = gS)
+
+gV = "Visual"
+showArr   = input.bool(true, "Entry arrows", group = gV)
+showRet   = input.bool(true, "◆ role-flip retest of a broken rail (the second entry)", group = gV)
+showStack = input.bool(true, "▲▲ stacked break — one close takes 2+ rails", group = gV)
+showExit  = input.bool(true, "Exit ✕ when a rail is given back", group = gV)
+showBox   = input.bool(true, "Shade the opening-range box", group = gV)
+showNames = input.bool(true, "Rail names at the line ends", group = gV)
+colUp     = input.color(color.lime,   "▲",   group = gV, inline = "mk")
+colDn     = input.color(color.red,    "▼",   group = gV, inline = "mk")
+colORH    = input.color(color.new(color.teal, 0),    "ORH", group = gV, inline = "or")
+colORL    = input.color(color.new(#0e7490, 0),       "ORL", group = gV, inline = "or")
+colPDH    = input.color(color.new(color.red, 0),     "PDH", group = gV, inline = "pd")
+colPDL    = input.color(color.new(color.maroon, 0),  "PDL", group = gV, inline = "pd")
+colBox    = input.color(color.new(color.gray, 92),   "OR box fill", group = gV)
+
+// ── Session anchor (9:30 ET on an RTH chart) ─────────────────────────────────
+nD = ta.change(time("D")) != 0
+barsPerMin = math.max(1.0, timeframe.in_seconds() / 60.0)
+orBars  = math.max(1, math.round(orMin / barsPerMin))
+winBars = math.round(winMin / barsPerMin)
+dayBars = math.round(390 / barsPerMin)
+var int sbar = 0
+
+// ── PDH / PDL (COMPLETED daily bars, lookahead_on ⇒ no repaint) ───────────────
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+// ── Opening range build ───────────────────────────────────────────────────────
+var float orh = na
+var float orl = na
+sbar := nD ? 0 : sbar + 1
+if nD
+    orh := high
+    orl := low
+else if sbar < orBars
+    orh := math.max(orh, high)
+    orl := math.min(orl, low)
+orReady = sbar >= orBars
+inWin   = sbar <= winBars
+
+// rails: 0=PDH · 1=PDL · 2=ORH · 3=ORL (OR rails are na until the range completes)
+railPx(int i) => i == 0 ? pdh : i == 1 ? pdl : not orReady ? na : i == 2 ? orh : orl
+
+// ── Per-session signal state (4 rails × 2 directions) ─────────────────────────
+var bool[]  upFired = array.new_bool(4, false)
+var bool[]  upInval = array.new_bool(4, false)
+var float[] upLvl   = array.new_float(4, na)
+var int[]   upRun   = array.new_int(4, 0)
+var bool[]  upTouch = array.new_bool(4, false)
+var bool[]  dnFired = array.new_bool(4, false)
+var bool[]  dnInval = array.new_bool(4, false)
+var float[] dnLvl   = array.new_float(4, na)
+var int[]   dnRun   = array.new_int(4, 0)
+var bool[]  dnTouch = array.new_bool(4, false)
+var int[]   upBar   = array.new_int(4, -1)      // bar of the upward break (for retests)
+var int[]   dnBar   = array.new_int(4, -1)
+var bool[]  retUp   = array.new_bool(4, false)  // role-flip retest already printed
+var bool[]  retDn   = array.new_bool(4, false)
+if nD
+    for i = 0 to 3
+        array.set(upFired, i, false)
+        array.set(upInval, i, false)
+        array.set(upLvl, i, na)
+        array.set(upRun, i, 0)
+        array.set(upTouch, i, false)
+        array.set(dnFired, i, false)
+        array.set(dnInval, i, false)
+        array.set(dnLvl, i, na)
+        array.set(dnRun, i, 0)
+        array.set(dnTouch, i, false)
+        array.set(upBar, i, -1)
+        array.set(dnBar, i, -1)
+        array.set(retUp, i, false)
+        array.set(retDn, i, false)
+
+// ── Triggers + the stop + retests + stacks ────────────────────────────────────
+int  bullN = 0
+int  bearN = 0
+bool exitSig = false
+bool retLong = false
+bool retShort = false
+for i = 0 to 3
+    float lvl = railPx(i)
+    if not na(lvl)
+        if close > lvl
+            array.set(upRun, i, array.get(upRun, i) + 1)
+            if low <= lvl or close[1] <= lvl
+                array.set(upTouch, i, true)
+        else
+            array.set(upRun, i, 0)
+            array.set(upTouch, i, false)
+        if close < lvl
+            array.set(dnRun, i, array.get(dnRun, i) + 1)
+            if high >= lvl or close[1] >= lvl
+                array.set(dnTouch, i, true)
+        else
+            array.set(dnRun, i, 0)
+            array.set(dnTouch, i, false)
+        if inWin and not array.get(upFired, i) and array.get(upRun, i) >= confN and array.get(upTouch, i)
+            array.set(upFired, i, true)
+            array.set(upLvl, i, lvl)
+            array.set(upBar, i, bar_index)
+            bullN += 1
+        if inWin and not array.get(dnFired, i) and array.get(dnRun, i) >= confN and array.get(dnTouch, i)
+            array.set(dnFired, i, true)
+            array.set(dnLvl, i, lvl)
+            array.set(dnBar, i, bar_index)
+            bearN += 1
+        // ◆ ROLE-FLIP RETEST — a LATER bar returns to the broken edge and a
+        // confirmed close rejects it in the break's direction. Once per rail/day.
+        if array.get(upFired, i) and not array.get(upInval, i) and not array.get(retUp, i) and bar_index > array.get(upBar, i) and low <= array.get(upLvl, i) and close > array.get(upLvl, i)
+            array.set(retUp, i, true)
+            retLong := true
+        if array.get(dnFired, i) and not array.get(dnInval, i) and not array.get(retDn, i) and bar_index > array.get(dnBar, i) and high >= array.get(dnLvl, i) and close < array.get(dnLvl, i)
+            array.set(retDn, i, true)
+            retShort := true
+        // ✕ the stop — the rail was given back on a confirmed close
+        if array.get(upFired, i) and not array.get(upInval, i) and close < array.get(upLvl, i)
+            array.set(upInval, i, true)
+            exitSig := true
+        if array.get(dnFired, i) and not array.get(dnInval, i) and close > array.get(dnLvl, i)
+            array.set(dnInval, i, true)
+            exitSig := true
+
+// ▲▲ stacked = one confirmed close took 2+ rails in the same direction
+bool bullStack = bullN >= 2
+bool bearStack = bearN >= 2
+plotshape(showArr and bullN == 1,        "Long entry",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(showArr and bearN == 1,        "Short entry",  style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+plotshape(showStack and bullStack,       "STACKED long", style = shape.triangleup,   location = location.belowbar, color = color.orange, size = size.small)
+plotshape(showStack and bearStack,       "STACKED short",style = shape.triangledown, location = location.abovebar, color = color.orange, size = size.small)
+plotshape(showRet and retLong,           "Retest long",  style = shape.diamond,      location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(showRet and retShort,          "Retest short", style = shape.diamond,      location = location.abovebar, color = colDn, size = size.tiny)
+plotshape(showExit and exitSig,          "Stop — rail given back", style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
+
+// ── Rails ─────────────────────────────────────────────────────────────────────
+// PDH/PDL as thick steplines (all history, never garbage-collected)
+plot(pdh, "PDH", color = colPDH, linewidth = 3, style = plot.style_stepline)
+plot(pdl, "PDL", color = colPDL, linewidth = 3, style = plot.style_stepline)
+// ORH/ORL drawn once per session when the range completes, out to the close
+orDone = sbar == orBars
+if orDone and not na(orh)
+    if showBox
+        box.new(bar_index - orBars, orh, bar_index + dayBars - orBars, orl, border_color = na, bgcolor = colBox)
+    line.new(bar_index - orBars, orh, bar_index + dayBars - orBars, orh, color = colORH, width = 2)
+    line.new(bar_index - orBars, orl, bar_index + dayBars - orBars, orl, color = colORL, width = 2)
+
+// end-of-line name tags
+var label tORH = na
+var label tORL = na
+var label tPDH = na
+var label tPDL = na
+f_tag(label lb, bool on, float px, string nm, color c) =>
+    label res = lb
+    if not on or na(px)
+        if not na(lb)
+            label.delete(lb)
+        res := na
+    else if na(lb)
+        res := label.new(bar_index + 1, px, nm, style = label.style_label_left, color = color.new(color.black, 100), textcolor = c, size = size.small)
+    else
+        label.set_xy(lb, bar_index + 1, px)
+        label.set_text(lb, nm)
+        label.set_textcolor(lb, c)
+    res
+if barstate.islast
+    tPDH := f_tag(tPDH, showNames, pdh, "PDH", colPDH)
+    tPDL := f_tag(tPDL, showNames, pdl, "PDL", colPDL)
+    tORH := f_tag(tORH, showNames and orReady, orh, "ORH", colORH)
+    tORL := f_tag(tORL, showNames and orReady, orl, "ORL", colORL)
