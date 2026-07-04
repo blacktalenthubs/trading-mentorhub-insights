@@ -494,34 +494,14 @@ if show_lvl and barstate.islast
     if show_pdh
         draw_level(hDp, "PDH", 0, 2, na)
         draw_level(lDp, "PDL", 0, 6, na)
-    if show_pw
-        draw_level(hWp, "PWH", 1, 10, na)
-        draw_level(lWp, "PWL", 1, 14, na)
-    if show_pm
-        draw_level(hMp, "PMH", 2, 18, na)
-        draw_level(lMp, "PML", 2, 22, na)
-    if show_cml
-        draw_level(cml, "CML", 2, 26, col_cml)
+    // Weekly/monthly levels (PWH/PWL · PMH/PML · CML · 10w/30w) moved to htf_levels.pine
+    // (a separate overlay) so their FAR values no longer stretch rc.pine's price scale.
+    // Their COMPUTATION stays above — weekly_rc / monthly_rc / CML / 10w-30w alerts still
+    // use hWp/lWp/hMp/lMp/cml/w10/w30. (show_pw/show_pm/show_cml/show_10w/show_30w inputs
+    // are now inert here; toggle these levels in htf_levels.pine instead.)
 
-// ── Weekly 10w/30w MA flat lines (visual, from "Weekly Levels") — role-colored,
-// redrawn on the last bar. Separate vars from the prior-level set above.
-var line  ln10 = na
-var line  ln30 = na
-var label lb10 = na
-var label lb30 = na
-if barstate.islast
-    line.delete(ln10)
-    line.delete(ln30)
-    label.delete(lb10)
-    label.delete(lb30)
-    if show_10w and not na(w10)
-        c10 = close > w10 ? col_sup : col_res
-        ln10 := line.new(bar_index - lvl_bars, w10, bar_index + 10, w10, color = c10, width = 2)
-        lb10 := label.new(bar_index + 10, w10, "10w " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
-    if show_30w and not na(w30)
-        c30 = close > w30 ? col_sup : col_res
-        ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
-        lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
+// (The weekly 10w/30w MA flat lines moved to htf_levels.pine — see the note above.
+//  w10/w30 are still computed for the 10w/30w-held alerts; they just aren't drawn here.)
 
 // ── (The old ORH/ORL reclaim lines were removed — the ORB opening-range BOX at the
 //    end of the file replaces them. rl_orh/rl_orl are still computed above for the
