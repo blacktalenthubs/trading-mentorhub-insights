@@ -13,6 +13,9 @@ import {
   useWatchlistFundamentals,
   useRefreshFundamentals,
   useGenerateAIBrief,
+  useSymbolFundamentals,
+  useEmerging,
+  useGrowth,
   useMe,
   type FundamentalsItem,
   type AIBrief,
@@ -50,6 +53,11 @@ function consensusBadge(c: string | null): string {
   if (c === "Sell") return "bg-bearish-subtle text-bearish-text";
   if (c === "Hold") return "bg-warning-subtle text-warning-text";
   return "bg-surface-3 text-text-faint";
+}
+function gradeBadge(g: string | null | undefined): string {
+  if (g?.startsWith("A")) return "bg-bullish-subtle text-bullish-text";
+  if (g?.startsWith("B")) return "bg-accent/15 text-accent";
+  return "bg-surface-3 text-text-muted";
 }
 /** Freshness of the numbers: green ≤6h, amber older, empty ring = never fetched. */
 function freshDot(iso: string | null): string {
@@ -271,6 +279,8 @@ export default function DetailsTab() {
   const { data: me } = useMe();
   const isAdmin = (me?.email ?? "").trim().toLowerCase() === AI_ADMIN_EMAIL;
   const navigate = useNavigate();
+  const { data: em } = useEmerging();
+  const { data: gr } = useGrowth();
 
   const items = data?.items ?? [];
   const q = search.trim().toLowerCase();
@@ -288,8 +298,26 @@ export default function DetailsTab() {
     return [...g.entries()];
   }, [filtered]);
 
-  const activeSymbol = selected ?? filtered[0]?.symbol ?? null;
-  const active = items.find((it) => it.symbol === activeSymbol) ?? null;
+  // Top-graded ideas from the discovery boards (Emerging + Growth), best grade first.
+  const topIdeas = useMemo(() => {
+    const rank = (g: string | null | undefined) => (g?.startsWith("A") ? 0 : g?.startsWith("B") ? 1 : g?.startsWith("C") ? 2 : 3);
+    const map = new Map<string, { symbol: string; grade: string; score: number }>();
+    const add = (sym: string, grade: string, score: number) => {
+      const k = sym.toUpperCase();
+      const cur = map.get(k);
+      if (!cur || rank(grade) < rank(cur.grade) || (rank(grade) === rank(cur.grade) && score > cur.score)) map.set(k, { symbol: k, grade, score });
+    };
+    (em?.entries ?? []).forEach((e) => add(e.symbol, e.grade, e.score));
+    (gr?.entries ?? []).forEach((e) => add(e.symbol, e.grade, e.score));
+    return [...map.values()].sort((a, b) => rank(a.grade) - rank(b.grade) || b.score - a.score).slice(0, 10);
+  }, [em, gr]);
+
+  const activeSymbol = selected ?? filtered[0]?.symbol ?? topIdeas[0]?.symbol ?? null;
+  const watchlistActive = items.find((it) => it.symbol === activeSymbol) ?? null;
+  // A Top Idea that isn't on the watchlist → fetch its full dossier on demand.
+  const needIdeaFetch = !watchlistActive && !!activeSymbol && topIdeas.some((t) => t.symbol === activeSymbol);
+  const { data: ideaFund } = useSymbolFundamentals(needIdeaFetch ? activeSymbol : null);
+  const active = watchlistActive ?? (needIdeaFetch ? ideaFund ?? null : null);
 
   if (isLoading) {
     return (
@@ -306,7 +334,7 @@ export default function DetailsTab() {
       </div>
     );
   }
-  if (items.length === 0) {
+  if (items.length === 0 && topIdeas.length === 0) {
     return (
       <EmptyState
         icon={Info}
@@ -335,6 +363,24 @@ export default function DetailsTab() {
           />
         </div>
         <div className="max-h-[70vh] overflow-y-auto rounded-lg border border-border-subtle bg-surface-1">
+          {/* ⭐ Top-graded ideas fed from the discovery boards — research them before adding */}
+          {topIdeas.length > 0 && (
+            <div>
+              <div className="sticky top-0 z-10 bg-surface-1 px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-amber-400/80">⭐ Ideas · Top {topIdeas.length}</div>
+              {topIdeas.map((t) => (
+                <button
+                  key={`idea-${t.symbol}`}
+                  onClick={() => setSelected(t.symbol)}
+                  className={`flex w-full items-center gap-2 border-l-2 px-2.5 py-1.5 text-left transition-colors ${
+                    t.symbol === activeSymbol ? "border-accent bg-accent/[0.07]" : "border-transparent hover:bg-surface-2"
+                  }`}
+                >
+                  <span className={`shrink-0 rounded px-1 py-0.5 text-[8.5px] font-bold ${gradeBadge(t.grade)}`}>{t.grade}</span>
+                  <span className="flex-1 truncate font-mono text-[13px] font-bold text-text-primary">{t.symbol}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {groups.map(([sector, rows]) => (
             <div key={sector}>
               <div className="sticky top-0 bg-surface-1 px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-amber-400/80">{sector}</div>
@@ -372,6 +418,8 @@ export default function DetailsTab() {
             onGenerate={() => aiGen.mutate(active.symbol)}
             generating={genSym === active.symbol}
           />
+        ) : needIdeaFetch ? (
+          <div className="rounded-xl border border-border-subtle bg-surface-1 p-8 text-center text-[12px] text-text-faint">Loading research for {activeSymbol}…</div>
         ) : (
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-8 text-center text-[12px] text-text-faint">Pick a symbol to see its research.</div>
         )}

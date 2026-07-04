@@ -603,7 +603,19 @@ export function useRefreshFundamentals() {
       api.post("/fundamentals/refresh", symbol ? { symbol } : { all: true }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] });
+      qc.invalidateQueries({ queryKey: ["fundamentals-symbol"] });
     },
+  });
+}
+
+// Per-symbol fundamentals + AI brief for ANY symbol (the Top-Ideas dossier, where an
+// idea may not be on the user's watchlist). GET /fundamentals/{symbol}.
+export function useSymbolFundamentals(symbol: string | null) {
+  return useQuery({
+    queryKey: ["fundamentals-symbol", symbol],
+    queryFn: () => api.get<FundamentalsItem>(`/fundamentals/${encodeURIComponent(symbol!)}`),
+    enabled: !!symbol,
+    staleTime: 30 * 60_000,
   });
 }
 
@@ -617,7 +629,10 @@ export function useGenerateAIBrief() {
     onSuccess: (_d, symbol) => {
       toast.info(symbol ? `Generating AI brief for ${symbol}…` : "Generating AI briefs…");
       [8000, 20000, 40000, 70000].forEach((delay) =>
-        setTimeout(() => qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] }), delay),
+        setTimeout(() => {
+          qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] });
+          qc.invalidateQueries({ queryKey: ["fundamentals-symbol"] });
+        }, delay),
       );
     },
     onError: () => toast.error("Couldn't generate the AI brief"),
