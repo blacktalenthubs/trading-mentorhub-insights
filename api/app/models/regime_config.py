@@ -44,6 +44,10 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # everything else is Not-routed. Supersedes rc_4h_short_symbols. BLANK = no shorts.
     # Default SPY,QQQ — add the names you want shorts on, live in Settings.
     "short_symbols": "SPY,QQQ",
+    # ORB (15m opening-range + PDH/PDL) allowlist (2026-07-03). The orb_break/held/
+    # retest/exit family is being TRIALED — delivers ONLY for these names so noise stays
+    # controlled. User-editable in Settings. Default the 4 index/liquid vehicles.
+    "orb_symbols": "SPY,QQQ,SOXL,MU",
     # MA/EMA bounce allowlist (#282, 2026-06-17). MA bounce/rejection alerts fire ONLY
     # for these clean trending names — on a chop chart the MA tangle is pure noise.
     # Everything else Not-routed. BLANK = no MA alerts. Default SPY,QQQ,DRAM,MU,AAPL.

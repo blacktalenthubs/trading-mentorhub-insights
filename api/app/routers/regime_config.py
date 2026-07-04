@@ -31,6 +31,7 @@ class RegimeConfigUpdate(BaseModel):
     rc_symbols: Optional[str] = None  # symbols whose 4h RC alerts (long + short) fire; blank = none (#286)
     gap_always_symbols: Optional[str] = None  # symbols whose gap-and-go always delivers even when muted (default SPY,QQQ)
     orl_always_symbols: Optional[str] = None  # ALLOWLIST: staged_orl_held (noisy) fires ONLY for these; user-editable (default index SPY,QQQ,IWM)
+    orb_symbols: Optional[str] = None  # ALLOWLIST: ORB family (orb_break/held/retest/exit) delivers ONLY for these; user-editable (default SPY,QQQ,SOXL,MU)
     htf_sr_symbols: Optional[str] = None  # symbols whose multi-period S/R alerts deliver (was unsaveable before)
 
 
@@ -80,6 +81,7 @@ async def set_regime_config(
         "rc_symbols": body.rc_symbols,
         "gap_always_symbols": body.gap_always_symbols,
         "orl_always_symbols": body.orl_always_symbols,
+        "orb_symbols": body.orb_symbols,
         "htf_sr_symbols": body.htf_sr_symbols,
     }
     _BOOL_KEYS = {"spy_trend_gate_enabled"}

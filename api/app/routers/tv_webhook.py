@@ -402,6 +402,10 @@ RC_SYMS_DEFAULT: frozenset[str] = frozenset()
 # staged_orl_held (60m opening-range-low held) is NOISY — fires only for symbols on
 # the user-editable orl_always_symbols allowlist (Settings; default index SPY/QQQ/IWM).
 ORL_SYMS_DEFAULT: frozenset[str] = frozenset()
+# ORB family (orb_break/held/retest/exit — 15m OR + PDH/PDL) is being TRIALED — fires
+# only for symbols on the user-editable orb_symbols allowlist (Settings; default
+# SPY,QQQ,SOXL,MU). Empty = read-fail fallback (silence, never a flood).
+ORB_SYMS_DEFAULT: frozenset[str] = frozenset()
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1449,6 +1453,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["orl_always_symbols"])
             if "orl_always_symbols" in _rc else ORL_SYMS_DEFAULT
         )
+        orb_symbols = (
+            _parse_exempt_syms(_rc["orb_symbols"])
+            if "orb_symbols" in _rc else ORB_SYMS_DEFAULT
+        )
     except Exception:
         logger.exception("TV webhook: alert_type_config read failed — static fallback")
         enabled_types = None
@@ -1462,6 +1470,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
         orl_always_symbols = ORL_SYMS_DEFAULT     # read failed → ORL fires for nobody (safe)
+        orb_symbols = ORB_SYMS_DEFAULT            # read failed → ORB fires for nobody (safe)
 
     # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
     # default SPY/QQQ) fires even if a user muted gap-and-go — an index doesn't gap
@@ -1544,6 +1553,20 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     ):
         logger.info("TV webhook: staged_orl_held %s not in orl_always_symbols — Not-routed", sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orl_symbol_filter")
+
+    # ──────────────────────────────────────────────────────────────────
+    # ORB allowlist (2026-07-03). The ORB family (orb_break/orb_held/orb_retest/
+    # orb_exit — 15m opening-range + PDH/PDL) is being TRIALED, so it's clamped to a
+    # user-editable symbol allowlist (orb_symbols in Settings; default SPY,QQQ,SOXL,MU).
+    # Symbols off the list → Not-routed. Empty list = no clamp (types still default OFF).
+    # ──────────────────────────────────────────────────────────────────
+    if (
+        orb_symbols
+        and _bare_rule.startswith("orb_")
+        and (sig.symbol or "").upper() not in orb_symbols
+    ):
+        logger.info("TV webhook: ORB %s %s not in orb_symbols — Not-routed", alert_type_full, sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orb_symbol_filter")
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
