@@ -624,20 +624,25 @@ orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail",
 orb_new15 = ta.change(time("15")) != 0
 var float orb_c15prev = na
 
-// OR = the first 15m bar of the RTH session
+// OR = the first 15 MINUTES of the RTH session, built from NATIVE bars — works whether
+// rc.pine is on the 5m alert chart or you're viewing it on 15m. (request.security
+// mis-anchored the box across timeframes, which made it small/misplaced on the 15m view.)
+var int orb_sbar = 0
+orb_sbar := nD ? 0 : orb_sbar + 1
+orb_orMinBars = math.max(1, math.round(15.0 / (timeframe.in_seconds() / 60.0)))
 var float orb_orh = na
 var float orb_orl = na
 if nD
-    orb_orh := na
-    orb_orl := na
+    orb_orh := high
+    orb_orl := low
     orb_c15prev := na
-bool orb_orJustSet = false
-if orb_new15 and na(orb_orh)
-    orb_orh := oH15
-    orb_orl := oL15
-    orb_orJustSet := true
+else if orb_sbar < orb_orMinBars
+    orb_orh := math.max(orb_orh, high)
+    orb_orl := math.min(orb_orl, low)
+orb_orReady  = orb_sbar >= orb_orMinBars
+orb_orJustSet = orb_sbar == orb_orMinBars
 
-orb_railPx(int i) => i == 0 ? hDp : i == 1 ? lDp : i == 2 ? orb_orh : orb_orl
+orb_railPx(int i) => i == 0 ? hDp : i == 1 ? lDp : not orb_orReady ? na : i == 2 ? orb_orh : orb_orl
 orb_railNm(int i) => i == 0 ? "PDH" : i == 1 ? "PDL" : i == 2 ? "ORH" : "ORL"
 
 // per-session state (4 rails × 2 directions)
@@ -794,6 +799,25 @@ if en_orb and orb_exFire
 plot(show_pdh ? hDp : na, "PDH", color = col_res, linewidth = 2, style = plot.style_stepline)
 plot(show_pdh ? lDp : na, "PDL", color = col_sup, linewidth = 2, style = plot.style_stepline)
 orb_dayBars = math.max(1, math.round(390.0 / (timeframe.in_seconds() / 60.0)))
-orb_orBars  = math.max(1, math.round(15.0  / (timeframe.in_seconds() / 60.0)))
 if rl_showOR and orb_orJustSet and not na(orb_orh) and not na(orb_orl)
-    box.new(bar_index - orb_orBars, orb_orh, bar_index + orb_dayBars - orb_orBars, orb_orl, border_color = color.new(color.teal, 25), bgcolor = color.new(color.teal, 92))
+    box.new(bar_index - orb_orMinBars, orb_orh, bar_index + orb_dayBars - orb_orMinBars, orb_orl, border_color = color.new(color.teal, 0), bgcolor = color.new(color.teal, 88))
+
+// Right-edge NAME labels for PDH/PDL + the current session's ORH/ORL — like the other
+// levels (10w / PWH / 30w …). Redrawn on the last bar.
+var label orb_lbPDH = na
+var label orb_lbPDL = na
+var label orb_lbORH = na
+var label orb_lbORL = na
+if barstate.islast
+    label.delete(orb_lbPDH)
+    label.delete(orb_lbPDL)
+    label.delete(orb_lbORH)
+    label.delete(orb_lbORL)
+    if show_pdh and not na(hDp)
+        orb_lbPDH := label.new(bar_index + 3, hDp, "PDH " + str.tostring(hDp, format.mintick), style = label.style_label_left, color = col_res, textcolor = color.white, size = size.small)
+    if show_pdh and not na(lDp)
+        orb_lbPDL := label.new(bar_index + 3, lDp, "PDL " + str.tostring(lDp, format.mintick), style = label.style_label_left, color = col_sup, textcolor = color.white, size = size.small)
+    if rl_showOR and orb_orReady and not na(orb_orh)
+        orb_lbORH := label.new(bar_index + 3, orb_orh, "ORH " + str.tostring(orb_orh, format.mintick), style = label.style_label_left, color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
+    if rl_showOR and orb_orReady and not na(orb_orl)
+        orb_lbORL := label.new(bar_index + 3, orb_orl, "ORL " + str.tostring(orb_orl, format.mintick), style = label.style_label_left, color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
