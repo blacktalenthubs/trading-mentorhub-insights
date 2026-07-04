@@ -94,8 +94,11 @@ function CandlestickChartInner({
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // If height is 0, auto-fill parent container height
-    const chartHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
+    // height > 0 = fixed (e.g. the SignalCard mini-chart). Otherwise auto-fill the
+    // container via lightweight-charts' own ResizeObserver (autoSize) — it matches the
+    // container exactly, so the bottom time axis is never clipped when the window
+    // chrome/layout differs (the Electron desktop app was cutting it off).
+    const autoFill = !(height > 0);
 
     const isLight = document.documentElement.classList.contains("light");
 
@@ -112,8 +115,7 @@ function CandlestickChartInner({
         vertLines: { visible: false },
         horzLines: { visible: false },
       },
-      width: containerRef.current.clientWidth,
-      height: chartHeight,
+      ...(autoFill ? { autoSize: true } : { width: containerRef.current.clientWidth, height }),
       crosshair: { mode: 1 },
       rightPriceScale: {
         autoScale: true,
@@ -166,19 +168,15 @@ function CandlestickChartInner({
       setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: vol, chg: c.open ? (c.close - c.open) / c.open * 100 : 0, t: fmtBarTime(param.time) });
     });
 
+    // autoSize (autoFill) manages sizing via its own ResizeObserver; only the
+    // fixed-height path needs a manual width sync on window resize.
     const handleResize = () => {
-      if (containerRef.current) {
-        const newHeight = height > 0 ? height : (containerRef.current.parentElement?.clientHeight || 400);
-        chart.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: newHeight,
-        });
-      }
+      if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
     };
-    window.addEventListener("resize", handleResize);
+    if (!autoFill) window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      if (!autoFill) window.removeEventListener("resize", handleResize);
       chart.remove();
     };
   }, [height, hideWicks]);
