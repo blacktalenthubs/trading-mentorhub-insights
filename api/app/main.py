@@ -1160,12 +1160,11 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register screener jobs")
 
-        # Social Buzz (Apewisdom-fed) — hourly refresh that pulls top
-        # discussed tickers from retail social, filters against our
-        # screener_universe, cross-references today's Grade-A alerts.
-        # Cheap: one HTTP call per hour, no per-symbol API loops.
-        # Set SOCIAL_BUZZ_ENABLED=0 in Railway to disable.
-        if os.environ.get("SOCIAL_BUZZ_ENABLED", "true").lower() not in ("0", "false", "no"):
+        # Social Buzz — RETIRED 2026-07-03. The social-feed feature is gone, but these
+        # jobs (hourly buzz refresh, Social+Grade-A push, and the per-user watchlist-buzz
+        # "X is trending · most-talked-about · N mentions" push) were still registering and
+        # notifying users. Now OFF BY DEFAULT — set SOCIAL_BUZZ_ENABLED=1 only to revive.
+        if os.environ.get("SOCIAL_BUZZ_ENABLED", "false").lower() in ("1", "true", "yes"):
             try:
                 def _social_buzz_refresh():
                     try:
