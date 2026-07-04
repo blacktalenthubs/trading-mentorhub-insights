@@ -50,6 +50,7 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     "Market context": "Notice",       # index_open_strength removed
     "4h reversal": "Day Trade",       # rc_4h / RC-H — the cornerstone
     "Daily RC": "Day Trade",          # rc_daily_long/hrec — prior-day H/L reclaim (RC-model)
+    "ORB": "Day Trade",               # orb_break/held/retest/exit — 15m OR + PDH/PDL (allowlist)
     "Index reclaim": "Day Trade",     # reclaim_long — the backtested SPY/QQQ/DRAM edge (#65)
     "Levels": "Notice",               # lost_support_reject — context
     "Swing": "Swing Trade",

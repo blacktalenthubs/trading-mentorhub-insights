@@ -135,6 +135,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
+    # ORB family (2026-07-03) — 15m opening-range (ORH/ORL) + PDH/PDL rails. Fires from
+    # rc.pine on CONFIRMED 15m closes; allowlist-gated (orb_symbols in Settings, default
+    # SPY,QQQ,SOXL,MU). Being TRIALED → default OFF.
+    ("orb_break", "ORB break — 15m close through a rail (ORH/ORL/PDH/PDL); 'stacked' when one close takes 2+ rails", "ORB", False),
+    ("orb_held", "ORB held — a rail tested from the far side and held (the bounce)", "ORB", False),
+    ("orb_retest", "ORB retest — a broken rail retested & rejected (the second entry)", "ORB", False),
+    ("orb_exit", "ORB exit — a rail given back on a confirmed 15m close (the stop)", "ORB", False),
+
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
     # so it doesn't double-fire during the ORB evaluation.
