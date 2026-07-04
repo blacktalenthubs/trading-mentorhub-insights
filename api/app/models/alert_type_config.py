@@ -135,10 +135,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
-    # Index reclaim long (#65) — morning reclaim of the ORH/PDH with room → long, take
-    # profit into resistance. Long-only, default OFF. KEPT. Only the two LITERAL ORL/ORH
-    # types (staged_orl_held + orh_break) were retired 2026-07-03 → OBSOLETE.
-    ("reclaim_long", "Reclaim long — morning reclaim of the ORH/PDH with room + ~ATM strike (now in rc.pine)", "Index reclaim", False),
+    # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
+    # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
+    # so it doesn't double-fire during the ORB evaluation.
 
     # Weekly RC — Issue #3 (2026-06-13). The only actionable piece of the old
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
@@ -319,9 +318,10 @@ def describe_alert_type(alert_type: str) -> str:
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
-    # reclaim (reclaim_long) is KEPT (user wanted it back). Startup purges stale rows;
-    # webhook drops arrivals.
-    "orh_break", "staged_orl_held", "cml_reclaim", "cml_held",
+    # reclaim (reclaim_long) RETIRED 2026-07-03 too — superseded by the new ORB family
+    # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup
+    # purges stale rows; webhook drops arrivals.
+    "orh_break", "staged_orl_held", "cml_reclaim", "cml_held", "reclaim_long",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
