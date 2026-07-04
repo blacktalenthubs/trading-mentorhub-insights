@@ -99,7 +99,9 @@ Explicitly KEEP: `staged_orl_held` (the one OR survivor — already scoped to th
 Owner's call: the RC alerts are powerful and stay untouched. The ORB grammar (validated by eye on
 MU/SEZL 15m with `pine_scripts/active/orb_pd.pine`) is ADDED as a new day-trade family, **scoped to
 a user-editable symbol allowlist** (same mechanism as `staged_orl_held` / `orl_always_symbols`) —
-start with a few names to monitor noise before widening. Four types, all on 15m confirmed closes,
+owner starts with 4 index vehicles (SPY / QQQ / SOXL + one more of their choice) to monitor noise
+before widening. SOXL 2026-07-03 is the reference session: bull trap above ORH (orb_exit + short
+orb_break pair) and a stacked close through PDL 215.38 + ORL in one bar → the 215→172 slide. Four types, all on 15m confirmed closes,
 rails = ORH/ORL (first-15m box) + PDH/PDL, once per rail per direction per day, interaction
 required (parked-beyond never fires):
 - `orb_break` — close through a rail; payload flag `stacked: true` when one close takes ≥2 rails
