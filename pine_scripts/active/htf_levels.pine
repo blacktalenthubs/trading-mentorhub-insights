@@ -1,0 +1,86 @@
+// @version=5
+//
+// HTF Levels · Weekly + Monthly — the higher-timeframe context that used to live inside
+// rc.pine. Split out so rc.pine stays compact (intraday/daily + ORB only) and its FAR
+// weekly/monthly levels don't stretch the price scale ("chart compressed" when price sits
+// far from a level like PMH). Load this SEPARATELY when you want the HTF context; hide it
+// (or use the price-scale "Scale price chart only" toggle) when you want the candles to
+// fill the chart.
+//
+// Draws (role-colored — green = support / price above · red = resistance / price below):
+//   PWH / PWL  prior-week high/low  (dashed)
+//   PMH / PML  prior-month high/low (dotted)
+//   CML        current-month low    (orange dotted)
+//   10w / 30w  weekly 10/30 SMA     (flat lines)
+// Same values rc.pine's weekly_rc / monthly_rc / weekly_10w-30w / CML alerts fire on.
+//
+indicator("HTF Levels · Weekly + Monthly", "HTF Lvls", overlay = true, max_labels_count = 60, max_lines_count = 40)
+
+// ── Inputs ──────────────────────────────────────────────────────────────────────
+gD = "Levels"
+show_pw   = input.bool(true, "PWH / PWL — weekly (dashed)", group = gD)
+show_pm   = input.bool(true, "PMH / PML — monthly (dotted)", group = gD)
+show_cml  = input.bool(true, "CML — current-month low", group = gD)
+show_10w  = input.bool(true, "10w MA (weekly support)", group = gD)
+show_30w  = input.bool(true, "30w MA (long-term support)", group = gD)
+lvl_bars  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gD)
+col_sup   = input.color(#26A69A, "Support color (price ABOVE the level)", group = gD)
+col_res   = input.color(#EF5350, "Resistance color (price BELOW the level)", group = gD)
+col_cml   = input.color(#FFA726, "CML color", group = gD)
+
+// ── HTF level computation (same securities as rc.pine, so visual == alert) ────────
+[hWp, lWp] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hMp, lMp] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+cml = request.security(ticker.new(syminfo.prefix, syminfo.ticker, session.regular), "M", low, lookahead = barmerge.lookahead_on)
+f_wk() =>
+    _m10 = ta.sma(close, 10)
+    _m30 = ta.sma(close, 30)
+    [_m10, _m30]
+[w10, w30] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_on)
+
+// ── Draw (line + label, role-colored, redrawn on the last bar) ────────────────────
+is_support(float lvl) => not na(lvl) and close > lvl
+var line[]  pl_lines  = array.new_line(0)
+var label[] pl_labels = array.new_label(0)
+draw_level(float lvl, string nm, int sty, int loff, color col_ovr) =>
+    if not na(lvl)
+        col = not na(col_ovr) ? col_ovr : (is_support(lvl) ? col_sup : col_res)
+        lstyle = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        ln = line.new(bar_index - lvl_bars, lvl, bar_index + loff, lvl, color = col, width = 2, style = lstyle)
+        lb = label.new(bar_index + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(pl_lines, ln)
+        array.push(pl_labels, lb)
+
+var line  ln10 = na
+var line  ln30 = na
+var label lb10 = na
+var label lb30 = na
+if barstate.islast
+    if array.size(pl_lines) > 0
+        for i = 0 to array.size(pl_lines) - 1
+            line.delete(array.get(pl_lines, i))
+        array.clear(pl_lines)
+    if array.size(pl_labels) > 0
+        for i = 0 to array.size(pl_labels) - 1
+            label.delete(array.get(pl_labels, i))
+        array.clear(pl_labels)
+    line.delete(ln10)
+    line.delete(ln30)
+    label.delete(lb10)
+    label.delete(lb30)
+    if show_pw
+        draw_level(hWp, "PWH", 1, 10, na)
+        draw_level(lWp, "PWL", 1, 14, na)
+    if show_pm
+        draw_level(hMp, "PMH", 2, 18, na)
+        draw_level(lMp, "PML", 2, 22, na)
+    if show_cml
+        draw_level(cml, "CML", 2, 26, col_cml)
+    if show_10w and not na(w10)
+        c10 = close > w10 ? col_sup : col_res
+        ln10 := line.new(bar_index - lvl_bars, w10, bar_index + 10, w10, color = c10, width = 2)
+        lb10 := label.new(bar_index + 10, w10, "10w  " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
+    if show_30w and not na(w30)
+        c30 = close > w30 ? col_sup : col_res
+        ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
+        lb30 := label.new(bar_index + 10, w30, "30w  " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
