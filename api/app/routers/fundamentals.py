@@ -163,6 +163,23 @@ async def watchlist_fundamentals(
     return FundamentalsResponse(items=items, last_refreshed_at=most_recent)
 
 
+@router.get("/{symbol}", response_model=FundamentalsItem)
+async def symbol_fundamentals(
+    symbol: str,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Full fundamentals + AI brief for ANY symbol (not just the caller's watchlist) —
+    feeds the 'Top Ideas' dossier in Research. Null fields + fetched_at=None when never
+    fetched, so the UI prompts a Refresh / Generate. (Declared after /watchlist so that
+    exact path still wins.)"""
+    sym = symbol.upper().strip()
+    row = (await db.execute(
+        select(SymbolFundamentals).where(SymbolFundamentals.symbol == sym).limit(1)
+    )).scalars().first()
+    return _to_item(sym, row)
+
+
 def _refresh_in_thread(symbol: Optional[str], do_all: bool, with_ai: bool) -> dict:
     engine, factory = _sync_session_factory()
     try:
