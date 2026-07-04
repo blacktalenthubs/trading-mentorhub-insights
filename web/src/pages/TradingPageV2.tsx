@@ -2356,42 +2356,63 @@ export default function TradingPageV2() {
         className="fixed inset-x-0 z-40 lg:hidden bg-surface-1 border-t-2 border-accent/30 shadow-[0_-4px_12px_rgba(0,0,0,0.25)]"
         style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
-        <button
-          onClick={toggleMobileSignals}
-          className="w-full flex items-center gap-2 px-3 py-2 border-b border-border-subtle text-left active:bg-surface-2/40 transition-colors"
-          aria-label={mobileSignalsCollapsed ? "Expand signals" : "Collapse signals"}
-        >
-          <Zap className="h-3.5 w-3.5 text-accent" />
-          <span className="text-xs font-bold text-text-primary">Signals</span>
-          {!mobileSignalsCollapsed && (
-            <select
-              value={signalDate}
-              onChange={(e) => setSignalDate(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              className="ml-auto bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+        {/* header — Signals | Levels | Log tabs (parity with the desktop panel) + collapse */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border-subtle">
+          <Zap className="h-3.5 w-3.5 text-accent shrink-0" />
+          <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
+            <button
+              onClick={() => { setRightTab("signals"); setMobileSignalsCollapsed(false); }}
+              className={`px-2 py-0.5 transition-colors ${rightTab === "signals" ? "bg-accent text-bg-base" : "bg-surface-0 text-text-muted"}`}
             >
-              <option value="">Today</option>
-              {(sessionDates ?? []).slice(1).map((d) => (
-                <option key={d} value={d}>{formatSessionDate(d)}</option>
-              ))}
-            </select>
-          )}
-          {mobileSignalsCollapsed ? (
-            <ChevronUp className="h-4 w-4 text-text-muted ml-auto" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-text-muted" />
-          )}
-        </button>
+              Signals{feedCount > 0 && <span className="opacity-70 font-normal"> {feedCount}</span>}
+            </button>
+            <button
+              onClick={() => { setRightTab("levels"); setMobileSignalsCollapsed(false); }}
+              className={`px-2 py-0.5 border-l border-border-subtle transition-colors ${rightTab === "levels" ? "bg-accent text-bg-base" : "bg-surface-0 text-text-muted"}`}
+            >
+              Levels
+            </button>
+            <button
+              onClick={() => { setRightTab("log"); setMobileSignalsCollapsed(false); }}
+              className={`px-2 py-0.5 border-l border-border-subtle transition-colors ${rightTab === "log" ? "bg-accent text-bg-base" : "bg-surface-0 text-text-muted"}`}
+            >
+              Log
+            </button>
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            {rightTab !== "levels" && !mobileSignalsCollapsed && (
+              <select
+                value={signalDate}
+                onChange={(e) => setSignalDate(e.target.value)}
+                className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+              >
+                <option value="">Today</option>
+                {(sessionDates ?? []).slice(1).map((d) => (
+                  <option key={d} value={d}>{formatSessionDate(d)}</option>
+                ))}
+              </select>
+            )}
+            <button onClick={toggleMobileSignals} aria-label={mobileSignalsCollapsed ? "Expand panel" : "Collapse panel"} className="p-0.5 text-text-muted">
+              {mobileSignalsCollapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
         {!mobileSignalsCollapsed && (
-          <div className="flex flex-col h-[200px] overflow-hidden">
-            <SignalFeedTab
-              alerts={filterAlertsByAsset(activeAlerts)}
-              alertsError={activeAlertsError}
-              onSelectSymbol={selectSymbol}
-              signalDate={signalDate}
-              assetFilter={assetFilter}
-              onAssetFilterChange={changeAssetFilter}
-            />
+          <div className="flex flex-col h-[240px] overflow-hidden">
+            {rightTab === "levels" ? (
+              <LevelMap symbol={selectedSymbol} />
+            ) : rightTab === "log" ? (
+              <AlertLog alerts={activeAlerts} onSelectSymbol={selectSymbol} />
+            ) : (
+              <SignalFeedTab
+                alerts={filterAlertsByAsset(activeAlerts)}
+                alertsError={activeAlertsError}
+                onSelectSymbol={selectSymbol}
+                signalDate={signalDate}
+                assetFilter={assetFilter}
+                onAssetFilterChange={changeAssetFilter}
+              />
+            )}
           </div>
         )}
       </div>
