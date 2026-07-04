@@ -35,6 +35,23 @@ interface Props {
   showTradePanel?: boolean;
 }
 
+// Format a lightweight-charts time (daily = "YYYY-MM-DD" string · intraday = UNIX seconds
+// · business-day object) → a readable date so a user can tell which candle they're on.
+function fmtBarTime(t: unknown): string {
+  if (t == null) return "";
+  if (typeof t === "number") {
+    const d = new Date(t * 1000);
+    return isNaN(+d) ? "" : d.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  if (typeof t === "object") {
+    const o = t as { year?: number; month?: number; day?: number };
+    return o.year ? new Date(o.year, (o.month ?? 1) - 1, o.day ?? 1).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "";
+  }
+  const s = String(t);
+  const d = new Date(s.length <= 10 ? s + "T00:00:00" : s);
+  return isNaN(+d) ? s : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
 function CandlestickChartInner({
   data,
   levels = [],
@@ -61,7 +78,7 @@ function CandlestickChartInner({
   const markersApiRef = useRef<any>(null);
   const priceLinesRef = useRef<any[]>([]);
   // OHLC legend (top-left) — follows the crosshair, defaults to the latest bar.
-  type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number };
+  type Legend = { o: number; h: number; l: number; c: number; v: number; chg: number; t: string };
   const [legend, setLegend] = useState<Legend | null>(null);
   const latestLegendRef = useRef<Legend | null>(null);
   // Active-indicator legend (top-left). Only overlays that actually drew show
@@ -146,7 +163,7 @@ function CandlestickChartInner({
       const c = param.seriesData.get(seriesRef.current) as any;
       if (!c || c.open == null) { setLegend(latestLegendRef.current); return; }
       const vol = volumeHistRef.current ? (param.seriesData.get(volumeHistRef.current) as any)?.value ?? 0 : 0;
-      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: vol, chg: c.open ? (c.close - c.open) / c.open * 100 : 0 });
+      setLegend({ o: c.open, h: c.high, l: c.low, c: c.close, v: vol, chg: c.open ? (c.close - c.open) / c.open * 100 : 0, t: fmtBarTime(param.time) });
     });
 
     const handleResize = () => {
@@ -232,7 +249,7 @@ function CandlestickChartInner({
     // Default legend = latest bar (until the crosshair moves).
     if (deduped.length) {
       const lb = deduped[deduped.length - 1];
-      const lg = { o: lb.open, h: lb.high, l: lb.low, c: lb.close, v: lb.volume, chg: lb.open ? (lb.close - lb.open) / lb.open * 100 : 0 };
+      const lg = { o: lb.open, h: lb.high, l: lb.low, c: lb.close, v: lb.volume, chg: lb.open ? (lb.close - lb.open) / lb.open * 100 : 0, t: fmtBarTime(lb.time) };
       latestLegendRef.current = lg;
       setLegend(lg);
     }
@@ -554,6 +571,7 @@ function CandlestickChartInner({
         <div className="absolute top-2 left-2 z-10 flex flex-col gap-0.5 pointer-events-none select-none">
           {legend && (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] font-mono">
+              {legend.t && <span className="font-semibold text-text-secondary">{legend.t}</span>}
               {([["O", legend.o], ["H", legend.h], ["L", legend.l], ["C", legend.c]] as const).map(([k, v]) => (
                 <span key={k} className="text-text-faint">{k}<span className={`ml-0.5 ${legend.chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>{v.toFixed(2)}</span></span>
               ))}
