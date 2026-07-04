@@ -23,7 +23,7 @@
 // unknown_type, which lost 15 of 16 morning RC fires on 2026-06-22.) interval
 // tags the period ("240"/"W"/"M").
 //
-indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 300, max_lines_count = 100)
+indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 300, max_lines_count = 100, max_boxes_count = 60)
 
 // ── Enables (per TF, per signal) ──────────────────────────────────────────
 g4 = "4h RC — day-trade engine"
@@ -66,7 +66,7 @@ rl_recMin  = input.int(90,    "Reclaim within N minutes of the dip", minval = 15
 rl_mornMin = input.int(120,   "Only fire in the first N minutes", minval = 30, group = gRL)
 rl_minHead = input.float(1.0, "Min room to next resistance (R)", step = 0.5, group = gRL)
 rl_useVwap = input.bool(true,  "Require close above VWAP", group = gRL)
-rl_showOR  = input.bool(true,  "Draw ORH / ORL lines", group = gRL)
+rl_showOR  = input.bool(true,  "Draw the ORB 15m opening-range box (per session)", group = gRL)
 gD = "Display — prior levels (merged from 'Prior Levels Flat')"
 show_lvl  = input.bool(true, "Draw prior-level S/R lines", group = gD)
 show_pdh  = input.bool(true, "  PDH / PDL — daily (solid)", group = gD)
@@ -491,9 +491,8 @@ if show_lvl and barstate.islast
         for i = 0 to array.size(pl_labels) - 1
             label.delete(array.get(pl_labels, i))
         array.clear(pl_labels)
-    if show_pdh
-        draw_level(hDp, "PDH", 0, 2, na)
-        draw_level(lDp, "PDL", 0, 6, na)
+    // PDH/PDL now render as multi-day steplines (see the ORB visual block at the
+    // end) — the flat draw_level lines were removed so they don't double up.
     if show_pw
         draw_level(hWp, "PWH", 1, 10, na)
         draw_level(lWp, "PWL", 1, 14, na)
@@ -523,25 +522,9 @@ if barstate.islast
         ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
         lb30 := label.new(bar_index + 10, w30, "30w " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
 
-// ── ORH / ORL opening-range lines (reclaim-long levels) — dotted, role-colored,
-// redrawn on the last bar. ORL is a visual playing level here (no alert).
-var line  rl_lnH = na
-var line  rl_lnL = na
-var label rl_lbH = na
-var label rl_lbL = na
-if rl_showOR and barstate.islast
-    line.delete(rl_lnH)
-    line.delete(rl_lnL)
-    label.delete(rl_lbH)
-    label.delete(rl_lbL)
-    if not na(rl_orh)
-        cH = close > rl_orh ? col_sup : col_res
-        rl_lnH := line.new(bar_index - lvl_bars, rl_orh, bar_index + 30, rl_orh, color = cH, width = 2, style = line.style_solid)
-        rl_lbH := label.new(bar_index + 30, rl_orh, "ORH " + str.tostring(rl_orh, format.mintick), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
-    if not na(rl_orl)
-        cL = close > rl_orl ? col_sup : col_res
-        rl_lnL := line.new(bar_index - lvl_bars, rl_orl, bar_index + 30, rl_orl, color = cL, width = 2, style = line.style_solid)
-        rl_lbL := label.new(bar_index + 30, rl_orl, "ORL " + str.tostring(rl_orl, format.mintick), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
+// ── (The old ORH/ORL reclaim lines were removed — the ORB opening-range BOX at the
+//    end of the file replaces them. rl_orh/rl_orl are still computed above for the
+//    ORH/PDH reclaim-long alert logic; they just aren't drawn as lines anymore.) ──
 
 // ── Alerts ────────────────────────────────────────────────────────────────
 // entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
@@ -648,9 +631,11 @@ if nD
     orb_orh := na
     orb_orl := na
     orb_c15prev := na
+bool orb_orJustSet = false
 if orb_new15 and na(orb_orh)
     orb_orh := oH15
     orb_orl := oL15
+    orb_orJustSet := true
 
 orb_railPx(int i) => i == 0 ? hDp : i == 1 ? lDp : i == 2 ? orb_orh : orb_orl
 orb_railNm(int i) => i == 0 ? "PDH" : i == 1 ? "PDL" : i == 2 ? "ORH" : "ORL"
@@ -797,3 +782,18 @@ if en_orb and orb_rtFire
     alert(rc_pay("orb_retest", orb_rtDir, "15", oC15, orb_rtLvl, "ORB retest — broken " + orb_railNm(orb_rtRail) + " " + str.tostring(orb_rtLvl, format.mintick) + " retested & rejected (the second entry) · stop the rail"), alert.freq_once_per_bar_close)
 if en_orb and orb_exFire
     alert(rc_pay("orb_exit", orb_exDir, "15", orb_exLvl, orb_exLvl, "ORB exit — " + orb_railNm(orb_exRail) + " " + str.tostring(orb_exLvl, format.mintick) + " given back on a confirmed 15m close · the stop"), alert.freq_once_per_bar_close)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORB VISUAL (ported from orb_pd.pine) — the look you liked:
+//   • PDH / PDL as thick multi-day STEPLINES (they step each day, so prior days
+//     stay visible as context — replaces the old flat PDH/PDL lines).
+//   • the 15-minute opening-range (ORH→ORL) as a shaded BOX, one per session across
+//     history (toggle: "Draw the ORB 15m opening-range box"). Replaces the old
+//     ORH/ORL reclaim lines.
+// ══════════════════════════════════════════════════════════════════════════════
+plot(show_pdh ? hDp : na, "PDH", color = col_res, linewidth = 2, style = plot.style_stepline)
+plot(show_pdh ? lDp : na, "PDL", color = col_sup, linewidth = 2, style = plot.style_stepline)
+orb_dayBars = math.max(1, math.round(390.0 / (timeframe.in_seconds() / 60.0)))
+orb_orBars  = math.max(1, math.round(15.0  / (timeframe.in_seconds() / 60.0)))
+if rl_showOR and orb_orJustSet and not na(orb_orh) and not na(orb_orl)
+    box.new(bar_index - orb_orBars, orb_orh, bar_index + orb_dayBars - orb_orBars, orb_orl, border_color = color.new(color.teal, 25), bgcolor = color.new(color.teal, 92))
