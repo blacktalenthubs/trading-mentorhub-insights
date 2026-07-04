@@ -378,7 +378,7 @@ function TradingSettings() {
       <p className="text-xs text-text-faint mb-4">
         Used when you tap "Took It" on an AI alert — shares = (portfolio × risk%) / (entry − stop).
       </p>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className="text-xs text-text-muted mb-1 block">Portfolio Size ($)</label>
           <input

@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, ChevronDown } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import GapGoQueue from "../components/GapGoQueue";
@@ -318,6 +318,15 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
   const [activeSec, setActiveSec] = useState<string>("sec-focus");
+  // Collapsible cards — collapsed by default for less context; Today's Focus (the
+  // actionable core) starts open. Jumping from the rail also expands the target.
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set(["sec-focus"]));
+  const toggleSec = (id: string) =>
+    setOpenSecs((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
 
   if (isLoading) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[12px] text-text-faint">Loading reports…</div>;
@@ -347,6 +356,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   ];
   const jump = (id: string) => {
     setActiveSec(id);
+    setOpenSecs((prev) => new Set(prev).add(id));   // jumping opens the card
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
@@ -401,19 +411,47 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
       {/* Content — every report section in one scroll. */}
       <div className="min-w-0 space-y-8">
+        {/* Mobile session picker — the desktop one lives in the rail (hidden on mobile). */}
+        {reportDates.length > 0 && (
+          <div className="flex items-center gap-2 md:hidden">
+            <label className="font-mono text-[9px] uppercase tracking-wide text-text-faint">Session</label>
+            <select
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              title="Review a past session"
+              className="rounded-lg border border-border-subtle bg-surface-2 px-2 py-1.5 text-[11px] text-text-secondary"
+            >
+              <option value="">Latest</option>
+              {reportDates.map((d) => (
+                <option key={d} value={d}>{fmtDate(d)}</option>
+              ))}
+            </select>
+          </div>
+        )}
         {/* Gap-and-Go Queue — top-3 quality gappers (self-hides when empty). */}
         <GapGoQueue onChart={onChart} />
-        {sections.map((s) => (
-          <section key={s.id} id={s.id} className="scroll-mt-4">
-            <div className="mb-2.5 flex items-baseline gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{s.time}</span>
-              <h2 className="text-[13px] font-bold text-text-primary">{s.title}</h2>
-            </div>
-            {s.present ? s.render() : (
-              <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
-            )}
-          </section>
-        ))}
+        {sections.map((s) => {
+          const open = openSecs.has(s.id);
+          return (
+            <section key={s.id} id={s.id} className="scroll-mt-4">
+              {/* collapsible header — tap to expand/collapse (collapsed = less context) */}
+              <button
+                type="button"
+                onClick={() => toggleSec(s.id)}
+                aria-expanded={open}
+                className="mb-2.5 flex w-full items-center gap-2 text-left"
+              >
+                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{s.time}</span>
+                <h2 className="text-[13px] font-bold text-text-primary">{s.title}</h2>
+                {s.present ? <span className="text-[10px] text-bullish-text">✓</span> : <span className="text-[10px] text-text-faint">—</span>}
+                <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-text-faint transition-transform ${open ? "rotate-180" : ""}`} />
+              </button>
+              {open && (s.present ? s.render() : (
+                <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
+              ))}
+            </section>
+          );
+        })}
       </div>
     </div>
   );
