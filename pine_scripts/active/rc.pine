@@ -622,3 +622,178 @@ if mb_e100
     alert(ma_pay("100E", ema100d), alert.freq_once_per_bar_close)
 if mb_e200
     alert(ma_pay("200E", ema200d), alert.freq_once_per_bar_close)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORB · 15-minute opening range (ORH/ORL) + PDH/PDL rails — ALERTS ONLY.
+// Ported from orb_pd.pine (the VISUAL reference — load THAT for the on-chart markers).
+// rc.pine is bound to a 5m chart, so a new 15m bar's OHLC is read via request.security
+// and the machine advances (and can only FIRE) on a CONFIRMED 15m close.
+// Types: orb_break (+stacked note) · orb_held · orb_retest · orb_exit. Fires for every
+// bound symbol; the BACKEND (orb_symbols allowlist in Settings) gates which DELIVER.
+// Load rc.pine on a REGULAR-SESSION (RTH) chart — ETH would poison the OR + PD rails.
+// ══════════════════════════════════════════════════════════════════════════════
+gORB = "ORB (15m OR + PDH/PDL) — alerts; symbols gated by the Settings allowlist"
+en_orb    = input.bool(true, "Emit ORB alerts (break/held/retest/exit)", group = gORB)
+orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail", minval = 1, maxval = 3, group = gORB)
+
+// last-CLOSED 15m bar (no repaint) + the 15m-boundary tick on the 5m chart
+[oH15, oL15, oC15] = request.security(syminfo.tickerid, "15", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+orb_new15 = ta.change(time("15")) != 0
+var float orb_c15prev = na
+
+// OR = the first 15m bar of the RTH session
+var float orb_orh = na
+var float orb_orl = na
+if nD
+    orb_orh := na
+    orb_orl := na
+    orb_c15prev := na
+if orb_new15 and na(orb_orh)
+    orb_orh := oH15
+    orb_orl := oL15
+
+orb_railPx(int i) => i == 0 ? hDp : i == 1 ? lDp : i == 2 ? orb_orh : orb_orl
+orb_railNm(int i) => i == 0 ? "PDH" : i == 1 ? "PDL" : i == 2 ? "ORH" : "ORL"
+
+// per-session state (4 rails × 2 directions)
+var bool[]  oUpFired = array.new_bool(4, false)
+var bool[]  oUpInval = array.new_bool(4, false)
+var float[] oUpLvl   = array.new_float(4, na)
+var int[]   oUpRun   = array.new_int(4, 0)
+var bool[]  oUpTouch = array.new_bool(4, false)
+var int[]   oUpBar   = array.new_int(4, -1)
+var bool[]  oRetUp   = array.new_bool(4, false)
+var bool[]  oDnFired = array.new_bool(4, false)
+var bool[]  oDnInval = array.new_bool(4, false)
+var float[] oDnLvl   = array.new_float(4, na)
+var int[]   oDnRun   = array.new_int(4, 0)
+var bool[]  oDnTouch = array.new_bool(4, false)
+var int[]   oDnBar   = array.new_int(4, -1)
+var bool[]  oRetDn   = array.new_bool(4, false)
+if nD
+    for i = 0 to 3
+        array.set(oUpFired, i, false)
+        array.set(oUpInval, i, false)
+        array.set(oUpLvl, i, na)
+        array.set(oUpRun, i, 0)
+        array.set(oUpTouch, i, false)
+        array.set(oUpBar, i, -1)
+        array.set(oRetUp, i, false)
+        array.set(oDnFired, i, false)
+        array.set(oDnInval, i, false)
+        array.set(oDnLvl, i, na)
+        array.set(oDnRun, i, 0)
+        array.set(oDnTouch, i, false)
+        array.set(oDnBar, i, -1)
+        array.set(oRetDn, i, false)
+
+// advance the machine on a confirmed 15m close; collect this bar's fires
+int    orb_bullN  = 0
+int    orb_bearN  = 0
+bool   orb_bkFire = false
+string orb_bkDir  = "BUY"
+float  orb_bkLvl  = na
+int    orb_bkRail = -1
+bool   orb_hdFire = false
+string orb_hdDir  = "BUY"
+float  orb_hdLvl  = na
+int    orb_hdRail = -1
+bool   orb_rtFire = false
+string orb_rtDir  = "BUY"
+float  orb_rtLvl  = na
+int    orb_rtRail = -1
+bool   orb_exFire = false
+string orb_exDir  = "BUY"
+float  orb_exLvl  = na
+int    orb_exRail = -1
+if en_orb and orb_new15
+    for i = 0 to 3
+        float lvl = orb_railPx(i)
+        if not na(lvl)
+            bool prevOk = not na(orb_c15prev)
+            bool crossedUp = oC15 > lvl and prevOk and orb_c15prev <= lvl
+            bool crossedDn = oC15 < lvl and prevOk and orb_c15prev >= lvl
+            if oC15 > lvl
+                array.set(oUpRun, i, array.get(oUpRun, i) + 1)
+                if oL15 <= lvl or (prevOk and orb_c15prev <= lvl)
+                    array.set(oUpTouch, i, true)
+            else
+                array.set(oUpRun, i, 0)
+                array.set(oUpTouch, i, false)
+            if oC15 < lvl
+                array.set(oDnRun, i, array.get(oDnRun, i) + 1)
+                if oH15 >= lvl or (prevOk and orb_c15prev >= lvl)
+                    array.set(oDnTouch, i, true)
+            else
+                array.set(oDnRun, i, 0)
+                array.set(oDnTouch, i, false)
+            // LONG entry — break (crossed up) vs held (was above, tagged the rail, held)
+            if not array.get(oUpFired, i) and array.get(oUpRun, i) >= orb_confN and array.get(oUpTouch, i)
+                array.set(oUpFired, i, true)
+                array.set(oUpLvl, i, lvl)
+                array.set(oUpBar, i, bar_index)
+                orb_bullN += 1
+                if crossedUp
+                    orb_bkFire := true
+                    orb_bkDir := "BUY"
+                    orb_bkLvl := lvl
+                    orb_bkRail := i
+                else
+                    orb_hdFire := true
+                    orb_hdDir := "BUY"
+                    orb_hdLvl := lvl
+                    orb_hdRail := i
+            // SHORT entry
+            if not array.get(oDnFired, i) and array.get(oDnRun, i) >= orb_confN and array.get(oDnTouch, i)
+                array.set(oDnFired, i, true)
+                array.set(oDnLvl, i, lvl)
+                array.set(oDnBar, i, bar_index)
+                orb_bearN += 1
+                if crossedDn
+                    orb_bkFire := true
+                    orb_bkDir := "SELL"
+                    orb_bkLvl := lvl
+                    orb_bkRail := i
+                else
+                    orb_hdFire := true
+                    orb_hdDir := "SELL"
+                    orb_hdLvl := lvl
+                    orb_hdRail := i
+            // RETEST — a broken rail returned to and rejected in the break's direction
+            if array.get(oUpFired, i) and not array.get(oUpInval, i) and not array.get(oRetUp, i) and bar_index > array.get(oUpBar, i) and oL15 <= array.get(oUpLvl, i) and oC15 > array.get(oUpLvl, i)
+                array.set(oRetUp, i, true)
+                orb_rtFire := true
+                orb_rtDir := "BUY"
+                orb_rtLvl := array.get(oUpLvl, i)
+                orb_rtRail := i
+            if array.get(oDnFired, i) and not array.get(oDnInval, i) and not array.get(oRetDn, i) and bar_index > array.get(oDnBar, i) and oH15 >= array.get(oDnLvl, i) and oC15 < array.get(oDnLvl, i)
+                array.set(oRetDn, i, true)
+                orb_rtFire := true
+                orb_rtDir := "SELL"
+                orb_rtLvl := array.get(oDnLvl, i)
+                orb_rtRail := i
+            // EXIT — the rail was given back on a confirmed close (the stop)
+            if array.get(oUpFired, i) and not array.get(oUpInval, i) and oC15 < array.get(oUpLvl, i)
+                array.set(oUpInval, i, true)
+                orb_exFire := true
+                orb_exDir := "BUY"
+                orb_exLvl := array.get(oUpLvl, i)
+                orb_exRail := i
+            if array.get(oDnFired, i) and not array.get(oDnInval, i) and oC15 > array.get(oDnLvl, i)
+                array.set(oDnInval, i, true)
+                orb_exFire := true
+                orb_exDir := "SELL"
+                orb_exLvl := array.get(oDnLvl, i)
+                orb_exRail := i
+    orb_c15prev := oC15
+
+// ── ORB emits (rc_pay; entry = the confirmed 15m close, stop = the rail) ──
+orb_stacked = orb_bullN >= 2 or orb_bearN >= 2
+if en_orb and orb_bkFire
+    alert(rc_pay("orb_break", orb_bkDir, "15", oC15, orb_bkLvl, "ORB break — 15m close " + (orb_bkDir == "BUY" ? "above " : "below ") + orb_railNm(orb_bkRail) + " " + str.tostring(orb_bkLvl, format.mintick) + (orb_stacked ? " · STACKED (one close took 2+ rails)" : "") + " · stop a close back through the rail"), alert.freq_once_per_bar_close)
+if en_orb and orb_hdFire
+    alert(rc_pay("orb_held", orb_hdDir, "15", oC15, orb_hdLvl, "ORB held — " + orb_railNm(orb_hdRail) + " " + str.tostring(orb_hdLvl, format.mintick) + " tested from the far side and held · stop a close back through it"), alert.freq_once_per_bar_close)
+if en_orb and orb_rtFire
+    alert(rc_pay("orb_retest", orb_rtDir, "15", oC15, orb_rtLvl, "ORB retest — broken " + orb_railNm(orb_rtRail) + " " + str.tostring(orb_rtLvl, format.mintick) + " retested & rejected (the second entry) · stop the rail"), alert.freq_once_per_bar_close)
+if en_orb and orb_exFire
+    alert(rc_pay("orb_exit", orb_exDir, "15", orb_exLvl, orb_exLvl, "ORB exit — " + orb_railNm(orb_exRail) + " " + str.tostring(orb_exLvl, format.mintick) + " given back on a confirmed 15m close · the stop"), alert.freq_once_per_bar_close)
