@@ -144,7 +144,7 @@ function QueueCard({ e, onChart }: { e: PremarketGapEntry; onChart: () => void }
         <div className="flex flex-wrap gap-1">
           {flags.map((f, i) => <span key={i} className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${fcls(f.cls)}`}>{f.t}</span>)}
         </div>
-        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-lg bg-surface-3">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-surface-3 sm:grid-cols-4">
           <Cell k="Watch" v={fmtPx(e.pm_last)} tone="text-text-secondary" />
           <Cell k="Go over" v={fmtPx(e.pdh)} tone="text-warning-text" />
           <Cell k="Stop" v={fmtPx(e.pdl)} tone="text-bearish-text" />
