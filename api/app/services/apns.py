@@ -75,7 +75,13 @@ async def send_apns_push(
             }
         }
         if payload:
-            message["data"] = payload  # custom fields for deep-link routing
+            # Merge custom fields at the TOP LEVEL of the APNs payload (alongside aps),
+            # NOT nested under a "data" key. Capacitor exposes top-level custom keys as
+            # notification.data.*, which is exactly what the tap handler reads
+            # (data.route / data.type / data.alert_id / data.symbol). Nesting them under
+            # "data" made every push fall through to the /today fallback — an alert tap
+            # landed on Today's tab instead of the stock's chart. (2026-07-04)
+            message.update(payload)
         request = NotificationRequest(
             device_token=device_token,
             message=message,
