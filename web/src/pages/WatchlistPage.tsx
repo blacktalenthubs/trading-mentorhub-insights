@@ -323,27 +323,24 @@ export default function WatchlistPage() {
             const isCollapsed = collapsed.has(g.id);
             const isUngrouped = g.id === UNGROUPED_KEY;
             return (
-              <Card key={g.id} padding="none">
+              <div key={g.id} className="overflow-hidden rounded-xl border border-border-subtle bg-surface-1">
                 <div className="flex items-center justify-between border-b border-border-subtle px-4 py-2.5">
                   <button
                     onClick={() => toggleCollapse(g.id)}
-                    className="flex items-center gap-2 text-sm font-semibold text-text-primary transition-colors hover:text-accent"
+                    className="flex items-center gap-2 text-text-primary transition-colors hover:text-accent"
                   >
                     {isCollapsed ? (
                       <ChevronRight className="h-4 w-4" />
                     ) : (
                       <ChevronDown className="h-4 w-4" />
                     )}
-                    {g.color && !isUngrouped && (
-                      <span
-                        className="h-2.5 w-2.5 rounded-full"
-                        style={{ backgroundColor: g.color }}
-                      />
+                    {g.color && !isUngrouped ? (
+                      <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: g.color }} />
+                    ) : (
+                      <span className="h-2.5 w-2.5 rounded-sm bg-text-faint/40" />
                     )}
-                    <span>{g.name}</span>
-                    <span className="rounded-full bg-surface-4 px-2 py-0.5 text-xs font-normal text-text-muted">
-                      {items.length}
-                    </span>
+                    <span className="font-mono text-[12.5px] font-bold uppercase tracking-wide">{g.name}</span>
+                    <span className="font-mono text-[10.5px] text-text-faint">{items.length}</span>
                   </button>
                   {!isUngrouped && (
                     <button
@@ -368,8 +365,8 @@ export default function WatchlistPage() {
                         className="flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-surface-3/50"
                       >
                         <div className="flex items-center gap-4">
-                          <span className="w-6 text-center text-xs text-text-faint">{i + 1}</span>
-                          <span className="text-sm font-semibold text-text-primary">{item.symbol}</span>
+                          <span className="w-6 text-center font-mono text-[11px] text-text-faint">{i + 1}</span>
+                          <span className="font-mono text-[13px] font-bold text-text-primary">{item.symbol}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           {/* Move to group dropdown — small, only shown when groups exist */}
@@ -395,10 +392,11 @@ export default function WatchlistPage() {
                           <button
                             onClick={() => removeSymbol.mutate(item.symbol)}
                             disabled={removeSymbol.isPending}
-                            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-bearish-muted hover:text-bearish-text active:scale-95"
+                            title={`Remove ${item.symbol}`}
+                            aria-label={`Remove ${item.symbol}`}
+                            className="rounded p-1.5 text-text-faint transition-colors hover:text-bearish-text disabled:opacity-40 active:scale-95"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                            Remove
                           </button>
                         </div>
                       </div>
@@ -417,7 +415,7 @@ export default function WatchlistPage() {
                     No symbols yet — tap a symbol's dropdown below to move it into <b>{g.name}</b>.
                   </div>
                 )}
-              </Card>
+              </div>
             );
           })}
         </div>
