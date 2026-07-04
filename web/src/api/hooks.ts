@@ -2243,6 +2243,7 @@ export interface RegimeExemptConfig {
   rc_symbols: string;  // symbols whose 4h RC alerts (long + short) fire; blank = none (#286)
   gap_always_symbols: string;  // symbols whose gap-and-go always delivers even when gap-and-go is muted (default SPY,QQQ)
   orl_always_symbols: string;  // ALLOWLIST: staged_orl_held (noisy) fires ONLY for these; user-editable (default index SPY,QQQ,IWM)
+  orb_symbols: string;  // ALLOWLIST: ORB family (orb_break/held/retest/exit) delivers ONLY for these; user-editable (default SPY,QQQ,SOXL,MU)
   htf_sr_symbols: string;  // symbols allowed to deliver the multi-period S/R reject/bounce (default SPY,QQQ)
 }
 
