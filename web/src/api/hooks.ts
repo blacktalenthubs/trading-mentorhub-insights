@@ -2392,13 +2392,19 @@ export function useLongTermFinders() {
 }
 
 // ── Performance share (public link) ──────────────────────────────────────────────
+// Optional body scopes the share to a session-date period (inclusive) — e.g. a
+// single Friday (start === end). No body → the full report.
+export interface PerformanceShareIn { start?: string; end?: string; label?: string }
 export function usePerformanceShare() {
-  return useMutation({ mutationFn: () => api.post<{ token: string; url?: string }>("/performance/share") });
+  return useMutation({
+    mutationFn: (body?: PerformanceShareIn) =>
+      api.post<{ token: string; url?: string }>("/performance/share", body),
+  });
 }
 export function usePublicPerformance(token: string) {
   return useQuery({
     queryKey: ["public-performance", token],
-    queryFn: () => api.get<PerformanceReport & { shared_at?: string; watchlist_count?: number }>(`/public/performance/${encodeURIComponent(token)}`),
+    queryFn: () => api.get<PerformanceReport & { shared_at?: string; watchlist_count?: number; period_label?: string; period_start?: string; period_end?: string }>(`/public/performance/${encodeURIComponent(token)}`),
     enabled: !!token,
     staleTime: 5 * 60_000,
     retry: false,

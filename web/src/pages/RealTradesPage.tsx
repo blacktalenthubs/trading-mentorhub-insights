@@ -105,19 +105,6 @@ export default function RealTradesPage() {
   const navigate = useNavigate();
   const alerts = useMemo(() => data?.alerts ?? [], [data]);
   const share = usePerformanceShare();
-  const onShare = async () => {
-    try {
-      const { token, url: canonical } = await share.mutateAsync();
-      // Prefer the canonical URL the backend builds (points at the primary app
-      // domain that serves the report to logged-out visitors). Fall back to the
-      // current origin only if an older backend omits it (e.g. local dev).
-      const url = canonical || `${window.location.origin}/public/performance/${token}`;
-      await navigator.clipboard.writeText(url);
-      toast.success("Public link copied to clipboard");
-    } catch {
-      toast.error("Could not create share link");
-    }
-  };
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
   const [q, setQ] = useState("");
@@ -130,6 +117,26 @@ export default function RealTradesPage() {
     () => (period ? alerts.filter((a) => period.dates.has(a.session_date)) : []),
     [alerts, period],
   );
+  // Share ONLY the period in view (the Daily/Weekly/Monthly selection) — so a
+  // single Friday can be sent on its own. The backend scopes the snapshot to
+  // [start, end] and stores the label for the public page's header.
+  const onShare = async () => {
+    try {
+      const ds = period ? Array.from(period.dates).sort() : [];
+      const body = ds.length
+        ? { start: ds[0], end: ds[ds.length - 1], label: period!.label }
+        : undefined;
+      const { token, url: canonical } = await share.mutateAsync(body);
+      // Prefer the canonical URL the backend builds (points at the primary app
+      // domain that serves the report to logged-out visitors). Fall back to the
+      // current origin only if an older backend omits it (e.g. local dev).
+      const url = canonical || `${window.location.origin}/public/performance/${token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success(period ? `Public link copied — ${period.label}` : "Public link copied to clipboard");
+    } catch {
+      toast.error("Could not create share link");
+    }
+  };
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return inPeriod.filter((a) =>
@@ -175,7 +182,7 @@ export default function RealTradesPage() {
           <p className="text-xs text-text-faint mt-1">Which entry patterns actually work — scored against price. Day trades win if they hit a real profit before the stop; swings if they're holding above entry.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onShare} disabled={share.isPending || !alerts.length} className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"><Share2 className="h-3.5 w-3.5" /> {share.isPending ? "…" : "Share"}</button>
+          <button onClick={onShare} disabled={share.isPending || !alerts.length} title={period ? `Create a public link for ${period.label} only` : "Create a public link"} className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"><Share2 className="h-3.5 w-3.5" /> {share.isPending ? "…" : "Share"}</button>
           <div className="flex gap-1 rounded-lg border border-border-subtle bg-surface-2 p-1">
             {(["daily", "weekly", "monthly"] as const).map((g) => (
               <button key={g} onClick={() => setGran(g)}
