@@ -849,6 +849,23 @@ _MOMENTUM_EXEMPT: frozenset[str] = frozenset({
 # (symbol, direction) -> {"session": str, "best": float, "last": datetime}
 _entry_dedup_state: dict[tuple[str, str], dict] = {}
 
+# ── Day-boundary wipe ──────────────────────────────────────────────────────────
+# _entry_dedup_state (+ the confluence tracker) is PROCESS-GLOBAL in-memory, and the
+# webhook process runs for DAYS without restarting. The per-key soft reset only clears a
+# key when a fire for THAT key reaches the record step, so a symbol that doesn't fire on a
+# given day keeps yesterday's prices in memory — and a later reclaim gets suppressed
+# against a stale/phantom anchor (confirmed 2026-07-02: SPY killed against a June-30 price,
+# WLFC against its exact June-29 price, 9 names in one day). Hard-wipe the whole pile the
+# first time we see a new session_date so the anchor set can NEVER span more than today.
+_dedup_state_day: Optional[str] = None
+def _wipe_dedup_state_on_new_day(session_date: str) -> None:
+    global _dedup_state_day
+    if _dedup_state_day != session_date:
+        _entry_dedup_state.clear()
+        _recent_confluence_fires.clear()
+        _dedup_state_day = session_date
+        logger.info("TV dedup: new session %s — cleared in-memory dedup/confluence anchor state", session_date)
+
 
 def _dedup_base(alert_type_full: str) -> str:
     return alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
@@ -1335,6 +1352,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     persisted = 0
     notified = 0
     session_date = date.today().isoformat()
+    _wipe_dedup_state_on_new_day(session_date)   # kill yesterday's in-memory anchor pile
     # Identity dedup keys on (user, symbol, direction, alert_type) where
     # alert_type carries the MA tag. Default window 60 min (was 4hrs).
     #
