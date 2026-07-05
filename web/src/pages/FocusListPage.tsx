@@ -432,8 +432,21 @@ function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
 }) {
   const [emergingOnly, setEmergingOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ k: "symbol" | "archetype" | "overlap" | "max_weight"; d: 1 | -1 }>({ k: "overlap", d: -1 });
   if (!data?.finders?.length) return null;
-  const finders = data.finders.filter((f) => !emergingOnly || f.tier === "emerging");
+  const getV = (f: Finder): string | number =>
+    sort.k === "symbol" ? f.symbol : sort.k === "archetype" ? (f.dossier?.archetype ?? "") : sort.k === "max_weight" ? f.max_weight : f.overlap;
+  const finders = data.finders
+    .filter((f) => !emergingOnly || f.tier === "emerging")
+    .slice()
+    .sort((a, b) => {
+      const av = getV(a), bv = getV(b);
+      const r = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      return r * sort.d;
+    });
+  const click = (k: "symbol" | "archetype" | "overlap" | "max_weight") =>
+    setSort((sv) => (sv.k === k ? { k, d: (sv.d * -1) as 1 | -1 } : { k, d: k === "symbol" || k === "archetype" ? 1 : -1 }));
+  const arw = (k: string) => (sort.k === k ? (sort.d < 0 ? " ↓" : " ↑") : "");
   return (
     <div className="mt-6">
       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -450,12 +463,12 @@ function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
       <div className="overflow-x-auto rounded-lg border border-border-subtle">
         <table className="w-full min-w-[560px] text-[12px]">
           <thead>
-            <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wide text-text-faint">
+            <tr className="select-none border-b border-border-subtle text-[10px] uppercase tracking-wide text-text-faint">
               <th className="px-3 py-2 text-left font-semibold">#</th>
-              <th className="px-3 py-2 text-left font-semibold">Symbol</th>
-              <th className="px-3 py-2 text-left font-semibold">Archetype</th>
-              <th className="px-3 py-2 text-right font-semibold">Overlap</th>
-              <th className="px-3 py-2 text-right font-semibold">Top weight</th>
+              <th onClick={() => click("symbol")} className="cursor-pointer px-3 py-2 text-left font-semibold hover:text-text-muted">Symbol{arw("symbol")}</th>
+              <th onClick={() => click("archetype")} className="cursor-pointer px-3 py-2 text-left font-semibold hover:text-text-muted">Archetype{arw("archetype")}</th>
+              <th onClick={() => click("overlap")} className="cursor-pointer px-3 py-2 text-right font-semibold hover:text-text-muted">Overlap{arw("overlap")}</th>
+              <th onClick={() => click("max_weight")} className="cursor-pointer px-3 py-2 text-right font-semibold hover:text-text-muted">Top weight{arw("max_weight")}</th>
               <th className="px-3 py-2 text-left font-semibold">In ETFs</th>
               <th className="px-3 py-2"></th>
             </tr>
