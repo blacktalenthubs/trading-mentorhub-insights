@@ -6,6 +6,7 @@
  *  (Replaces the old EOD/Strategy/Declined tabs entirely.)
  */
 import { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Loader2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { usePerformanceReport, type ScoredAlert } from "../api/hooks";
 
@@ -99,6 +100,7 @@ const STYLE_TAG: Record<string, string> = { Day: "text-sky-400", Swing: "text-am
 
 export default function RealTradesPage() {
   const { data, isLoading, error } = usePerformanceReport();
+  const navigate = useNavigate();
   const alerts = useMemo(() => data?.alerts ?? [], [data]);
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
@@ -296,7 +298,7 @@ export default function RealTradesPage() {
                 </thead>
                 <tbody>
                   {groups.map((g) => (
-                    <GroupRows key={g.date} g={g} sort={alSort} />
+                    <GroupRows key={g.date} g={g} sort={alSort} onSym={(sym) => navigate(`/trading?symbol=${encodeURIComponent(sym)}`)} />
                   ))}
                 </tbody>
               </table>
@@ -321,7 +323,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GroupRows({ g, sort }: { g: DateGroup; sort: { k: AlKey; d: 1 | -1 } | null }) {
+function GroupRows({ g, sort, onSym }: { g: DateGroup; sort: { k: AlKey; d: 1 | -1 } | null; onSym: (s: string) => void }) {
   const items = useMemo(() => {
     if (!sort) return g.items;
     const c = [...g.items];
@@ -346,7 +348,7 @@ function GroupRows({ g, sort }: { g: DateGroup; sort: { k: AlKey; d: 1 | -1 } | 
         const win = a.result === "WIN";
         return (
           <tr key={`${a.symbol}-${a.session_date}-${i}`} className="border-t border-border-subtle hover:bg-surface-3/40 font-mono">
-            <td className="px-3 py-2 text-left font-bold text-text-primary">{a.symbol}</td>
+            <td onClick={() => onSym(a.symbol)} className="px-3 py-2 text-left font-bold text-text-primary cursor-pointer hover:text-sky-400">{a.symbol}</td>
             <td className="px-3 py-2 text-left text-text-muted text-[11px] font-sans">{a.pattern}</td>
             <td className="px-3 py-2 text-right">{a.entry.toFixed(2)}</td>
             <td className="px-3 py-2 text-right text-text-muted">{a.stop != null ? a.stop.toFixed(2) : "—"}</td>
