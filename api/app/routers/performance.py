@@ -48,7 +48,18 @@ async def performance_report(
     if not row:
         return {"as_of": None, "alerts": []}
     body = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
-    return {"as_of": str(row[1]), "generated_at": str(row[2]), **body}
+    # Scope to the CALLER's watchlist — each user sees only the alert performance of the
+    # symbols they track. No watchlist rows → fall back to the full set (don't blank the page).
+    wl = (await db.execute(
+        text("SELECT DISTINCT upper(symbol) FROM watchlist WHERE user_id = :uid"),
+        {"uid": user.id},
+    )).fetchall()
+    syms = {r[0] for r in wl}
+    alerts = body.get("alerts", []) or []
+    scoped = [a for a in alerts if str(a.get("symbol", "")).upper() in syms] if syms else alerts
+    body["alerts"] = scoped
+    return {"as_of": str(row[1]), "generated_at": str(row[2]),
+            "watchlist_scoped": bool(syms), "watchlist_count": len(syms), **body}
 
 
 @router.get("/by-strategy")
