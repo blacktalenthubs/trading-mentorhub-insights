@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     APP_NAME: str = "BusyTradersDesk API"
     DEBUG: bool = False
 
+    # Canonical public web origin used to build shareable, logged-out links
+    # (e.g. the Performance share link). MUST point at a host that serves the
+    # SPA deep-links to anonymous visitors — NOT a legacy/apex domain that only
+    # shows the marketing landing page. Kept in sync with the DomainRedirect
+    # middleware's CANONICAL_DOMAIN. Override via env for other environments.
+    PUBLIC_BASE_URL: str = "https://www.busytradersdesk.com"
+
     # TV alert lifecycle notifications (T1/T2/stop hits for took trades).
     # Disabled by default 2026-05-03 — exit-button-handler doesn't stamp
     # t1/t2/stop_notified_at, so T2 fires after a user manually exits a

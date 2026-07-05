@@ -2393,7 +2393,7 @@ export function useLongTermFinders() {
 
 // ── Performance share (public link) ──────────────────────────────────────────────
 export function usePerformanceShare() {
-  return useMutation({ mutationFn: () => api.post<{ token: string }>("/performance/share") });
+  return useMutation({ mutationFn: () => api.post<{ token: string; url?: string }>("/performance/share") });
 }
 export function usePublicPerformance(token: string) {
   return useQuery({

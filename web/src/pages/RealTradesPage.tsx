@@ -107,8 +107,11 @@ export default function RealTradesPage() {
   const share = usePerformanceShare();
   const onShare = async () => {
     try {
-      const { token } = await share.mutateAsync();
-      const url = `${window.location.origin}/public/performance/${token}`;
+      const { token, url: canonical } = await share.mutateAsync();
+      // Prefer the canonical URL the backend builds (points at the primary app
+      // domain that serves the report to logged-out visitors). Fall back to the
+      // current origin only if an older backend omits it (e.g. local dev).
+      const url = canonical || `${window.location.origin}/public/performance/${token}`;
       await navigator.clipboard.writeText(url);
       toast.success("Public link copied to clipboard");
     } catch {
