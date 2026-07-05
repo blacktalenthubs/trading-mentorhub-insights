@@ -273,6 +273,7 @@ export default function FocusListPage() {
 
   const [lens, setLens] = useState<"all" | Board>("all");
   const [showLegend, setShowLegend] = useState(false);
+  const [topTab, setTopTab] = useState<"ideas" | "finders">("ideas");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<{ k: SortKey; dir: "asc" | "desc" }>({ k: "score", dir: "desc" });
   const onSort = (k: SortKey) => setSort((s) => (s.k === k ? { k, dir: s.dir === "asc" ? "desc" : "asc" } : { k, dir: k === "symbol" ? "asc" : "desc" }));
@@ -326,6 +327,20 @@ export default function FocusListPage() {
           </div>
         </div>
 
+        {/* top tabs */}
+        <div className="flex gap-1 border-b border-border-subtle">
+          {([["ideas", "Trade Ideas"], ["finders", "🛰️ Long Term Finders"]] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setTopTab(id)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-semibold transition-colors ${topTab === id ? "border-accent text-accent" : "border-transparent text-text-muted hover:text-text-secondary"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {topTab === "finders" ? (
+          <LongTermFindersSection data={ltf} owned={owned} onChart={goChart} onAdd={(sy) => addSym.mutate(sy)} adding={addSym.isPending} />
+        ) : (
+        <>
         {showLegend && <Legend />}
 
         <ConfluenceStrip rows={rows} onChart={goChart} />
@@ -404,8 +419,8 @@ export default function FocusListPage() {
             </table>
           </div>
         )}
-
-        <LongTermFindersSection data={ltf} owned={owned} onChart={goChart} onAdd={(sy) => addSym.mutate(sy)} adding={addSym.isPending} />
+        </>
+        )}
       </div>
     </div>
   );
