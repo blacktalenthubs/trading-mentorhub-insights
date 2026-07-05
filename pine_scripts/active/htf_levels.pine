@@ -27,6 +27,7 @@ lvl_bars  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, 
 col_sup   = input.color(#26A69A, "Support color (price ABOVE the level)", group = gD)
 col_res   = input.color(#EF5350, "Resistance color (price BELOW the level)", group = gD)
 col_cml   = input.color(#FFA726, "CML color", group = gD)
+max_dist  = input.float(18.0, "Hide levels farther than % from price (0 = show all — no compression)", minval = 0.0, group = gD)
 
 // ── HTF level computation (same securities as rc.pine, so visual == alert) ────────
 [hWp, lWp] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -40,10 +41,13 @@ f_wk() =>
 
 // ── Draw (line + label, role-colored, redrawn on the last bar) ────────────────────
 is_support(float lvl) => not na(lvl) and close > lvl
+// Skip levels farther than max_dist% from price — the far outliers are what stretch the
+// price scale and crush the candles. max_dist = 0 shows everything (old behavior).
+_near(float lvl) => max_dist <= 0 or (not na(lvl) and not na(close) and math.abs(close - lvl) / close * 100.0 <= max_dist)
 var line[]  pl_lines  = array.new_line(0)
 var label[] pl_labels = array.new_label(0)
 draw_level(float lvl, string nm, int sty, int loff, color col_ovr) =>
-    if not na(lvl)
+    if not na(lvl) and _near(lvl)
         col = not na(col_ovr) ? col_ovr : (is_support(lvl) ? col_sup : col_res)
         lstyle = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
         ln = line.new(bar_index - lvl_bars, lvl, bar_index + loff, lvl, color = col, width = 2, style = lstyle)
@@ -76,11 +80,11 @@ if barstate.islast
         draw_level(lMp, "PML", 2, 22, na)
     if show_cml
         draw_level(cml, "CML", 2, 26, col_cml)
-    if show_10w and not na(w10)
+    if show_10w and not na(w10) and _near(w10)
         c10 = close > w10 ? col_sup : col_res
         ln10 := line.new(bar_index - lvl_bars, w10, bar_index + 10, w10, color = c10, width = 2)
         lb10 := label.new(bar_index + 10, w10, "10w  " + str.tostring(w10, format.mintick), style = label.style_label_left, color = c10, textcolor = color.white, size = size.small)
-    if show_30w and not na(w30)
+    if show_30w and not na(w30) and _near(w30)
         c30 = close > w30 ? col_sup : col_res
         ln30 := line.new(bar_index - lvl_bars, w30, bar_index + 10, w30, color = c30, width = 2)
         lb30 := label.new(bar_index + 10, w30, "30w  " + str.tostring(w30, format.mintick), style = label.style_label_left, color = c30, textcolor = color.white, size = size.small)
