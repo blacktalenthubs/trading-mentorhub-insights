@@ -683,6 +683,26 @@ async def market_report_dates(
         return {"dates": []}
 
 
+@router.get("/long-term-finders")
+async def long_term_finders(
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Long Term Finders (the ETF technique) — top holdings across a curated ETF set, ranked
+    by OVERLAP (a name held by multiple ETFs = conviction) and tagged core/emerging. Read from
+    market_reports[long_term_finders], published by analytics/etf_finders.py on the triage
+    worker (yfinance funds_data is blocked on this service). Fails soft to empty."""
+    import json as _json
+    rep = await _latest_report(db, "long_term_finders")
+    if not rep:
+        return {"as_of": None, "finders": [], "etfs": []}
+    try:
+        body = _json.loads(rep["body"]) if isinstance(rep["body"], str) else rep["body"]
+    except Exception:
+        body = {"finders": [], "etfs": []}
+    return {"as_of": rep["session_date"], **body}
+
+
 class ReportPublish(BaseModel):
     kind: str
     body: str

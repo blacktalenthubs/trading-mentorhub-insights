@@ -76,6 +76,10 @@ MORNING_FOCUS_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_MINUTE_ET", "35"))
 PERF_HOUR_ET   = int(os.environ.get("PERF_HOUR_ET", "16"))
 PERF_MINUTE_ET = int(os.environ.get("PERF_MINUTE_ET", "20"))
 PERF_DAYS      = int(os.environ.get("PERF_DAYS", "20"))
+
+# Long Term Finders (ETF technique) — weekly (holdings change slowly), Monday premarket.
+LTF_HOUR_ET    = int(os.environ.get("LTF_HOUR_ET", "8"))
+LTF_MINUTE_ET  = int(os.environ.get("LTF_MINUTE_ET", "10"))
 MORNING_FOCUS_TOP       = int(os.environ.get("MORNING_FOCUS_TOP", "5"))
 
 # Post mode — controls what the agent sends to Telegram.
@@ -575,6 +579,18 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("performance-score job failed")
 
+    def _safe_ltf():
+        # Weekly: pull ETF top-holdings, rank by overlap, --publish the "Long Term Finders"
+        # blob to market_reports[long_term_finders] (Trade Ideas reads it). yfinance funds_data
+        # works on this worker; subprocess-isolated so a hang can't stall the loop. Read-only.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "etf_finders.py")
+            r = subprocess.run([sys.executable, script, "--publish", "--out", "/tmp/ltf.json"], timeout=600)
+            logger.info("long-term-finders job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("long-term-finders job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -608,6 +624,11 @@ def start_premarket_scheduler():
         _safe_performance,
         CronTrigger(hour=PERF_HOUR_ET, minute=PERF_MINUTE_ET, day_of_week="mon-fri", timezone=et_tz),
         id="performance_score", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_ltf,
+        CronTrigger(hour=LTF_HOUR_ET, minute=LTF_MINUTE_ET, day_of_week="mon", timezone=et_tz),
+        id="long_term_finders", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
