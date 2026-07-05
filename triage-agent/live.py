@@ -70,6 +70,12 @@ EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
 # market_reports kind=morning_focus daily so the Today's Focus tab stops being static.
 MORNING_FOCUS_HOUR_ET   = int(os.environ.get("MORNING_FOCUS_HOUR_ET", "8"))
 MORNING_FOCUS_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_MINUTE_ET", "35"))
+
+# Performance scorer — EOD, default 16:20 ET (= 3:20pm CT, just after the close settles so
+# the day's EOD prints are final). Scores the trailing PERF_DAYS window and publishes it.
+PERF_HOUR_ET   = int(os.environ.get("PERF_HOUR_ET", "16"))
+PERF_MINUTE_ET = int(os.environ.get("PERF_MINUTE_ET", "20"))
+PERF_DAYS      = int(os.environ.get("PERF_DAYS", "20"))
 MORNING_FOCUS_TOP       = int(os.environ.get("MORNING_FOCUS_TOP", "5"))
 
 # Post mode — controls what the agent sends to Telegram.
@@ -553,6 +559,22 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("premarket-signals job failed")
 
+    def _safe_performance():
+        # EOD (~4:20pm ET / 3:20pm CT, just after the close settles): replay the trailing
+        # PERF_DAYS of delivered alerts vs price and --publish the scored blob to
+        # market_reports[performance] — the Performance page's pattern leaderboard reads it.
+        # Subprocess-isolated so a yfinance hang can't stall the live loop. Needs DATABASE_URL.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "performance_report.py")
+            r = subprocess.run(
+                [sys.executable, script, "--days", str(PERF_DAYS), "--publish", "--out", "/tmp/perf.json"],
+                timeout=1200,
+            )
+            logger.info("performance-score job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("performance-score job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -581,6 +603,11 @@ def start_premarket_scheduler():
         _safe_premarket_signals,
         CronTrigger(hour="7-9", minute="0,15,30,45", day_of_week="mon-fri", timezone=et_tz),
         id="premarket_signals", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_performance,
+        CronTrigger(hour=PERF_HOUR_ET, minute=PERF_MINUTE_ET, day_of_week="mon-fri", timezone=et_tz),
+        id="performance_score", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
