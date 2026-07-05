@@ -11,7 +11,7 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Target, Plus, Check, ChevronRight, RefreshCw, Info } from "lucide-react";
-import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth, useLongTermFinders, type LongTermFinders } from "../api/hooks";
+import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth, useLongTermFinders, type LongTermFinders, type Finder } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
 
@@ -431,6 +431,7 @@ function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
   owned: Set<string>; onChart: (s: string) => void; onAdd: (s: string) => void; adding: boolean;
 }) {
   const [emergingOnly, setEmergingOnly] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
   if (!data?.finders?.length) return null;
   const finders = data.finders.filter((f) => !emergingOnly || f.tier === "emerging");
   return (
@@ -452,6 +453,7 @@ function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
             <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wide text-text-faint">
               <th className="px-3 py-2 text-left font-semibold">#</th>
               <th className="px-3 py-2 text-left font-semibold">Symbol</th>
+              <th className="px-3 py-2 text-left font-semibold">Archetype</th>
               <th className="px-3 py-2 text-right font-semibold">Overlap</th>
               <th className="px-3 py-2 text-right font-semibold">Top weight</th>
               <th className="px-3 py-2 text-left font-semibold">In ETFs</th>
@@ -460,30 +462,85 @@ function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
           </thead>
           <tbody>
             {finders.map((f, i) => (
-              <tr key={f.symbol} className="border-b border-border-subtle hover:bg-surface-3/40">
-                <td className="px-3 py-2 font-mono text-text-faint">{i + 1}</td>
-                <td className="px-3 py-2">
-                  <button onClick={() => onChart(f.symbol)} className="font-bold text-text-primary hover:text-sky-400">{f.symbol}</button>
-                  {f.tier === "emerging" && <span className="ml-1.5 text-[10px] text-accent">★</span>}
-                  <div className="max-w-[180px] truncate text-[10px] text-text-faint">{f.name}</div>
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold text-text-secondary">{f.overlap}×</td>
-                <td className="px-3 py-2 text-right font-mono text-text-secondary">{f.max_weight.toFixed(1)}%</td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {f.etfs.map((e) => <span key={e} className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{e}</span>)}
-                  </div>
-                </td>
-                <td className="px-3 py-2 text-right">
-                  {owned.has(f.symbol)
-                    ? <Check className="inline h-4 w-4 text-bullish-text" />
-                    : <button onClick={() => onAdd(f.symbol)} disabled={adding} className="rounded p-1 text-accent hover:bg-accent/10 disabled:opacity-50" title={`Add ${f.symbol}`}><Plus className="h-4 w-4" /></button>}
-                </td>
-              </tr>
+              <Fragment key={f.symbol}>
+                <tr onClick={() => setOpen(open === f.symbol ? null : f.symbol)} className="cursor-pointer border-b border-border-subtle hover:bg-surface-3/40">
+                  <td className="px-3 py-2 font-mono text-text-faint"><span className="inline-flex items-center gap-1"><ChevronRight className={`h-3 w-3 transition-transform ${open === f.symbol ? "rotate-90" : ""}`} />{i + 1}</span></td>
+                  <td className="px-3 py-2">
+                    <button onClick={(e) => { e.stopPropagation(); onChart(f.symbol); }} className="font-bold text-text-primary hover:text-sky-400">{f.symbol}</button>
+                    {f.tier === "emerging" && <span className="ml-1.5 text-[10px] text-accent">★</span>}
+                    <div className="max-w-[180px] truncate text-[10px] text-text-faint">{f.name}</div>
+                  </td>
+                  <td className="px-3 py-2">{f.dossier ? <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${ARCH_CLS[f.dossier.archetype] ?? "bg-surface-3 text-text-muted"}`}>{f.dossier.archetype}</span> : <span className="text-text-faint">—</span>}</td>
+                  <td className="px-3 py-2 text-right font-mono font-semibold text-text-secondary">{f.overlap}×</td>
+                  <td className="px-3 py-2 text-right font-mono text-text-secondary">{f.max_weight.toFixed(1)}%</td>
+                  <td className="px-3 py-2"><div className="flex flex-wrap gap-1">{f.etfs.map((e) => <span key={e} className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{e}</span>)}</div></td>
+                  <td className="px-3 py-2 text-right">
+                    {owned.has(f.symbol)
+                      ? <Check className="inline h-4 w-4 text-bullish-text" />
+                      : <button onClick={(e) => { e.stopPropagation(); onAdd(f.symbol); }} disabled={adding} className="rounded p-1 text-accent hover:bg-accent/10 disabled:opacity-50" title={`Add ${f.symbol}`}><Plus className="h-4 w-4" /></button>}
+                  </td>
+                </tr>
+                {open === f.symbol && f.dossier && <DossierRow f={f} onChart={onChart} />}
+              </Fragment>
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+const ARCH_CLS: Record<string, string> = {
+  "Moonshot": "bg-amber-500/15 text-amber-400",
+  "Emerging Leader": "bg-sky-500/15 text-sky-400",
+  "Compounder": "bg-bullish-subtle text-bullish-text",
+  "Profitable Growth": "bg-bullish-subtle text-bullish-text",
+  "Watch": "bg-surface-3 text-text-muted",
+};
+function fUsd(v: number | null | undefined): string {
+  if (v == null) return "—";
+  const a = Math.abs(v), sign = v < 0 ? "-" : "";
+  if (a >= 1e9) return `${sign}$${(a / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(0)}M`;
+  return `${sign}$${a.toFixed(0)}`;
+}
+function fPct(v: number | null | undefined, sign = false): string {
+  if (v == null) return "—";
+  const p = v * 100;
+  return `${sign && p >= 0 ? "+" : ""}${p.toFixed(0)}%`;
+}
+function DossierRow({ f, onChart }: { f: Finder; onChart: (s: string) => void }) {
+  const d = f.dossier!;
+  const items: { l: string; v: string; c?: string }[] = [
+    { l: "Rev growth", v: fPct(d.revenue_growth, true), c: (d.revenue_growth ?? 0) > 0 ? "text-bullish-text" : "text-bearish-text" },
+    { l: "Revenue", v: fUsd(d.revenue) },
+    { l: "Gross margin", v: fPct(d.gross_margin) },
+    { l: "Op margin", v: fPct(d.operating_margin), c: (d.operating_margin ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text" },
+    { l: "Profit margin", v: fPct(d.profit_margin), c: (d.profit_margin ?? 0) > 0 ? "text-bullish-text" : "text-bearish-text" },
+    { l: "Cash", v: fUsd(d.cash) },
+    { l: "Debt", v: fUsd(d.debt) },
+    { l: "Runway", v: d.runway_years ? `${d.runway_years}yr` : "—" },
+    { l: "Cap / Rev", v: d.cap_to_rev ? `${d.cap_to_rev}×` : "—" },
+    { l: "Analyst", v: (d.rec ?? "—").replace("_", " ") },
+  ];
+  return (
+    <tr className="bg-surface-0">
+      <td colSpan={7} className="px-4 py-3">
+        <div className="mb-2.5 flex flex-wrap items-center gap-2">
+          <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${ARCH_CLS[d.archetype] ?? "bg-surface-3 text-text-muted"}`}>{d.archetype}</span>
+          <span className="text-[12px] text-text-secondary">{d.read}</span>
+          <button onClick={() => onChart(f.symbol)} className="ml-auto text-[11px] text-sky-400 hover:underline">View chart →</button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4 lg:grid-cols-5">
+          {items.map((it) => (
+            <div key={it.l} className="flex items-center justify-between text-[11px]">
+              <span className="text-text-faint">{it.l}</span>
+              <span className={`font-mono tabular-nums ${it.c ?? "text-text-secondary"}`}>{it.v}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-2.5 text-[10px] text-text-faint">Fundamentals via market data — a starting read for your diligence, not a recommendation.</p>
+      </td>
+    </tr>
   );
 }

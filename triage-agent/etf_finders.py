@@ -50,6 +50,66 @@ def pull_holdings(etf):
         return []
 
 
+FUND_MAP = {
+    "market_cap": "marketCap", "revenue": "totalRevenue", "revenue_growth": "revenueGrowth",
+    "gross_margin": "grossMargins", "operating_margin": "operatingMargins", "profit_margin": "profitMargins",
+    "cash": "totalCash", "debt": "totalDebt", "fcf": "freeCashflow", "rec": "recommendationKey",
+}
+
+
+def fundamentals(symbol):
+    """Key fundamentals for the dossier, or None on failure/missing."""
+    import yfinance as yf
+    try:
+        info = yf.Ticker(symbol).info or {}
+    except Exception:
+        return None
+    m = {k: info.get(src) for k, src in FUND_MAP.items()}
+    return m if m.get("market_cap") else None
+
+
+def dossier(m):
+    """Turn raw fundamentals into a DECISION: an archetype (what kind of bet) + a plain read +
+    the two ratios that matter most for an early name — cap/revenue (how early) and cash runway
+    (can it survive to profitability). This is the 'make the call easy, from data' layer."""
+    mc = m.get("market_cap") or 0
+    rev = m.get("revenue") or 0
+    g = m.get("revenue_growth")        # fraction
+    pm = m.get("profit_margin")
+    om = m.get("operating_margin")
+    fcf = m.get("fcf")
+    cash = m.get("cash") or 0
+    # Guard foreign ADRs (e.g. TSM): yfinance reports revenue in local currency while market
+    # cap is USD, so revenue > market cap is impossible → drop the absolute rev + ratio. Growth
+    # and margins are ratios (currency-independent) and stay valid.
+    if rev and mc and rev > mc:
+        rev = 0
+    cap_rev = round(mc / rev, 1) if rev else None
+    runway = round(cash / abs(fcf), 1) if (fcf and fcf < 0) else None
+    if pm is not None and pm > 0.10 and mc > 50e9:
+        arch = "Compounder"                 # profitable, large, still growing
+    elif rev and rev < 300e6 and g is not None and g > 1.0:
+        arch = "Moonshot"                   # tiny revenue, explosive growth, pre-profit
+    elif rev and rev > 200e6 and g is not None and g > 0.30 and (om is None or om > -0.4):
+        arch = "Emerging Leader"            # real revenue, high growth, nearing profit
+    elif pm is not None and pm > 0 and g is not None and g > 0.15:
+        arch = "Profitable Growth"
+    else:
+        arch = "Watch"
+    parts = []
+    if g is not None:
+        parts.append(f"{g*100:+.0f}% growth")
+    if rev:
+        parts.append(f"${rev/1e9:.1f}B rev" if rev >= 1e9 else f"${rev/1e6:.0f}M rev")
+    if pm is not None:
+        parts.append("profitable" if pm > 0 else "pre-profit")
+    if runway:
+        parts.append(f"~{runway:g}yr runway")
+    if cap_rev:
+        parts.append(f"{cap_rev:g}x cap/rev")
+    return {"archetype": arch, "read": " · ".join(parts), "cap_to_rev": cap_rev, "runway_years": runway, **m}
+
+
 def build(etfs=ETF_LIST):
     per_etf = []
     by_sym = {}
@@ -78,6 +138,10 @@ def build(etfs=ETF_LIST):
         })
     # rank: most overlap first, then heaviest weight
     finders.sort(key=lambda f: (-f["overlap"], -f["max_weight"]))
+    print(f"  enriching {len(finders)} names with fundamentals (the dossier)...")
+    for f in finders:
+        m = fundamentals(f["symbol"])
+        f["dossier"] = dossier(m) if m else None
     return {"etfs": per_etf, "finders": finders}
 
 
