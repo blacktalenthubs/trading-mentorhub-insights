@@ -5,7 +5,15 @@ from __future__ import annotations
 
 class TestPublicAPI:
     def test_track_record_endpoint(self, api_url, http):
-        r = http.get(f"{api_url}/intel/public-track-record?days=90", timeout=15)
+        # 90-day track record is the heaviest public query — a cold cache
+        # (weekend / post-deploy) can exceed 15s, which failed unrelated PRs.
+        # Generous timeout + one retry so the smoke gate tests availability,
+        # not cache warmth.
+        import requests
+        try:
+            r = http.get(f"{api_url}/intel/public-track-record?days=90", timeout=45)
+        except requests.exceptions.Timeout:
+            r = http.get(f"{api_url}/intel/public-track-record?days=90", timeout=45)
         assert r.status_code == 200, f"{r.status_code}: {r.text[:200]}"
         data = r.json()
         # Shape check — landing page relies on these fields
