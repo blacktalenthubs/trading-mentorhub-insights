@@ -1,56 +1,293 @@
-/** Performance — the EOD / strategy surface. Three tabs that each earn their keep:
- *  Today's EOD (close out positions + real outcomes), Strategy Analysis (per-pattern edge
- *  vs the full catalog), Declined (what you passed on). The old by-pattern / weekly / by-symbol
- *  / sessions tabs and their components were culled — they were unreachable (#64 Sub-spec E).
+/** Performance — which entry patterns actually work.
+ *  Every delivered alert is replayed against price at EOD and scored WIN/LOSS on the
+ *  stop-is-judge rule (target before stop, else closed green). This page reads the
+ *  precomputed report (/performance/report, published by the offline scorer) and, client
+ *  side, ranks patterns and groups alerts by date across a Daily / Weekly / Monthly lens.
+ *  (Replaces the old EOD/Strategy/Declined tabs entirely.)
  */
-import { useState } from "react";
-import TodayEOD from "../components/TodayEOD";
-import MyStrategy from "../components/MyStrategy";
-import DeclinedTrades from "../components/DeclinedTrades";
+import { useMemo, useState, useEffect } from "react";
+import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { usePerformanceReport, type ScoredAlert } from "../api/hooks";
 
-type PerfTab = "today-eod" | "strategy" | "declined";
+type Gran = "daily" | "weekly" | "monthly";
 
-const PERF_TABS: { id: PerfTab; label: string }[] = [
-  { id: "today-eod", label: "Today's EOD" },
-  { id: "strategy",  label: "Strategy Analysis" },
-  { id: "declined",  label: "Declined" },
-];
+function median(xs: number[]): number {
+  const a = xs.filter((x) => x != null && !Number.isNaN(x)).sort((p, q) => p - q);
+  return a.length ? a[Math.floor(a.length / 2)] : 0;
+}
+function pct(x: number): string {
+  return `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
+}
+function fmtDay(d: string): string {
+  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+function fmtShort(d: string): string {
+  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function mondayOf(d: string): string {
+  const dt = new Date(d + "T00:00:00");
+  const g = dt.getDay();
+  dt.setDate(dt.getDate() + (g === 0 ? -6 : 1 - g));
+  return dt.toISOString().slice(0, 10);
+}
+function wrColor(wr: number): string {
+  return wr >= 50 ? "#4ade80" : wr >= 38 ? "#e0a533" : "#f87171";
+}
+
+interface Period { label: string; dates: Set<string>; count: number; }
+function buildPeriods(alerts: ScoredAlert[], gran: Gran): Period[] {
+  const dates = Array.from(new Set(alerts.map((a) => a.session_date))).sort().reverse();
+  const count = (ds: Set<string>) => alerts.filter((a) => ds.has(a.session_date)).length;
+  if (gran === "daily") {
+    return dates.map((d) => { const s = new Set([d]); return { label: fmtDay(d), dates: s, count: count(s) }; });
+  }
+  const groups = new Map<string, string[]>();
+  for (const d of dates) {
+    const key = gran === "weekly" ? mondayOf(d) : d.slice(0, 7);
+    const arr = groups.get(key);
+    if (arr) arr.push(d); else groups.set(key, [d]);
+  }
+  return Array.from(groups.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([key, ds]) => {
+      const sorted = ds.slice().sort();
+      const label = gran === "weekly"
+        ? `Week of ${fmtShort(sorted[0])} – ${fmtShort(sorted[sorted.length - 1])}`
+        : new Date(key + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const s = new Set(ds);
+      return { label, dates: s, count: count(s) };
+    });
+}
+
+interface LbRow { pattern: string; style: string; n: number; wr: number; ae: number; mfe: number; mae: number; }
+function aggregate(alerts: ScoredAlert[]): LbRow[] {
+  const byPat = new Map<string, ScoredAlert[]>();
+  for (const a of alerts) { const arr = byPat.get(a.pattern); if (arr) arr.push(a); else byPat.set(a.pattern, [a]); }
+  const rows: LbRow[] = [];
+  byPat.forEach((items, pattern) => {
+    const closed = items.filter((i) => !i.open);
+    if (!closed.length) return;
+    const wins = closed.filter((i) => i.result === "WIN").length;
+    const ae = items.filter((i) => i.above_entry).length;
+    rows.push({
+      pattern, style: items[0].style, n: closed.length,
+      wr: Math.round((wins * 100) / closed.length),
+      ae: Math.round((ae * 100) / items.length),
+      mfe: median(items.map((i) => i.mfe_pct)),
+      mae: median(items.map((i) => i.mae_pct)),
+    });
+  });
+  return rows.sort((a, b) => b.wr - a.wr || b.n - a.n);
+}
+
+interface DateGroup { date: string; items: ScoredAlert[]; wr: number; mfe: number; }
+function groupByDate(alerts: ScoredAlert[]): DateGroup[] {
+  const byd = new Map<string, ScoredAlert[]>();
+  for (const a of alerts) { const arr = byd.get(a.session_date); if (arr) arr.push(a); else byd.set(a.session_date, [a]); }
+  return Array.from(byd.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([date, items]) => {
+      const closed = items.filter((i) => !i.open);
+      const wins = closed.filter((i) => i.result === "WIN").length;
+      return { date, items, wr: closed.length ? Math.round((wins * 100) / closed.length) : 0, mfe: median(items.map((i) => i.mfe_pct)) };
+    });
+}
+
+const STYLE_TAG: Record<string, string> = { Day: "text-sky-400", Swing: "text-amber-400", Long: "text-bullish-text" };
 
 export default function RealTradesPage() {
-  const [activeTab, setActiveTab] = useState<PerfTab>(() => {
-    if (typeof window === "undefined") return "today-eod";
-    const saved = localStorage.getItem("perf_active_tab");
-    return saved === "strategy" || saved === "declined" ? saved : "today-eod";
-  });
-  function pickTab(t: PerfTab) {
-    setActiveTab(t);
-    try { localStorage.setItem("perf_active_tab", t); } catch { /* ignore */ }
-  }
+  const { data, isLoading, error } = usePerformanceReport();
+  const alerts = useMemo(() => data?.alerts ?? [], [data]);
+  const [gran, setGran] = useState<Gran>("weekly");
+  const [idx, setIdx] = useState(0);
+  useEffect(() => { setIdx(0); }, [gran]);
+
+  const periods = useMemo(() => buildPeriods(alerts, gran), [alerts, gran]);
+  const period = periods.length ? periods[Math.min(idx, periods.length - 1)] : null;
+  const inPeriod = useMemo(
+    () => (period ? alerts.filter((a) => period.dates.has(a.session_date)) : []),
+    [alerts, period],
+  );
+  const lb = useMemo(() => aggregate(inPeriod), [inPeriod]);
+  const groups = useMemo(() => groupByDate(inPeriod), [inPeriod]);
+
+  const closed = inPeriod.filter((a) => !a.open);
+  const wins = closed.filter((a) => a.result === "WIN").length;
+  const overallWr = closed.length ? Math.round((wins * 100) / closed.length) : 0;
+  const medMfe = median(inPeriod.map((a) => a.mfe_pct));
+  const medMae = median(inPeriod.map((a) => a.mae_pct));
 
   return (
-    <div className="h-full overflow-y-auto overflow-x-hidden p-5">
-      <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
-        <div className="flex items-center gap-6 flex-wrap">
-          <h1 className="text-xl font-bold text-text-primary">Performance</h1>
-          <div className="flex bg-surface-2 rounded-lg p-0.5 flex-wrap">
-            {PERF_TABS.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => pickTab(t.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                  activeTab === t.id ? "bg-surface-4 text-text-primary shadow-sm" : "text-text-muted hover:text-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
+    <div className="h-full overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-4">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="font-mono text-sm tracking-[0.2em] uppercase text-amber-400 font-semibold">Performance</h1>
+          <p className="text-xs text-text-faint mt-1">Which entry patterns work — every delivered alert scored against price at EOD. Win = target before stop.</p>
+        </div>
+        <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
+          {(["daily", "weekly", "monthly"] as const).map((g) => (
+            <button key={g} onClick={() => setGran(g)}
+              className={`px-3 py-1.5 text-xs font-mono rounded-md capitalize transition-colors ${gran === g ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-primary"}`}>
+              {g}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-text-muted text-sm py-10 justify-center">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading performance…
+        </div>
+      )}
+      {error && <div className="text-sm text-bearish-text bg-bearish-subtle rounded-lg p-3">{error.message}</div>}
+      {!isLoading && !error && !alerts.length && (
+        <div className="text-sm text-text-muted bg-surface-2 border border-border-subtle rounded-lg p-6 text-center">
+          No scored alerts yet — the nightly scorer hasn't published a report.
+        </div>
+      )}
+
+      {!!alerts.length && period && (
+        <>
+          <div className="flex items-center gap-3 bg-surface-2 border border-border-subtle rounded-lg px-3 py-2">
+            <button disabled={idx >= periods.length - 1} onClick={() => setIdx((i) => Math.min(periods.length - 1, i + 1))}
+              className="p-1.5 rounded-md bg-surface-3 text-text-muted disabled:opacity-30 hover:text-text-primary"><ChevronLeft className="h-4 w-4" /></button>
+            <span className="font-mono text-sm font-semibold text-text-primary">{period.label}</span>
+            <button disabled={idx <= 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}
+              className="p-1.5 rounded-md bg-surface-3 text-text-muted disabled:opacity-30 hover:text-text-primary"><ChevronRight className="h-4 w-4" /></button>
+            {idx !== 0 && <button onClick={() => setIdx(0)} className="font-mono text-xs text-sky-400">Latest</button>}
+            <span className="ml-auto font-mono text-xs text-text-faint">{period.count} alerts · {period.dates.size} session{period.dates.size > 1 ? "s" : ""} · {overallWr}% win</span>
+          </div>
+
+          <div className="flex gap-6 flex-wrap bg-surface-0 border border-border-subtle rounded-lg px-4 py-3">
+            {[
+              { v: `${inPeriod.length}`, l: "alerts scored", c: "text-text-primary" },
+              { v: `${lb.length}`, l: "entry patterns", c: "text-text-primary" },
+              { v: `${overallWr}%`, l: "win (closed)", c: "text-bullish-text" },
+              { v: pct(medMfe), l: "median MFE", c: "text-bullish-text" },
+              { v: pct(medMae), l: "median MAE", c: "text-bearish-text" },
+            ].map((m) => (
+              <div key={m.l} className="flex flex-col">
+                <span className={`font-mono text-lg font-semibold ${m.c}`}>{m.v}</span>
+                <span className="text-[10px] uppercase tracking-wide text-text-faint mt-0.5">{m.l}</span>
+              </div>
             ))}
           </div>
-        </div>
 
-        {activeTab === "today-eod" && <TodayEOD />}
-        {activeTab === "strategy"  && <MyStrategy />}
-        {activeTab === "declined"  && <DeclinedTrades />}
-      </div>
+          <SectionTitle>Entry patterns, ranked · by win rate</SectionTitle>
+          <p className="text-[11px] text-text-faint -mt-2">Win = target before stop (or closed green). "Above" = intraday high cleared entry at all — a big gap means the setup pokes green then gets stopped (tight stops). n≥1, closed only.</p>
+          <div className="bg-surface-2 border border-border-subtle rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-text-faint">
+                    <th className="text-center px-3 py-2.5 font-semibold w-8">#</th>
+                    <th className="text-left px-3 py-2.5 font-semibold">Entry pattern</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Win rate</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Above</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Med MFE</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Med MAE</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Alerts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lb.map((r, i) => (
+                    <tr key={r.pattern} className="border-t border-border-subtle hover:bg-surface-3/40">
+                      <td className="text-center px-3 py-3 font-mono text-text-faint">{i + 1}</td>
+                      <td className="px-3 py-3 font-semibold text-text-primary">{r.pattern}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="w-24 h-2 bg-surface-0 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${Math.max(4, r.wr)}%`, background: wrColor(r.wr) }} />
+                          </div>
+                          <span className="font-mono text-sm font-semibold w-9 text-right" style={{ color: wrColor(r.wr) }}>{r.wr}%</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 text-right font-mono text-text-muted">{r.ae}%</td>
+                      <td className="px-3 py-3 text-right font-mono text-bullish-text">{pct(r.mfe)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-bearish-text">{pct(r.mae)}</td>
+                      <td className="px-3 py-3 text-right font-mono text-text-muted">{r.n} <span className={`text-[10px] ${STYLE_TAG[r.style] ?? "text-text-faint"}`}>{r.style === "Day" ? "DAY" : r.style === "Swing" ? "SW" : "LT"}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <SectionTitle>Alerts, grouped by date</SectionTitle>
+          <div className="bg-surface-2 border border-border-subtle rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[720px]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-text-faint">
+                    <th className="text-left px-3 py-2.5 font-semibold">Sym</th>
+                    <th className="text-left px-3 py-2.5 font-semibold">Setup</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Entry</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Stop</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Hi</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Lo</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">EOD</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">MFE</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Max DD</th>
+                    <th className="text-right px-3 py-2.5 font-semibold">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((g) => (
+                    <GroupRows key={g.date} g={g} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-text-faint font-mono leading-relaxed pt-2">
+            Each delivered long alert replayed at EOD: 5-min intraday (Day) / daily over a 10-day window (Swing/Long). Win = target before stop, else closed green. MFE/MAE/MaxDD from entry. Delivered-only. Report as of {data?.as_of ?? "—"}.
+          </p>
+        </>
+      )}
     </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mt-4">
+      <span className="font-mono text-[11px] tracking-[0.14em] uppercase text-amber-400">{children}</span>
+      <span className="flex-1 h-px bg-border-subtle" />
+    </div>
+  );
+}
+
+function GroupRows({ g }: { g: DateGroup }) {
+  return (
+    <>
+      <tr className="bg-surface-0">
+        <td colSpan={10} className="px-3 py-2 font-mono text-xs font-semibold text-text-primary border-t border-border-subtle">
+          {fmtDay(g.date)}
+          <span className="ml-3 font-normal text-text-faint">
+            <span className="text-bullish-text font-semibold">{g.wr}% win</span> · {g.items.length} alerts · median MFE {pct(g.mfe)}
+          </span>
+        </td>
+      </tr>
+      {g.items.map((a, i) => {
+        const win = a.result === "WIN";
+        return (
+          <tr key={`${a.symbol}-${a.session_date}-${i}`} className="border-t border-border-subtle hover:bg-surface-3/40 font-mono">
+            <td className="px-3 py-2 text-left font-bold text-text-primary">{a.symbol}</td>
+            <td className="px-3 py-2 text-left text-text-muted text-[11px] font-sans">{a.pattern}</td>
+            <td className="px-3 py-2 text-right">{a.entry.toFixed(2)}</td>
+            <td className="px-3 py-2 text-right text-text-muted">{a.stop != null ? a.stop.toFixed(2) : "—"}</td>
+            <td className={`px-3 py-2 text-right ${a.mfe_pct > 0 ? "text-bullish-text" : ""}`}>{a.intraday_high.toFixed(2)}</td>
+            <td className={`px-3 py-2 text-right ${a.mae_pct < -0.5 ? "text-bearish-text" : ""}`}>{a.intraday_low.toFixed(2)}</td>
+            <td className="px-3 py-2 text-right">{a.eod_close.toFixed(2)}</td>
+            <td className="px-3 py-2 text-right text-bullish-text">{pct(a.mfe_pct)}</td>
+            <td className="px-3 py-2 text-right text-bearish-text">{pct(a.max_dd_pct)}</td>
+            <td className={`px-3 py-2 text-right text-[11px] font-semibold ${win ? "text-bullish-text" : "text-bearish-text"}`}>
+              {a.open ? "· open" : win ? "✓ WIN" : `✗ LOSS ${a.realized_stop_pct != null ? pct(a.realized_stop_pct) : ""}`}
+            </td>
+          </tr>
+        );
+      })}
+    </>
   );
 }

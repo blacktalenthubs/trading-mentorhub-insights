@@ -2312,3 +2312,40 @@ export function useToggleAllAlertConfig() {
     },
   });
 }
+
+// ── Performance page — precomputed alert-outcome report ──────────────────────────
+export interface ScoredAlert {
+  symbol: string;
+  pattern: string;
+  style: string;            // "Day" | "Swing" | "Long"
+  session_date: string;
+  alert_et: string | null;
+  entry: number;
+  stop: number;
+  target: number | null;
+  result: "WIN" | "LOSS";   // stop-is-judge: target before stop, else closed green
+  above_entry: boolean;
+  intraday_high: number;
+  intraday_low: number;
+  eod_close: number;
+  mfe_pct: number;
+  mae_pct: number;
+  max_dd_pct: number;
+  dd_past_stop_pct: number;
+  realized_stop_pct: number | null;
+  open?: boolean;           // swing still inside its window
+}
+export interface PerformanceReport {
+  as_of: string | null;
+  generated_at?: string;
+  start?: string;
+  end?: string;
+  alerts: ScoredAlert[];
+}
+export function usePerformanceReport() {
+  return useQuery({
+    queryKey: ["performance-report"],
+    queryFn: () => api.get<PerformanceReport>("/performance/report"),
+    staleTime: 5 * 60_000,
+  });
+}
