@@ -2351,6 +2351,22 @@ export function usePerformanceReport() {
 }
 
 // ── Long Term Finders — the ETF technique (top holdings by overlap) ──────────────
+export interface Dossier {
+  archetype: string;
+  read: string;
+  cap_to_rev: number | null;
+  runway_years: number | null;
+  market_cap: number | null;
+  revenue: number | null;
+  revenue_growth: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  profit_margin: number | null;
+  cash: number | null;
+  debt: number | null;
+  fcf: number | null;
+  rec: string | null;
+}
 export interface Finder {
   symbol: string;
   name: string;
@@ -2359,6 +2375,7 @@ export interface Finder {
   max_weight: number;
   weights: Record<string, number>;
   tier: "core" | "emerging";
+  dossier?: Dossier | null;
 }
 export interface EtfTop { etf: string; desc: string; top: { symbol: string; name: string; weight: number }[]; }
 export interface LongTermFinders {
