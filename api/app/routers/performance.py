@@ -40,6 +40,11 @@ async def performance_report(
     offline scorer (analytics/performance_report.py; nightly on the triage worker). Outcomes
     are scored against price OFFLINE — nothing is fetched in-request (yfinance is blocked on
     this service). Platform-wide (every alert's outcome, same for all users). Fails soft."""
+    return await _scoped_report(db, user.id)
+
+
+async def _scoped_report(db: AsyncSession, user_id: int) -> dict:
+    """The latest performance blob, scoped to a user's watchlist symbols (fallback = all)."""
     import json as _json
     row = (await db.execute(text(
         "SELECT body, session_date, created_at FROM market_reports "
@@ -48,11 +53,9 @@ async def performance_report(
     if not row:
         return {"as_of": None, "alerts": []}
     body = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
-    # Scope to the CALLER's watchlist — each user sees only the alert performance of the
-    # symbols they track. No watchlist rows → fall back to the full set (don't blank the page).
     wl = (await db.execute(
         text("SELECT DISTINCT upper(symbol) FROM watchlist WHERE user_id = :uid"),
-        {"uid": user.id},
+        {"uid": user_id},
     )).fetchall()
     syms = {r[0] for r in wl}
     alerts = body.get("alerts", []) or []
@@ -60,6 +63,33 @@ async def performance_report(
     body["alerts"] = scoped
     return {"as_of": str(row[1]), "generated_at": str(row[2]),
             "watchlist_scoped": bool(syms), "watchlist_count": len(syms), **body}
+
+
+@router.post("/share")
+@limiter.limit("10/minute")
+async def performance_share(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Snapshot the caller's (watchlist-scoped) performance under a random token so it can be
+    viewed logged-out at /public/performance/{token}. Stable snapshot — the link shows what the
+    user shared, not a live feed. Returns the token; the frontend builds the URL."""
+    import json as _json
+    import secrets
+    data = await _scoped_report(db, user.id)
+    token = secrets.token_urlsafe(9)
+    await db.execute(text(
+        "CREATE TABLE IF NOT EXISTS share_links ("
+        " token TEXT PRIMARY KEY, kind TEXT NOT NULL, user_id INTEGER,"
+        " payload TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT NOW())"
+    ))
+    await db.execute(text(
+        "INSERT INTO share_links (token, kind, user_id, payload) "
+        "VALUES (:t, 'performance', :u, :p)"
+    ), {"t": token, "u": user.id, "p": _json.dumps(data, default=str)})
+    await db.commit()
+    return {"token": token}
 
 
 @router.get("/by-strategy")

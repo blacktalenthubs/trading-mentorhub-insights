@@ -172,3 +172,23 @@ async def public_alert_by_id(
 
 def _today_str() -> str:
     return date.today().isoformat()
+
+
+@router.get("/performance/{token}")
+async def public_performance(token: str, db: AsyncSession = Depends(get_db)):
+    """Read-only shared performance snapshot (unauthenticated) — created via
+    POST /api/v1/performance/share. 404 if the token is unknown."""
+    from sqlalchemy import text as _text
+    import json as _json
+    try:
+        row = (await db.execute(_text(
+            "SELECT payload, created_at FROM share_links "
+            "WHERE token = :t AND kind = 'performance' LIMIT 1"
+        ), {"t": token})).first()
+    except Exception:
+        row = None
+    if not row:
+        raise HTTPException(status_code=404, detail="Shared report not found")
+    data = _json.loads(row.payload) if isinstance(row.payload, str) else row.payload
+    data["shared_at"] = str(row.created_at) if row.created_at else None
+    return data

@@ -2390,3 +2390,17 @@ export function useLongTermFinders() {
     staleTime: 30 * 60_000,
   });
 }
+
+// ── Performance share (public link) ──────────────────────────────────────────────
+export function usePerformanceShare() {
+  return useMutation({ mutationFn: () => api.post<{ token: string }>("/performance/share") });
+}
+export function usePublicPerformance(token: string) {
+  return useQuery({
+    queryKey: ["public-performance", token],
+    queryFn: () => api.get<PerformanceReport & { shared_at?: string; watchlist_count?: number }>(`/public/performance/${encodeURIComponent(token)}`),
+    enabled: !!token,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}

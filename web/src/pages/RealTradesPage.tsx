@@ -8,21 +8,22 @@
  */
 import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
-import { usePerformanceReport, type ScoredAlert } from "../api/hooks";
+import { Loader2, ChevronLeft, ChevronRight, Search, X, Share2 } from "lucide-react";
+import { toast } from "../components/Toast";
+import { usePerformanceReport, usePerformanceShare, type ScoredAlert } from "../api/hooks";
 
 type Gran = "daily" | "weekly" | "monthly";
 type LbKey = "pattern" | "wr" | "ae" | "mfe" | "mae" | "n";
 type AlKey = "symbol" | "pattern" | "entry" | "stop" | "intraday_high" | "intraday_low" | "eod_close" | "mfe_pct" | "max_dd_pct" | "result";
 
-function median(xs: number[]): number {
+export function median(xs: number[]): number {
   const a = xs.filter((x) => x != null && !Number.isNaN(x)).sort((p, q) => p - q);
   return a.length ? a[Math.floor(a.length / 2)] : 0;
 }
-function pct(x: number): string {
+export function pct(x: number): string {
   return `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 }
-function fmtDay(d: string): string {
+export function fmtDay(d: string): string {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 function fmtShort(d: string): string {
@@ -34,7 +35,7 @@ function mondayOf(d: string): string {
   dt.setDate(dt.getDate() + (g === 0 ? -6 : 1 - g));
   return dt.toISOString().slice(0, 10);
 }
-function wrColor(wr: number): string {
+export function wrColor(wr: number): string {
   return wr >= 50 ? "#4ade80" : wr >= 38 ? "#e0a533" : "#f87171";
 }
 
@@ -63,8 +64,8 @@ function buildPeriods(alerts: ScoredAlert[], gran: Gran): Period[] {
     });
 }
 
-interface LbRow { pattern: string; style: string; n: number; wr: number; ae: number; mfe: number; mae: number; }
-function aggregate(alerts: ScoredAlert[]): LbRow[] {
+export interface LbRow { pattern: string; style: string; n: number; wr: number; ae: number; mfe: number; mae: number; }
+export function aggregate(alerts: ScoredAlert[]): LbRow[] {
   const byPat = new Map<string, ScoredAlert[]>();
   for (const a of alerts) { const arr = byPat.get(a.pattern); if (arr) arr.push(a); else byPat.set(a.pattern, [a]); }
   const rows: LbRow[] = [];
@@ -84,8 +85,8 @@ function aggregate(alerts: ScoredAlert[]): LbRow[] {
   return rows.sort((a, b) => b.wr - a.wr || b.n - a.n);
 }
 
-interface DateGroup { date: string; items: ScoredAlert[]; wr: number; mfe: number; }
-function groupByDate(alerts: ScoredAlert[]): DateGroup[] {
+export interface DateGroup { date: string; items: ScoredAlert[]; wr: number; mfe: number; }
+export function groupByDate(alerts: ScoredAlert[]): DateGroup[] {
   const byd = new Map<string, ScoredAlert[]>();
   for (const a of alerts) { const arr = byd.get(a.session_date); if (arr) arr.push(a); else byd.set(a.session_date, [a]); }
   return Array.from(byd.entries())
@@ -103,6 +104,17 @@ export default function RealTradesPage() {
   const { data, isLoading, error } = usePerformanceReport();
   const navigate = useNavigate();
   const alerts = useMemo(() => data?.alerts ?? [], [data]);
+  const share = usePerformanceShare();
+  const onShare = async () => {
+    try {
+      const { token } = await share.mutateAsync();
+      const url = `${window.location.origin}/public/performance/${token}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Public link copied to clipboard");
+    } catch {
+      toast.error("Could not create share link");
+    }
+  };
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
   const [q, setQ] = useState("");
@@ -159,13 +171,16 @@ export default function RealTradesPage() {
           <h1 className="font-mono text-sm tracking-[0.2em] uppercase text-amber-400 font-semibold">Performance</h1>
           <p className="text-xs text-text-faint mt-1">Which entry patterns actually work — scored against price. Day trades win if they hit a real profit before the stop; swings if they're holding above entry.</p>
         </div>
-        <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
-          {(["daily", "weekly", "monthly"] as const).map((g) => (
-            <button key={g} onClick={() => setGran(g)}
-              className={`px-3 py-1.5 text-xs font-mono rounded-md capitalize transition-colors ${gran === g ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-primary"}`}>
-              {g}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button onClick={onShare} disabled={share.isPending || !alerts.length} className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:border-accent hover:text-text-primary disabled:opacity-50"><Share2 className="h-3.5 w-3.5" /> {share.isPending ? "…" : "Share"}</button>
+          <div className="flex gap-1 rounded-lg border border-border-subtle bg-surface-2 p-1">
+            {(["daily", "weekly", "monthly"] as const).map((g) => (
+              <button key={g} onClick={() => setGran(g)}
+                className={`px-3 py-1.5 text-xs font-mono rounded-md capitalize transition-colors ${gran === g ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-primary"}`}>
+                {g}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
