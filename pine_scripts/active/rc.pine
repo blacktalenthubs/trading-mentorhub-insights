@@ -28,14 +28,14 @@ indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 3
 // ── Enables (per TF, per signal) ──────────────────────────────────────────
 g4 = "4h RC — day-trade engine"
 en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
-en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH, UPTREND-gated (BUY)", group = g4)
+en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH (BUY)", group = g4)
 // RC QUALITY FILTERS (2026-06-23, chart-derived). A 4h RC-H is a continuation only
 // IN AN UPTREND — otherwise it's buying into overhead resistance (SPY-on-down-days
 // trap). A 4h RC low is a spring only at SUPPORT — otherwise a naked lower-low knife.
 // Regime = the DAILY trend (handles consolidations: a bull flag is still Stage-2,
 // where local "higher highs" fails). Both gates toggleable.
 gF = "RC quality filters (4h)"
-gate_hrec = input.bool(true,  "RC-H: require daily UPTREND (above the rising daily EMA)", group = gF)
+gate_hrec = input.bool(false, "RC-H: require daily UPTREND (off = intraday tool, fire on structure; the stop is the judge)", group = gF)
 gate_low  = input.bool(false, "RC-low: require daily uptrend OR support confluence (off = every reclaim fires, the reclaim-low stop is the judge)", group = gF)
 ema_len   = input.int (20,    "Daily EMA length (trend reference)", minval = 5, group = gF)
 slope_lb  = input.int (3,     "Daily EMA rising lookback (days)", minval = 1, group = gF)
@@ -518,7 +518,7 @@ rc_pay(string rule, string dir, string iv, float ent, float stp, string note) =>
 if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rc4_hrec
-    alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high (UPTREND-gated) — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_long
     alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec
