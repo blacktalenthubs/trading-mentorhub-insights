@@ -16,6 +16,7 @@ interface PatternDetail {
   direction: string;
   difficulty: string;
   tagline: string;
+  status?: string;
   what_it_is: string;
   how_to_identify: string[];
   why_it_works: string;
@@ -95,6 +96,9 @@ export default function PatternDetailPage() {
           <div className="flex items-center gap-2 mb-3">
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded border ${diffClass}`}>{data.difficulty}</span>
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded border ${dirClass}`}>{data.direction}</span>
+            {data.status === "archived" && (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded border border-border-default bg-surface-3 text-text-muted" title="Retired setup — kept for reference; no longer a live signal.">Archived</span>
+            )}
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">{data.name}</h1>
           <p className="mt-2 text-lg text-text-secondary">{data.tagline}</p>

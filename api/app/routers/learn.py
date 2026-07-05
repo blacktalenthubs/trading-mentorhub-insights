@@ -184,6 +184,7 @@ class PatternSummary(BaseModel):
     direction: str
     difficulty: str
     tagline: str
+    status: str = "live"
     stats: CategoryStats
 
 
@@ -194,6 +195,7 @@ class PatternDetail(BaseModel):
     direction: str
     difficulty: str
     tagline: str
+    status: str = "live"
     what_it_is: str
     how_to_identify: List[str]
     why_it_works: str
@@ -252,12 +254,16 @@ def _compute_pattern_stats(alert_type: str, days: int = 90) -> CategoryStats:
 
 
 @router.get("/patterns", response_model=List[PatternSummary])
-async def list_patterns():
-    """List all individual pattern deep-dives with stats. Public."""
+async def list_patterns(include_archived: bool = False):
+    """List individual pattern deep-dives with stats. Public. Retired patterns are archived
+    (still fetchable individually) and excluded by default — the library teaches what fires."""
     results = []
     for pat_id in PATTERN_ORDER:
         pat = PATTERNS.get(pat_id)
         if not pat:
+            continue
+        status = pat.get("status", "live")
+        if status == "archived" and not include_archived:
             continue
         stats = _compute_pattern_stats(pat_id)
         results.append(PatternSummary(
@@ -267,6 +273,7 @@ async def list_patterns():
             direction=pat["direction"],
             difficulty=pat["difficulty"],
             tagline=pat["tagline"],
+            status=status,
             stats=stats,
         ))
     return results
@@ -288,6 +295,7 @@ async def get_pattern(pattern_id: str):
         direction=pat["direction"],
         difficulty=pat["difficulty"],
         tagline=pat["tagline"],
+        status=pat.get("status", "live"),
         what_it_is=pat["what_it_is"],
         how_to_identify=pat["how_to_identify"],
         why_it_works=pat["why_it_works"],

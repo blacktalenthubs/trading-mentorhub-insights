@@ -1125,3 +1125,21 @@ PATTERN_ORDER = [
     "swing_200ma_hold",
     "swing_weekly_support",
 ]
+
+
+# ── Archived (retired) patterns ───────────────────────────────────────
+# Phase-3a prune (2026-04-23) + trader feedback retired these — no Pine emits them / removed from
+# ENABLED_RULES. Kept here for history + direct-URL/SEO reach, but marked archived so the library
+# teaches only what actually fires. (Conservative list — ambiguous cases left live on purpose.)
+_ARCHIVED_PATTERNS = {
+    "gap_fill",
+    "inside_day_breakout",
+    "vwap_loss",
+    "session_high_double_top",
+    "support_breakdown",
+    "session_low_double_bottom",
+    "hourly_resistance_rejection_short",
+}
+for _pid in _ARCHIVED_PATTERNS:
+    if _pid in PATTERNS:
+        PATTERNS[_pid]["status"] = "archived"
