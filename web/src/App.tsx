@@ -31,6 +31,7 @@ import { ToastContainer } from "./components/Toast";
 import BillingPage from "./pages/BillingPage";
 import PublicEODReportPage from "./pages/PublicEODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
+import PublicPerformancePage from "./pages/PublicPerformancePage";
 import WatchlistPage from "./pages/WatchlistPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
@@ -114,6 +115,7 @@ export default function App() {
               <Route path="/track-record" element={<TrackRecordPage />} />
               <Route path="/track-record/:date" element={<TrackRecordPage />} />
               <Route path="/track-record/:date/:symbol" element={<TrackRecordPage />} />
+              <Route path="/public/performance/:token" element={<PublicPerformancePage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
