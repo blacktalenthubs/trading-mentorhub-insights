@@ -35,6 +35,7 @@ def _dsn():
     return re.search(r'^DATABASE_URL=(.+)$', open(".env").read(), re.M).group(1).strip()
 
 SWING_WINDOW_DAYS = 10
+CRYPTO_WINDOW_DAYS = int(os.environ.get("CRYPTO_WINDOW_DAYS", "5"))   # crypto = 24/7, judge N days from entry
 
 # ---- alert_type -> (pattern label, style) ---------------------------------------
 def classify(alert_type: str):
@@ -65,6 +66,11 @@ def classify(alert_type: str):
         if a.startswith(key):
             return label, style
     return a or "other", "Day"
+
+
+def is_crypto(symbol):
+    """Crypto trades 24/7 — no RTH session, no EOD close. yfinance stores it as '<X>-USD'."""
+    return (symbol or "").upper().endswith("-USD")
 
 
 # ---- price fetch (yfinance; Alpaca-first can be swapped in on triage) ------------
@@ -187,16 +193,18 @@ def score_day(alert):
                  zip(win["High"], win["Low"], win["Close"]))
 
 
-def score_swing(alert):
+def score_swing(alert, crypto=False):
     start = alert["session_date"]
-    # Day 1 = POST-ALERT intraday only (the full daily bar's low leaks pre-alert price
-    # and false-triggers the stop). Days 2..N = daily bars strictly after the alert day.
+    # Day 1 = POST-ALERT price only (the full daily bar's low leaks pre-alert price and
+    # false-triggers the stop). Days 2..N = daily bars after the alert day. CRYPTO = 24/7, so
+    # no RTH slice — use the whole day from the alert time (crypto daily bars are 24h too).
     bars = []
     intr = fetch_intraday(alert["symbol"], start)
     if intr is not None and len(intr):
-        d1 = intr[intr.index.strftime("%Y-%m-%d") == start].between_time("09:30", "15:59")
+        day = intr[intr.index.strftime("%Y-%m-%d") == start]
+        d1 = day if crypto else day.between_time("09:30", "15:59")
         at = alert.get("alert_et")
-        w = d1.between_time(at, "15:59") if at else d1
+        w = d1.between_time(at, "23:59" if crypto else "15:59") if at else d1
         if len(w):
             bars.append((float(w["High"].max()), float(w["Low"].min()), float(w["Close"].iloc[-1])))
     # days 2..TODAY — a swing is judged at the LATEST price, not a fixed 10-day window
@@ -204,6 +212,8 @@ def score_swing(alert):
     dd = fetch_daily(alert["symbol"], start, end)
     if dd is not None and len(dd):
         later = dd[dd.index.strftime("%Y-%m-%d") > start]
+        if crypto:
+            later = later.head(CRYPTO_WINDOW_DAYS - 1)   # crypto swing = a few days from entry, not weeks
         bars += [(float(h), float(l), float(c)) for h, l, c in zip(later["High"], later["Low"], later["Close"])]
     if not bars:
         return None
@@ -230,7 +240,10 @@ def load_alerts(start, end):
     out = []
     for sym, dirn, atype, entry, stop, tgt, sd, et in rows:
         label, style = classify(atype)
+        if is_crypto(sym):
+            style = "Swing"      # 24/7 → no session/EOD, judge over days from entry
         out.append(dict(symbol=sym, direction=dirn, alert_type=atype, pattern=label, style=style,
+                        crypto=is_crypto(sym),
                         entry=float(entry), stop=float(stop) if stop else None,
                         target=float(tgt) if tgt else None,
                         session_date=str(sd), alert_et=et))
@@ -281,8 +294,13 @@ def run(start, end):
         if a["stop"] is None:
             continue
         try:
-            o = score_swing(a) if a["style"] in ("Swing", "Long") else score_day(a)
-        except Exception as e:
+            if a.get("crypto"):
+                o = score_swing(a, crypto=True)      # 24/7 — days-from-entry, no RTH/EOD
+            elif a["style"] in ("Swing", "Long"):
+                o = score_swing(a)
+            else:
+                o = score_day(a)
+        except Exception:
             o = None
         if o:
             scored.append({**a, **o})
