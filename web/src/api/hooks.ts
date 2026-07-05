@@ -2349,3 +2349,27 @@ export function usePerformanceReport() {
     staleTime: 5 * 60_000,
   });
 }
+
+// ── Long Term Finders — the ETF technique (top holdings by overlap) ──────────────
+export interface Finder {
+  symbol: string;
+  name: string;
+  etfs: string[];
+  overlap: number;
+  max_weight: number;
+  weights: Record<string, number>;
+  tier: "core" | "emerging";
+}
+export interface EtfTop { etf: string; desc: string; top: { symbol: string; name: string; weight: number }[]; }
+export interface LongTermFinders {
+  as_of: string | null;
+  etfs: EtfTop[];
+  finders: Finder[];
+}
+export function useLongTermFinders() {
+  return useQuery({
+    queryKey: ["long-term-finders"],
+    queryFn: () => api.get<LongTermFinders>("/intel/long-term-finders"),
+    staleTime: 30 * 60_000,
+  });
+}

@@ -11,7 +11,7 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Target, Plus, Check, ChevronRight, RefreshCw, Info } from "lucide-react";
-import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth } from "../api/hooks";
+import { useEmerging, useWeeklyStage, useGrowth, useWatchlist, useAddSymbol, useRefreshEmerging, useRefreshWeeklyStage, useRefreshGrowth, useLongTermFinders, type LongTermFinders } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 import type { EmergingEntry, WeeklyStageEntry, GrowthEntry, EmergingSnapshot, WeeklyStageSnapshot, GrowthSnapshot } from "./InPlay.types";
 
@@ -246,6 +246,7 @@ export default function FocusListPage() {
   const { data: em, isLoading: lEm } = useEmerging();
   const { data: wk, isLoading: lWk } = useWeeklyStage();
   const { data: gr, isLoading: lGr } = useGrowth();
+  const { data: ltf } = useLongTermFinders();
   const { data: watchlist } = useWatchlist();
   const addSym = useAddSymbol();
   const owned = useMemo(() => new Set((watchlist ?? []).map((w) => w.symbol.toUpperCase())), [watchlist]);
@@ -403,6 +404,70 @@ export default function FocusListPage() {
             </table>
           </div>
         )}
+
+        <LongTermFindersSection data={ltf} owned={owned} onChart={goChart} onAdd={(sy) => addSym.mutate(sy)} adding={addSym.isPending} />
+      </div>
+    </div>
+  );
+}
+
+function LongTermFindersSection({ data, owned, onChart, onAdd, adding }: {
+  data: LongTermFinders | undefined;
+  owned: Set<string>; onChart: (s: string) => void; onAdd: (s: string) => void; adding: boolean;
+}) {
+  const [emergingOnly, setEmergingOnly] = useState(false);
+  if (!data?.finders?.length) return null;
+  const finders = data.finders.filter((f) => !emergingOnly || f.tier === "emerging");
+  return (
+    <div className="mt-6">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <h2 className="text-sm font-bold text-text-primary">🛰️ Long Term Finders</h2>
+        <span className="text-[11px] text-text-faint">the ETF technique · as of {data.as_of ?? "—"}</span>
+        <button onClick={() => setEmergingOnly((v) => !v)}
+          className={`ml-auto rounded-md border px-2.5 py-1 font-mono text-[11px] transition-colors ${emergingOnly ? "border-accent text-accent" : "border-border-subtle text-text-muted hover:text-text-primary"}`}>
+          ★ Emerging only
+        </button>
+      </div>
+      <p className="mb-3 max-w-2xl text-[11px] text-text-faint">
+        Top-10 holdings across {data.etfs.length} ETFs, ranked by <b>overlap</b> — a name held by more ETFs (a broad ETF <i>and</i> its sector ETF) is doubly-confirmed. <span className="text-accent">★ emerging</span> = only in sector/thematic ETFs — the finders before they go mainstream. Get them on the radar, then do the deep dive.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-border-subtle">
+        <table className="w-full min-w-[560px] text-[12px]">
+          <thead>
+            <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wide text-text-faint">
+              <th className="px-3 py-2 text-left font-semibold">#</th>
+              <th className="px-3 py-2 text-left font-semibold">Symbol</th>
+              <th className="px-3 py-2 text-right font-semibold">Overlap</th>
+              <th className="px-3 py-2 text-right font-semibold">Top weight</th>
+              <th className="px-3 py-2 text-left font-semibold">In ETFs</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {finders.map((f, i) => (
+              <tr key={f.symbol} className="border-b border-border-subtle hover:bg-surface-3/40">
+                <td className="px-3 py-2 font-mono text-text-faint">{i + 1}</td>
+                <td className="px-3 py-2">
+                  <button onClick={() => onChart(f.symbol)} className="font-bold text-text-primary hover:text-sky-400">{f.symbol}</button>
+                  {f.tier === "emerging" && <span className="ml-1.5 text-[10px] text-accent">★</span>}
+                  <div className="max-w-[180px] truncate text-[10px] text-text-faint">{f.name}</div>
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-semibold text-text-secondary">{f.overlap}×</td>
+                <td className="px-3 py-2 text-right font-mono text-text-secondary">{f.max_weight.toFixed(1)}%</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-1">
+                    {f.etfs.map((e) => <span key={e} className="rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">{e}</span>)}
+                  </div>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {owned.has(f.symbol)
+                    ? <Check className="inline h-4 w-4 text-bullish-text" />
+                    : <button onClick={() => onAdd(f.symbol)} disabled={adding} className="rounded p-1 text-accent hover:bg-accent/10 disabled:opacity-50" title={`Add ${f.symbol}`}><Plus className="h-4 w-4" /></button>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
