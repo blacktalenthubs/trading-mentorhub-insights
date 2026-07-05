@@ -18,7 +18,9 @@ class TestLandingPage:
         assert 'property="og:title"' in r.text
         assert 'property="og:description"' in r.text
         assert 'property="og:url"' in r.text
-        assert "tradingwithai.ai" in r.text  # URL in og:url
+        # og:url points at the canonical (rebranded) domain regardless of which
+        # host the smoke run targets — web/index.html hardcodes it.
+        assert "busytradersdesk.com" in r.text  # URL in og:url
 
     def test_no_reference_to_removed_features(self, base_url, http):
         """Spec 28 cleanup — these shouldn't be marketed."""
