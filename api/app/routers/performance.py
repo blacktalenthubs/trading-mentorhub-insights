@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import ADMIN_EMAILS, get_current_user
 from app.models.alert import Alert
@@ -74,7 +75,13 @@ async def performance_share(
 ):
     """Snapshot the caller's (watchlist-scoped) performance under a random token so it can be
     viewed logged-out at /public/performance/{token}. Stable snapshot — the link shows what the
-    user shared, not a live feed. Returns the token; the frontend builds the URL."""
+    user shared, not a live feed.
+
+    Returns BOTH the token and the full canonical `url`. The URL is built server-side against
+    PUBLIC_BASE_URL (the canonical app host) rather than the browser's window.location.origin —
+    otherwise a user browsing on a legacy/transition domain (e.g. tradingwithai.ai) would mint
+    links on a host that drops logged-out visitors on the marketing landing page instead of the
+    report."""
     import json as _json
     import secrets
     data = await _scoped_report(db, user.id)
@@ -89,7 +96,8 @@ async def performance_share(
         "VALUES (:t, 'performance', :u, :p)"
     ), {"t": token, "u": user.id, "p": _json.dumps(data, default=str)})
     await db.commit()
-    return {"token": token}
+    base = get_settings().PUBLIC_BASE_URL.rstrip("/")
+    return {"token": token, "url": f"{base}/public/performance/{token}"}
 
 
 @router.get("/by-strategy")
