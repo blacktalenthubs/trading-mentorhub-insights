@@ -10,6 +10,8 @@ import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { usePerformanceReport, type ScoredAlert } from "../api/hooks";
 
 type Gran = "daily" | "weekly" | "monthly";
+type LbKey = "pattern" | "wr" | "ae" | "mfe" | "mae" | "n";
+type AlKey = "symbol" | "pattern" | "entry" | "stop" | "intraday_high" | "intraday_low" | "eod_close" | "mfe_pct" | "max_dd_pct" | "result";
 
 function median(xs: number[]): number {
   const a = xs.filter((x) => x != null && !Number.isNaN(x)).sort((p, q) => p - q);
@@ -111,6 +113,25 @@ export default function RealTradesPage() {
   const lb = useMemo(() => aggregate(inPeriod), [inPeriod]);
   const groups = useMemo(() => groupByDate(inPeriod), [inPeriod]);
 
+  // sortable leaderboard (default: win rate desc)
+  const [lbSort, setLbSort] = useState<{ k: LbKey; d: 1 | -1 }>({ k: "wr", d: -1 });
+  const sortedLb = useMemo(() => {
+    const c = [...lb];
+    c.sort((a, b) => {
+      const av = a[lbSort.k]; const bv = b[lbSort.k];
+      const r = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      return r * lbSort.d;
+    });
+    return c;
+  }, [lb, lbSort]);
+  const lbClick = (k: LbKey) => setLbSort((s) => (s.k === k ? { k, d: (s.d * -1) as 1 | -1 } : { k, d: k === "pattern" ? 1 : -1 }));
+  const lbArrow = (k: LbKey) => (lbSort.k === k ? (lbSort.d < 0 ? " ↓" : " ↑") : "");
+
+  // sortable alert list (within each date group; null = chronological as fired)
+  const [alSort, setAlSort] = useState<{ k: AlKey; d: 1 | -1 } | null>(null);
+  const alClick = (k: AlKey) => setAlSort((s) => (s && s.k === k ? { k, d: (s.d * -1) as 1 | -1 } : { k, d: k === "symbol" || k === "pattern" || k === "result" ? 1 : -1 }));
+  const alArrow = (k: AlKey) => (alSort && alSort.k === k ? (alSort.d < 0 ? " ↓" : " ↑") : "");
+
   const closed = inPeriod.filter((a) => !a.open);
   const wins = closed.filter((a) => a.result === "WIN").length;
   const overallWr = closed.length ? Math.round((wins * 100) / closed.length) : 0;
@@ -179,18 +200,18 @@ export default function RealTradesPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[560px]">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-wide text-text-faint">
+                  <tr className="text-[10px] uppercase tracking-wide text-text-faint select-none">
                     <th className="text-center px-3 py-2.5 font-semibold w-8">#</th>
-                    <th className="text-left px-3 py-2.5 font-semibold">Entry pattern</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Win rate</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Above</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Med MFE</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Med MAE</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Alerts</th>
+                    <th onClick={() => lbClick("pattern")} className="text-left px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Entry pattern{lbArrow("pattern")}</th>
+                    <th onClick={() => lbClick("wr")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Win rate{lbArrow("wr")}</th>
+                    <th onClick={() => lbClick("ae")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Above{lbArrow("ae")}</th>
+                    <th onClick={() => lbClick("mfe")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Med MFE{lbArrow("mfe")}</th>
+                    <th onClick={() => lbClick("mae")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Med MAE{lbArrow("mae")}</th>
+                    <th onClick={() => lbClick("n")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Alerts{lbArrow("n")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lb.map((r, i) => (
+                  {sortedLb.map((r, i) => (
                     <tr key={r.pattern} className="border-t border-border-subtle hover:bg-surface-3/40">
                       <td className="text-center px-3 py-3 font-mono text-text-faint">{i + 1}</td>
                       <td className="px-3 py-3 font-semibold text-text-primary">{r.pattern}</td>
@@ -218,22 +239,22 @@ export default function RealTradesPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[720px]">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-wide text-text-faint">
-                    <th className="text-left px-3 py-2.5 font-semibold">Sym</th>
-                    <th className="text-left px-3 py-2.5 font-semibold">Setup</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Entry</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Stop</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Hi</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Lo</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">EOD</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">MFE</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Max DD</th>
-                    <th className="text-right px-3 py-2.5 font-semibold">Result</th>
+                  <tr className="text-[10px] uppercase tracking-wide text-text-faint select-none">
+                    <th onClick={() => alClick("symbol")} className="text-left px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Sym{alArrow("symbol")}</th>
+                    <th onClick={() => alClick("pattern")} className="text-left px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Setup{alArrow("pattern")}</th>
+                    <th onClick={() => alClick("entry")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Entry{alArrow("entry")}</th>
+                    <th onClick={() => alClick("stop")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Stop{alArrow("stop")}</th>
+                    <th onClick={() => alClick("intraday_high")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Hi{alArrow("intraday_high")}</th>
+                    <th onClick={() => alClick("intraday_low")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Lo{alArrow("intraday_low")}</th>
+                    <th onClick={() => alClick("eod_close")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">EOD{alArrow("eod_close")}</th>
+                    <th onClick={() => alClick("mfe_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">MFE{alArrow("mfe_pct")}</th>
+                    <th onClick={() => alClick("max_dd_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Max DD{alArrow("max_dd_pct")}</th>
+                    <th onClick={() => alClick("result")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Result{alArrow("result")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {groups.map((g) => (
-                    <GroupRows key={g.date} g={g} />
+                    <GroupRows key={g.date} g={g} sort={alSort} />
                   ))}
                 </tbody>
               </table>
@@ -258,7 +279,17 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GroupRows({ g }: { g: DateGroup }) {
+function GroupRows({ g, sort }: { g: DateGroup; sort: { k: AlKey; d: 1 | -1 } | null }) {
+  const items = useMemo(() => {
+    if (!sort) return g.items;
+    const c = [...g.items];
+    c.sort((a, b) => {
+      const av = a[sort.k]; const bv = b[sort.k];
+      const r = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+      return r * sort.d;
+    });
+    return c;
+  }, [g.items, sort]);
   return (
     <>
       <tr className="bg-surface-0">
@@ -269,7 +300,7 @@ function GroupRows({ g }: { g: DateGroup }) {
           </span>
         </td>
       </tr>
-      {g.items.map((a, i) => {
+      {items.map((a, i) => {
         const win = a.result === "WIN";
         return (
           <tr key={`${a.symbol}-${a.session_date}-${i}`} className="border-t border-border-subtle hover:bg-surface-3/40 font-mono">
