@@ -1,6 +1,7 @@
 /** Performance — which entry patterns actually work.
- *  Every delivered alert is replayed against price and scored WIN/LOSS: DAY trades on
- *  intraday movement (did the high clear entry), SWING/LONG on holding above entry. This page reads the
+ *  Every delivered alert is replayed against price. DAY win = reached a real profit (+1R off
+ *  the stop) BEFORE the stop hit (stopped out first = loss). SWING/LONG win = above entry
+ *  with the stop (a daily close below the level) never hit. This page reads the
  *  precomputed report (/performance/report, published by the offline scorer) and, client
  *  side, ranks patterns and groups alerts by date across a Daily / Weekly / Monthly lens.
  *  (Replaces the old EOD/Strategy/Declined tabs entirely.)
@@ -156,7 +157,7 @@ export default function RealTradesPage() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-mono text-sm tracking-[0.2em] uppercase text-amber-400 font-semibold">Performance</h1>
-          <p className="text-xs text-text-faint mt-1">Which entry patterns actually work — every delivered alert scored against price. Day trades judged on intraday movement, swings on holding above entry.</p>
+          <p className="text-xs text-text-faint mt-1">Which entry patterns actually work — scored against price. Day trades win if they hit a real profit before the stop; swings if they're holding above entry.</p>
         </div>
         <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
           {(["daily", "weekly", "monthly"] as const).map((g) => (
@@ -239,7 +240,7 @@ export default function RealTradesPage() {
           </div>
 
           <SectionTitle>Entry patterns, ranked · by win rate</SectionTitle>
-          <p className="text-[11px] text-text-faint -mt-2">Day-trade win = the intraday high cleared entry (you take the intraday pop). Swing win = still above entry with the stop (a daily close below the level) never hit. "Above" = intraday high cleared entry. n≥1, closed only.</p>
+          <p className="text-[11px] text-text-faint -mt-2">Day-trade win = reached a real profit (1× the risk to the stop) BEFORE the stop was hit — stopped out first is a loss, so the stop counts. Swing win = above entry with the stop (a daily close below the level) never hit. "Above" = intraday high cleared entry. n≥1, closed only.</p>
           <div className="bg-surface-2 border border-border-subtle rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[560px]">

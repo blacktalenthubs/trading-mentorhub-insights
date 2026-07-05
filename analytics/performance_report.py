@@ -143,13 +143,27 @@ def score(entry, stop, target, direction, bars, mode="day"):
 
     is_open = False
     if mode == "day":
-        result = "WIN" if above_entry else "LOSS"          # intraday movement is the judge
+        # TRUE state — don't assume the user sold the high. A day trade with a stop is a WIN
+        # only if it reached a REALISTIC profit (+1R off the stop) BEFORE the stop was hit;
+        # if the stop came first, they were stopped out = LOSS. Sequence-aware (walk the bars).
+        # Alert targets are ignored (unreliable, 10-40 R:R). No real stop -> judged by close.
+        if valid_stop:
+            r1 = 2 * entry - stop                          # entry + risk (1:1) = a realistic day target
+            first = "neither"
+            for h, l, c in bars:
+                if (l <= stop) if long else (h >= stop):
+                    first = "stop"; break
+                if (h >= r1) if long else (l <= r1):
+                    first = "target"; break
+            result = "WIN" if first == "target" else ("LOSS" if first == "stop" else ("WIN" if closed_green else "LOSS"))
+        else:
+            result = "WIN" if above_entry else "LOSS"
     elif stop_hit:
         result = "LOSS"
     elif closed_green:
-        result = "WIN"                                     # stop intact + above entry = win
+        result = "WIN"                                     # swing: stop intact + above entry = win
     else:
-        result = "LOSS"; is_open = True                    # stop held, not yet green -> pending
+        result = "LOSS"; is_open = True                    # swing: stop held, not yet green -> pending
 
     return dict(result=result, above_entry=above_entry, open=is_open, stop_hit=bool(stop_hit),
                 intraday_high=round(intraday_high, 2), intraday_low=round(intraday_low, 2),
