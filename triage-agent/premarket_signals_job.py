@@ -186,6 +186,7 @@ def run(push: bool = True) -> None:
     pm = yf.download(syms, period="1d", interval="5m", prepost=True, progress=False, auto_adjust=False, group_by="ticker", threads=True)
 
     signals = []
+    bars_seen = 0  # symbols with actual premarket bars TODAY — 0 on holidays/closed days
     for s in syms:
         try:
             dd = daily[s].dropna(); wk = weekly[s].dropna(); pmd = pm[s].dropna()
@@ -201,6 +202,7 @@ def run(push: bool = True) -> None:
         tdy = pmd[idx.date == et.date()]
         if len(tdy) == 0:
             continue
+        bars_seen += 1
         pm_low = float(tdy["Low"].min()); pm_high = float(tdy["High"].max()); pm_price = float(tdy["Close"].iloc[-1])
         levels = compute_levels(dd, wk if len(wk) >= 30 else None)
         pc = levels.get("prior_close")
@@ -210,6 +212,15 @@ def run(push: bool = True) -> None:
 
     signals.sort(key=lambda x: -abs(x.get("gap_pct", 0)))
     sd = et.strftime("%Y-%m-%d")
+    # Market holiday / data outage guard: the mon-fri cron also fires on exchange
+    # holidays (e.g. Jul 3 2026), when NO symbol has premarket bars. Publishing an
+    # empty report then creates a newer session_date row that shadows the last real
+    # session in every "latest" (no-date) read. No bars at all → don't publish.
+    # (An empty SIGNALS list with bars present is still published — that's a real
+    # "nothing at a key level right now" state.)
+    if bars_seen == 0:
+        print(json.dumps({"published": False, "detail": "no premarket bars today (holiday/closed?) — skipping empty publish"}))
+        return
     # Premarket-ONLY dedup: push only signals NEW vs the previous scan this session.
     prev = _prev_keys(dsn, sd)
     new_sigs = [s for s in signals if f"{s['symbol']}:{s['alert_type']}" not in prev]
