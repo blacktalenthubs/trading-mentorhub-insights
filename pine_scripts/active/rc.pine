@@ -36,7 +36,7 @@ en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH, UPTREND-gate
 // where local "higher highs" fails). Both gates toggleable.
 gF = "RC quality filters (4h)"
 gate_hrec = input.bool(true,  "RC-H: require daily UPTREND (above the rising daily EMA)", group = gF)
-gate_low  = input.bool(true,  "RC-low: require daily uptrend OR support confluence (no naked knives)", group = gF)
+gate_low  = input.bool(false, "RC-low: require daily uptrend OR support confluence (off = every reclaim fires, the reclaim-low stop is the judge)", group = gF)
 ema_len   = input.int (20,    "Daily EMA length (trend reference)", minval = 5, group = gF)
 slope_lb  = input.int (3,     "Daily EMA rising lookback (days)", minval = 1, group = gF)
 conf_tol  = input.float(0.5,  "RC-low support tolerance % (to PDL/PWL/PML/10w/30w)", minval = 0.0, step = 0.1, group = gF)
