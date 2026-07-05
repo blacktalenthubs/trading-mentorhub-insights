@@ -28,6 +28,29 @@ async def _scope_uid(user: User, db: AsyncSession) -> int:
     return user.id
 
 
+@router.get("/report")
+@limiter.limit("60/minute")
+async def performance_report(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Precomputed alert-outcome report — the pattern leaderboard + date-grouped alerts the
+    Performance page renders. Read from market_reports[kind=performance], published by the
+    offline scorer (analytics/performance_report.py; nightly on the triage worker). Outcomes
+    are scored against price OFFLINE — nothing is fetched in-request (yfinance is blocked on
+    this service). Platform-wide (every alert's outcome, same for all users). Fails soft."""
+    import json as _json
+    row = (await db.execute(text(
+        "SELECT body, session_date, created_at FROM market_reports "
+        "WHERE kind = 'performance' ORDER BY session_date DESC LIMIT 1"
+    ))).fetchone()
+    if not row:
+        return {"as_of": None, "alerts": []}
+    body = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+    return {"as_of": str(row[1]), "generated_at": str(row[2]), **body}
+
+
 @router.get("/by-strategy")
 @limiter.limit("20/minute")
 async def performance_by_strategy(

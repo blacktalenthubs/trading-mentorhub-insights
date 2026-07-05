@@ -261,15 +261,35 @@ def run(start, end):
     return scored
 
 
+def publish(scored, start, end):
+    """Upsert the scored-alert blob into market_reports[kind=performance] — the /performance
+    API reads the latest of these. No price fetching ever happens in the cloud API this way."""
+    import psycopg2
+    dsn = re.search(r'^DATABASE_URL=(.+)$', open(".env").read(), re.M).group(1).strip()
+    body = json.dumps({"start": start, "end": end, "alerts": scored}, default=str)
+    conn = psycopg2.connect(dsn); cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS market_reports (
+        kind TEXT NOT NULL, session_date TEXT NOT NULL, body TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (kind, session_date))""")
+    cur.execute("""INSERT INTO market_reports (kind, session_date, body) VALUES ('performance', %s, %s)
+        ON CONFLICT (kind, session_date) DO UPDATE SET body = EXCLUDED.body, created_at = NOW()""",
+                (end, body))
+    conn.commit(); conn.close()
+    print(f"published -> market_reports[performance] session_date={end}, {len(scored)} alerts")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)
     ap.add_argument("--out", default="performance_report.json")
+    ap.add_argument("--publish", action="store_true", help="upsert into market_reports for the API")
     args = ap.parse_args()
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root (for .env)
     scored = run(args.start, args.end)
     json.dump(scored, open(args.out, "w"), indent=2, default=str)
+    if args.publish:
+        publish(scored, args.start, args.end)
     # quick console summary
     byp = defaultdict(list)
     for s in scored:
