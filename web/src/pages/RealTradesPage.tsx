@@ -6,7 +6,7 @@
  *  (Replaces the old EOD/Strategy/Declined tabs entirely.)
  */
 import { useMemo, useState, useEffect } from "react";
-import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { usePerformanceReport, type ScoredAlert } from "../api/hooks";
 
 type Gran = "daily" | "weekly" | "monthly";
@@ -102,6 +102,7 @@ export default function RealTradesPage() {
   const alerts = useMemo(() => data?.alerts ?? [], [data]);
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
+  const [q, setQ] = useState("");
   useEffect(() => { setIdx(0); }, [gran]);
 
   const periods = useMemo(() => buildPeriods(alerts, gran), [alerts, gran]);
@@ -110,8 +111,14 @@ export default function RealTradesPage() {
     () => (period ? alerts.filter((a) => period.dates.has(a.session_date)) : []),
     [alerts, period],
   );
-  const lb = useMemo(() => aggregate(inPeriod), [inPeriod]);
-  const groups = useMemo(() => groupByDate(inPeriod), [inPeriod]);
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    return s ? inPeriod.filter((a) => a.symbol.toLowerCase().includes(s)) : inPeriod;
+  }, [inPeriod, q]);
+  const lb = useMemo(() => aggregate(filtered), [filtered]);
+  const groups = useMemo(() => groupByDate(filtered), [filtered]);
+  // recommendation — the period's best patterns to trade (enough sample + real win rate)
+  const recommended = useMemo(() => lb.filter((r) => r.n >= 4 && r.wr >= 45).slice(0, 3), [lb]);
 
   // sortable leaderboard (default: win rate desc)
   const [lbSort, setLbSort] = useState<{ k: LbKey; d: 1 | -1 }>({ k: "wr", d: -1 });
@@ -132,11 +139,11 @@ export default function RealTradesPage() {
   const alClick = (k: AlKey) => setAlSort((s) => (s && s.k === k ? { k, d: (s.d * -1) as 1 | -1 } : { k, d: k === "symbol" || k === "pattern" || k === "result" ? 1 : -1 }));
   const alArrow = (k: AlKey) => (alSort && alSort.k === k ? (alSort.d < 0 ? " ↓" : " ↑") : "");
 
-  const closed = inPeriod.filter((a) => !a.open);
+  const closed = filtered.filter((a) => !a.open);
   const wins = closed.filter((a) => a.result === "WIN").length;
   const overallWr = closed.length ? Math.round((wins * 100) / closed.length) : 0;
-  const medMfe = median(inPeriod.map((a) => a.mfe_pct));
-  const medMae = median(inPeriod.map((a) => a.mae_pct));
+  const medMfe = median(filtered.map((a) => a.mfe_pct));
+  const medMae = median(filtered.map((a) => a.mae_pct));
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-4 md:p-6 space-y-4">
@@ -176,12 +183,35 @@ export default function RealTradesPage() {
             <button disabled={idx <= 0} onClick={() => setIdx((i) => Math.max(0, i - 1))}
               className="p-1.5 rounded-md bg-surface-3 text-text-muted disabled:opacity-30 hover:text-text-primary"><ChevronRight className="h-4 w-4" /></button>
             {idx !== 0 && <button onClick={() => setIdx(0)} className="font-mono text-xs text-sky-400">Latest</button>}
-            <span className="ml-auto font-mono text-xs text-text-faint">{period.count} alerts · {period.dates.size} session{period.dates.size > 1 ? "s" : ""} · {overallWr}% win</span>
+            <span className="ml-auto font-mono text-xs text-text-faint">{filtered.length} alerts · {period.dates.size} session{period.dates.size > 1 ? "s" : ""} · {overallWr}% win</span>
           </div>
+
+          {/* symbol search */}
+          <div className="relative max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint pointer-events-none" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a stock…"
+              className="w-full bg-surface-2 border border-border-subtle rounded-lg pl-9 pr-8 py-2 text-sm text-text-primary placeholder:text-text-faint font-mono focus:outline-none focus:border-sky-500" />
+            {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-primary"><X className="h-4 w-4" /></button>}
+          </div>
+
+          {recommended.length > 0 && !q && (
+            <div className="bg-surface-2 border border-border-subtle rounded-lg px-4 py-3" style={{ borderLeft: "2px solid #4ade80" }}>
+              <div className="text-[11px] font-mono uppercase tracking-wide text-bullish-text mb-2">★ Best patterns to trade · {period.label}</div>
+              <div className="flex gap-2 flex-wrap">
+                {recommended.map((r) => (
+                  <div key={r.pattern} className="bg-surface-0 border border-border-subtle rounded-md px-3 py-1.5 text-xs">
+                    <span className="font-semibold text-text-primary">{r.pattern}</span>
+                    <span className="font-mono ml-2" style={{ color: wrColor(r.wr) }}>{r.wr}%</span>
+                    <span className="font-mono text-text-faint ml-2">MFE {pct(r.mfe)} · n={r.n}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-6 flex-wrap bg-surface-0 border border-border-subtle rounded-lg px-4 py-3">
             {[
-              { v: `${inPeriod.length}`, l: "alerts scored", c: "text-text-primary" },
+              { v: `${filtered.length}`, l: "alerts scored", c: "text-text-primary" },
               { v: `${lb.length}`, l: "entry patterns", c: "text-text-primary" },
               { v: `${overallWr}%`, l: "win (closed)", c: "text-bullish-text" },
               { v: pct(medMfe), l: "median MFE", c: "text-bullish-text" },
