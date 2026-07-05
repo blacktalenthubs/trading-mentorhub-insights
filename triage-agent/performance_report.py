@@ -100,56 +100,61 @@ def fetch_daily(symbol, start, end):
 
 
 # ---- the core scoring rule ------------------------------------------------------
-def score(entry, stop, target, direction, bars):
-    """bars: iterable of (high, low, close) in time order. Returns outcome dict."""
+def score(entry, stop, target, direction, bars, mode="day"):
+    """bars: iterable of (high, low, close) in time order. Returns outcome dict.
+
+    DAY trades are judged purely on INTRADAY MOVEMENT — the alert targets are unreliable for
+    day trades (often 10-40 R:R), so we ignore them: a day trade is a WIN if the intraday high
+    cleared entry (you take the intraday pop), LOSS if it never went green.
+
+    SWING/LONG trades are judged at the LATEST price: WIN if the stop was never hit AND price
+    is above entry; LOSS if the stop was hit; still-OPEN if the stop held but it's not yet
+    above entry (exit zone is RSI ~50-70; the thing that kills it is the stop)."""
     bars = [(float(h), float(l), float(c)) for h, l, c in bars]
     if not bars or entry is None or entry <= 0:
         return None
     long = (direction or "").upper() in ("BUY", "LONG")
-    first_hit = "neither"
-    lo_after_stop = None
-    stopped_at_idx = None
-    for i, (h, l, c) in enumerate(bars):
-        hit_stop = (l <= stop) if long else (h >= stop)
-        hit_tgt = (h >= target) if (long and target) else ((l <= target) if target else False)
-        if hit_stop and hit_tgt:                      # same bar -> assume stop first (conservative)
-            first_hit = "stop"; stopped_at_idx = i; break
-        if hit_stop:
-            first_hit = "stop"; stopped_at_idx = i; break
-        if hit_tgt:
-            first_hit = "target"; break
-    highs = [b[0] for b in bars]; lows = [b[1] for b in bars]
-    intraday_high, intraday_low = max(highs), min(lows)
+    # only honor a stop that sits on the risk side of entry (level alerts store the level in
+    # entry AND stop → no real stop; don't let a phantom stop decide anything)
+    valid_stop = stop is not None and stop > 0 and (stop < entry if long else stop > entry)
+    intraday_high = max(b[0] for b in bars)
+    intraday_low = min(b[1] for b in bars)
     eod_close = bars[-1][2]
-    if stopped_at_idx is not None:
-        tail = lows[stopped_at_idx:]
-        lo_after_stop = min(tail) if tail else stop
 
     def pct(a, b):
         return (a - b) / b * 100.0
 
+    lo_close = min(b[2] for b in bars); hi_close = max(b[2] for b in bars)
     if long:
-        mfe = pct(intraday_high, entry); mae = pct(entry, intraday_low)  # mae positive = adverse
-        dd_past_stop = pct(stop, lo_after_stop) if lo_after_stop is not None else 0.0
+        mfe = pct(intraday_high, entry); mae = pct(intraday_low, entry)   # mae <= 0
         above_entry = intraday_high > entry
-        realized_stop = pct(stop, entry) if first_hit == "stop" else None
+        # SWING stops on a CLOSE below the level (that's how swings exit — not an intraday wick).
+        stop_hit = valid_stop and (lo_close <= stop if mode != "day" else intraday_low <= stop)
+        dd_past_stop = pct(intraday_low, stop) if stop_hit else 0.0
+        realized_stop = pct(stop, entry) if stop_hit else None
+        closed_green = eod_close > entry
     else:
-        mfe = pct(entry, intraday_low); mae = pct(intraday_high, entry)
-        dd_past_stop = pct(lo_after_stop, stop) if lo_after_stop is not None else 0.0
+        mfe = pct(entry, intraday_low); mae = pct(entry, intraday_high)   # mae <= 0
         above_entry = intraday_low < entry
-        realized_stop = pct(entry, stop) if first_hit == "stop" else None
+        stop_hit = valid_stop and (hi_close >= stop if mode != "day" else intraday_high >= stop)
+        dd_past_stop = pct(stop, intraday_high) if stop_hit else 0.0
+        realized_stop = pct(entry, stop) if stop_hit else None
+        closed_green = eod_close < entry
 
-    if first_hit == "stop":
+    is_open = False
+    if mode == "day":
+        result = "WIN" if above_entry else "LOSS"          # intraday movement is the judge
+    elif stop_hit:
         result = "LOSS"
-    elif first_hit == "target":
-        result = "WIN"
+    elif closed_green:
+        result = "WIN"                                     # stop intact + above entry = win
     else:
-        result = "WIN" if ((eod_close >= entry) if long else (eod_close <= entry)) else "LOSS"
+        result = "LOSS"; is_open = True                    # stop held, not yet green -> pending
 
-    return dict(result=result, first_hit=first_hit, above_entry=above_entry,
+    return dict(result=result, above_entry=above_entry, open=is_open, stop_hit=bool(stop_hit),
                 intraday_high=round(intraday_high, 2), intraday_low=round(intraday_low, 2),
-                eod_close=round(eod_close, 2), mfe_pct=round(mfe, 2), mae_pct=round(-mae, 2),
-                max_dd_pct=round(-mae, 2), dd_past_stop_pct=round(dd_past_stop, 2),
+                eod_close=round(eod_close, 2), mfe_pct=round(mfe, 2), mae_pct=round(mae, 2),
+                max_dd_pct=round(mae, 2), dd_past_stop_pct=round(dd_past_stop, 2),
                 realized_stop_pct=round(realized_stop, 2) if realized_stop is not None else None)
 
 
@@ -180,16 +185,16 @@ def score_swing(alert):
         w = d1.between_time(at, "15:59") if at else d1
         if len(w):
             bars.append((float(w["High"].max()), float(w["Low"].min()), float(w["Close"].iloc[-1])))
-    end = (datetime.strptime(start, "%Y-%m-%d") + timedelta(days=SWING_WINDOW_DAYS + 6)).strftime("%Y-%m-%d")
+    # days 2..TODAY — a swing is judged at the LATEST price, not a fixed 10-day window
+    end = (date.today() + timedelta(days=2)).isoformat()
     dd = fetch_daily(alert["symbol"], start, end)
     if dd is not None and len(dd):
-        later = dd[dd.index.strftime("%Y-%m-%d") > start].head(SWING_WINDOW_DAYS - 1)
+        later = dd[dd.index.strftime("%Y-%m-%d") > start]
         bars += [(float(h), float(l), float(c)) for h, l, c in zip(later["High"], later["Low"], later["Close"])]
     if not bars:
         return None
-    out = score(alert["entry"], alert["stop"], alert["target"], alert["direction"], bars)
+    out = score(alert["entry"], alert["stop"], alert["target"], alert["direction"], bars, mode="swing")
     if out:
-        out["open"] = len(bars) < SWING_WINDOW_DAYS and out["first_hit"] == "neither"
         out["sessions_elapsed"] = len(bars)
     return out
 

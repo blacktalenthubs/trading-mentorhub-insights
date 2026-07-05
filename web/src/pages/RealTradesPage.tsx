@@ -1,6 +1,6 @@
 /** Performance — which entry patterns actually work.
- *  Every delivered alert is replayed against price at EOD and scored WIN/LOSS on the
- *  stop-is-judge rule (target before stop, else closed green). This page reads the
+ *  Every delivered alert is replayed against price and scored WIN/LOSS: DAY trades on
+ *  intraday movement (did the high clear entry), SWING/LONG on holding above entry. This page reads the
  *  precomputed report (/performance/report, published by the offline scorer) and, client
  *  side, ranks patterns and groups alerts by date across a Daily / Weekly / Monthly lens.
  *  (Replaces the old EOD/Strategy/Declined tabs entirely.)
@@ -103,6 +103,7 @@ export default function RealTradesPage() {
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
   const [q, setQ] = useState("");
+  const [styleF, setStyleF] = useState<"all" | "day" | "swing">("all");
   useEffect(() => { setIdx(0); }, [gran]);
 
   const periods = useMemo(() => buildPeriods(alerts, gran), [alerts, gran]);
@@ -113,8 +114,11 @@ export default function RealTradesPage() {
   );
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? inPeriod.filter((a) => a.symbol.toLowerCase().includes(s)) : inPeriod;
-  }, [inPeriod, q]);
+    return inPeriod.filter((a) =>
+      (styleF === "all" || (styleF === "day" ? a.style === "Day" : a.style !== "Day")) &&
+      (!s || a.symbol.toLowerCase().includes(s)),
+    );
+  }, [inPeriod, q, styleF]);
   const lb = useMemo(() => aggregate(filtered), [filtered]);
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
   // recommendation — the period's best patterns to trade (enough sample + real win rate)
@@ -150,7 +154,7 @@ export default function RealTradesPage() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-mono text-sm tracking-[0.2em] uppercase text-amber-400 font-semibold">Performance</h1>
-          <p className="text-xs text-text-faint mt-1">Which entry patterns work — every delivered alert scored against price at EOD. Win = target before stop.</p>
+          <p className="text-xs text-text-faint mt-1">Which entry patterns actually work — every delivered alert scored against price. Day trades judged on intraday movement, swings on holding above entry.</p>
         </div>
         <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
           {(["daily", "weekly", "monthly"] as const).map((g) => (
@@ -186,12 +190,20 @@ export default function RealTradesPage() {
             <span className="ml-auto font-mono text-xs text-text-faint">{filtered.length} alerts · {period.dates.size} session{period.dates.size > 1 ? "s" : ""} · {overallWr}% win</span>
           </div>
 
-          {/* symbol search */}
-          <div className="relative max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint pointer-events-none" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a stock…"
-              className="w-full bg-surface-2 border border-border-subtle rounded-lg pl-9 pr-8 py-2 text-sm text-text-primary placeholder:text-text-faint font-mono focus:outline-none focus:border-sky-500" />
-            {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-primary"><X className="h-4 w-4" /></button>}
+          {/* search + day/swing filter */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[180px] max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-faint pointer-events-none" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search a stock…"
+                className="w-full bg-surface-2 border border-border-subtle rounded-lg pl-9 pr-8 py-2 text-sm text-text-primary placeholder:text-text-faint font-mono focus:outline-none focus:border-sky-500" />
+              {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-primary"><X className="h-4 w-4" /></button>}
+            </div>
+            <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
+              {([["all", "All"], ["day", "Day trade"], ["swing", "Swing"]] as const).map(([v, l]) => (
+                <button key={v} onClick={() => setStyleF(v)}
+                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${styleF === v ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-primary"}`}>{l}</button>
+              ))}
+            </div>
           </div>
 
           {recommended.length > 0 && !q && (
@@ -202,7 +214,7 @@ export default function RealTradesPage() {
                   <div key={r.pattern} className="bg-surface-0 border border-border-subtle rounded-md px-3 py-1.5 text-xs">
                     <span className="font-semibold text-text-primary">{r.pattern}</span>
                     <span className="font-mono ml-2" style={{ color: wrColor(r.wr) }}>{r.wr}%</span>
-                    <span className="font-mono text-text-faint ml-2">MFE {pct(r.mfe)} · n={r.n}</span>
+                    <span className="font-mono text-text-faint ml-2">peak {pct(r.mfe)} · n={r.n}</span>
                   </div>
                 ))}
               </div>
@@ -214,8 +226,8 @@ export default function RealTradesPage() {
               { v: `${filtered.length}`, l: "alerts scored", c: "text-text-primary" },
               { v: `${lb.length}`, l: "entry patterns", c: "text-text-primary" },
               { v: `${overallWr}%`, l: "win (closed)", c: "text-bullish-text" },
-              { v: pct(medMfe), l: "median MFE", c: "text-bullish-text" },
-              { v: pct(medMae), l: "median MAE", c: "text-bearish-text" },
+              { v: pct(medMfe), l: "avg peak gain", c: "text-bullish-text" },
+              { v: pct(medMae), l: "avg drop", c: "text-bearish-text" },
             ].map((m) => (
               <div key={m.l} className="flex flex-col">
                 <span className={`font-mono text-lg font-semibold ${m.c}`}>{m.v}</span>
@@ -225,7 +237,7 @@ export default function RealTradesPage() {
           </div>
 
           <SectionTitle>Entry patterns, ranked · by win rate</SectionTitle>
-          <p className="text-[11px] text-text-faint -mt-2">Win = target before stop (or closed green). "Above" = intraday high cleared entry at all — a big gap means the setup pokes green then gets stopped (tight stops). n≥1, closed only.</p>
+          <p className="text-[11px] text-text-faint -mt-2">Day-trade win = the intraday high cleared entry (you take the intraday pop). Swing win = still above entry with the stop (a daily close below the level) never hit. "Above" = intraday high cleared entry. n≥1, closed only.</p>
           <div className="bg-surface-2 border border-border-subtle rounded-xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[560px]">
@@ -235,8 +247,8 @@ export default function RealTradesPage() {
                     <th onClick={() => lbClick("pattern")} className="text-left px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Entry pattern{lbArrow("pattern")}</th>
                     <th onClick={() => lbClick("wr")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Win rate{lbArrow("wr")}</th>
                     <th onClick={() => lbClick("ae")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Above{lbArrow("ae")}</th>
-                    <th onClick={() => lbClick("mfe")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Med MFE{lbArrow("mfe")}</th>
-                    <th onClick={() => lbClick("mae")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Med MAE{lbArrow("mae")}</th>
+                    <th onClick={() => lbClick("mfe")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Peak Gain{lbArrow("mfe")}</th>
+                    <th onClick={() => lbClick("mae")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Max Drop{lbArrow("mae")}</th>
                     <th onClick={() => lbClick("n")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Alerts{lbArrow("n")}</th>
                   </tr>
                 </thead>
@@ -277,8 +289,8 @@ export default function RealTradesPage() {
                     <th onClick={() => alClick("intraday_high")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Hi{alArrow("intraday_high")}</th>
                     <th onClick={() => alClick("intraday_low")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Lo{alArrow("intraday_low")}</th>
                     <th onClick={() => alClick("eod_close")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">EOD{alArrow("eod_close")}</th>
-                    <th onClick={() => alClick("mfe_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">MFE{alArrow("mfe_pct")}</th>
-                    <th onClick={() => alClick("max_dd_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Max DD{alArrow("max_dd_pct")}</th>
+                    <th onClick={() => alClick("mfe_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Peak{alArrow("mfe_pct")}</th>
+                    <th onClick={() => alClick("max_dd_pct")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Max Drop{alArrow("max_dd_pct")}</th>
                     <th onClick={() => alClick("result")} className="text-right px-3 py-2.5 font-semibold cursor-pointer hover:text-text-muted">Result{alArrow("result")}</th>
                   </tr>
                 </thead>
@@ -292,7 +304,7 @@ export default function RealTradesPage() {
           </div>
 
           <p className="text-[10px] text-text-faint font-mono leading-relaxed pt-2">
-            Each delivered long alert replayed at EOD: 5-min intraday (Day) / daily over a 10-day window (Swing/Long). Win = target before stop, else closed green. MFE/MAE/MaxDD from entry. Delivered-only. Report as of {data?.as_of ?? "—"}.
+            Day trades scored on the session (5-min bars). Swing/long scored to now (daily bars). "Peak Gain" = the most it ran above entry · "Max Drop" = the most it fell below. Your watchlist, delivered alerts only. As of {data?.as_of ?? "—"}.
           </p>
         </>
       )}
@@ -326,7 +338,7 @@ function GroupRows({ g, sort }: { g: DateGroup; sort: { k: AlKey; d: 1 | -1 } | 
         <td colSpan={10} className="px-3 py-2 font-mono text-xs font-semibold text-text-primary border-t border-border-subtle">
           {fmtDay(g.date)}
           <span className="ml-3 font-normal text-text-faint">
-            <span className="text-bullish-text font-semibold">{g.wr}% win</span> · {g.items.length} alerts · median MFE {pct(g.mfe)}
+            <span className="text-bullish-text font-semibold">{g.wr}% win</span> · {g.items.length} alerts · peak {pct(g.mfe)}
           </span>
         </td>
       </tr>
