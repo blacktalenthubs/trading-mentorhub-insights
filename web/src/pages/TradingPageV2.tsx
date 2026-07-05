@@ -377,7 +377,7 @@ function SignalFeedTab({
   alerts,
   alertsError,
   onSelectSymbol,
-  signalDate: _signalDate = "",
+  signalDate = "",
   assetFilter = "all",
   onAssetFilterChange,
 }: {
@@ -435,7 +435,10 @@ function SignalFeedTab({
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
   const [view, setView] = useState<"premarket" | "day_trade" | "position">("day_trade");
-  const { data: pmReport } = useMarketReports();
+  // Premarket signals are persisted per session in market_reports[premarket_signals],
+  // so honor the session date picker like the day/position feeds do (the alerts prop
+  // is already date-filtered by the parent). No date selected → latest report.
+  const { data: pmReport } = useMarketReports(signalDate || undefined);
   const pmSignals = useMemo<PmSignal[]>(() => {
     try { return (JSON.parse(pmReport?.premarket_signals?.body ?? "{}").signals ?? []) as PmSignal[]; }
     catch { return []; }
