@@ -26,8 +26,8 @@ export default function PublicPerformancePage() {
       <div className="mx-auto max-w-5xl space-y-5 px-4 py-8">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-subtle pb-4">
           <div>
-            <h1 className="font-mono text-sm font-semibold uppercase tracking-[0.2em] text-amber-400">Performance · Shared</h1>
-            <p className="mt-1 text-xs text-text-faint">Which entry patterns actually work — every delivered alert scored against price. Read-only snapshot{data?.shared_at ? ` · shared ${data.shared_at.slice(0, 10)}` : ""}.</p>
+            <h1 className="font-mono text-sm font-semibold uppercase tracking-[0.2em] text-amber-400">Performance · Shared{data?.period_label ? <span className="ml-2 normal-case tracking-normal text-text-primary">· {data.period_label}</span> : null}</h1>
+            <p className="mt-1 text-xs text-text-faint">Which entry patterns actually work — every delivered alert scored against price. Read-only snapshot{data?.period_label ? ` of ${data.period_label}` : ""}{data?.shared_at ? ` · shared ${data.shared_at.slice(0, 10)}` : ""}.</p>
           </div>
           <a href="/" className="text-xs text-sky-400 hover:underline">BusyTradersDesk →</a>
         </div>

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,10 +67,23 @@ async def _scoped_report(db: AsyncSession, user_id: int) -> dict:
             "watchlist_scoped": bool(syms), "watchlist_count": len(syms), **body}
 
 
+class ShareIn(BaseModel):
+    """Optional period scope for a share — omit everything to share the full report.
+
+    start/end are inclusive session dates (YYYY-MM-DD). A single day = start == end.
+    label is the human period name the frontend already renders ("Fri, Jul 3",
+    "Week of Jun 29 – Jul 3") — stored verbatim so the public page can title itself.
+    """
+    start: str | None = None
+    end: str | None = None
+    label: str | None = None
+
+
 @router.post("/share")
 @limiter.limit("10/minute")
 async def performance_share(
     request: Request,
+    payload: ShareIn | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -77,14 +91,36 @@ async def performance_share(
     viewed logged-out at /public/performance/{token}. Stable snapshot — the link shows what the
     user shared, not a live feed.
 
+    Body (optional): {start, end, label} — share ONLY the sessions in [start, end]
+    (inclusive), e.g. a single Friday. No body → the full report (legacy behavior).
+
     Returns BOTH the token and the full canonical `url`. The URL is built server-side against
     PUBLIC_BASE_URL (the canonical app host) rather than the browser's window.location.origin —
     otherwise a user browsing on a legacy/transition domain (e.g. tradingwithai.ai) would mint
     links on a host that drops logged-out visitors on the marketing landing page instead of the
     report."""
     import json as _json
+    import re as _re
     import secrets
     data = await _scoped_report(db, user.id)
+    start = (payload.start or "").strip() if payload else ""
+    end = (payload.end or "").strip() if payload else ""
+    for v in (start, end):
+        if v and not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            raise HTTPException(status_code=400, detail="start/end must be YYYY-MM-DD")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="start must be <= end")
+    if start or end:
+        # ISO dates compare correctly as strings — scope the snapshot to the period.
+        data["alerts"] = [
+            a for a in (data.get("alerts", []) or [])
+            if (not start or a.get("session_date", "") >= start)
+            and (not end or a.get("session_date", "") <= end)
+        ]
+        data["period_start"] = start or None
+        data["period_end"] = end or None
+    if payload and payload.label:
+        data["period_label"] = payload.label.strip()[:80]
     token = secrets.token_urlsafe(9)
     await db.execute(text(
         "CREATE TABLE IF NOT EXISTS share_links ("
