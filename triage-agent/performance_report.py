@@ -188,9 +188,23 @@ def score_day(alert):
     at = alert.get("alert_et")
     win = d.between_time(at, "15:59") if at else d
     if not len(win):
-        win = d
-    return score(alert["entry"], alert["stop"], alert["target"], alert["direction"],
-                 zip(win["High"], win["Low"], win["Close"]))
+        # late/after-hours alert (fired after 15:59) — DROP it rather than fall back to the
+        # whole session, which would score it against pre-entry price (lookahead). Nothing
+        # that couldn't be filled after the alert should ever count.
+        return None
+    out = score(alert["entry"], alert["stop"], alert["target"], alert["direction"],
+                zip(win["High"], win["Low"], win["Close"]))
+    if out and at:
+        # Timestamp the intraday PATH (entry / high / low / close) so the UI can PROVE the
+        # favorable move came AFTER the alert fired — a high before entry never counts.
+        try:
+            out["entry_et"] = at
+            out["hi_et"] = win["High"].idxmax().strftime("%H:%M")
+            out["lo_et"] = win["Low"].idxmin().strftime("%H:%M")
+            out["eod_et"] = win.index[-1].strftime("%H:%M")
+        except Exception:
+            pass
+    return out
 
 
 def score_swing(alert, crypto=False):
