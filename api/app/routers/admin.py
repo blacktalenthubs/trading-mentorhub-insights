@@ -244,6 +244,26 @@ async def traffic_sources(
     }
 
 
+@router.get("/activity")
+async def recent_activity(
+    limit: int = 40,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Recent platform activity — new signups with their source, for the launch dashboard's
+    live-activity feed. Free stage: this is the 'who's joining + from where' view."""
+    from sqlalchemy import text
+    rows = (await db.execute(text(
+        "SELECT email, display_name, attribution_source, attribution_campaign, created_at "
+        "FROM users ORDER BY created_at DESC LIMIT :lim"
+    ), {"lim": int(limit)})).fetchall()
+    return {"signups": [
+        {"email": r[0], "name": r[1], "source": r[2], "campaign": r[3],
+         "at": r[4].isoformat() if r[4] else None}
+        for r in rows
+    ]}
+
+
 @router.get("/attribution")
 async def signup_attribution(
     days: int = 30,

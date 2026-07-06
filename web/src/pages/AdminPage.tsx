@@ -231,12 +231,43 @@ function TrafficSourcesPanel({ data }: { data: TrafficSources | null }) {
   );
 }
 
+interface RecentActivity {
+  signups: { email: string; name: string | null; source: string | null; campaign: string | null; at: string | null }[];
+}
+
+function ActivityPanel({ data }: { data: RecentActivity | null }) {
+  const rel = (iso: string | null) => {
+    if (!iso) return "";
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  };
+  return (
+    <Panel title="Live activity" icon={<UserPlus size={15} className="text-bullish-text" />} action={<span className="text-[11px] text-text-faint">newest signups</span>}>
+      {!data || data.signups.length === 0 ? (
+        <div className="text-xs text-text-faint">No signups yet.</div>
+      ) : (
+        <div className="grid gap-2">
+          {data.signups.slice(0, 12).map((u, i) => (
+            <div key={u.email + i} className="flex items-center justify-between text-[12px]">
+              <span className="text-text-secondary">🟢 <span className="text-text-primary">{u.email}</span>{u.source ? <span className="text-text-faint"> · via {u.source}{u.campaign ? ` (${u.campaign})` : ""}</span> : ""}</span>
+              <span className="font-mono text-[11px] text-text-faint">{rel(u.at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [health, setHealth] = useState<AlertHealth | null>(null);
   const [attribution, setAttribution] = useState<AttributionStats | null>(null);
   const [trafficSrc, setTrafficSrc] = useState<TrafficSources | null>(null);
+  const [activity, setActivity] = useState<RecentActivity | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -257,8 +288,9 @@ export default function AdminPage() {
       api.get<AlertHealth>("/admin/alert-health").catch(() => null),
       api.get<{ users: { user_id: number; symbols: string[] }[] }>("/admin/watchlists").catch(() => null),
       api.get<TrafficSources>("/admin/traffic-sources?days=30").catch(() => null),
+      api.get<RecentActivity>("/admin/activity?limit=40").catch(() => null),
     ])
-      .then(([s, u, a, t, h, w, ts]) => {
+      .then(([s, u, a, t, h, w, ts, act]) => {
         setStats(s);
         setUsers(u.users);
         setTestHidden(u.test_hidden ?? 0);
@@ -266,6 +298,7 @@ export default function AdminPage() {
         setTraffic(t);
         setHealth(h);
         setTrafficSrc(ts);
+        setActivity(act);
         if (w) {
           const map: Record<number, string[]> = {};
           for (const row of w.users) map[row.user_id] = row.symbols;
@@ -310,6 +343,8 @@ export default function AdminPage() {
       <div className="mb-5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-[12px] text-text-secondary">
         🧪 <b className="text-warning-text">Free test stage</b> — Pro paywall off; optimizing for signups · activation · feedback, not revenue.
       </div>
+
+      <ActivityPanel data={activity} />
 
       {/* ── Traffic ── */}
       <Panel
