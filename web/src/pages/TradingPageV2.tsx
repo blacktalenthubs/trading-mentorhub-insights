@@ -1194,19 +1194,13 @@ export default function TradingPageV2() {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("watchlist_focus_only") === "1";
   });
-  const [signalsOnly, setSignalsOnly] = useState(false);
   const [masterView, setMasterView] = useState(false);  // admin: show the master watchlist as the list
   function toggleFocusOnly() {
     setMasterView(false);
     setFocusOnly((v) => {
       try { localStorage.setItem("watchlist_focus_only", v ? "0" : "1"); } catch {}
-      if (!v) setSignalsOnly(false);   // Focus + Signals are mutually exclusive tabs
       return !v;
     });
-  }
-  function toggleSignalsOnly() {
-    setMasterView(false);
-    setSignalsOnly((v) => { if (!v) setFocusOnly(false); return !v; });
   }
 
   /* ── Editor's Picks (admin's public watchlist) ── */
@@ -1384,7 +1378,6 @@ export default function TradingPageV2() {
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
     ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
-    ?.filter((s) => !signalsOnly || signalTodaySet.has(s.symbol.toUpperCase()))
     ?.filter((s) => s.source === "watchlist")   // watchlist only — scanner "ideas" live on the Trade Ideas tab
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
@@ -1606,21 +1599,9 @@ export default function TradingPageV2() {
               </svg>
               Focus <span className="opacity-70 font-normal">{focusSymbols.size}</span>
             </button>
-            <button
-              onClick={toggleSignalsOnly}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
-                signalsOnly
-                  ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
-                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
-              }`}
-              title="Show only symbols that fired a signal today"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(245,183,61,0.7)]" />
-              Signals <span className="opacity-70 font-normal">{signalTodaySet.size}</span>
-            </button>
             {isAdmin && (
               <button
-                onClick={() => { setMasterView((v) => !v); setFocusOnly(false); setSignalsOnly(false); }}
+                onClick={() => { setMasterView((v) => !v); setFocusOnly(false); }}
                 className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
                   masterView
                     ? "bg-accent/15 text-accent border-accent/40"
