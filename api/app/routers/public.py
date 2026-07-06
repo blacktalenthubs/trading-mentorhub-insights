@@ -34,6 +34,9 @@ class TrackVisitIn(BaseModel):
     path: str
     visitor_id: str
     referrer: Optional[str] = None
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
 
 
 @router.post("/track", status_code=204)
@@ -72,6 +75,9 @@ async def track_visit(
                 path=(payload.path or "/")[:300],
                 referrer=ref[:500] if ref else None,
                 user_agent=ua[:400] if ua else None,
+                utm_source=(payload.utm_source or None) and payload.utm_source[:80],
+                utm_medium=(payload.utm_medium or None) and payload.utm_medium[:80],
+                utm_campaign=(payload.utm_campaign or None) and payload.utm_campaign[:120],
             )
         )
         await db.commit()

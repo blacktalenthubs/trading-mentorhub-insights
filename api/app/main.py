@@ -147,6 +147,19 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        # Migration: first-touch UTM attribution on site_visits — so admin can see
+        # which posts (Twitter/TikTok/campaigns) actually drive traffic, not just signups.
+        for col_def in [
+            "ALTER TABLE site_visits ADD COLUMN IF NOT EXISTS utm_source VARCHAR(80)",
+            "ALTER TABLE site_visits ADD COLUMN IF NOT EXISTS utm_medium VARCHAR(80)",
+            "ALTER TABLE site_visits ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR(120)",
+            "CREATE INDEX IF NOT EXISTS ix_site_visits_utm_source ON site_visits(utm_source)",
+        ]:
+            try:
+                await conn.execute(text(col_def))
+            except Exception:
+                pass
+
         # Migration: swing alert refresh columns
         for col_def in [
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS setup_level REAL",
