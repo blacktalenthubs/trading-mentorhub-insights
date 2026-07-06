@@ -118,32 +118,30 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
   const market_ok = parsed.market_ok;
   const swing = parsed.swing ?? parsed.picks ?? [];
   const daytrade = parsed.daytrade ?? [];
+  // One collapsed feed (day-trade + swing/position together) for quick scanning — day-trade
+  // setups first (the actionable ones), then any monthly-breakout swing names.
+  const items: ({ kind: "day"; p: DayPick } | { kind: "swing"; p: SwingPick })[] = [
+    ...daytrade.map((p) => ({ kind: "day" as const, p })),
+    ...swing.map((p) => ({ kind: "swing" as const, p })),
+  ];
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className={`text-[12px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>
         {market_ok ? "🟢 Market healthy — can size up" : "🔴 Market weak — be selective (half size)"}
       </div>
       <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Swing · monthly breakout</h3>
-        {swing.length === 0 ? (
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Today's Focus</h3>
+        {items.length === 0 ? (
           <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
-            No name is at a monthly breakout today — nothing to chase. Patience.
+            No clean setup at a key level today — patience.
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-            {swing.map((p) => <SwingCard key={p.symbol} p={p} onChart={onChart} />)}
-          </div>
-        )}
-      </section>
-      <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Today's Focus · the turn · the hold · the breakout</h3>
-        {daytrade.length === 0 ? (
-          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
-            No liquid leader is at a key level today.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-            {daytrade.map((p) => <DayCard key={p.symbol} p={p} onChart={onChart} />)}
+            {items.map((it) =>
+              it.kind === "day"
+                ? <DayCard key={`d-${it.p.symbol}`} p={it.p} onChart={onChart} />
+                : <SwingCard key={`s-${it.p.symbol}`} p={it.p} onChart={onChart} />
+            )}
           </div>
         )}
       </section>
