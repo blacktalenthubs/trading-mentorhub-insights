@@ -332,7 +332,7 @@ export default function RealTradesPage() {
           </div>
 
           <p className="text-[10px] text-text-faint font-mono leading-relaxed pt-2">
-            Every trade is scored only on price AFTER the alert fired — the time under Entry is when it fired, under Peak is when the high printed, so a move before entry never counts. Day trades scored on the session (5-min bars). Swing/long scored to now (daily bars). "Peak Gain" = the most it ran above entry · "Max Drop" = the most it fell below. Your watchlist, delivered alerts only. As of {data?.as_of ?? "—"}.
+            Every trade is scored only on price AFTER the alert fired — the time under Entry is when it fired, under Hi is when the high printed, so a move before entry never counts. Day trades scored on the session (5-min bars). Swing/long scored to now (daily bars). "Peak Gain" = the most it ran above entry · "Max Drop" = the most it fell below. Your watchlist, delivered alerts only. As of {data?.as_of ?? "—"}.
           </p>
         </>
       )}
@@ -378,10 +378,10 @@ function GroupRows({ g, sort, onSym }: { g: DateGroup; sort: { k: AlKey; d: 1 | 
             <td className="px-3 py-2 text-left text-text-muted text-[11px] font-sans">{a.pattern}</td>
             <td className="px-3 py-2 text-right">{a.entry.toFixed(2)}{a.alert_et && <span className="block text-[9px] text-text-faint">{a.alert_et}</span>}</td>
             <td className="px-3 py-2 text-right text-text-muted">{a.stop != null ? a.stop.toFixed(2) : "—"}</td>
-            <td className={`px-3 py-2 text-right ${a.mfe_pct > 0 ? "text-bullish-text" : ""}`}>{a.intraday_high.toFixed(2)}</td>
-            <td className={`px-3 py-2 text-right ${a.mae_pct < -0.5 ? "text-bearish-text" : ""}`}>{a.intraday_low.toFixed(2)}</td>
-            <td className="px-3 py-2 text-right">{a.eod_close.toFixed(2)}</td>
-            <td className="px-3 py-2 text-right text-bullish-text">{pct(a.mfe_pct)}{a.mfe_et && <span className="block text-[9px] text-text-faint">@ {a.mfe_et}</span>}</td>
+            <td className={`px-3 py-2 text-right ${a.mfe_pct > 0 ? "text-bullish-text" : ""}`}>{a.intraday_high.toFixed(2)}{a.hi_et && <span className="block text-[9px] text-text-faint">@ {a.hi_et}</span>}</td>
+            <td className={`px-3 py-2 text-right ${a.mae_pct < -0.5 ? "text-bearish-text" : ""}`}>{a.intraday_low.toFixed(2)}{a.lo_et && <span className="block text-[9px] text-text-faint">@ {a.lo_et}</span>}</td>
+            <td className="px-3 py-2 text-right">{a.eod_close.toFixed(2)}{a.eod_et && <span className="block text-[9px] text-text-faint">{a.eod_et}</span>}</td>
+            <td className="px-3 py-2 text-right text-bullish-text">{pct(a.mfe_pct)}</td>
             <td className="px-3 py-2 text-right text-bearish-text">{pct(a.max_dd_pct)}</td>
             <td className={`px-3 py-2 text-right text-[11px] font-semibold ${win ? "text-bullish-text" : "text-bearish-text"}`}>
               {a.open ? "· open" : win ? "✓ WIN" : `✗ LOSS ${a.realized_stop_pct != null ? pct(a.realized_stop_pct) : ""}`}

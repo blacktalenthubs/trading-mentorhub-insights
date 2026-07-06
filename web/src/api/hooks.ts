@@ -2351,7 +2351,9 @@ export interface ScoredAlert {
   style: string;            // "Day" | "Swing" | "Long"
   session_date: string;
   alert_et: string | null;         // ET time the alert fired (entry)
-  mfe_et?: string | null;           // ET time the favorable peak printed — proves it came AFTER entry
+  hi_et?: string | null;            // ET time the intraday HIGH printed
+  lo_et?: string | null;            // ET time the intraday LOW printed
+  eod_et?: string | null;           // ET time of the closing bar
   entry: number;
   stop: number;
   target: number | null;
