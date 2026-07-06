@@ -244,6 +244,41 @@ async def traffic_sources(
     }
 
 
+@router.get("/watchlist-union/export")
+async def export_watchlist_union(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the UNION of ALL users' watchlists as a TradingView-import file — the full firing
+    universe every Pine must cover so each user gets alerts for what they watch. Sectioned by each
+    symbol's most-common group across users, crypto de-dashed (BTC-USD → BTCUSD)."""
+    from sqlalchemy import text
+    from fastapi.responses import Response
+    from collections import OrderedDict, Counter
+    rows = (await db.execute(text(
+        "SELECT UPPER(w.symbol) AS sym, COALESCE(NULLIF(wg.name, ''), 'Other') AS grp "
+        "FROM watchlist w LEFT JOIN watchlist_group wg ON wg.id = w.group_id "
+        "WHERE w.symbol IS NOT NULL AND w.symbol <> ''"
+    ))).fetchall()
+    sym_groups: dict = {}
+    for sym, grp in rows:
+        sym_groups.setdefault(sym, Counter())[grp] += 1
+    groups: "OrderedDict[str, list]" = OrderedDict()
+    for sym, ctr in sym_groups.items():
+        grp = ctr.most_common(1)[0][0]
+        groups.setdefault(grp, []).append(sym.replace("-", ""))
+    lines: list = []
+    for grp in sorted(groups, key=lambda g: -len(groups[g])):
+        lines.append("###" + grp)
+        lines.extend(sorted(groups[grp]))
+    body = ("\n".join(lines) + "\n") if lines else "###Watchlist\n"
+    return Response(
+        content=body,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="all_users_union_tradingview.txt"'},
+    )
+
+
 @router.get("/activity")
 async def recent_activity(
     limit: int = 40,
