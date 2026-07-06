@@ -29,6 +29,12 @@ class SiteVisit(Base):
     path: Mapped[str] = mapped_column(String(300))
     referrer: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     user_agent: Mapped[Optional[str]] = mapped_column(String(400), nullable=True)
+    # First-touch attribution — the utm_* from the link the visitor arrived on
+    # (Twitter/TikTok posts, campaigns). Persisted client-side + sent on every
+    # ping so the whole session carries the source, not just the landing hit.
+    utm_source: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    utm_medium: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    utm_campaign: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), index=True
     )

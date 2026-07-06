@@ -208,6 +208,42 @@ async def platform_stats(
     }
 
 
+@router.get("/traffic-sources")
+async def traffic_sources(
+    days: int = 30,
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """VISIT-level attribution — traffic by first-touch source (utm_source, else derived from
+    the referrer) + campaign links, for the social/marketing push. Complements /attribution
+    (which is signup-side). Answers: which posts actually drive traffic?"""
+    from sqlalchemy import text
+    n = int(days)
+    src_rows = (await db.execute(text(
+        "SELECT COALESCE(NULLIF(utm_source,''), CASE"
+        " WHEN referrer ILIKE '%t.co%' OR referrer ILIKE '%twitter%' OR referrer ILIKE '%x.com%' THEN 'twitter'"
+        " WHEN referrer ILIKE '%tiktok%' THEN 'tiktok'"
+        " WHEN referrer ILIKE '%youtube%' OR referrer ILIKE '%youtu.be%' THEN 'youtube'"
+        " WHEN referrer ILIKE '%google%' THEN 'google'"
+        " WHEN referrer IS NULL OR referrer='' THEN 'direct' ELSE 'referral' END) AS source,"
+        " COUNT(DISTINCT visitor_id) AS visitors, COUNT(*) AS visits"
+        " FROM site_visits WHERE created_at >= NOW() - make_interval(days => :n)"
+        " GROUP BY source ORDER BY visitors DESC"
+    ), {"n": n})).fetchall()
+    camp_rows = (await db.execute(text(
+        "SELECT utm_campaign, COALESCE(NULLIF(utm_source,''),'—') AS source,"
+        " COUNT(DISTINCT visitor_id) AS visitors"
+        " FROM site_visits WHERE utm_campaign IS NOT NULL AND utm_campaign <> ''"
+        " AND created_at >= NOW() - make_interval(days => :n)"
+        " GROUP BY utm_campaign, source ORDER BY visitors DESC LIMIT 20"
+    ), {"n": n})).fetchall()
+    return {
+        "days": n,
+        "sources": [{"source": r[0], "visitors": r[1], "visits": r[2]} for r in src_rows],
+        "campaigns": [{"campaign": r[0], "source": r[1], "visitors": r[2]} for r in camp_rows],
+    }
+
+
 @router.get("/attribution")
 async def signup_attribution(
     days: int = 30,

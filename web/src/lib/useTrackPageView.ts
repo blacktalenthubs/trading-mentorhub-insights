@@ -26,6 +26,33 @@ function getVisitorId(): string {
   }
 }
 
+type Attribution = { utm_source?: string; utm_medium?: string; utm_campaign?: string };
+
+/** First-touch attribution. If the current URL carries ?utm_source=… (a link from a
+ *  Twitter/TikTok post or campaign), persist it; otherwise return what we stored on the
+ *  first visit — so every page-view in the session carries the source, and it's still
+ *  there at signup. */
+function getAttribution(): Attribution {
+  try {
+    const KEY = "btd_attribution";
+    const p = new URLSearchParams(window.location.search);
+    const src = p.get("utm_source");
+    if (src) {
+      const attr: Attribution = {
+        utm_source: src,
+        utm_medium: p.get("utm_medium") || undefined,
+        utm_campaign: p.get("utm_campaign") || undefined,
+      };
+      localStorage.setItem(KEY, JSON.stringify(attr));
+      return attr;
+    }
+    const stored = localStorage.getItem(KEY);
+    return stored ? (JSON.parse(stored) as Attribution) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function useTrackPageView() {
   const location = useLocation();
   useEffect(() => {
@@ -41,6 +68,7 @@ export function useTrackPageView() {
           path: location.pathname,
           visitor_id: getVisitorId(),
           referrer: document.referrer || null,
+          ...getAttribution(),
         }),
         keepalive: true,
       }).catch(() => {});
