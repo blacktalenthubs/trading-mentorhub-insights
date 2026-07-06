@@ -580,11 +580,15 @@ function MasterWatchlistPanel() {
   const load = () => api.get<MasterWL>("/admin/master-watchlist").then(setData).catch(() => setData(null));
   useEffect(() => { load(); }, []);
   const add = async () => {
-    const s = adding.trim().toUpperCase();
-    if (!s) return;
+    // Accept one OR many — comma / space / newline separated, so a whole list can be pasted in.
+    const syms = adding.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+    if (!syms.length) return;
     setBusy(true);
-    try { await api.post(`/admin/master-watchlist?symbol=${encodeURIComponent(s)}`); setAdding(""); await load(); }
-    finally { setBusy(false); }
+    try {
+      for (const sym of syms) await api.post(`/admin/master-watchlist?symbol=${encodeURIComponent(sym)}`);
+      setAdding("");
+      await load();
+    } finally { setBusy(false); }
   };
   const remove = async (s: string) => {
     setBusy(true);
@@ -602,7 +606,7 @@ function MasterWatchlistPanel() {
           value={adding}
           onChange={(e) => setAdding(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
-          placeholder="Add ticker to the universe…"
+          placeholder="Add ticker(s) — one or many, comma/space separated…"
           className="flex-1 bg-surface-0 border border-border-subtle rounded-lg px-3 py-1.5 text-sm text-text-primary uppercase placeholder:normal-case placeholder:text-text-faint"
         />
         <button disabled={busy || !adding.trim()} onClick={add} className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/40 text-accent text-xs font-semibold disabled:opacity-50">Add</button>
