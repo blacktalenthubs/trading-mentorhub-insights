@@ -453,6 +453,18 @@ export function useSectorsWatchlist() {
   });
 }
 
+// --- Master watchlist (admin) — the curated ~82-name platform universe, grouped by sector ---
+export interface MasterWatchlistGroup { id: number; name: string; color: string | null; symbols: string[] }
+export interface MasterWatchlist { count: number; groups: MasterWatchlistGroup[]; ungrouped: string[] }
+export function useMasterWatchlistView(enabled: boolean) {
+  return useQuery({
+    queryKey: ["master-watchlist-view"],
+    queryFn: () => api.get<MasterWatchlist>("/admin/master-watchlist"),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
 // Trading-page watchlist redesign — the "signal fired today" amber dot (symbols on
 // the user's alerts for today's ET session).
 export function useWatchlistSignalsToday() {
