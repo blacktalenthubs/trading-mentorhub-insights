@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
   Users, Send, RefreshCw, Crown, Search, ChevronDown, ChevronRight,
-  Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus, Download,
+  Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus, Download, Plus,
 } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 
@@ -629,19 +629,13 @@ export default function AdminPage() {
 // ─────────────────── master watchlist (platform universe) ───────────────────
 type MasterWL = { count: number; groups: { id: number; name: string; color: string; symbols: string[] }[]; ungrouped: string[] };
 
-function SymChip({ sym, onRemove, busy }: { sym: string; onRemove: () => void; busy: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded bg-surface-0 border border-border-subtle px-1.5 py-0.5 text-[11px] text-text-secondary">
-      {sym}
-      <button disabled={busy} onClick={onRemove} title="Remove from universe" className="text-text-faint hover:text-bearish-text disabled:opacity-50 leading-none">×</button>
-    </span>
-  );
-}
-
 function MasterWatchlistPanel() {
   const [data, setData] = useState<MasterWL | null>(null);
   const [adding, setAdding] = useState("");
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [newSector, setNewSector] = useState("");
+  const [showAddSector, setShowAddSector] = useState(false);
   const load = () => api.get<MasterWL>("/admin/master-watchlist").then(setData).catch(() => setData(null));
   useEffect(() => { load(); }, []);
   const add = async () => {
@@ -660,24 +654,71 @@ function MasterWatchlistPanel() {
     try { await api.delete(`/admin/master-watchlist?symbol=${encodeURIComponent(s)}`); await load(); }
     finally { setBusy(false); }
   };
+  const move = async (sym: string, groupId: number | null) => {
+    setBusy(true);
+    try { await api.patch(`/admin/master-watchlist/item?symbol=${encodeURIComponent(sym)}${groupId != null ? `&group_id=${groupId}` : ""}`, {}); await load(); }
+    finally { setBusy(false); }
+  };
+  const createSector = async () => {
+    const nm = newSector.trim();
+    if (!nm) return;
+    setBusy(true);
+    try { await api.post(`/admin/master-watchlist/group?name=${encodeURIComponent(nm)}`, {}); setNewSector(""); setShowAddSector(false); await load(); }
+    finally { setBusy(false); }
+  };
+  const toggle = (gid: number) => setCollapsed((p) => { const nx = new Set(p); if (nx.has(gid)) nx.delete(gid); else nx.add(gid); return nx; });
+  const groups = data?.groups ?? [];
+  const renderRow = (sym: string, gid: number | null) => (
+    <div key={`${gid ?? "u"}-${sym}`} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface-1/40">
+      <span className="flex-1 font-mono text-[12px] font-semibold text-text-primary">{sym}</span>
+      <select
+        value={gid ?? ""}
+        onChange={(e) => move(sym, e.target.value === "" ? null : Number(e.target.value))}
+        disabled={busy}
+        className="rounded border border-border-subtle bg-surface-0 px-1.5 py-0.5 text-[10px] text-text-secondary focus:border-accent outline-none"
+        title="Move to a sector"
+      >
+        <option value="">— ungrouped —</option>
+        {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+      <button onClick={() => remove(sym)} disabled={busy} className="px-1 leading-none text-text-faint hover:text-bearish-text disabled:opacity-40" title="Remove from master">×</button>
+    </div>
+  );
   return (
     <Panel
       title={`Master watchlist — platform universe${data ? ` (${data.count})` : ""}`}
       icon={<Crown size={15} className="text-accent" />}
       action={
-        <button
-          onClick={() => downloadTV("/api/v1/admin/master-watchlist/export", "master_watchlist_tradingview.txt")}
-          className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary"
-          title="Download the master watchlist (the curated platform universe) as a TradingView import file"
-        >
-          <Download size={12} /> Export → TV
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowAddSector((v) => !v)} className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary">
+            <Plus size={12} /> Add sector
+          </button>
+          <button
+            onClick={() => downloadTV("/api/v1/admin/master-watchlist/export", "master_watchlist_tradingview.txt")}
+            className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary"
+            title="Download the master watchlist (the curated platform universe) as a TradingView import file"
+          >
+            <Download size={12} /> Export → TV
+          </button>
+        </div>
       }
     >
       <p className="text-[11px] text-text-faint mb-3">
-        The universe the scanner fires on + the Sectors template users copy from. Separate from your
-        personal watchlist — you (as a user) only get alerts for symbols on <em>your own</em> list.
+        The universe the scanner fires on + the Sectors template users copy from. Add a ticker below,
+        then use each row's dropdown to file it into a sector. Separate from your personal watchlist.
       </p>
+      {showAddSector && (
+        <div className="flex gap-2 mb-3">
+          <input
+            value={newSector}
+            onChange={(e) => setNewSector(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createSector()}
+            placeholder="New sector name…"
+            className="flex-1 bg-surface-0 border border-accent/40 rounded-lg px-3 py-1.5 text-sm text-text-primary placeholder:text-text-faint"
+          />
+          <button disabled={busy || !newSector.trim()} onClick={createSector} className="px-3 py-1.5 rounded-lg bg-accent/15 border border-accent/40 text-accent text-xs font-semibold disabled:opacity-50">Create</button>
+        </div>
+      )}
       <div className="flex gap-2 mb-4">
         <input
           value={adding}
@@ -691,25 +732,31 @@ function MasterWatchlistPanel() {
       {!data ? (
         <div className="text-[12px] text-text-faint">Loading…</div>
       ) : (
-        <div className="columns-1 gap-3 sm:columns-2 lg:columns-3 xl:columns-4">
-          {data.groups.map((g) => (
-            <div key={g.id} className="mb-3 break-inside-avoid rounded-xl border border-border-subtle bg-surface-0/40 p-3">
-              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: g.color || undefined }}>
-                {g.name} <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{g.symbols.length}</span>
+        <div className="space-y-2">
+          {groups.map((g) => {
+            const isC = collapsed.has(g.id);
+            return (
+              <div key={g.id} className="rounded-xl border border-border-subtle bg-surface-0/40">
+                <button onClick={() => toggle(g.id)} className="flex w-full items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: g.color || undefined }}>
+                  <ChevronRight size={12} className={`transition-transform ${isC ? "" : "rotate-90"}`} />
+                  {g.name}
+                  <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{g.symbols.length}</span>
+                </button>
+                {!isC && (
+                  <div className="px-2 pb-2">
+                    {g.symbols.length ? g.symbols.map((s) => renderRow(s, g.id))
+                      : <div className="px-2 py-1.5 text-[10px] text-text-faint">empty — add a ticker, then file it here</div>}
+                  </div>
+                )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {g.symbols.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {data.ungrouped.length > 0 && (
-            <div className="mb-3 break-inside-avoid rounded-xl border border-border-subtle bg-surface-0/40 p-3">
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-muted">
-                Ungrouped <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{data.ungrouped.length}</span>
+            <div className="rounded-xl border border-amber-400/30 bg-surface-0/40">
+              <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-amber-400">
+                Ungrouped — file each into a sector <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{data.ungrouped.length}</span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {data.ungrouped.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
-              </div>
+              <div className="px-2 pb-2">{data.ungrouped.map((s) => renderRow(s, null))}</div>
             </div>
           )}
         </div>

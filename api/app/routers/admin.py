@@ -1105,3 +1105,51 @@ async def remove_master_symbol(
         WatchlistItem.user_id == mid, func.upper(WatchlistItem.symbol) == sym))
     await db.commit()
     return {"ok": True, "symbol": sym}
+
+
+@router.post("/master-watchlist/group")
+async def create_master_group(
+    name: str = Query(..., description="new sector name"),
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new sector (group) on the master watchlist."""
+    from app.models.watchlist import WatchlistGroup
+    mid = await _master_id(db)
+    nm = (name or "").strip()
+    if not nm:
+        raise HTTPException(400, "name required")
+    dup = (await db.execute(
+        select(WatchlistGroup.id).where(WatchlistGroup.user_id == mid, func.lower(WatchlistGroup.name) == nm.lower())
+    )).scalar_one_or_none()
+    if dup:
+        raise HTTPException(409, "sector already exists")
+    maxord = (await db.execute(
+        select(func.coalesce(func.max(WatchlistGroup.sort_order), 0)).where(WatchlistGroup.user_id == mid)
+    )).scalar_one()
+    g = WatchlistGroup(user_id=mid, name=nm, sort_order=(maxord or 0) + 1, color="")
+    db.add(g)
+    await db.flush()
+    gid = g.id
+    await db.commit()
+    return {"ok": True, "id": gid, "name": nm}
+
+
+@router.patch("/master-watchlist/item")
+async def move_master_symbol(
+    symbol: str = Query(..., description="ticker to move"),
+    group_id: int | None = Query(None, description="target sector id; omit = ungrouped"),
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a master symbol into a different sector (group_id), or ungroup it (no group_id)."""
+    mid = await _master_id(db)
+    sym = (symbol or "").strip().upper()
+    item = (await db.execute(
+        select(WatchlistItem).where(WatchlistItem.user_id == mid, func.upper(WatchlistItem.symbol) == sym)
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(404, "symbol not on master")
+    item.group_id = group_id
+    await db.commit()
+    return {"ok": True, "symbol": sym, "group_id": group_id}
