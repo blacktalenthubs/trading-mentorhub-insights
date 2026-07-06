@@ -7,8 +7,9 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
   Users, Send, RefreshCw, Crown, Search, ChevronDown, ChevronRight,
-  Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus,
+  Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus, Download,
 } from "lucide-react";
+import { useAuthStore } from "../stores/auth";
 
 // ───────────────────────── types ─────────────────────────
 interface UserInfo {
@@ -259,6 +260,25 @@ function ActivityPanel({ data }: { data: RecentActivity | null }) {
       )}
     </Panel>
   );
+}
+
+async function downloadTV(endpoint: string, filename: string) {
+  try {
+    const token = useAuthStore.getState().accessToken;
+    const res = await fetch(endpoint, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) return;
+    const body = await res.text();
+    const url = URL.createObjectURL(new Blob([body], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    /* best-effort */
+  }
 }
 
 const SECTIONS = [
@@ -641,7 +661,19 @@ function MasterWatchlistPanel() {
     finally { setBusy(false); }
   };
   return (
-    <Panel title={`Master watchlist — platform universe${data ? ` (${data.count})` : ""}`} icon={<Crown size={15} className="text-accent" />}>
+    <Panel
+      title={`Master watchlist — platform universe${data ? ` (${data.count})` : ""}`}
+      icon={<Crown size={15} className="text-accent" />}
+      action={
+        <button
+          onClick={() => downloadTV("/api/v1/admin/watchlist-union/export", "all_users_union_tradingview.txt")}
+          className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary"
+          title="Download the UNION of every user's watchlist — the full firing universe — as a TradingView import file"
+        >
+          <Download size={12} /> Export all users → TV
+        </button>
+      }
+    >
       <p className="text-[11px] text-text-faint mb-3">
         The universe the scanner fires on + the Sectors template users copy from. Separate from your
         personal watchlist — you (as a user) only get alerts for symbols on <em>your own</em> list.
