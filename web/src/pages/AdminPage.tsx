@@ -192,11 +192,51 @@ function TierBadge({ tier, trialDays, trialExpired }: { tier: string; trialDays?
 }
 
 // ───────────────────────── page ─────────────────────────
+interface TrafficSources {
+  days: number;
+  sources: { source: string; visitors: number; visits: number }[];
+  campaigns: { campaign: string; source: string; visitors: number }[];
+}
+
+function TrafficSourcesPanel({ data }: { data: TrafficSources | null }) {
+  return (
+    <Panel title="Traffic sources" icon={<Eye size={15} className="text-accent" />} action={<span className="text-[11px] text-text-faint">where visitors come from · 30d</span>}>
+      {!data || data.sources.length === 0 ? (
+        <div className="text-xs text-text-faint">No source data yet — fills in once links with <span className="font-mono">?utm_source=…</span> are shared (or referrers arrive).</div>
+      ) : (
+        <>
+          <div className="grid gap-1.5">
+            {data.sources.map((srow) => (
+              <div key={srow.source} className="flex items-center justify-between text-[12px]">
+                <span className="capitalize text-text-secondary">{srow.source}</span>
+                <span className="font-mono text-text-primary">{srow.visitors} <span className="text-text-faint">visitors · {srow.visits} views</span></span>
+              </div>
+            ))}
+          </div>
+          {data.campaigns.length > 0 && (
+            <div className="mt-4">
+              <div className="text-[10px] text-text-faint uppercase tracking-wider mb-2">Campaign links</div>
+              <div className="flex flex-wrap gap-2">
+                {data.campaigns.map((c) => (
+                  <span key={c.campaign} className="text-[11px] px-2 py-0.5 rounded bg-surface-2 border border-border-subtle text-text-secondary">
+                    <span className="font-mono">{c.campaign}</span> · {c.source} · <span className="font-bold">{c.visitors}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Panel>
+  );
+}
+
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [health, setHealth] = useState<AlertHealth | null>(null);
   const [attribution, setAttribution] = useState<AttributionStats | null>(null);
+  const [trafficSrc, setTrafficSrc] = useState<TrafficSources | null>(null);
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -216,14 +256,16 @@ export default function AdminPage() {
       api.get<TrafficStats>("/admin/traffic").catch(() => null),
       api.get<AlertHealth>("/admin/alert-health").catch(() => null),
       api.get<{ users: { user_id: number; symbols: string[] }[] }>("/admin/watchlists").catch(() => null),
+      api.get<TrafficSources>("/admin/traffic-sources?days=30").catch(() => null),
     ])
-      .then(([s, u, a, t, h, w]) => {
+      .then(([s, u, a, t, h, w, ts]) => {
         setStats(s);
         setUsers(u.users);
         setTestHidden(u.test_hidden ?? 0);
         setAttribution(a);
         setTraffic(t);
         setHealth(h);
+        setTrafficSrc(ts);
         if (w) {
           const map: Record<number, string[]> = {};
           for (const row of w.users) map[row.user_id] = row.symbols;
@@ -263,6 +305,10 @@ export default function AdminPage() {
         >
           <RefreshCw size={13} /> Refresh
         </button>
+      </div>
+
+      <div className="mb-5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-[12px] text-text-secondary">
+        🧪 <b className="text-warning-text">Free test stage</b> — Pro paywall off; optimizing for signups · activation · feedback, not revenue.
       </div>
 
       {/* ── Traffic ── */}
@@ -306,9 +352,11 @@ export default function AdminPage() {
         )}
       </Panel>
 
+      <TrafficSourcesPanel data={trafficSrc} />
+
       {/* ── Growth ── */}
       {stats && (
-        <Panel title="Growth & revenue" icon={<TrendingUp size={15} className="text-bullish-text" />}>
+        <Panel title="Growth" icon={<TrendingUp size={15} className="text-bullish-text" />}>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard label="Total users" value={stats.total_users} icon={<Users size={13} className="text-accent" />} />
             <StatCard label="Signups 7d" value={stats.signups_7d} sub={`${stats.signups_30d} in 30d`} icon={<UserPlus size={13} className="text-bullish-text" />} />
