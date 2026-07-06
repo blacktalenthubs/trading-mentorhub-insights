@@ -133,6 +133,29 @@ async def register(
     refresh_token = _create_refresh_token(user.id)
     _set_refresh_cookie(response, refresh_token)
 
+    # Best-effort ops ping: notify admins on a new signup (launch stage). Wrapped so a push
+    # failure never blocks registration.
+    try:
+        from app.services.push_service import send_push_to_user
+        from app.dependencies import ADMIN_EMAILS
+        arows = (await db.execute(
+            text("SELECT id FROM users WHERE lower(email) = ANY(:emails)"),
+            {"emails": [e.lower() for e in ADMIN_EMAILS]},
+        )).fetchall()
+        admin_ids = [r[0] for r in arows]
+        if admin_ids:
+            trows = (await db.execute(
+                text("SELECT token FROM device_tokens WHERE user_id = ANY(:ids) "
+                     "AND platform = 'ios' AND token IS NOT NULL"),
+                {"ids": admin_ids},
+            )).fetchall()
+            toks = [r[0] for r in trows]
+            if toks:
+                src = user.attribution_source or "direct"
+                await send_push_to_user(toks, "🟢 New signup", f"{user.email} · via {src}")
+    except Exception:
+        pass
+
     return AuthResponse(
         access_token=access_token,
         refresh_token=refresh_token,  # mobile clients store this; cookie still set for web
