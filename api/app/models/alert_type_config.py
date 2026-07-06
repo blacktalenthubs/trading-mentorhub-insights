@@ -122,9 +122,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
     # heavy volume. Default OFF — record + watch the count before delivering.
-    ("staged_pdl_break", "PDL break — index short (volume)", "Index shorts", False),
-    ("staged_pdh_rejection", "PDH rejection — index short (volume)", "Index shorts", False),
-    ("pdh_fail_short", "PDH failed break — accepted above PDH then lost it (short the loss, stop = PDH reclaim) · allowlist only", "Index shorts", False),
+    ("staged_pdl_break", "PDL break — lost the prior-day low on volume", "Short", False),
+    ("staged_pdh_rejection", "PDH rejection — rejected at the prior-day high on volume", "Short", False),
+    ("pdh_fail_short", "PDH failed break — accepted above PDH then lost it (short the loss, stop = PDH reclaim)", "Short", False),
 
     # 4h reclaim — long-only now (rc_4h_short RETIRED 2026-06-29 → OBSOLETE; the only
     # shorts we keep are the structural PDL break + PDH rejection). Both default OFF.

@@ -160,6 +160,15 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        # Migration: per-user SHORT allowlist.
+        for col_def in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS short_symbols VARCHAR(2000) DEFAULT ''",
+        ]:
+            try:
+                await conn.execute(text(col_def))
+            except Exception:
+                pass
+
         # Migration: swing alert refresh columns
         for col_def in [
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS setup_level REAL",

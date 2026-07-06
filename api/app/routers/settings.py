@@ -197,6 +197,34 @@ async def update_market_gate(
     return _build_market_gate_response(user)
 
 
+class ShortAllowlistBody(BaseModel):
+    symbols: str = ""
+
+
+@router.get("/short-allowlist")
+async def get_short_allowlist(user: User = Depends(get_current_user)):
+    """This user's SHORT allowlist — which symbols they want short signals for. Empty = their
+    whole watchlist (a short flows for any watched name). Short alert types default OFF; enable
+    them + set (or leave blank) this list to control which names can short."""
+    return {"symbols": getattr(user, "short_symbols", "") or ""}
+
+
+@router.put("/short-allowlist")
+async def update_short_allowlist(
+    body: ShortAllowlistBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    syms: list[str] = []
+    for part in (body.symbols or "").split(","):
+        t = part.strip().upper()
+        if t and t not in syms:
+            syms.append(t)
+    user.short_symbols = ",".join(syms)
+    await db.flush()
+    return {"symbols": user.short_symbols}
+
+
 # --- Per-Alert-Type Channel Routing ---
 
 

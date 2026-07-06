@@ -53,6 +53,9 @@ class User(Base):
     # OFF before 2026-06-25; flipped to default ON + backfilled existing users.)
     market_gate_enabled: Mapped[bool] = mapped_column(Boolean, server_default="1", default=True)
     market_gate_exempt: Mapped[str] = mapped_column(String(2000), server_default="", default="")
+    # Per-user SHORT allowlist — which symbols the user wants short signals for. Empty = their
+    # whole watchlist (a short flows for any watched name); set = only these. Short types default OFF.
+    short_symbols: Mapped[str] = mapped_column(String(2000), server_default="", default="")
 
     # Attribution — captured at signup from UTM params
     attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
