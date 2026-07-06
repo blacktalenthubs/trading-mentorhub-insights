@@ -19,6 +19,8 @@ import {
   useWatchlist,
   useWatchlistGroups,
   useSectorsWatchlist,
+  useMasterWatchlistView,
+  useMe,
   useAddSymbol,
   useCopySectorsWatchlist,
   useRemoveSymbol,
@@ -1193,7 +1195,9 @@ export default function TradingPageV2() {
     return localStorage.getItem("watchlist_focus_only") === "1";
   });
   const [signalsOnly, setSignalsOnly] = useState(false);
+  const [masterView, setMasterView] = useState(false);  // admin: show the master watchlist as the list
   function toggleFocusOnly() {
+    setMasterView(false);
     setFocusOnly((v) => {
       try { localStorage.setItem("watchlist_focus_only", v ? "0" : "1"); } catch {}
       if (!v) setSignalsOnly(false);   // Focus + Signals are mutually exclusive tabs
@@ -1201,11 +1205,15 @@ export default function TradingPageV2() {
     });
   }
   function toggleSignalsOnly() {
+    setMasterView(false);
     setSignalsOnly((v) => { if (!v) setFocusOnly(false); return !v; });
   }
 
   /* ── Editor's Picks (admin's public watchlist) ── */
   const { data: sectorsItems } = useSectorsWatchlist();
+  const { data: me } = useMe();
+  const isAdmin = !!me?.is_admin;
+  const { data: masterData } = useMasterWatchlistView(isAdmin && masterView);
   const copySectors = useCopySectorsWatchlist();
   // Default-expanded — only collapsed if the user has explicitly collapsed
   // it before (key set to "0"). New users see the picks immediately.
@@ -1435,6 +1443,48 @@ export default function TradingPageV2() {
     return [...groups.entries()].sort((a, b) => (orderByName.get(a[0]) ?? 98) - (orderByName.get(b[0]) ?? 98));
   }, [filteredSignals, watchlistItems, wlGroups]);
 
+  // Admin master-watchlist list — the curated universe grouped by sector, searchable/
+  // collapsible, click a symbol to chart it. Separate from the personal-watchlist machinery.
+  const renderMasterList = () => {
+    const q = searchFilter.toLowerCase();
+    return (masterData?.groups ?? []).map((g) => {
+      const syms = q ? g.symbols.filter((sy) => sy.toLowerCase().includes(q)) : g.symbols;
+      if (syms.length === 0) return null;
+      const key = "M:" + g.name;
+      const isCollapsed = collapsedGroups.has(key);
+      return (
+        <div key={key}>
+          <button
+            onClick={() => setCollapsedGroups((prev) => { const nx = new Set(prev); if (nx.has(key)) nx.delete(key); else nx.add(key); return nx; })}
+            className="flex w-full items-center gap-1 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-amber-400/80 hover:text-amber-400 transition-colors"
+          >
+            <ChevronRight className={`h-2.5 w-2.5 transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
+            {g.name}
+            <span className="ml-auto font-normal text-text-faint">{syms.length}</span>
+          </button>
+          {!isCollapsed && syms.map((sy) => {
+            const lp = livePrices[sy];
+            const chg = lp?.change_pct ?? null;
+            return (
+              <button
+                key={sy}
+                onClick={() => selectSymbol(sy)}
+                className={`flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors ${selectedSymbol === sy ? "bg-accent/15" : "hover:bg-surface-2"}`}
+              >
+                <span className="font-mono text-[11px] font-semibold text-text-primary">{sy}</span>
+                {chg != null && (
+                  <span className={`ml-auto font-mono text-[10px] ${chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                    {chg >= 0 ? "+" : ""}{chg.toFixed(2)}%
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      );
+    });
+  };
+
   const renderWlRow = (s: SignalResult) => (
     <CompactWatchlistRow
       key={s.symbol}
@@ -1568,6 +1618,19 @@ export default function TradingPageV2() {
               <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_4px_rgba(245,183,61,0.7)]" />
               Signals <span className="opacity-70 font-normal">{signalTodaySet.size}</span>
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => { setMasterView((v) => !v); setFocusOnly(false); setSignalsOnly(false); }}
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+                  masterView
+                    ? "bg-accent/15 text-accent border-accent/40"
+                    : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+                }`}
+                title="Master watchlist — the curated platform universe (admin-only)"
+              >
+                Master <span className="opacity-70 font-normal">{masterData?.count ?? sectorsItems?.length ?? 0}</span>
+              </button>
+            )}
             {focusSymbols.size > 0 && (
               <button
                 onClick={() => clearFocusMut.mutate()}
@@ -1644,7 +1707,9 @@ export default function TradingPageV2() {
           )}
           {/* Collapsed icon-rail → flat rows. Expanded → grouped by sector with
               collapsible headers (the mock's "groups mirror your watchlist sectors"). */}
-          {!watchlistExpanded
+          {masterView
+            ? renderMasterList()
+            : !watchlistExpanded
             ? filteredSignals?.map(renderWlRow)
             : groupedSignals.map(([groupName, rows]) => {
                 const isCollapsed = collapsedGroups.has(groupName);
