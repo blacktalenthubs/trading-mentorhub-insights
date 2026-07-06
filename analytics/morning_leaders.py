@@ -118,7 +118,7 @@ def _rsi_series(close, n=14):
     return 100 - 100 / (1 + rs)
 
 
-def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
+def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
     """TODAY'S FOCUS — top `top`, a MIX of three setups (user 2026-06-30):
       • RSI-30 reclaim — daily RSI was oversold (<30 in the last 5d) and crossed back
         ABOVE 30, turning up → the bottom is in (NOT a still-falling oversold).
@@ -139,7 +139,8 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
             lo = df["Low"].dropna(); v = df["Volume"].dropna(); o = df["Open"].dropna()
             if len(c) < 60:
                 continue
-            price = float(c.iloc[-1])
+            _lp = (live_px or {}).get(sym)
+            price = _lp if _lp else float(c.iloc[-1])
             advdol = float((c * v).tail(20).mean())
             if advdol < adv_floor:                      # too illiquid to day-trade
                 continue
@@ -182,7 +183,7 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
                 continue
 
             # ── 3) BREAKOUT / GAP-AND-GO — over the prior-day high + holding, or cleared the recent high
-            gapped = open_today > pdh and price >= prior_close
+            gapped = price > pdh and price >= prior_close
             broke_pdh = price > pdh and price > prior_close * 1.005
             broke_recent = price >= rhi * 0.999
             if (gapped or broke_pdh or broke_recent) and price > prior_close:
@@ -194,7 +195,7 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7):
                     "symbol": sym, "score": round(liq * 2 + 50 + (15 if gapped else 0), 1),
                     "type": "DAY", "setup": kind, "price": round(price, 2), "level": round(pdh, 2),
                     "entry": round(price, 2),
-                    "stop": round(min(pdh, open_today) * 0.998, 2) if gapped else round(pdl, 2),
+                    "stop": round(pdh * 0.998, 2) if gapped else round(pdl, 2),
                     "target": None, "rsi": round(rsi), "position": pos,
                     "reasons": [reason, advtxt],
                 })
@@ -243,6 +244,23 @@ def main() -> None:
                        auto_adjust=False, group_by="ticker", threads=True)
     mdata = yf.download(cands, period="8y", interval="1mo", progress=False,
                         auto_adjust=False, group_by="ticker", threads=True)
+
+    # Live/pre-market price overlay — the daily close is STALE at 8:35 ET (a gapped name still
+    # shows yesterday's close, e.g. AVGO 360 while pre-market is 376). Use the last 1m (prepost)
+    # print so entries + setup checks reflect the pre-market; falls back to the daily close.
+    live_px: dict = {}
+    try:
+        _ld = yf.download(cands, period="1d", interval="1m", prepost=True, progress=False,
+                          auto_adjust=False, group_by="ticker", threads=True)
+        for _s in cands:
+            try:
+                _col = (_ld[_s]["Close"] if len(cands) > 1 else _ld["Close"]).dropna()
+                if len(_col):
+                    live_px[_s] = float(_col.iloc[-1])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     picks = []
     for sym in cands:
@@ -321,7 +339,7 @@ def main() -> None:
     picks.sort(key=lambda p: (-p["score"], 0 if p["pattern"] == "MoBO" else 1))
     swing = picks[:args.top]
     # DAY-TRADE focus — liquid mega-caps defending a key level / oversold / near a breakout.
-    daytrade = _daytrade_picks(data, cands, market_ok, args.top)
+    daytrade = _daytrade_picks(data, cands, market_ok, args.top, live_px=live_px)
 
     date = datetime.utcnow().strftime("%Y-%m-%d")
     L = [f"# Today's Focus — {date}", ""]
