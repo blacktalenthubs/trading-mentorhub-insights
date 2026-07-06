@@ -28,6 +28,7 @@ import {
   MoreHorizontal,
   X,
   ChevronLeft,
+  Shield,
   type LucideIcon,
 } from "lucide-react";
 
@@ -90,6 +91,8 @@ function readCollapsed(): boolean {
 
 export default function AppLayout() {
   const user = useAuthStore((s) => s.user);
+  // Admin-only nav link — the /admin console has no public link; gate on is_admin (ADMIN_EMAILS).
+  const adminNav: NavItem[] = user?.is_admin ? [...NAV_ITEMS, { to: "/admin", label: "Admin", icon: Shield }] : NAV_ITEMS;
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
   const { isTrial, trialDaysLeft, tier } = useFeatureGate();
@@ -167,7 +170,7 @@ export default function AppLayout() {
           </div>
 
           <div className="flex flex-col gap-1 w-full px-2">
-            {NAV_ITEMS.map((item) => {
+            {adminNav.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink
