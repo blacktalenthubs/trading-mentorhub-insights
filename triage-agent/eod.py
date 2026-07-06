@@ -376,7 +376,7 @@ def run_eod_recap(send: bool = True) -> dict:
     morning = load_morning_picks()
 
     # Build symbol set: indices + ETFs + watchlist + morning picks
-    groups = premarket.load_watchlist_groups(TRIAGE_USER_ID)
+    groups = premarket.load_watchlist_groups(premarket.report_user_id())
     watchlist_syms = sorted({s for syms in groups.values() for s in syms})
     pick_syms = [p["symbol"] for p in (morning or {}).get("picks", [])]
     all_syms = list(set(premarket.INDICES + [premarket.VIX_SYMBOL] +
