@@ -76,6 +76,7 @@ export default function PublicPerformancePage() {
 
             <div>
               <div className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-amber-400">Recent alerts</div>
+              <p className="mb-2 text-[10.5px] leading-snug text-text-faint">Each alert is scored only on price <b className="text-text-muted">after it fired</b> — the small time under <b className="text-text-muted">Entry</b> is when it fired, under <b className="text-text-muted">Peak</b> is when the high printed. A move that happened before entry never counts.</p>
               <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-2">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
@@ -88,10 +89,10 @@ export default function PublicPerformancePage() {
                             <tr key={`${a.symbol}-${i}`} className="border-t border-border-subtle font-mono">
                               <td className="px-3 py-2 text-left font-bold">{a.symbol}</td>
                               <td className="px-3 py-2 text-left font-sans text-[11px] text-text-muted">{a.pattern}</td>
-                              <td className="px-3 py-2 text-right">{a.entry.toFixed(2)}</td>
+                              <td className="px-3 py-2 text-right">{a.entry.toFixed(2)}{a.alert_et && <span className="block text-[9px] font-normal text-text-faint">{a.alert_et}</span>}</td>
                               <td className="px-3 py-2 text-right text-bullish-text">{a.intraday_high.toFixed(2)}</td>
                               <td className="px-3 py-2 text-right">{a.eod_close.toFixed(2)}</td>
-                              <td className="px-3 py-2 text-right text-bullish-text">{pct(a.mfe_pct)}</td>
+                              <td className="px-3 py-2 text-right text-bullish-text">{pct(a.mfe_pct)}{a.mfe_et && <span className="block text-[9px] font-normal text-text-faint">@ {a.mfe_et}</span>}</td>
                               <td className={`px-3 py-2 text-right text-[11px] font-semibold ${a.result === "WIN" ? "text-bullish-text" : "text-bearish-text"}`}>{a.open ? "· open" : a.result === "WIN" ? "✓ WIN" : "✗ LOSS"}</td>
                             </tr>
                           ))}
