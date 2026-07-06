@@ -927,15 +927,14 @@ function SignalFeedTab({
               })()}
             </div>
 
-            {/* Plain-English meaning. Prefer the alert's own note (a.message) — it names the exact
-                level/rail the setup fired on, e.g. "ORB held — ORH 182.40 tested and held". Fall
-                back to the generic per-type blurb for AI scans / alerts with no note. */}
-            {(() => {
-              const why = a.message?.trim() || setupBlurb(a.alert_type);
-              return why ? (
-                <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">{why}</p>
-              ) : null;
-            })()}
+            {/* plain-English meaning — what the setup IS, so jargon ("Rc 4h Hrec") isn't the only
+                label. Uses the curated per-type blurb; a.message is an unreliable "[TV] type (tf)"
+                fallback for NOT_SENT alerts, so it is NOT preferred here. */}
+            {setupBlurb(a.alert_type) && (
+              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">
+                {setupBlurb(a.alert_type)}
+              </p>
+            )}
 
             {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
             {a.entry != null ? (
