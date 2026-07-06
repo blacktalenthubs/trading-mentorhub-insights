@@ -434,7 +434,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"premarket" | "day_trade" | "position">("day_trade");
+  const [view, setView] = useState<"premarket" | "alerts">("alerts");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -497,10 +497,6 @@ function SignalFeedTab({
   // (confluence_collapsed) and the Spec 67 entry/time dedup drops (dedup_cooldown /
   // dedup_chase) are dropped from the feed — collapsed to the first/best entry.
   // styleOf falls back to day_trade for old rows.
-  const styleOf = (a: Alert) => (a.style ?? "day_trade");
-  // Panels group by HOLDING period: day_trade intraday; swing + long_term MERGED into
-  // "position" (both are hold-overnight plays, managed the same). Style tags kept per-card.
-  const panelOf = (a: Alert) => (styleOf(a) === "day_trade" ? "day_trade" : "position");
   // CLEAN FEED (2026-07-02): the panels show DELIVERED alerts ONLY (suppressed_reason IS NULL).
   // Everything recorded-but-not-delivered — NOT SENT gate catches (type off / SPY gate / grade /
   // allowlist) AND dedup-collapsed — is hidden by default and revealed by the toggle for review,
@@ -512,13 +508,9 @@ function SignalFeedTab({
   const collapsedCount = (alerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && !!a.suppressed_reason,
   ).length;
-  const styleCounts = feedAllRaw.reduce(
-    (acc, a) => { const p = panelOf(a); acc[p] = (acc[p] ?? 0) + 1; return acc; },
-    { day_trade: 0, position: 0 } as Record<string, number>,
-  );
-  // The SELECTED panel's alerts. Premarket is its own ISOLATED channel (rendered from
-  // pmSignals, not the RTH feed) so it never mixes with day/position alerts.
-  const feedAlerts = view === "premarket" ? [] : feedAllRaw.filter((a) => panelOf(a) === view);
+  // The SELECTED feed. Premarket is its own ISOLATED channel (from pmSignals); "alerts" is the
+  // full RTH feed — day-trade + position/swing merged into one for quick scanning.
+  const feedAlerts = view === "premarket" ? [] : feedAllRaw;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -624,7 +616,7 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["premarket", "Premarket"], ["day_trade", "Day Trade"], ["position", "Position"]] as const).map(([id, label], i) => (
+          {([["premarket", "Premarket"], ["alerts", "Alerts"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
@@ -633,7 +625,7 @@ function SignalFeedTab({
                 : "Delivered signals of this style. Recorded-but-not-sent (NOT SENT + deduped) are hidden — use the review toggle to audit them."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : (styleCounts[id] ?? 0)}</span>
+              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : feedAllRaw.length}</span>
             </button>
           ))}
         </div>
@@ -830,8 +822,8 @@ function SignalFeedTab({
         <div className="flex-1 flex items-center justify-center">
           <p className="text-xs text-text-faint">
             {q
-              ? `No ${q} ${view === "day_trade" ? "day-trade" : "position"} alerts`
-              : `No ${view === "day_trade" ? "day-trade" : "position"} alerts this session`}
+              ? `No ${q} alerts`
+              : `No alerts this session`}
           </p>
         </div>
       ) : (
