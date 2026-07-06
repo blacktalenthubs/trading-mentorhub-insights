@@ -691,11 +691,11 @@ function MasterWatchlistPanel() {
       {!data ? (
         <div className="text-[12px] text-text-faint">Loading…</div>
       ) : (
-        <div className="space-y-3">
+        <div className="columns-1 gap-3 sm:columns-2 lg:columns-3 xl:columns-4">
           {data.groups.map((g) => (
-            <div key={g.id}>
-              <div className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: g.color || undefined }}>
-                {g.name} <span className="text-text-faint font-normal">{g.symbols.length}</span>
+            <div key={g.id} className="mb-3 break-inside-avoid rounded-xl border border-border-subtle bg-surface-0/40 p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: g.color || undefined }}>
+                {g.name} <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{g.symbols.length}</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {g.symbols.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
@@ -703,9 +703,9 @@ function MasterWatchlistPanel() {
             </div>
           ))}
           {data.ungrouped.length > 0 && (
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide mb-1 text-text-muted">
-                Ungrouped <span className="text-text-faint font-normal">{data.ungrouped.length}</span>
+            <div className="mb-3 break-inside-avoid rounded-xl border border-border-subtle bg-surface-0/40 p-3">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-text-muted">
+                Ungrouped <span className="rounded bg-surface-3 px-1.5 text-[10px] font-normal text-text-faint">{data.ungrouped.length}</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {data.ungrouped.map((s) => <SymChip key={s} sym={s} onRemove={() => remove(s)} busy={busy} />)}
