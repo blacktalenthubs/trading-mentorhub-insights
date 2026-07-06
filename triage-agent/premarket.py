@@ -285,6 +285,23 @@ def _load_telegram_chat_ids() -> list[str]:
     return out
 
 
+def report_user_id() -> int:
+    """Watchlist to base platform reports on = the MASTER curated universe
+    (master@busytradersdesk — the ~82-name platform list that grows as the admin adds), NOT the
+    triage worker's personal account. Decoupled from TRIAGE_USER_ID (the worker identity) so the
+    two don't collide. Falls back to TRIAGE_USER_ID if the master account is absent."""
+    try:
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE lower(email)=lower('master@busytradersdesk')")
+                row = cur.fetchone()
+                if row:
+                    return int(row[0])
+    except Exception:
+        pass
+    return TRIAGE_USER_ID
+
+
 def load_watchlist_groups(user_id: int) -> dict[str, list[str]]:
     """Returns {group_name: [symbols]} for the user's watchlist."""
     out: dict[str, list[str]] = {}
@@ -746,7 +763,7 @@ def run_premarket_brief(send: bool = True) -> dict:
     logger.info("premarket: starting brief at %s", et.isoformat())
 
     # 1. Build symbol list
-    groups = load_watchlist_groups(TRIAGE_USER_ID)
+    groups = load_watchlist_groups(report_user_id())
     watchlist_syms = sorted({s for syms in groups.values() for s in syms})
     all_syms = list(set(INDICES + [VIX_SYMBOL] + SECTOR_ETFS + watchlist_syms))
 
