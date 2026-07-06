@@ -2350,7 +2350,8 @@ export interface ScoredAlert {
   pattern: string;
   style: string;            // "Day" | "Swing" | "Long"
   session_date: string;
-  alert_et: string | null;
+  alert_et: string | null;         // ET time the alert fired (entry)
+  mfe_et?: string | null;           // ET time the favorable peak printed — proves it came AFTER entry
   entry: number;
   stop: number;
   target: number | null;
