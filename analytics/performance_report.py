@@ -195,13 +195,13 @@ def score_day(alert):
     out = score(alert["entry"], alert["stop"], alert["target"], alert["direction"],
                 zip(win["High"], win["Low"], win["Close"]))
     if out and at:
-        # Timestamp the favorable extreme (the MFE bar) so the UI can PROVE the move came
-        # AFTER entry — long peaks at the highest high, short at the lowest low.
-        long = (alert.get("direction") or "").upper() in ("BUY", "LONG")
+        # Timestamp the intraday PATH (entry / high / low / close) so the UI can PROVE the
+        # favorable move came AFTER the alert fired — a high before entry never counts.
         try:
-            peak_ts = win["High"].idxmax() if long else win["Low"].idxmin()
             out["entry_et"] = at
-            out["mfe_et"] = peak_ts.strftime("%H:%M")
+            out["hi_et"] = win["High"].idxmax().strftime("%H:%M")
+            out["lo_et"] = win["Low"].idxmin().strftime("%H:%M")
+            out["eod_et"] = win.index[-1].strftime("%H:%M")
         except Exception:
             pass
     return out
