@@ -279,6 +279,50 @@ async def export_watchlist_union(
     )
 
 
+@router.get("/master-watchlist/export")
+async def export_master_watchlist(
+    admin: User = Depends(_require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the MASTER watchlist (the curated ~82-name platform universe) as a TradingView-import
+    file — sectioned by group (###headers), crypto de-dashed (BTC-USD → BTCUSD). This is the master
+    universe only, NOT the union of every user's watchlist."""
+    from sqlalchemy import text
+    from fastapi.responses import Response
+    from collections import OrderedDict
+    from app.dependencies import MASTER_WATCHLIST_EMAIL
+    mrow = (await db.execute(text(
+        "SELECT id FROM users WHERE lower(email) = lower(:e)"
+    ), {"e": MASTER_WATCHLIST_EMAIL})).fetchone()
+    if not mrow:
+        raise HTTPException(status_code=404, detail="Master account not found")
+    uid = mrow[0]
+    rows = (await db.execute(text(
+        "SELECT UPPER(w.symbol) AS sym, COALESCE(NULLIF(wg.name, ''), 'Other') AS grp "
+        "FROM watchlist w LEFT JOIN watchlist_group wg ON wg.id = w.group_id "
+        "WHERE w.user_id = :uid AND w.symbol IS NOT NULL AND w.symbol <> '' "
+        "ORDER BY grp, sym"
+    ), {"uid": uid})).fetchall()
+    groups: "OrderedDict[str, list]" = OrderedDict()
+    seen: set = set()
+    for sym, grp in rows:
+        tv = sym.replace("-", "")
+        if tv in seen:
+            continue
+        seen.add(tv)
+        groups.setdefault(grp, []).append(tv)
+    lines: list = []
+    for grp, syms in groups.items():
+        lines.append("###" + grp)
+        lines.extend(syms)
+    body = ("\n".join(lines) + "\n") if lines else "###Watchlist\n"
+    return Response(
+        content=body,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="master_watchlist_tradingview.txt"'},
+    )
+
+
 @router.get("/activity")
 async def recent_activity(
     limit: int = 40,
