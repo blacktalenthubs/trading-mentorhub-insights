@@ -2320,9 +2320,8 @@ async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
 
 
 async def _filter_users_by_short_allowlist(db, users, sig, alert_type_full: str):
-    """Per-user SHORT allowlist. A user's allowlist (market_gate_exempt) is their
-    'my symbols' universe — so a SHORT/SELL only reaches a user when the symbol is on
-    THEIR allowlist. Drop a user from a short when their allowlist is NON-EMPTY and the
+    """Per-user SHORT allowlist (dedicated short_symbols field). A SHORT/SELL only reaches a
+    user when the symbol is on THEIR short_symbols list. Drop a user from a short when their allowlist is NON-EMPTY and the
     symbol isn't on it. Empty allowlist ⇒ no restriction (every short flows, the prior
     behaviour). Longs/notices are unaffected here — the SPY gate handles longs; this is
     shorts only. Applies to ALL short types incl. rc_4h (unlike the global short_symbols
@@ -2335,7 +2334,7 @@ async def _filter_users_by_short_allowlist(db, users, sig, alert_type_full: str)
     sym = (sig.symbol or "").upper()
     ids = [u.id for u in users]
     rows = (await db.execute(
-        select(_User.id, _User.market_gate_exempt).where(_User.id.in_(ids))
+        select(_User.id, _User.short_symbols).where(_User.id.in_(ids))
     )).all()
     dropped: set[int] = set()
     for uid, allow in rows:

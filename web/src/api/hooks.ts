@@ -2285,6 +2285,25 @@ export function useUpdateMarketGate() {
   });
 }
 
+// --- Per-user SHORT allowlist (which stocks get short signals; empty = whole watchlist) ---
+export interface ShortAllowlist {
+  symbols: string;  // comma-separated
+}
+export function useShortAllowlist() {
+  return useQuery({
+    queryKey: ["short-allowlist"],
+    queryFn: () => api.get<ShortAllowlist>("/settings/short-allowlist"),
+    staleTime: 60_000,
+  });
+}
+export function useUpdateShortAllowlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { symbols: string }) => api.put<ShortAllowlist>("/settings/short-allowlist", v),
+    onSuccess: (res) => qc.setQueryData(["short-allowlist"], res),
+  });
+}
+
 export function useToggleAlertConfig() {
   const qc = useQueryClient();
   return useMutation({
