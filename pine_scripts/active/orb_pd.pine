@@ -1,9 +1,9 @@
 // @version=5
 //
-// ORB+PD — the 15-minute opening range HIGH/LOW + PDH/PDL. Nothing else.
+// ORB+PD — the 30-minute opening range HIGH/LOW + PDH/PDL. Nothing else.
 // Four rails, one grammar (same as key_levels.pine so backtest reads match):
 //
-//   ORH / ORL — high/low of the first 15 minutes, drawn across the session
+//   ORH / ORL — high/low of the first 30 minutes, drawn across the session
 //               once the range completes.
 //   PDH / PDL — prior-day high/low, thick steplines across all history.
 //
@@ -29,11 +29,11 @@
 //
 // Load on a 15m REGULAR-SESSION chart (ETH would poison the OR and the PD rails).
 //
-indicator("ORB+PD · 15m OR + prior-day rails", "ORB+PD", overlay = true, max_labels_count = 30, max_lines_count = 300, max_boxes_count = 300)
+indicator("ORB+PD · 30m OR + prior-day rails", "ORB+PD", overlay = true, max_labels_count = 30, max_lines_count = 300, max_boxes_count = 300)
 
 // ── Inputs ────────────────────────────────────────────────────────────────────
 gS = "Signals"
-orMin  = input.int(15,  "Opening-range minutes", minval = 15, maxval = 60, step = 15, group = gS)
+orMin  = input.int(30,  "Opening-range minutes", minval = 15, maxval = 60, step = 15, group = gS)
 winMin = input.int(390, "Signal window minutes from the open (390 = all day)", minval = 30, maxval = 390, step = 30, group = gS)
 confN  = input.int(1,   "Confirm bars — consecutive closes beyond the rail", minval = 1, maxval = 3, group = gS)
 

@@ -588,7 +588,7 @@ if mb_e200
     alert(ma_pay("200E", ema200d), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ORB · 15-minute opening range (ORH/ORL) + PDH/PDL rails — ALERTS ONLY.
+// ORB · 30-minute opening range (ORH/ORL) + PDH/PDL rails — ALERTS ONLY.
 // Ported from orb_pd.pine (the VISUAL reference — load THAT for the on-chart markers).
 // rc.pine is bound to a 5m chart, so a new 15m bar's OHLC is read via request.security
 // and the machine advances (and can only FIRE) on a CONFIRMED 15m close.
@@ -596,7 +596,7 @@ if mb_e200
 // bound symbol; the BACKEND (orb_symbols allowlist in Settings) gates which DELIVER.
 // Load rc.pine on a REGULAR-SESSION (RTH) chart — ETH would poison the OR + PD rails.
 // ══════════════════════════════════════════════════════════════════════════════
-gORB = "ORB (15m OR + PDH/PDL) — alerts; symbols gated by the Settings allowlist"
+gORB = "ORB (30m OR + PDH/PDL) — alerts; symbols gated by the Settings allowlist"
 en_orb    = input.bool(true, "Emit ORB alerts (break/held/retest/exit)", group = gORB)
 orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail", minval = 1, maxval = 3, group = gORB)
 
@@ -605,12 +605,12 @@ orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail",
 orb_new15 = ta.change(time("15")) != 0
 var float orb_c15prev = na
 
-// OR = the first 15 MINUTES of the RTH session, built from NATIVE bars — works whether
+// OR = the first 30 MINUTES of the RTH session, built from NATIVE bars — works whether
 // rc.pine is on the 5m alert chart or you're viewing it on 15m. (request.security
 // mis-anchored the box across timeframes, which made it small/misplaced on the 15m view.)
 var int orb_sbar = 0
 orb_sbar := nD ? 0 : orb_sbar + 1
-orb_orMinBars = math.max(1, math.round(15.0 / (timeframe.in_seconds() / 60.0)))
+orb_orMinBars = math.max(1, math.round(30.0 / (timeframe.in_seconds() / 60.0)))
 var float orb_orh = na
 var float orb_orl = na
 if nD
