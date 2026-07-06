@@ -24,7 +24,8 @@ import { useFeatureGate } from "../hooks/useFeatureGate";
 import Card from "../components/ui/Card";
 import EarningsTab from "../components/EarningsTab";
 import DetailsTab from "../components/DetailsTab";
-import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays, LineChart } from "lucide-react";
+import { Plus, Loader2, Trash2, Star, ChevronDown, ChevronRight, Sparkles, FolderX, CalendarDays, LineChart, Download } from "lucide-react";
+import { useAuthStore } from "../stores/auth";
 
 type WatchlistTab = "symbols" | "earnings" | "details";
 
@@ -80,6 +81,28 @@ export default function WatchlistPage() {
     addSymbol.mutate(sym, { onSuccess: () => setInput("") });
   }
 
+  // Download the watchlist as a TradingView-import file (grouped ###sections, crypto de-dashed).
+  async function downloadForTV() {
+    try {
+      const token = useAuthStore.getState().accessToken;
+      const res = await fetch("/api/v1/watchlist/export/tv", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) return;
+      const body = await res.text();
+      const url = URL.createObjectURL(new Blob([body], { type: "text/plain" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "watchlist_tradingview.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   function handleCreateGroup(e: React.FormEvent) {
     e.preventDefault();
     const name = newGroupName.trim();
@@ -128,6 +151,13 @@ export default function WatchlistPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={downloadForTV}
+            className="flex items-center gap-2 rounded-lg border border-border-subtle px-3 py-2 text-xs font-medium text-text-secondary transition-colors hover:border-accent hover:text-text-primary active:scale-95"
+            title="Download your watchlist as a TradingView import file (grouped, crypto de-dashed)"
+          >
+            <Download className="h-3.5 w-3.5" /> TV export
+          </button>
           {/* Sync with editor's sectors — copies/refreshes admin's full group
               structure into the user's account. Idempotent: re-attaches any
               ungrouped existing symbols to the matching admin group. */}

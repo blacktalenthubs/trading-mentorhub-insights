@@ -309,6 +309,42 @@ async def copy_sectors_to_my_watchlist(
     return list(final)
 
 
+@router.get("/export/tv")
+async def export_watchlist_tv(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the caller's watchlist as a TradingView-import file — sectioned by group
+    (###Section headers), crypto de-dashed (BTC-USD → BTCUSD). In TV: watchlist ••• → Import list."""
+    from sqlalchemy import text
+    from fastapi.responses import Response
+    from collections import OrderedDict
+    rows = (await db.execute(text(
+        "SELECT UPPER(w.symbol) AS sym, COALESCE(NULLIF(wg.name, ''), 'Watchlist') AS grp "
+        "FROM watchlist w LEFT JOIN watchlist_group wg ON wg.id = w.group_id "
+        "WHERE w.user_id = :uid AND w.symbol IS NOT NULL AND w.symbol <> '' "
+        "ORDER BY grp, sym"
+    ), {"uid": user.id})).fetchall()
+    groups: "OrderedDict[str, list[str]]" = OrderedDict()
+    seen: set = set()
+    for sym, grp in rows:
+        tv = sym.replace("-", "")   # crypto de-dash for TV (BTC-USD -> BTCUSD)
+        if tv in seen:
+            continue
+        seen.add(tv)
+        groups.setdefault(grp, []).append(tv)
+    lines: list = []
+    for grp, syms in groups.items():
+        lines.append("###" + grp)
+        lines.extend(syms)
+    body = ("\n".join(lines) + "\n") if lines else "###Watchlist\n"
+    return Response(
+        content=body,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="watchlist_tradingview.txt"'},
+    )
+
+
 @router.get("", response_model=List[WatchlistItemResponse])
 async def get_watchlist(
     group_id: Optional[int] = Query(default=None, description="Filter by group; -1 for ungrouped"),
