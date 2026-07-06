@@ -261,6 +261,16 @@ function ActivityPanel({ data }: { data: RecentActivity | null }) {
   );
 }
 
+const SECTIONS = [
+  { id: "overview",  label: "Overview",         icon: Activity },
+  { id: "analytics", label: "Analytics",        icon: Eye },
+  { id: "engine",    label: "Alert Engine",     icon: TrendingUp },
+  { id: "watchlist", label: "Master Watchlist", icon: Crown },
+  { id: "users",     label: "Users",            icon: Users },
+  { id: "system",    label: "System",           icon: Wrench },
+] as const;
+type AdminTab = (typeof SECTIONS)[number]["id"];
+
 export default function AdminPage() {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
@@ -276,6 +286,7 @@ export default function AdminPage() {
   const [wlSymbols, setWlSymbols] = useState<Record<number, string[]>>({});
   const [showTest, setShowTest] = useState(false);
   const [testHidden, setTestHidden] = useState(0);
+  const [tab, setTab] = useState<AdminTab>("overview");
 
   function fetchData() {
     setLoading(true);
@@ -328,24 +339,44 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-text-primary">Admin</h1>
-        <button
-          onClick={fetchData}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-border-subtle text-text-secondary hover:border-accent/40 hover:text-text-primary"
-        >
-          <RefreshCw size={13} /> Refresh
-        </button>
-      </div>
+    <div className="flex h-full">
+      <aside className="hidden md:flex w-52 shrink-0 flex-col gap-0.5 border-r border-border-subtle bg-surface-1 p-3 overflow-y-auto">
+        <div className="flex items-center gap-2 px-2 py-2 mb-2 text-sm font-bold text-text-primary"><Crown size={16} className="text-accent" /> Admin Console</div>
+        {SECTIONS.map((sec) => (
+          <button key={sec.id} onClick={() => setTab(sec.id)} className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] font-medium transition-colors ${tab === sec.id ? "bg-accent text-white" : "text-text-muted hover:bg-surface-2 hover:text-text-primary"}`}>
+            <sec.icon size={15} /> {sec.label}
+          </button>
+        ))}
+      </aside>
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b border-border-subtle bg-surface-0/85 px-5 backdrop-blur-md">
+          <span className="text-[15px] font-bold text-text-primary">{SECTIONS.find((x) => x.id === tab)?.label}</span>
+          <div className="ml-auto flex items-center gap-2">
+            {health && <span className="flex items-center gap-1.5 rounded-full border border-bullish/30 bg-bullish/10 px-2.5 py-1 text-[11px] text-bullish-text"><span className="h-1.5 w-1.5 rounded-full bg-bullish" /> engine live</span>}
+            <button onClick={fetchData} className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-text-secondary hover:border-accent/40 hover:text-text-primary"><RefreshCw size={13} /> Refresh</button>
+          </div>
+        </div>
+        <div className="max-w-5xl space-y-4 px-5 py-5">
+          <div className="flex gap-1.5 overflow-x-auto pb-1 md:hidden">
+            {SECTIONS.map((sec) => (
+              <button key={sec.id} onClick={() => setTab(sec.id)} className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium ${tab === sec.id ? "bg-accent text-white" : "bg-surface-2 text-text-muted"}`}>{sec.label}</button>
+            ))}
+          </div>
+          <div className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-[12px] text-text-secondary">
+            🧪 <b className="text-warning-text">Free test stage</b> — Pro paywall off; optimizing for signups · activation · feedback, not revenue.
+          </div>
 
-      <div className="mb-5 rounded-lg border border-warning/30 bg-warning/5 px-4 py-2.5 text-[12px] text-text-secondary">
-        🧪 <b className="text-warning-text">Free test stage</b> — Pro paywall off; optimizing for signups · activation · feedback, not revenue.
+      {tab === "overview" && (<>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Users" value={stats?.total_users ?? 0} sub={`+${stats?.signups_7d ?? 0} this week`} icon={<Users size={13} className="text-accent" />} />
+        <StatCard label="Alerts today" value={stats?.alerts_today ?? 0} icon={<Activity size={13} className="text-purple-text" />} />
+        <StatCard label="Visits 7d" value={traffic?.visits_7d ?? 0} sub={`${traffic?.unique_7d ?? 0} unique`} icon={<Eye size={13} className="text-bullish-text" />} />
+        <StatCard label="Telegram" value={stats?.telegram_linked ?? 0} icon={<Send size={13} className="text-accent" />} />
       </div>
-
       <ActivityPanel data={activity} />
+      </>)}
 
+      {tab === "analytics" && (<>
       {/* ── Traffic ── */}
       <Panel
         title="Traffic"
@@ -425,6 +456,9 @@ export default function AdminPage() {
         </Panel>
       )}
 
+      </>)}
+
+      {tab === "engine" && (<>
       {/* ── Alert engine health ── */}
       <Panel title="Alert engine" icon={<Activity size={15} className="text-purple-text" />}>
         {!health ? (
@@ -483,9 +517,15 @@ export default function AdminPage() {
         )}
       </Panel>
 
+      </>)}
+
+      {tab === "watchlist" && (<>
       {/* ── Master watchlist (platform universe) ── */}
       <MasterWatchlistPanel />
 
+      </>)}
+
+      {tab === "users" && (<>
       {/* ── Users ── */}
       <Panel
         title={`Users (${users.length}${!showTest && testHidden ? ` · ${testHidden} test hidden` : ""})`}
@@ -554,9 +594,14 @@ export default function AdminPage() {
         </div>
       </Panel>
 
+      </>)}
+
+      {tab === "system" && (<>
       {/* ── Maintenance (collapsed) ── */}
       <MaintenanceDrawer />
-    </div>
+      </>)}
+        </div>
+      </div>
     </div>
   );
 }
