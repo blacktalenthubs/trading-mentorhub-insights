@@ -591,6 +591,18 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("long-term-finders job failed")
 
+    def _safe_swing_scan():
+        # Post-close: scan the MASTER universe on WEEKLY bars for the two validated swing setups
+        # (Character Change + Buying in Bases) → market_reports kind=swing_setups. Subprocess-
+        # isolated so a yfinance hang can't stall the loop; read-only; needs DATABASE_URL.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "swing_scan.py")
+            r = subprocess.run([sys.executable, script, "--persist"], timeout=600)
+            logger.info("swing-scan job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("swing-scan job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -629,6 +641,11 @@ def start_premarket_scheduler():
         _safe_ltf,
         CronTrigger(hour=LTF_HOUR_ET, minute=LTF_MINUTE_ET, day_of_week="mon", timezone=et_tz),
         id="long_term_finders", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_swing_scan,
+        CronTrigger(hour=16, minute=25, day_of_week="mon-fri", timezone=et_tz),
+        id="swing_scan", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",

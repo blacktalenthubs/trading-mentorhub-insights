@@ -1,0 +1,161 @@
+"""Weekly swing scanner — Character Change + Buying in Bases.
+
+Two setups validated in Python (specs/swing-patterns/spec.md) — R-based, in/out-of-sample:
+  • Character Change — rare weekly reversal (+0.48R): downtrend → volume surge + first 10w
+    reclaim + higher swing low. Entry = close, stop = below the 30w MA.
+  • Buying in Bases   — proven uptrend digesting, right side lifting (+0.22R): above 30w +
+    prior run + sideways + tightening range + higher lows + volume drying. Stop = below the
+    higher low.
+
+Runs EOD on the MASTER universe (the ~82-name discovery list), on WEEKLY bars. Reports the
+CURRENT signals (triggers on the last closed weekly bar). Publishes to market_reports so the
+app shows them; also prints JSON for the cron log.
+
+    DATABASE_URL=... python3 triage-agent/swing_scan.py --persist
+"""
+import argparse
+import json
+import os
+import warnings
+
+warnings.filterwarnings("ignore")
+
+MASTER_EMAIL = "master@busytradersdesk"
+
+
+def _dsn():
+    v = os.environ.get("DATABASE_URL")
+    if v:
+        return v
+    for line in open(os.path.join(os.path.dirname(__file__), "..", ".env")):
+        if line.startswith("DATABASE_URL"):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    raise SystemExit("no DATABASE_URL")
+
+
+def _master_symbols(dsn):
+    import psycopg2
+    conn = psycopg2.connect(dsn)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE lower(email)=lower(%s)", (MASTER_EMAIL,))
+    row = cur.fetchone()
+    if not row:
+        return []
+    cur.execute(
+        "SELECT DISTINCT UPPER(symbol) FROM watchlist WHERE user_id=%s AND symbol NOT LIKE '%%-USD'",
+        (row[0],),
+    )
+    syms = sorted(x[0] for x in cur.fetchall())
+    conn.close()
+    return syms
+
+
+def _r2(x):
+    return round(float(x), 2)
+
+
+def scan(symbols):
+    """Return (character_change[], base_buy[]) — signals on the latest closed weekly bar."""
+    import yfinance as yf
+
+    data = yf.download(symbols, period="3y", interval="1wk", progress=False,
+                       auto_adjust=True, group_by="ticker", threads=True)
+    cc, bb = [], []
+    multi = len(symbols) > 1
+    for s in symbols:
+        try:
+            df = (data[s] if multi else data).dropna()
+        except Exception:
+            continue
+        if len(df) < 45:
+            continue
+        C = df["Close"].values
+        V = df["Volume"].values
+        L = df["Low"].values
+        H = df["High"].values
+        s30 = df["Close"].rolling(30).mean().values
+        s10 = df["Close"].rolling(10).mean().values
+        va = df["Volume"].rolling(20).mean().values
+        i = len(C) - 1  # latest (developing) weekly bar
+        price = float(C[i])
+        if price <= 0 or s30[i] != s30[i]:
+            continue
+        liq = (C[i] * V[i]) >= 30e6
+
+        # ── Character Change ─────────────────────────────────────────────
+        below = (C[i - 10:i] < s30[i - 10:i]).any()
+        volsurge = V[i] > 1.7 * va[i]
+        reclaim = C[i] > s10[i] and C[i - 1] <= s10[i - 1]
+        upweek = C[i] > C[i - 1]
+        hl_cc = L[max(0, i - 4):i + 1].min() > L[max(0, i - 12):i - 4].min()
+        if below and volsurge and reclaim and upweek and hl_cc:
+            stop = min(L[i], s30[i]) * 0.99
+            if stop < price:
+                cc.append({
+                    "symbol": s, "setup": "Character Change", "type": "SWING",
+                    "entry": _r2(price), "stop": _r2(stop),
+                    "target": _r2(price + 2 * (price - stop)),
+                    "reasons": [
+                        "weekly reversal — first 10w reclaim off a downtrend",
+                        f"volume {V[i] / va[i]:.1f}x its 20w average (institutional)",
+                        "higher swing low (sellers exhausting)",
+                    ],
+                })
+
+        # ── Buying in Bases ──────────────────────────────────────────────
+        above = price > s30[i]
+        ran = price > 1.25 * min(C[i - 40:i - 15])
+        flat = abs(price / C[i - 10] - 1) < 0.12
+        hl_bb = L[max(0, i - 3):i + 1].min() > L[max(0, i - 8):i - 3].min()
+        vdry = V[max(0, i - 6):i + 1].mean() < 0.8 * V[max(0, i - 14):i - 6].mean()
+        tight = (max(H[i - 6:i + 1]) - min(L[i - 6:i + 1])) < 0.85 * (max(H[i - 14:i - 6]) - min(L[i - 14:i - 6]))
+        if above and ran and flat and hl_bb and vdry and tight and liq:
+            hlow = float(L[max(0, i - 3):i + 1].min())
+            stop = hlow * 0.985
+            if stop < price:
+                bb.append({
+                    "symbol": s, "setup": "Buying in Bases", "type": "SWING",
+                    "entry": _r2(price), "stop": _r2(stop),
+                    "target": _r2(price + 2 * (price - stop)),
+                    "reasons": [
+                        "proven uptrend digesting — base right side lifting",
+                        "tightening range + higher lows, volume drying up",
+                        f"stop just under the higher low ${hlow:.2f}",
+                    ],
+                })
+    cc.sort(key=lambda x: x["symbol"])
+    bb.sort(key=lambda x: x["symbol"])
+    return cc, bb
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--persist", action="store_true", help="upsert into market_reports[swing_setups]")
+    args = ap.parse_args()
+    dsn = _dsn()
+    syms = _master_symbols(dsn)
+    if not syms:
+        raise SystemExit("no master symbols")
+    cc, bb = scan(syms)
+    body = {"character_change": cc, "base_buy": bb, "universe": len(syms)}
+    print(f"scanned {len(syms)} names — Character Change: {len(cc)}, Buying in Bases: {len(bb)}")
+    print("---JSON---")
+    print(json.dumps(body))
+    if args.persist:
+        import psycopg2
+        from datetime import date
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS market_reports (
+            kind TEXT NOT NULL, session_date TEXT NOT NULL, body TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (kind, session_date))""")
+        cur.execute(
+            "INSERT INTO market_reports (kind, session_date, body) VALUES ('swing_setups', %s, %s) "
+            "ON CONFLICT (kind, session_date) DO UPDATE SET body=EXCLUDED.body, created_at=NOW()",
+            (date.today().isoformat(), json.dumps(body)))
+        conn.commit()
+        print(f"[persisted swing_setups {date.today().isoformat()}]")
+
+
+if __name__ == "__main__":
+    main()
