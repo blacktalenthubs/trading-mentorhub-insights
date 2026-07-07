@@ -21,6 +21,8 @@ def trade_style(alert_type: str) -> str:
     a = (alert_type or "").replace("tv_", "")
     if a.startswith("gap"):
         return "Gap-and-go"
+    if a.startswith("weekly_rc") or a.startswith("monthly_rc") or a.startswith("staged_pwl"):
+        return "Day"   # a reclaim/level-hold is a day-trade tool, not a hold-for-days swing (2026-07-07)
     if a.startswith("weekly_") or a.startswith("monthly_") or "_sma200" in a or "_ema200" in a:
         return "Long hold"
     if (a.startswith("rsi_oversold") or a.startswith("swing_rsi") or a.startswith("ema_5_20")
