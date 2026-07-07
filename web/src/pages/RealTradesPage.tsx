@@ -108,7 +108,7 @@ export default function RealTradesPage() {
   const [gran, setGran] = useState<Gran>("weekly");
   const [idx, setIdx] = useState(0);
   const [q, setQ] = useState("");
-  const [styleF, setStyleF] = useState<"all" | "day" | "swing">("all");
+  const [styleF, setStyleF] = useState<"all" | "day" | "swing" | "crypto">("all");
   useEffect(() => { setIdx(0); }, [gran]);
 
   const periods = useMemo(() => buildPeriods(alerts, gran), [alerts, gran]);
@@ -139,10 +139,17 @@ export default function RealTradesPage() {
   };
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return inPeriod.filter((a) =>
-      (styleF === "all" || (styleF === "day" ? a.style === "Day" : a.style !== "Day")) &&
-      (!s || a.symbol.toLowerCase().includes(s)),
-    );
+    // Crypto (24/7, noisier) is NEVER merged with stocks — it lives in its own tab. Day/Swing/All
+    // are stocks-only; the Crypto tab shows crypto only. Detected by the -USD pair suffix.
+    return inPeriod.filter((a) => {
+      const cr = a.symbol.includes("-USD");
+      const ok =
+        styleF === "crypto" ? cr
+        : styleF === "day" ? (a.style === "Day" && !cr)
+        : styleF === "swing" ? (a.style !== "Day" && !cr)
+        : !cr;   // "all" = all STOCKS (crypto excluded)
+      return ok && (!s || a.symbol.toLowerCase().includes(s));
+    });
   }, [inPeriod, q, styleF]);
   const lb = useMemo(() => aggregate(filtered), [filtered]);
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
@@ -227,7 +234,7 @@ export default function RealTradesPage() {
               {q && <button onClick={() => setQ("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-faint hover:text-text-primary"><X className="h-4 w-4" /></button>}
             </div>
             <div className="flex gap-1 bg-surface-2 border border-border-subtle rounded-lg p-1">
-              {([["all", "All"], ["day", "Day trade"], ["swing", "Swing"]] as const).map(([v, l]) => (
+              {([["all", "All stocks"], ["day", "Day trade"], ["swing", "Swing"], ["crypto", "Crypto"]] as const).map(([v, l]) => (
                 <button key={v} onClick={() => setStyleF(v)}
                   className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${styleF === v ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-primary"}`}>{l}</button>
               ))}
