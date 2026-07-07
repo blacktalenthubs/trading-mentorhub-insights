@@ -12,7 +12,6 @@ import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
-import GapGoQueue from "../components/GapGoQueue";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
 
@@ -488,8 +487,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             </select>
           </div>
         )}
-        {/* Gap-and-Go Queue — top-3 quality gappers (self-hides when empty). */}
-        <GapGoQueue onChart={onChart} />
         {sections.map((s) => {
           const open = openSecs.has(s.id);
           return (
