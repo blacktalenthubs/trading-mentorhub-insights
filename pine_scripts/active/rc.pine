@@ -316,9 +316,9 @@ rc4_hrec = sweep_reclaim(h4p, en4_hrec and gate4_hrec, ok4, n4, true)
 rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
 rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD, true)
 rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
-rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW, true)
+rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW, false)  // require a CLOSE above the PWH to arm — a genuine reclaim, not a wick-touch (2026-07-06)
 rcM_long = sweep_reclaim(lMp, enM_long, okM, nM)
-rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM, true)
+rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM, false)  // ditto — monthly RC-H needs a close-accept before the undercut+reclaim
 
 // ── CML reclaim/held — defend the CURRENT-month low intraday. The month low MOVES
 // (it drops as price makes new lows), so snapshot it at each NEW DAY (prior bar = no
