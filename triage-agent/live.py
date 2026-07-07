@@ -598,7 +598,7 @@ def start_premarket_scheduler():
         try:
             import subprocess
             script = str(Path(__file__).resolve().parent / "swing_scan.py")
-            r = subprocess.run([sys.executable, script, "--persist"], timeout=600)
+            r = subprocess.run([sys.executable, script, "--persist", "--emit"], timeout=600)
             logger.info("swing-scan job done (exit=%s)", r.returncode)
         except Exception:
             logger.exception("swing-scan job failed")

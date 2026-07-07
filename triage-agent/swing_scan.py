@@ -109,7 +109,9 @@ def scan(symbols):
         hl_bb = L[max(0, i - 3):i + 1].min() > L[max(0, i - 8):i - 3].min()
         vdry = V[max(0, i - 6):i + 1].mean() < 0.8 * V[max(0, i - 14):i - 6].mean()
         tight = (max(H[i - 6:i + 1]) - min(L[i - 6:i + 1])) < 0.85 * (max(H[i - 14:i - 6]) - min(L[i - 14:i - 6]))
-        if above and ran and flat and hl_bb and vdry and tight and liq:
+        near_high = price >= 0.85 * max(H[max(0, i - 52):i + 1])                                   # a base sits NEAR the highs (not a deep pullback)
+        tight_range = (max(H[max(0, i - 10):i + 1]) - min(L[max(0, i - 10):i + 1])) < 0.30 * price  # ...and is TIGHT (not a 59% range like IONQ)
+        if above and ran and flat and hl_bb and vdry and tight and liq and near_high and tight_range:
             hlow = float(L[max(0, i - 3):i + 1].min())
             stop = hlow * 0.985
             if stop < price:
@@ -128,9 +130,44 @@ def scan(symbols):
     return cc, bb
 
 
+def emit(dsn, cc, bb):
+    """Insert one alert row per NEW swing signal (deduped ~weekly) so the Performance page scores them.
+    user_id = master (the scan-universe owner); the types default OFF so nothing is delivered to users."""
+    import psycopg2
+    from datetime import date, timedelta
+    conn = psycopg2.connect(dsn)
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM users WHERE lower(email)=lower(%s)", (MASTER_EMAIL,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return 0
+    mid = row[0]
+    today = date.today().isoformat()
+    cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
+    inserted = 0
+    for sig, atype in ([(x, "character_change") for x in cc] + [(x, "base_buy") for x in bb]):
+        try:
+            cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
+                        (mid, sig["symbol"], atype, cutoff))
+            if cur.fetchone():
+                continue
+            cur.execute(
+                "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, target_1, session_date, trade_type, created_at) "
+                "VALUES (%s,%s,%s,'BUY',%s,%s,%s,%s,%s,'swing',NOW())",
+                (mid, sig["symbol"], atype, sig["entry"], sig["entry"], sig["stop"], sig["target"], today))
+            inserted += 1
+        except Exception:
+            conn.rollback()
+    conn.commit()
+    conn.close()
+    return inserted
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--persist", action="store_true", help="upsert into market_reports[swing_setups]")
+    ap.add_argument("--emit", action="store_true", help="insert scored alert rows (Performance page)")
     args = ap.parse_args()
     dsn = _dsn()
     syms = _master_symbols(dsn)
@@ -155,6 +192,8 @@ def main():
             (date.today().isoformat(), json.dumps(body)))
         conn.commit()
         print(f"[persisted swing_setups {date.today().isoformat()}]")
+    if args.emit:
+        print(f"[emitted {emit(dsn, cc, bb)} new swing alerts]")
 
 
 if __name__ == "__main__":

@@ -61,6 +61,8 @@ def classify(alert_type: str):
         ("rsi_oversold",    "RSI oversold",          "Day"),
         ("ema_trend",       "EMA trend",             "Swing"),
         ("ema_pullback",    "EMA trend",             "Swing"),
+        ("character_change", "Character Change",      "Swing"),
+        ("base_buy",        "Buying in Bases",       "Swing"),
     ]
     for key, label, style in T:
         if a.startswith(key):

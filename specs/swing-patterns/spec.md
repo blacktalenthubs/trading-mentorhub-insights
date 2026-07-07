@@ -39,6 +39,7 @@ Fires when a **proven uptrend** is digesting and the right side of the base star
 4. **Higher lows** — recent 3-week low above the prior 5-week low.
 5. **Volume drying** — recent 6-week avg volume < prior 8-week avg.
 - Filters: liquidity ≥ $50M/day; **dedup to one signal per base** (≥6 weeks since the last).
+- **Base-quality (added after live eyeball-test):** price within 15% of the 52w high AND last-10w range < 30% of price — so it's a real base near the highs, not a deep pullback (rejected IONQ at −42% off its high / 59% range; kept ANET at −4%). Costs ~0 forward edge (+0.25R OOS either way), gains trust.
 - **Entry:** on weakness near the higher low / base pivot · **Stop:** ~1.5% below the higher low.
 
 ## Build plan
