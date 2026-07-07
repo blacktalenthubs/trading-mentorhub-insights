@@ -38,116 +38,17 @@ function RegimeChip({ label, r }: { label: string; r?: SpyRegimeSnapshot }) {
    triage-agent. Premarket/EOD toggle defaults to whichever dropped most recently. ── */
 type SwingPick = {
   symbol: string; pattern?: string; type: string; price: number; buy_point: number;
-  buy_range: [number, number]; position: string; stop: number; state?: string; reasons: string[];
+  buy_range: [number, number]; position: string; stop: number; state?: string; reasons: string[]; score?: number;
 };
 type DayPick = {
   symbol: string; setup: string; type: string; price: number; entry: number; level: number;
-  stop: number; target?: number | null; rsi?: number; position: string; reasons: string[];
+  stop: number; target?: number | null; rsi?: number; position: string; reasons: string[]; score?: number;
 };
-
-function ReasonList({ reasons }: { reasons: string[] }) {
-  return (
-    <ul className="space-y-0.5">
-      {reasons.map((r, i) => (
-        <li key={i} className="flex gap-1.5 text-[12px] text-text-secondary">
-          <span className="text-accent">•</span><span>{r}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function SwingCard({ p, onChart }: { p: SwingPick; onChart: (s: string) => void }) {
-  return (
-    <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
-      <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
-        <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
-        {p.pattern && <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.pattern}</span>}
-        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
-        <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
-      </button>
-      <div className="space-y-2 px-3.5 pb-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
-          <span className="font-semibold text-bullish-text">Buy ${p.buy_point.toFixed(2)}</span>
-          <span className="text-text-muted">range ${p.buy_range[0].toFixed(2)}–${p.buy_range[1].toFixed(2)}</span>
-          <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
-        </div>
-        <ReasonList reasons={p.reasons} />
-      </div>
-    </div>
-  );
-}
-
-function DayCard({ p, onChart }: { p: DayPick; onChart: (s: string) => void }) {
-  return (
-    <div className="rounded-xl border border-border-subtle bg-surface-1 shadow-card overflow-hidden">
-      <button onClick={() => onChart(p.symbol)} className="flex w-full items-center gap-2 px-3.5 py-3 text-left transition-colors hover:bg-surface-2/40">
-        <span className="font-display text-[15px] font-bold text-text-primary">{p.symbol}</span>
-        <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">{p.setup}</span>
-        <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{p.position} size</span>
-        {p.rsi != null && <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-semibold text-text-muted">RSI {p.rsi}</span>}
-        <span className="ml-auto text-[11px] font-semibold text-accent">Analyze →</span>
-      </button>
-      <div className="space-y-2 px-3.5 pb-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] tabular-nums">
-          <span className="font-semibold text-bullish-text">Entry ${p.entry.toFixed(2)}</span>
-          <span className="text-bearish-text">Stop ${p.stop.toFixed(2)}</span>
-          {p.target != null && <span className="text-text-muted">Target ${p.target.toFixed(2)}</span>}
-        </div>
-        <ReasonList reasons={p.reasons} />
-      </div>
-    </div>
-  );
-}
 
 /* Today's Focus — two sections: SWING (monthly MoBO + RC-H breakouts) and DAY-TRADE
    (liquid mega-caps defending a key level / oversold / near a breakout). Symbol is
    clickable → Trading chart. Falls back to plain text for old (non-JSON) reports;
    reads the legacy `picks` as swing for reports persisted before the two-section split. */
-function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { market_ok?: boolean; swing?: SwingPick[]; daytrade?: DayPick[]; picks?: SwingPick[] } | null = null;
-  try { parsed = JSON.parse(body); } catch { parsed = null; }
-  if (!parsed || (!parsed.swing && !parsed.daytrade && !parsed.picks)) {
-    return (
-      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
-      </div>
-    );
-  }
-  const market_ok = parsed.market_ok;
-  const swing = parsed.swing ?? parsed.picks ?? [];
-  const daytrade = parsed.daytrade ?? [];
-  // One collapsed feed (day-trade + swing/position together) for quick scanning — day-trade
-  // setups first (the actionable ones), then any monthly-breakout swing names.
-  const items: ({ kind: "day"; p: DayPick } | { kind: "swing"; p: SwingPick })[] = [
-    ...daytrade.map((p) => ({ kind: "day" as const, p })),
-    ...swing.map((p) => ({ kind: "swing" as const, p })),
-  ];
-  return (
-    <div className="space-y-3">
-      <div className={`text-[12px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>
-        {market_ok ? "🟢 Market healthy — can size up" : "🔴 Market weak — be selective (half size)"}
-      </div>
-      <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Today's Focus</h3>
-        {items.length === 0 ? (
-          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
-            No clean setup at a key level today — patience.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-            {items.map((it) =>
-              it.kind === "day"
-                ? <DayCard key={`d-${it.p.symbol}`} p={it.p} onChart={onChart} />
-                : <SwingCard key={`s-${it.p.symbol}`} p={it.p} onChart={onChart} />
-            )}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
 type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; now?: number; status?: string; actionable?: boolean; reasons?: string[] };
 function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
@@ -289,25 +190,34 @@ function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: 
 /** Morning Spotlight — the single best pick as a hero card (top swing leader, else
  *  the top day trade). Pulls the real pick data; target = the day-trade's target, or
  *  a 2R measured move for a swing (no target in the report). Null when no picks. */
-function Spotlight({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
+type RankedPick = {
+  kind: "swing" | "day"; symbol: string; price: number; entry: number;
+  zone: [number, number] | null; stop: number; target: number; reasons: string[];
+  headline: string; isSwing: boolean; score: number;
+};
+
+// Combine swing + day-trade picks into ONE ranked list (by the morning engine's score) so we can
+// surface just the top 3 as spotlights — no stale full grid that's invalidated by the open.
+function rankedPicks(body?: string | null): RankedPick[] {
   let parsed: { swing?: SwingPick[]; daytrade?: DayPick[]; picks?: SwingPick[] } | null = null;
   try { parsed = body ? JSON.parse(body) : null; } catch { parsed = null; }
-  const s = (parsed?.swing ?? parsed?.picks ?? [])[0];
-  const d = (parsed?.daytrade ?? [])[0];
-  if (!s && !d) return null;
-  const isSwing = !!s;
-  const sym = isSwing ? s.symbol : d.symbol;
-  const price = isSwing ? s.price : d.price;
-  const entry = isSwing ? s.buy_point : d.entry;
-  const zone = isSwing ? s.buy_range : null;
-  const stop = isSwing ? s.stop : d.stop;
-  const reasons = (isSwing ? s.reasons : d.reasons) ?? [];
-  const risk = Math.max(entry - stop, 0.01);
-  const target = !isSwing && d.target != null ? d.target : entry + 2 * risk;
-  const rr = (target - entry) / risk;
-  const away = ((price - entry) / entry) * 100;   // + = already above the buy point
-  const headline = isSwing ? (s.pattern ? `${s.pattern} — at the buy point` : "Swing leader at the buy point")
-                           : (d.setup ?? "Day-trade leader at a key level");
+  if (!parsed) return [];
+  const out: RankedPick[] = [];
+  for (const s of parsed.swing ?? parsed.picks ?? []) {
+    const risk = Math.max(s.buy_point - s.stop, 0.01);
+    out.push({ kind: "swing", symbol: s.symbol, price: s.price, entry: s.buy_point, zone: s.buy_range ?? null, stop: s.stop, target: s.buy_point + 2 * risk, reasons: s.reasons ?? [], headline: s.pattern ? `${s.pattern} \u2014 at the buy point` : "Swing leader at the buy point", isSwing: true, score: s.score ?? 0 });
+  }
+  for (const d of parsed.daytrade ?? []) {
+    const risk = Math.max(d.entry - d.stop, 0.01);
+    out.push({ kind: "day", symbol: d.symbol, price: d.price, entry: d.entry, zone: null, stop: d.stop, target: d.target != null ? d.target : d.entry + 2 * risk, reasons: d.reasons ?? [], headline: d.setup ?? "Day-trade leader at a key level", isSwing: false, score: d.score ?? 0 });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
+function SpotlightCard({ it, rank, onChart }: { it: RankedPick; rank: number; onChart: (s: string) => void }) {
+  const risk = Math.max(it.entry - it.stop, 0.01);
+  const rr = (it.target - it.entry) / risk;
+  const away = ((it.price - it.entry) / it.entry) * 100;
   const Tile = ({ k, v, tone }: { k: string; v: string; tone?: string }) => (
     <div className="rounded-lg bg-surface-1 p-2">
       <div className="text-[9px] uppercase tracking-wide text-text-faint">{k}</div>
@@ -321,31 +231,47 @@ function Spotlight({ body, onChart }: { body?: string | null; onChart: (s: strin
     </div>
   );
   return (
-    <button onClick={() => onChart(sym)} className="block w-full overflow-hidden rounded-xl border border-accent/40 bg-accent/5 text-left transition-colors hover:border-accent/60">
+    <button onClick={() => onChart(it.symbol)} className="block w-full overflow-hidden rounded-xl border border-accent/40 bg-accent/5 text-left transition-colors hover:border-accent/60">
       <div className="flex items-center gap-2 border-b border-accent/20 bg-accent/10 px-3.5 py-2.5">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-accent">☀️ Spotlight</span>
-        <span className="ml-1 font-display text-[16px] font-bold text-text-primary">{sym}</span>
-        <span className="truncate text-[12px] text-text-muted">{headline}</span>
+        <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-bold text-bg-base">#{rank}</span>
+        <span className="font-display text-[16px] font-bold text-text-primary">{it.symbol}</span>
+        <span className="truncate text-[12px] text-text-muted">{it.headline}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           <span className="rounded border border-bullish-muted bg-bullish-subtle px-1.5 py-0.5 text-[10px] font-bold text-bullish-text">LONG</span>
-          <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{isSwing ? "SWING" : "DAY"}</span>
+          <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-bold text-text-secondary">{it.isSwing ? "SWING" : "DAY"}</span>
         </span>
       </div>
       <div className="space-y-3 p-3.5">
         <div className="grid grid-cols-3 gap-2">
-          <Tile k={`${sym} now`} v={`$${price?.toFixed(2)}`} />
-          <Tile k={isSwing ? "Buy point" : "Entry"} v={`$${entry.toFixed(2)}`} tone="text-warning-text" />
+          <Tile k={`${it.symbol} now`} v={`$${it.price?.toFixed(2)}`} />
+          <Tile k={it.isSwing ? "Buy point" : "Entry"} v={`$${it.entry.toFixed(2)}`} tone="text-warning-text" />
           <Tile k="Away" v={`${away >= 0 ? "+" : ""}${away.toFixed(1)}%`} tone={away >= 0 ? "text-bullish-text" : "text-text-muted"} />
         </div>
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-surface-3 sm:grid-cols-4">
-          <Cell k={isSwing ? "Buy zone" : "Entry"} v={zone ? `$${zone[0].toFixed(2)}–${zone[1].toFixed(2)}` : `$${entry.toFixed(2)}`} tone="text-warning-text" />
-          <Cell k="Target" v={`$${target.toFixed(2)}`} tone="text-bullish-text" />
-          <Cell k="Stop" v={`$${stop.toFixed(2)}`} tone="text-bearish-text" />
+          <Cell k={it.isSwing ? "Buy zone" : "Entry"} v={it.zone ? `$${it.zone[0].toFixed(2)}\u2013${it.zone[1].toFixed(2)}` : `$${it.entry.toFixed(2)}`} tone="text-warning-text" />
+          <Cell k="Target" v={`$${it.target.toFixed(2)}`} tone="text-bullish-text" />
+          <Cell k="Stop" v={`$${it.stop.toFixed(2)}`} tone="text-bearish-text" />
           <Cell k="Risk / Reward" v={`${rr.toFixed(1)}R`} tone="text-bullish-text" />
         </div>
-        {reasons.length > 0 && <p className="text-[11px] leading-snug text-text-muted">{reasons.slice(0, 2).join(" · ")}</p>}
+        {it.reasons.length > 0 && <p className="text-[11px] leading-snug text-text-muted">{it.reasons.slice(0, 2).join(" \u00b7 ")}</p>}
       </div>
     </button>
+  );
+}
+
+function TopSpotlights({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
+  let market_ok: boolean | undefined;
+  try { market_ok = body ? JSON.parse(body).market_ok : undefined; } catch { market_ok = undefined; }
+  const top = rankedPicks(body).slice(0, 3);
+  if (!top.length) return null;
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-accent">\u2600\ufe0f Top 3 spotlights</span>
+        {market_ok !== undefined && <span className={`text-[11px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>{market_ok ? "\ud83d\udfe2 healthy \u2014 size up" : "\ud83d\udd34 weak \u2014 half size"}</span>}
+      </div>
+      {top.map((it, i) => <SpotlightCard key={it.symbol + it.kind} it={it} rank={i + 1} onChart={onChart} />)}
+    </div>
   );
 }
 
@@ -387,12 +313,12 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
         <div className="space-y-4">
-          {/* the #1 pick as a hero, then the live premarket movers, then the full list */}
-          <Spotlight body={mf?.body} onChart={onChart} />
-          <PremarketStrip body={ps?.body} onChart={onChart} />
+          {/* Top 3 ranked spotlights + the live premarket movers. No stale full grid — those
+              entries invalidate by the open; the ranked spotlights + movers stay actionable. */}
           {mf
-            ? <FocusPicks body={mf.body} onChart={onChart} />
-            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Curated focus picks drop ~8:55 ET.</div>}
+            ? <TopSpotlights body={mf.body} onChart={onChart} />
+            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~8:55 ET.</div>}
+          <PremarketStrip body={ps?.body} onChart={onChart} />
         </div>
       ) },
     // ── CONTEXT — premarket read + EOD recap in ONE card. ──
