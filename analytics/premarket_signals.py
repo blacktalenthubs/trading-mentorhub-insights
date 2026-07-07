@@ -89,16 +89,9 @@ def evaluate(levels: dict, pm_price: float, pm_low: float, pm_high: float,
 
     # CML (current-month low) RETIRED 2026-07-02 — early in a month it collapses onto the
     # prior-day low (redundant/misleading). No longer emitted.
-    for lvl_key, atype, label in (
-        ("pdl", "staged_pdl_held", "prior-day low"),
-        ("pwl", "staged_pwl_held", "prior-week low"),
-        ("pml", "staged_pml_held", "prior-month low"),
-        ("w10", "weekly_10w_held", "10-week MA"),
-        ("w30", "weekly_30w_held", "30-week MA"),
-    ):
-        lvl = levels.get(lvl_key)
-        if lvl and _held(pm_price, pm_low, lvl, tol):
-            emit(atype, lvl, f"tagged & held the {label} premarket")
+    # Premarket = STRENGTH only (2026-07-07, user): breakouts, not support-holds. A stock sitting
+    # at its PWL/PML/10w/30w reads as "at a level after moving lower" — not what premarket is for.
+    # Only genuine BREAKS of a prior HIGH are emitted below.
     for lvl_key, atype, label in (
         ("pdh", "staged_pdh_break", "prior-day high"),
         ("pwh", "staged_pwh_break", "prior-week high"),
