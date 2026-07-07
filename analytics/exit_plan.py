@@ -26,8 +26,10 @@ def trade_style(alert_type: str) -> str:
     if a.startswith("weekly_") or a.startswith("monthly_") or "_sma200" in a or "_ema200" in a:
         return "Long hold"
     if (a.startswith("rsi_oversold") or a.startswith("swing_rsi") or a.startswith("ema_5_20")
-            or a.startswith("ma_bounce") or a.startswith("rsi_70")):
-        return "Swing"
+            or a.startswith("ema_trend") or a.startswith("ema_pullback")
+            or a.startswith("character_change") or a.startswith("base_buy")
+            or a.startswith("monthly_ma_reclaim") or a.startswith("rsi_70")):
+        return "Swing"   # ma_bounce dropped → it's a DAY trade; 20-EMA trend/base setups are the swings (2026-07-07)
     return "Day"  # levels (PDH/PDL/PWH/PWL…), rc_4h, ORL, pullback, etc.
 
 
