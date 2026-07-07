@@ -67,7 +67,7 @@ def passes_gap_filters(gap_pct: Optional[float], pm_dollar_vol: float, price: Op
                        price_min: float = PRICE_MIN) -> bool:
     if gap_pct is None or price is None:
         return False
-    return abs(gap_pct) >= gap_min and pm_dollar_vol >= vol_min and price >= price_min
+    return gap_pct >= gap_min and pm_dollar_vol >= vol_min and price >= price_min   # UP only — we're pro-long, no down gappers (user 2026-07-07)
 
 
 # ── Market-cap + sector gate (Finnhub /stock/profile2 — cloud-safe) ──
@@ -139,7 +139,7 @@ def gap_quality_score(e: dict) -> int:
     """
     import math
 
-    gap = abs(e.get("gap_pct") or 0.0)
+    gap = max(0.0, e.get("gap_pct") or 0.0)   # up-gaps only reach scoring
     if gap <= 8.0:
         gap_s = gap / 8.0 * 30.0
     else:                                   # taper the exhaustion zone, floor at 15
@@ -262,7 +262,7 @@ def refresh_premarket_gaps(session_factory) -> dict:
         # everything else (movers, most-actives, watchlist) must clear ≥ $3B or
         # it's dropped as a small cap. Walk the ranked list so we only hit
         # Finnhub until the board is full (bounded by LOOKUP_BUDGET).
-        entries.sort(key=lambda e: abs(e.get("gap_pct") or 0), reverse=True)
+        entries.sort(key=lambda e: e.get("gap_pct") or 0, reverse=True)   # biggest gap-UP first
         trusted = {s.upper() for s in MEGA_CAP_UNIVERSE} | {s.upper() for s in STATIC_UNIVERSE}
         LOOKUP_BUDGET = 80
         kept: list[dict] = []
