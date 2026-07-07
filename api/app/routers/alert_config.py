@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.alert_type_config import AlertTypeConfig, describe_alert_type
+from app.models.alert_type_config import AlertTypeConfig, describe_alert_type, style_for
 from app.models.alert_type_pref import UserAlertTypePref
 from app.models.user import User
 
@@ -62,6 +62,18 @@ CATEGORY_TO_GROUP: dict[str, str] = {
 # Notice = info-only context, NOT tradable setups. Default OFF; users opt in per item.
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"]
 
+_STYLE_GROUP = {"day_trade": "Day Trade", "swing": "Swing Trade", "long_term": "Long Term"}
+
+
+def _group_for(alert_type: str, category: str) -> str:
+    """The Settings bucket for a type. Info/context keeps its category group; tradable types follow
+    style_for() so a SHARED category (weekly_rc vs weekly_10w) splits correctly by hold-horizon
+    (2026-07-07 — reclaims are day trades, MA bounces are day trades, trend-MA holds are swings)."""
+    g = CATEGORY_TO_GROUP.get(category, "Other")
+    if g in ("Notice", "Other"):
+        return g
+    return _STYLE_GROUP.get(style_for(alert_type), g)
+
 
 class AlertConfigUpdate(BaseModel):
     enabled: bool
@@ -97,7 +109,7 @@ async def list_alert_config(
             "alert_type": r.alert_type,
             "label": r.label,
             "category": r.category,
-            "trade_group": CATEGORY_TO_GROUP.get(r.category, "Other"),
+            "trade_group": _group_for(r.alert_type, r.category),
             "enabled": enabled_by_type.get(r.alert_type, False),
             "description": describe_alert_type(r.alert_type),
         }
@@ -115,13 +127,13 @@ async def set_all_alert_config(
     buttons AND the per-category Enable/Disable (#281: pass category to flip just one
     group, e.g. the MA/EMA bounce alerts when the tape gets choppy). No category =
     every type. Takes effect on the next fired alert."""
-    q = select(AlertTypeConfig.alert_type)
     if body.category:
-        q = q.where(AlertTypeConfig.category == body.category)
+        types = (await db.execute(select(AlertTypeConfig.alert_type).where(AlertTypeConfig.category == body.category))).scalars().all()
     elif body.trade_group:
-        cats = [c for c, g in CATEGORY_TO_GROUP.items() if g == body.trade_group]
-        q = q.where(AlertTypeConfig.category.in_(cats))
-    types = (await db.execute(q)).scalars().all()
+        allrows = (await db.execute(select(AlertTypeConfig.alert_type, AlertTypeConfig.category))).all()
+        types = [r.alert_type for r in allrows if _group_for(r.alert_type, r.category) == body.trade_group]
+    else:
+        types = (await db.execute(select(AlertTypeConfig.alert_type))).scalars().all()
     for at in types:
         await _set_pref(db, user.id, at, body.enabled)
     return {"updated": len(types), "enabled": body.enabled, "category": body.category, "trade_group": body.trade_group}

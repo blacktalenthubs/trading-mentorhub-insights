@@ -725,6 +725,12 @@ function AlertTypesSection() {
   // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
   // whole style in one shot, not 45 toggles (2026-06-20).
   const GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"];
+  const GROUP_DESC: Record<string, string> = {
+    "Day Trade": "Out by the close — you sell it the same session at some point. Reclaims, ORB, MA bounces, gaps.",
+    "Swing Trade": "Held multiple days while the thesis stays good, above the 50-EMA. 20-EMA retest, 5/20 cross, RSI-30, bases, reversals, monthly-MA reclaim.",
+    "Long Term": "Position holds — weeks to months. Monthly box breakouts (MoBO), weekly 10w/30w MAs.",
+    "Notice": "Context only — not a tradable setup. Opt in per item if you want the heads-up.",
+  };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
     (grouped[t.trade_group ?? "Other"] ??= []).push(t);
@@ -755,13 +761,14 @@ function AlertTypesSection() {
           return (
             <div key={group}>
               {/* Group header + master toggle */}
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-1 flex items-center justify-between">
                 <div className="flex items-baseline gap-2">
                   <span className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</span>
                   <span className="text-[10px] text-text-faint">{onCount} of {items.length} on · group</span>
                 </div>
                 <Toggle on={onCount === items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
               </div>
+              {GROUP_DESC[group] && <p className="mb-3 text-[10.5px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>}
               <div className="space-y-4">
                 {clusters.map(([cluster, rows]) => (
                   <div key={cluster}>
