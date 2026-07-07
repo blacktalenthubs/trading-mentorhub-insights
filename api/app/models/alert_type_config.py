@@ -121,6 +121,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", False),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", False),
     ("monthly_ma_reclaim", "Monthly MA reclaim — pullback to a rising monthly 8/21-EMA in an uptrend, above the 50-EMA floor (position swing, validated +0.36R)", "Swing", False),
+    ("new_high_breakout", "52-week high breakout — closed through the annual high in an uptrend on volume (momentum, validated +0.22R)", "Swing", False),
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
