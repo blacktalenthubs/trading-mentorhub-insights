@@ -108,13 +108,63 @@ def _daily_ema50_floor(symbols):
     return out
 
 
-def scan_monthly(symbols, floor):
+def _monthly(symbols):
+    import yfinance as yf
+    return yf.download(symbols, period="max", interval="1mo", progress=False,
+                       auto_adjust=True, group_by="ticker", threads=True)
+
+
+def scan_mobo(symbols, floor, data=None):
+    """MoBO — monthly BOX breakout, validated +0.56R (64% win). Price closes above a LOCKED flat
+    multi-month ceiling (the base) + Stage-2 (above the 10-month EMA) + a volume pickup, above the
+    daily 50-EMA floor. Entry = the ceiling clear, stop = the base low. The 'catch the next MU/SNDK'."""
+    import numpy as np
+    data = _monthly(symbols) if data is None else data
+    N, MINFLAT = 4, 3
+    mb = []
+    multi = len(symbols) > 1
+    for s in symbols:
+        try:
+            df = (data[s] if multi else data).dropna()
+        except Exception:
+            continue
+        if len(df) < 12 or not floor.get(s, False):
+            continue
+        C = df["Close"].values; H = df["High"].values; L = df["Low"].values; V = df["Volume"].values
+        e10 = _ema(C, 10); i = len(C) - 1
+        if i < N + 1 or e10[i] != e10[i]:
+            continue
+        ceil = float(max(H[i - N:i])); blow = float(min(L[i - N:i]))
+        if ceil <= 0 or blow <= 0:
+            continue
+        depth = (ceil - blow) / ceil
+        flat = float(max(H[i - MINFLAT:i])) <= ceil * 1.005 and (H[i - N:i].max() - H[i - N:i].min()) / ceil < 0.10
+        va = float(V[i - N:i].mean())
+        brk = C[i] > ceil and C[i - 1] <= ceil and C[i] > e10[i] and V[i] > va   # close clears + Stage-2 + volume
+        if flat and brk and 0.03 <= depth <= 0.60:
+            entry = ceil; stop = blow; risk = entry - stop
+            if risk <= 0:
+                continue
+            mb.append({
+                "symbol": s, "setup": "MoBO breakout", "type": "SWING",
+                "entry": _r2(entry), "stop": _r2(stop), "target": _r2(entry + 2 * risk),
+                "now": _r2(float(C[i])), "actionable": True,
+                "status": "cleared the locked monthly base ceiling — position breakout",
+                "reasons": [
+                    f"closed above the locked flat {N}-month ceiling (${entry:.2f}) on volume",
+                    "Stage-2 (above the 10-month EMA) + above the daily 50-EMA floor",
+                    "monthly base breakout — the 'catch the next MU/SNDK' engine (validated +0.56R)",
+                ],
+            })
+    mb.sort(key=lambda x: x["symbol"])
+    return mb
+
+
+def scan_monthly(symbols, floor, data=None):
     """Monthly MA reclaim (M8/M21) — validated +0.36R. Price tags a RISING monthly 8-EMA (or 21-EMA)
     and holds above it, in an uptrend (above a rising monthly 21-EMA) AND above the daily 50-EMA floor.
     Fires ONLY the reclaim (at the zone); extended names (ANET) / below-MA names (PLTR) are NOT emitted."""
-    import yfinance as yf
-    data = yf.download(symbols, period="max", interval="1mo", progress=False,
-                       auto_adjust=True, group_by="ticker", threads=True)
+    data = _monthly(symbols) if data is None else data
     mr = []
     multi = len(symbols) > 1
     for s in symbols:
@@ -241,7 +291,7 @@ def scan(symbols, floor=None):
     return cc, bb
 
 
-def emit(dsn, cc, bb, mr=None):
+def emit(dsn, cc, bb, mr=None, mb=None):
     """Insert one alert row per NEW swing signal (deduped ~weekly) so the Performance page scores them.
     user_id = master (the scan-universe owner); the types default OFF so nothing is delivered to users."""
     import psycopg2
@@ -257,7 +307,7 @@ def emit(dsn, cc, bb, mr=None):
     today = date.today().isoformat()
     cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
     inserted = 0
-    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")]):
+    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")] + [(x, "monthly_box") for x in (mb or []) if x.get("actionable")]):
         try:
             cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
                         (mid, sig["symbol"], atype, cutoff))
@@ -286,9 +336,11 @@ def main():
         raise SystemExit("no master symbols")
     floor = _daily_ema50_floor(syms)                                    # daily 50-EMA trust floor
     cc, bb = scan(syms, floor)
-    mr = scan_monthly(syms, floor)
-    body = {"character_change": cc, "base_buy": bb, "monthly_ma_reclaim": mr, "universe": len(syms)}
-    print(f"scanned {len(syms)} names — Character Change: {len(cc)}, Buying in Bases: {len(bb)}, Monthly MA reclaim: {len(mr)}")
+    mdata = _monthly(syms)                                              # one monthly download for both monthly scanners
+    mr = scan_monthly(syms, floor, mdata)
+    mb = scan_mobo(syms, floor, mdata)
+    body = {"character_change": cc, "base_buy": bb, "monthly_ma_reclaim": mr, "mobo_breakout": mb, "universe": len(syms)}
+    print(f"scanned {len(syms)} names — CC: {len(cc)}, Bases: {len(bb)}, Monthly MA reclaim: {len(mr)}, MoBO breakout: {len(mb)}")
     print("---JSON---")
     print(json.dumps(body))
     if args.persist:
@@ -306,7 +358,7 @@ def main():
         conn.commit()
         print(f"[persisted swing_setups {date.today().isoformat()}]")
     if args.emit:
-        print(f"[emitted {emit(dsn, cc, bb, mr)} new swing alerts]")
+        print(f"[emitted {emit(dsn, cc, bb, mr, mb)} new swing alerts]")
 
 
 if __name__ == "__main__":

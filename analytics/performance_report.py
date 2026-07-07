@@ -65,6 +65,8 @@ def classify(alert_type: str):
         ("character_change", "Character Change",      "Swing"),
         ("base_buy",        "Buying in Bases",       "Swing"),
         ("monthly_ma_reclaim", "Monthly MA reclaim", "Swing"),
+        ("monthly_box",     "MoBO breakout",         "Swing"),
+        ("mobo_rch",        "MoBO RC-H",             "Swing"),
     ]
     for key, label, style in T:
         if a.startswith(key):
