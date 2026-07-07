@@ -2316,6 +2316,25 @@ export function useUpdateShortAllowlist() {
   });
 }
 
+// --- Per-user ORB allowlist (which stocks get opening-range alerts; empty = admin default) ---
+export interface OrbAllowlist {
+  symbols: string;
+}
+export function useOrbAllowlist() {
+  return useQuery({
+    queryKey: ["orb-allowlist"],
+    queryFn: () => api.get<OrbAllowlist>("/settings/orb-allowlist"),
+    staleTime: 60_000,
+  });
+}
+export function useUpdateOrbAllowlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { symbols: string }) => api.put<OrbAllowlist>("/settings/orb-allowlist", v),
+    onSuccess: (res) => qc.setQueryData(["orb-allowlist"], res),
+  });
+}
+
 export function useToggleAlertConfig() {
   const qc = useQueryClient();
   return useMutation({

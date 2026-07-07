@@ -22,6 +22,8 @@ import {
   useUpdateMarketGate,
   useShortAllowlist,
   useUpdateShortAllowlist,
+  useOrbAllowlist,
+  useUpdateOrbAllowlist,
   useRegimeConfig,
   useUpdateRegimeConfig,
   useMe,
@@ -35,6 +37,7 @@ import {
   ExternalLink, Loader2, DollarSign, Gift,
   Sun, Moon, Zap, ShieldCheck, X, Plus, Crosshair,
   TrendingDown,
+  Target,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 import { signalNotificationsEnabled, setSignalNotificationsEnabled } from "../hooks/useSignalNotifications";
@@ -640,6 +643,67 @@ function ShortAllowlistSection() {
 /* ── ORB allowlist — 15m OR + PDH/PDL family (admin, shared list) ──── */
 
 const ORB_ADMIN_EMAIL = "vbolofinde@gmail.com";
+function OrbUserAllowlistSection() {
+  const { data, isError } = useOrbAllowlist();
+  const { data: watchlist } = useWatchlist();
+  const update = useUpdateOrbAllowlist();
+  const [input, setInput] = useState("");
+  if (isError) return null;
+  const symbols = (data?.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const wlSuggestions = (watchlist ?? []).map((w) => w.symbol.toUpperCase()).filter((s) => !symbols.includes(s));
+  const addSymbol = () => {
+    const s = input.trim().toUpperCase();
+    setInput("");
+    if (!s || symbols.includes(s)) return;
+    update.mutate({ symbols: [...symbols, s].join(",") });
+  };
+  const removeSymbol = (s: string) => update.mutate({ symbols: symbols.filter((x) => x !== s).join(",") });
+  return (
+    <Section title="ORB signals — which stocks" icon={<Target className="h-4 w-4 text-accent" />}>
+      <p className="text-[12px] leading-relaxed text-text-muted mb-3">
+        Opening-range (ORB) alerts are <b>off by default</b> and <b>noisy</b> — turn the ORB types on in <b>Alert Types</b> above, then <b>add the exact names</b> you want ORB on here. <b>Empty</b> falls back to the platform default (index + a few leaders). ORB is opt-in by name.
+      </p>
+      <div className="mt-1">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">ORB only these (empty = platform default)</label>
+          {symbols.length > 0 && <span className="text-[10px] text-text-faint">{symbols.length}</span>}
+        </div>
+        {symbols.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5 rounded-lg border border-border-subtle bg-surface-2/40 p-2.5">
+            {symbols.map((s) => (
+              <span key={s} className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-1 px-2 py-0.5 font-mono text-[11px] font-semibold text-text-secondary">
+                {s}
+                <button type="button" onClick={() => removeSymbol(s)} className="text-text-faint transition-colors hover:text-bearish-text" aria-label={`Remove ${s}`}>
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mb-2 text-[11px] text-text-faint">Empty — ORB uses the platform default list. Add names to make your own.</p>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
+            placeholder="Add a symbol — type or pick from your watchlist"
+            list="orb-user-watchlist"
+            className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
+          />
+          <datalist id="orb-user-watchlist">
+            {wlSuggestions.map((s) => <option key={s} value={s} />)}
+          </datalist>
+          <button type="button" onClick={addSymbol} disabled={!input.trim() || update.isPending} className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50">
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add
+          </button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
 function ORBAllowlistSection() {
   const { data: me } = useMe();
   const { data: cfg, isError } = useRegimeConfig();
@@ -858,7 +922,7 @@ export default function SettingsPage() {
 
           {/* Active pane */}
           <div className="min-w-0 flex-1 space-y-5">
-            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /><ShortAllowlistSection /><ORBAllowlistSection /></>)}
+            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /><ShortAllowlistSection /><OrbUserAllowlistSection /><ORBAllowlistSection /></>)}
             {pane === "delivery" && (<><TelegramSetup /><NotificationChannels /></>)}
             {pane === "risk" && <TradingSettings />}
             {pane === "appearance" && <ThemeToggle />}
