@@ -122,12 +122,11 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
     """TODAY'S FOCUS — top `top`, a MIX of three setups (user 2026-06-30):
       • RSI-30 reclaim — daily RSI was oversold (<30 in the last 5d) and crossed back
         ABOVE 30, turning up → the bottom is in (NOT a still-falling oversold).
-      • 200-EMA hold — price defending the daily 200-EMA as support (just above it).
       • Breakout / gap-and-go — gapped over the prior-day high and holding, or cleared
         the recent high with momentum.
     Liquidity-gated (≥ adv_floor $/day). The three buckets are INTERLEAVED so the five
     picks are a MIX (a turn + a hold + a breakout), not five of one kind."""
-    buckets = {"reclaim_30": [], "ema200_hold": [], "breakout": []}
+    buckets = {"reclaim_30": [], "breakout": []}
     multi = len(cands) > 1
     pos = "Full" if market_ok else "Half"
     for sym in cands:
@@ -152,32 +151,18 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
             rhi = float(h.tail(20).max())
             pdh = float(h.iloc[-2]); pdl = float(lo.iloc[-2])
             prior_close = float(c.iloc[-2]); open_today = float(o.iloc[-1])
-            ema200 = float(c.ewm(span=200, adjust=False).mean().iloc[-1]) if len(c) >= 200 else None
             recent_stop = round(float(lo.tail(5).min()) * 0.995, 2)
             advtxt = f"${advdol / 1e6:.0f}M/day — liquid"
 
             # ── 1) RSI-30 RECLAIM — was oversold, crossed back above 30, turning up
             if rsi_min5 < 30 <= rsi <= 45 and rsi >= rsi_prev:
-                tgt = ema200 if (ema200 and ema200 > price) else rhi
+                tgt = rhi   # aim for the recent high (200-EMA dropped — user 2026-07-07)
                 buckets["reclaim_30"].append({
                     "symbol": sym, "score": round(liq * 2 + 70 + max(0.0, 40 - rsi), 1),
                     "type": "DAY", "setup": "RSI-30 reclaim", "price": round(price, 2),
                     "level": round(price, 2), "entry": round(price, 2), "stop": recent_stop,
                     "target": round(tgt, 2) if tgt else None, "rsi": round(rsi), "position": pos,
                     "reasons": [f"daily RSI reclaimed 30 (now {rsi:.0f}, was {rsi_min5:.0f}) — the turn is in",
-                                advtxt],
-                })
-                continue
-
-            # ── 2) 200-EMA HOLD — defending the daily 200-EMA just above
-            if ema200 and ema200 <= price <= ema200 * 1.025:
-                tgt = min([r for r in (pdh, rhi) if r and r > price], default=None)
-                buckets["ema200_hold"].append({
-                    "symbol": sym, "score": round(liq * 2 + 60 + (1.025 - price / ema200) * 800, 1),
-                    "type": "DAY", "setup": "200-EMA hold", "price": round(price, 2),
-                    "level": round(ema200, 2), "entry": round(price, 2), "stop": round(ema200 * 0.99, 2),
-                    "target": round(tgt, 2) if tgt else None, "rsi": round(rsi), "position": pos,
-                    "reasons": [f"holding the 200-EMA ${ema200:.2f} ({(price - ema200) / ema200 * 100:+.1f}% above)",
                                 advtxt],
                 })
                 continue
@@ -205,7 +190,7 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
     for b in buckets:
         buckets[b].sort(key=lambda p: -p["score"])
     # INTERLEAVE — one from each bucket, then the seconds, … so the top `top` are a mix.
-    picks, i, order = [], 0, ("breakout", "reclaim_30", "ema200_hold")
+    picks, i, order = [], 0, ("breakout", "reclaim_30")
     while len(picks) < top and any(len(buckets[b]) > i for b in order):
         for b in order:
             if len(picks) < top and len(buckets[b]) > i:
