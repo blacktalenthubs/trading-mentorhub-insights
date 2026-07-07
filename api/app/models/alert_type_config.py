@@ -227,7 +227,7 @@ def style_for(alert_type: str) -> str:
     at = (alert_type or "").replace("tv_", "").lower()
     # MA bounce/rejection: deep MAs (100/200) = long-term support; fast (8/21/50) = day-trade.
     if "ma_bounce" in at or "ma_rejection" in at:
-        return "long_term" if ("100" in at or "200" in at) else "day_trade"
+        return "day_trade"   # all MA bounces are DAY trades — even 100/200 (too choppy for swing, user 2026-07-07)
     for prefix, style in _STYLE_BY_PREFIX:
         if at.startswith(prefix):
             return style
