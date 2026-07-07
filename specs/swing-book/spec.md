@@ -72,3 +72,37 @@ changes.
 ## Out of scope
 - No Pine changes (these fire from levels the Pines already send + the two Python scanners).
 - No day-book changes.
+
+---
+
+## Decisions & additions (2026-07-07)
+
+### Reclaims are DAY-trade tools (not swings)
+A reclaim of a *level* is an event, not a hold-for-days pattern (tested: bare weekly RC ≈ +0.2R,
++4%/8w, 58% still up — a modest bounce, not a sustained trend). So **weekly_rc · PWL held · monthly_rc
+moved to the DAY book** across style_for / classify / trade_style (shipped). They remain useful
+*intraday* entries; the Performance page evaluates them over time. Trend-MA holds stay swing — an MA
+is a trend, a static level is an event.
+
+### Monthly MA hold/reclaim — ADDED to the swing book (validated)
+| Setup | Expectancy | +6mo | Held @6mo |
+|---|---|---|---|
+| Monthly **M8** hold/reclaim (uptrend) | **+0.36R** | +8.6% | 65% |
+| Monthly **M21** hold (uptrend) | **+0.36R** | +8.7% | — |
+
+Stronger than the reclaims and genuinely holds (65% still up at 6 months). The **MoBO pine already
+computes M8/M21/M50/M100/M200**, so the levels exist. GOOGL/GEV/AMZN reclaiming the M8 are the live
+examples. **Tier 1 swing (position).**
+- **Trigger:** pullback tags the monthly 8-EMA (or 21-EMA), closes back above, in an uptrend (above a
+  rising monthly 21-EMA).
+- **Entry:** the monthly MA · **Stop:** a monthly close below it (~2–3%) · **Exit:** trim monthly RSI 70,
+  trail the M8/M21.
+- **Build:** a Python EOD monthly-bar detector on the master universe (same shape as swing_scan.py),
+  emits a `monthly_ma_hold` swing type. No Pine change needed.
+
+### Redefined swing catalog (current)
+**Tier 1 (validated / high-conviction):** Buying in Bases · Character Change · Monthly MA hold ·
+20-EMA trend pullback · 5/20 cross · 10w/30w held.
+**Tier 1 (to validate before leaning on):** PWH break · monthly M50/M100/M200 holds.
+**Candidates to backtest:** VCP / tight-base breakout · Power earnings gap · High-tight flag · RS-line new high.
+**Moved OUT (now day):** Weekly RC · PWL held · Monthly RC.
