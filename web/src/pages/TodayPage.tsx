@@ -150,6 +150,44 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
 }
 
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
+type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; reasons?: string[] };
+function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; universe?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  if (!parsed) return <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-[12px] text-text-faint">No swing report yet.</div>;
+  const cc = parsed.character_change ?? [];
+  const bb = parsed.base_buy ?? [];
+  const card = (x: SwingSig) => (
+    <button key={x.symbol + x.setup} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400">{x.setup}</span>
+      </div>
+      <div className="mt-1 flex gap-3 font-mono text-[11px]">
+        <span className="text-bullish-text">entry {x.entry}</span>
+        <span className="text-bearish-text">stop {x.stop}</span>
+        <span className="text-text-muted">tgt {x.target}</span>
+      </div>
+      {(x.reasons ?? []).slice(0, 2).map((r, i) => <p key={i} className="mt-0.5 text-[10.5px] leading-snug text-text-muted">• {r}</p>)}
+    </button>
+  );
+  return (
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Character Change · weekly reversal (rare)</h3>
+        {cc.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{cc.map(card)}</div>
+          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">None today — it's a rare, high-conviction reversal.</div>}
+      </section>
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Buying in Bases · right side lifting</h3>
+        {bb.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{bb.map(card)}</div>
+          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No base setting up today.</div>}
+      </section>
+      <p className="text-[10px] text-text-faint">Weekly swing setups scanned on the master universe. Educational — not financial advice.</p>
+    </div>
+  );
+}
+
 function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   let parsed: { ready_now?: TrendRow[]; extended?: TrendRow[]; rolling_off?: TrendRow[] } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
@@ -312,6 +350,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
   const ts = data?.trend_setups ?? null;
+  const sw = data?.swing_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -347,6 +386,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
       ) },
     { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
       wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
+    { id: "sec-swing", time: "WEEKLY", title: "Swing setups", present: !!sw,
+      wait: "Weekly swing scan — generated after the close (~4:25 PM ET).", render: () => <SwingSetups body={sw!.body} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
     { id: "sec-eod", time: "4:10p", title: "EOD recap", present: !!eod,
