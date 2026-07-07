@@ -354,16 +354,27 @@ rl_recBars = math.max(1, math.round(rl_recMin / math.max(1.0, timeframe.in_secon
 rl_mornBar = math.round(rl_mornMin / math.max(1.0, timeframe.in_seconds() / 60.0))
 var int rl_sbar = 0
 rl_sbar := nD ? 0 : rl_sbar + 1
-var float rl_orh = na
-var float rl_orl = na
-if nD
-    rl_orh := high
-    rl_orl := low
-else if rl_sbar < rl_orBars
-    rl_orh := math.max(rl_orh, high)
-    rl_orl := math.min(rl_orl, low)
+// LOCKED to the 15m timeframe (2026-07-07) — ORH/ORL are computed on 15m bars via request.security
+// so they're IDENTICAL on ANY chart TF. Before, they were built from CHART bars, so a "15-min OR"
+// silently became a 30-min OR on a 30m chart and shifted every time you changed timeframe. The OR is
+// the first ceil(rl_orMin/15) 15m bars of the RTH session (rl_orMin=15 ⇒ one 15m bar, 9:30–9:45).
+f_or15() =>
+    var float _h = na
+    var float _l = na
+    var int _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(rl_orMin / 15.0))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[rl_orh, rl_orl] = request.security(syminfo.tickerid, "15", f_or15(), lookahead = barmerge.lookahead_on)
 rl_vwap = ta.vwap(hlc3)
-rl_orReady = rl_sbar >= rl_orBars
+rl_orReady = not na(rl_orh) and (rl_sbar * math.max(1.0, timeframe.in_seconds() / 60.0)) >= rl_orMin
 rl_inMorn  = rl_sbar <= rl_mornBar
 // nearest of ORH/PDH/ORL/PDL strictly above a price (next resistance), or na.
 rl_next_above(float p) =>
@@ -588,7 +599,7 @@ if mb_e200
     alert(ma_pay("200E", ema200d), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ORB · 30-minute opening range (ORH/ORL) + PDH/PDL rails — ALERTS ONLY.
+// ORB · 15-minute opening range (ORH/ORL) + PDH/PDL rails — ALERTS ONLY.
 // Ported from orb_pd.pine (the VISUAL reference — load THAT for the on-chart markers).
 // rc.pine is bound to a 5m chart, so a new 15m bar's OHLC is read via request.security
 // and the machine advances (and can only FIRE) on a CONFIRMED 15m close.
@@ -596,7 +607,7 @@ if mb_e200
 // bound symbol; the BACKEND (orb_symbols allowlist in Settings) gates which DELIVER.
 // Load rc.pine on a REGULAR-SESSION (RTH) chart — ETH would poison the OR + PD rails.
 // ══════════════════════════════════════════════════════════════════════════════
-gORB = "ORB (30m OR + PDH/PDL) — alerts; symbols gated by the Settings allowlist"
+gORB = "ORB (15m OR + PDH/PDL) — alerts; symbols gated by the Settings allowlist"
 en_orb    = input.bool(true, "Emit ORB alerts (break/held/retest/exit)", group = gORB)
 orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail", minval = 1, maxval = 3, group = gORB)
 
@@ -605,12 +616,12 @@ orb_confN = input.int(1, "  Confirm — consecutive 15m closes beyond the rail",
 orb_new15 = ta.change(time("15")) != 0
 var float orb_c15prev = na
 
-// OR = the first 30 MINUTES of the RTH session, built from NATIVE bars — works whether
+// OR = the first 15 MINUTES of the RTH session, built from NATIVE bars — works whether
 // rc.pine is on the 5m alert chart or you're viewing it on 15m. (request.security
 // mis-anchored the box across timeframes, which made it small/misplaced on the 15m view.)
 var int orb_sbar = 0
 orb_sbar := nD ? 0 : orb_sbar + 1
-orb_orMinBars = math.max(1, math.round(30.0 / (timeframe.in_seconds() / 60.0)))
+orb_orMinBars = math.max(1, math.round(15.0 / (timeframe.in_seconds() / 60.0)))
 var float orb_orh = na
 var float orb_orl = na
 if nD
