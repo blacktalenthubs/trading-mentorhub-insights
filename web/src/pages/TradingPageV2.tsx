@@ -436,7 +436,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"premarket" | "alerts">("alerts");
+  const [view, setView] = useState<"premarket" | "day" | "swing">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -510,9 +510,12 @@ function SignalFeedTab({
   const collapsedCount = (alerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && !!a.suppressed_reason,
   ).length;
-  // The SELECTED feed. Premarket is its own ISOLATED channel (from pmSignals); "alerts" is the
-  // full RTH feed — day-trade + position/swing merged into one for quick scanning.
-  const feedAlerts = view === "premarket" ? [] : feedAllRaw;
+  // Day vs Swing (2026-07-07). DAY = a day trade — you're OUT by the close (sell it that session
+  // at some point). SWING = held multiple days, as long as the thesis holds (swing + long-term
+  // styles). Premarket is its own isolated channel.
+  const dayAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade");
+  const swingAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") !== "day_trade");
+  const feedAlerts = view === "premarket" ? [] : view === "day" ? dayAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -618,16 +621,18 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["premarket", "Premarket"], ["alerts", "Alerts"]] as const).map(([id, label], i) => (
+          {([["premarket", "Premarket"], ["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
               title={id === "premarket"
                 ? "Premarket signals — an isolated channel (Focus names at a key level before the open). Separate from your RTH alerts."
-                : "Delivered signals of this style. Recorded-but-not-sent (NOT SENT + deduped) are hidden — use the review toggle to audit them."}
+                : id === "day"
+                ? "Day trades — you must SELL the same day at some point (out by the close). Intraday reclaims, ORB, PDL held, gap-and-go."
+                : "Swing trades — HOLD multiple days as long as the thesis holds. 5/20 cross, RSI-30 buy, 200-EMA hold, weekly/monthly levels, base setups."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : feedAllRaw.length}</span>
+              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : id === "day" ? dayAlerts.length : swingAlerts.length}</span>
             </button>
           ))}
         </div>
@@ -659,6 +664,15 @@ function SignalFeedTab({
           )}
         </div>
       </div>
+
+      {/* Subtle meaning of the selected book — what "day" vs "swing" actually asks of you. */}
+      {view !== "premarket" && (
+        <div className="px-3 pb-1 -mt-0.5 text-[10px] text-text-faint shrink-0">
+          {view === "day"
+            ? "Day trade — sell it the same session at some point (out by the close)."
+            : "Swing — hold multiple days, as long as the thesis stays good."}
+        </div>
+      )}
 
       {/* Row 2 — Search (primary) + one Filters popover (asset · grade · types) */}
       <div className="px-3 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
