@@ -52,13 +52,14 @@ type DayPick = {
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
 type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; now?: number; status?: string; actionable?: boolean; reasons?: string[] };
 function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; monthly_ma_reclaim?: SwingSig[]; mobo_breakout?: SwingSig[]; universe?: number } | null = null;
+  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; monthly_ma_reclaim?: SwingSig[]; mobo_breakout?: SwingSig[]; new_high_breakout?: SwingSig[]; universe?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   if (!parsed) return <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-[12px] text-text-faint">No swing report yet.</div>;
   const cc = parsed.character_change ?? [];
   const bb = parsed.base_buy ?? [];
   const mr = parsed.monthly_ma_reclaim ?? [];
   const mob = parsed.mobo_breakout ?? [];
+  const nh = parsed.new_high_breakout ?? [];
   const card = (x: SwingSig) => (
     <button key={x.symbol + x.setup} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
       <div className="flex items-center justify-between">
@@ -95,6 +96,11 @@ function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => 
         <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">MoBO breakout · cleared a locked monthly base (catch the next MU/SNDK)</h3>
         {mob.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{mob.map(card)}</div>
           : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No monthly base breaking out today.</div>}
+      </section>
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">New-high breakout · closed through the 52-week high on volume</h3>
+        {nh.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{nh.map(card)}</div>
+          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No name closed at a new 52-week high today.</div>}
       </section>
       <p className="text-[10px] text-text-faint">Swing setups scanned on the master universe — hold-for-days patterns above the 50-EMA. Educational, not financial advice.</p>
     </div>
