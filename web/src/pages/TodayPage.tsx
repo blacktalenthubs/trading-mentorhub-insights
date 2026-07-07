@@ -371,8 +371,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   }
 
   const sections = [
-    { id: "sec-premarket", time: "4:30a", title: "Premarket brief", present: !!pre,
-      wait: "Drops pre-open (~8:30 AM ET).", render: () => <ReportBody body={pre?.body ?? ""} onChart={onChart} /> },
+    // ── ACTIONABLE CORE — Today's Focus leads (the plays for THIS day). ──
     { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
@@ -385,14 +384,23 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Curated focus picks drop ~8:55 ET.</div>}
         </div>
       ) },
+    // ── CONTEXT — premarket read + EOD recap in ONE card. ──
+    { id: "sec-briefing", time: "BRIEF", title: "Briefing", present: !!pre || !!eod,
+      wait: "Premarket read ~8:30 AM · EOD recap ~4:05 PM ET.",
+      render: () => (
+        <div className="space-y-4">
+          {pre && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Premarket read</div><ReportBody body={pre.body} onChart={onChart} /></div>}
+          {eod && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">EOD recap</div><ReportBody body={eod.body} onChart={onChart} /></div>}
+          {!pre && !eod && <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Briefing drops pre-open + after the close.</div>}
+        </div>
+      ) },
+    // ── DISCOVERY — collapsed below the fold; belongs in Trade Ideas (planned move). ──
     { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
       wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
     { id: "sec-swing", time: "WEEKLY", title: "Swing setups", present: !!sw,
       wait: "Weekly swing scan — generated after the close (~4:25 PM ET).", render: () => <SwingSetups body={sw!.body} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
-    { id: "sec-eod", time: "4:10p", title: "EOD recap", present: !!eod,
-      wait: "Generated after the close (~4:05 PM ET).", render: () => <ReportBody body={eod?.body ?? ""} onChart={onChart} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);
