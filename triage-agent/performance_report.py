@@ -43,14 +43,14 @@ def classify(alert_type: str):
     T = [
         ("rc_4h",           "4h reclaim",            "Day"),
         ("rc_daily",        "Daily reclaim",         "Day"),
-        ("weekly_rc",       "Weekly reclaim",        "Swing"),
-        ("monthly_rc",      "Monthly reclaim",       "Long"),
+        ("weekly_rc",       "Weekly reclaim",        "Day"),   # a reclaim is a day-trade tool, not a hold (2026-07-07)
+        ("monthly_rc",      "Monthly reclaim",       "Day"),   # reclaim = day-trade tool
         ("cml",             "Current-month low",     "Day"),
         ("ma_bounce_long_v3_ema200", "200-EMA hold",     "Swing"),  # sustained trend support — a swing (user 2026-07-07)
         ("ma_bounce",       "MA bounce",             "Day"),
         ("staged_pdl",      "PDL held",              "Day"),
         ("staged_pdh",      "PDH break",             "Day"),
-        ("staged_pwl",      "PWL held",              "Swing"),
+        ("staged_pwl",      "PWL held",              "Day"),   # level hold = day-trade tool
         ("staged_pwh",      "PWH break",             "Swing"),
         ("open_reclaim",    "Open reclaim",          "Day"),
         ("open_lost",       "Open lost",             "Day"),

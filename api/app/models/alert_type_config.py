@@ -211,10 +211,13 @@ _STYLE_BY_CATEGORY: dict[str, str] = {
 }
 # Checked before the category map (most reliable). (prefix, style).
 _STYLE_BY_PREFIX: list[tuple[str, str]] = [
+    # Reclaims are DAY-TRADE tools — a reclaimed level is an intraday bounce, NOT a hold-for-days
+    # pattern (2026-07-07). Listed FIRST so monthly_rc/weekly_rc win over the broad monthly_/weekly.
+    ("monthly_rc", "day_trade"), ("weekly_rc", "day_trade"), ("staged_pwl", "day_trade"),
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
-    ("staged_pml", "long_term"), ("staged_pwl", "long_term"),
-    ("weekly_rc", "swing"), ("swing_", "swing"), ("rsi_oversold", "swing"),
+    ("staged_pml", "long_term"),
+    ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
 ]
 
