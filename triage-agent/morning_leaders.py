@@ -118,6 +118,12 @@ def _rsi_series(close, n=14):
     return 100 - 100 / (1 + rs)
 
 
+# RSI-30 is a BOTTOM, not momentum (user 2026-07-07: Oracle sat at RSI-30 for weeks, never
+# bounced). Only take an oversold reclaim in a MEGA-CAP LEADER (a leader dip is buyable); for
+# everyone else it is a falling knife → excluded. Today's Focus is momentum: breakout + gap-and-go.
+_MEGA_CAPS = frozenset({"AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA"})
+
+
 def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
     """TODAY'S FOCUS — top `top`, a MIX of three setups (user 2026-06-30):
       • RSI-30 reclaim — daily RSI was oversold (<30 in the last 5d) and crossed back
@@ -155,11 +161,11 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
             advtxt = f"${advdol / 1e6:.0f}M/day — liquid"
 
             # ── 1) RSI-30 RECLAIM — was oversold, crossed back above 30, turning up
-            if rsi_min5 < 30 <= rsi <= 45 and rsi >= rsi_prev:
+            if sym in _MEGA_CAPS and rsi_min5 < 30 <= rsi <= 45 and rsi >= rsi_prev:
                 tgt = rhi   # aim for the recent high (200-EMA dropped — user 2026-07-07)
                 buckets["reclaim_30"].append({
                     "symbol": sym, "score": round(liq * 2 + 70 + max(0.0, 40 - rsi), 1),
-                    "type": "DAY", "setup": "RSI-30 reclaim", "price": round(price, 2),
+                    "type": "DAY", "setup": "leader dip (RSI-30)", "price": round(price, 2),
                     "level": round(price, 2), "entry": round(price, 2), "stop": recent_stop,
                     "target": round(tgt, 2) if tgt else None, "rsi": round(rsi), "position": pos,
                     "reasons": [f"daily RSI reclaimed 30 (now {rsi:.0f}, was {rsi_min5:.0f}) — the turn is in",
