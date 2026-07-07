@@ -267,7 +267,7 @@ function TopSpotlights({ body, onChart }: { body?: string | null; onChart: (s: s
   return (
     <div className="space-y-2.5">
       <div className="flex items-baseline justify-between">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-accent">\u2600\ufe0f Top 3 spotlights</span>
+        <span className="text-[11px] font-bold uppercase tracking-wide text-accent">☀️ Top 3 spotlights</span>
         {market_ok !== undefined && <span className={`text-[11px] font-semibold ${market_ok ? "text-bullish-text" : "text-bearish-text"}`}>{market_ok ? "\ud83d\udfe2 healthy \u2014 size up" : "\ud83d\udd34 weak \u2014 half size"}</span>}
       </div>
       {top.map((it, i) => <SpotlightCard key={it.symbol + it.kind} it={it} rank={i + 1} onChart={onChart} />)}
