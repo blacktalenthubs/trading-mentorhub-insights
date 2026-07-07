@@ -153,7 +153,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
-    ("weekly_rc", "Weekly RC — reclaim of the prior-week LOW (support bounce, swing). High reclaim (RC-H) is suppressed as resistance.", "Weekly trend", False),
+    ("weekly_rc", "Weekly RC — prior-week high/low reclaim (swing)", "Weekly trend", False),
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +

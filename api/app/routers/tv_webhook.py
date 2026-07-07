@@ -1578,13 +1578,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # user-editable symbol allowlist (orb_symbols in Settings; default SPY,QQQ,SOXL,MU).
     # Symbols off the list → Not-routed. Empty list = no clamp (types still default OFF).
     # ──────────────────────────────────────────────────────────────────
-    # Weekly RC-H — a reclaim of the prior-week HIGH chases INTO resistance (the PWH usually caps
-    # price), so it's a poor entry. Suppress it entirely (still recorded → visible in the review
-    # view); only the RC from the prior-week LOW (a support bounce) is delivered as an entry.
-    if _bare_rule.startswith("weekly_rc") and "RC-H" in (sig.message or ""):
-        logger.info("TV webhook: weekly RC-H %s — high reclaim = resistance, suppressed", sig.symbol)
-        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="weekly_rc_high_resistance")
-
     if _bare_rule.startswith("orb_"):
         orb_union = await _orb_allow_union(db, orb_default)
         if orb_union and (sig.symbol or "").upper() not in orb_union:
