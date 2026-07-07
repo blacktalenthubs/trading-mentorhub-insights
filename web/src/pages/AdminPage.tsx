@@ -698,7 +698,14 @@ function MasterWatchlistPanel() {
             className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary"
             title="Download the master watchlist (the curated platform universe) as a TradingView import file"
           >
-            <Download size={12} /> Export → TV
+            <Download size={12} /> Master → TV
+          </button>
+          <button
+            onClick={() => downloadTV("/api/v1/admin/watchlist-union/export", "all_users_union_tradingview.txt")}
+            className="flex items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 py-1.5 text-[11px] text-text-secondary hover:border-accent hover:text-text-primary"
+            title="Download the UNION of EVERY user's watchlist — the full firing universe — as a TradingView import file"
+          >
+            <Download size={12} /> All users → TV
           </button>
         </div>
       }
