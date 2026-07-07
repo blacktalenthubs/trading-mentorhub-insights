@@ -64,6 +64,7 @@ def classify(alert_type: str):
         ("ema_pullback",    "EMA trend",             "Swing"),
         ("character_change", "Character Change",      "Swing"),
         ("base_buy",        "Buying in Bases",       "Swing"),
+        ("monthly_ma_reclaim", "Monthly MA reclaim", "Swing"),
     ]
     for key, label, style in T:
         if a.startswith(key):

@@ -120,6 +120,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", False),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", False),
+    ("monthly_ma_reclaim", "Monthly MA reclaim — pullback to a rising monthly 8/21-EMA in an uptrend, above the 50-EMA floor (position swing, validated +0.36R)", "Swing", False),
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
@@ -214,6 +215,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # Reclaims are DAY-TRADE tools — a reclaimed level is an intraday bounce, NOT a hold-for-days
     # pattern (2026-07-07). Listed FIRST so monthly_rc/weekly_rc win over the broad monthly_/weekly.
     ("monthly_rc", "day_trade"), ("weekly_rc", "day_trade"), ("staged_pwl", "day_trade"),
+    ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
     ("staged_pml", "long_term"),

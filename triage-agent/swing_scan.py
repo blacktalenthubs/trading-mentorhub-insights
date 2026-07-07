@@ -74,7 +74,90 @@ def _r2(x):
     return round(float(x), 2)
 
 
-def scan(symbols):
+def _ema(a, n):
+    import numpy as np
+    k = 2.0 / (n + 1); out = np.full(len(a), np.nan)
+    if len(a) < n:
+        return out
+    out[n - 1] = a[:n].mean()
+    for i in range(n, len(a)):
+        out[i] = a[i] * k + out[i - 1] * (1 - k)
+    return out
+
+
+def _daily_ema50_floor(symbols):
+    """{symbol: bool} — is price above its daily 50-EMA? The swing TRUST FLOOR: below the 50-EMA we
+    don't trust a swing (user 2026-07-07 — stocks chop around the deeper MAs)."""
+    import yfinance as yf
+    try:
+        d = yf.download(symbols, period="1y", interval="1d", progress=False,
+                        auto_adjust=True, group_by="ticker", threads=True)
+    except Exception:
+        return {s: True for s in symbols}   # fail-open on a data hiccup — don't block the whole scan
+    out = {}
+    multi = len(symbols) > 1
+    for s in symbols:
+        try:
+            df = (d[s] if multi else d).dropna()
+            C = df["Close"].values
+            if len(C) < 55:
+                out[s] = False; continue
+            out[s] = bool(C[-1] > _ema(C, 50)[-1])
+        except Exception:
+            out[s] = False
+    return out
+
+
+def scan_monthly(symbols, floor):
+    """Monthly MA reclaim (M8/M21) — validated +0.36R. Price tags a RISING monthly 8-EMA (or 21-EMA)
+    and holds above it, in an uptrend (above a rising monthly 21-EMA) AND above the daily 50-EMA floor.
+    Fires ONLY the reclaim (at the zone); extended names (ANET) / below-MA names (PLTR) are NOT emitted."""
+    import yfinance as yf
+    data = yf.download(symbols, period="max", interval="1mo", progress=False,
+                       auto_adjust=True, group_by="ticker", threads=True)
+    mr = []
+    multi = len(symbols) > 1
+    for s in symbols:
+        try:
+            df = (data[s] if multi else data).dropna()
+        except Exception:
+            continue
+        if len(df) < 30:
+            continue
+        C = df["Close"].values; H = df["High"].values
+        e8 = _ema(C, 8); e21 = _ema(C, 21)
+        i = len(C) - 1
+        if e8[i] != e8[i] or e21[i] != e21[i]:
+            continue
+        price = float(C[i])
+        up = price > e21[i] and (e21[i] - e21[i - 1]) > 0        # above a RISING monthly 21-EMA
+        if not up or not floor.get(s, False):                    # 50-EMA trust floor
+            continue
+        for ma, tag in ((float(e8[i]), "M8"), (float(e21[i]), "M21")):
+            if ma <= 0:
+                continue
+            dist = (price / ma - 1) * 100.0
+            if -1.0 <= dist <= 4.0:                              # AT the MA (tagged + holding) = reclaim
+                stop = ma * 0.97                                 # a monthly close below the MA
+                target = max(float(max(H[max(0, i - 12):i + 1])), ma * 1.12)
+                if target > ma:
+                    mr.append({
+                        "symbol": s, "setup": f"Monthly {tag} reclaim", "type": "SWING",
+                        "entry": _r2(ma), "stop": _r2(stop), "target": _r2(target),
+                        "now": _r2(price), "actionable": True,
+                        "status": f"at the monthly {tag} — buy the reclaim of a rising trend MA",
+                        "reasons": [
+                            f"reclaim/hold of the rising monthly {tag} (${ma:.2f}) in an uptrend",
+                            "above the daily 50-EMA (swing trust floor)",
+                            "longest-term trend support — a position hold (validated +0.36R)",
+                        ],
+                    })
+                break                                           # one per symbol, prefer M8
+    mr.sort(key=lambda x: x["symbol"])
+    return mr
+
+
+def scan(symbols, floor=None):
     """Return (character_change[], base_buy[]) — signals on the latest closed weekly bar."""
     import yfinance as yf
 
@@ -132,7 +215,8 @@ def scan(symbols):
         tight = (max(H[i - 6:i + 1]) - min(L[i - 6:i + 1])) < 0.85 * (max(H[i - 14:i - 6]) - min(L[i - 14:i - 6]))
         near_high = price >= 0.85 * max(H[max(0, i - 52):i + 1])                                   # a base sits NEAR the highs (not a deep pullback)
         tight_range = (max(H[max(0, i - 10):i + 1]) - min(L[max(0, i - 10):i + 1])) < 0.30 * price  # ...and is TIGHT (not a 59% range like IONQ)
-        if above and ran and flat and hl_bb and vdry and tight and liq and near_high and tight_range:
+        floor_ok = floor is None or floor.get(s, False)   # 50-EMA trust floor (CC is exempt — it's a reversal from below)
+        if above and ran and flat and hl_bb and vdry and tight and liq and near_high and tight_range and floor_ok:
             hlow = float(L[max(0, i - 3):i + 1].min())     # the base's higher low = the pivot/support
             buy = hlow * 1.01                              # BUY the pullback to just above the pivot, not the top
             stop = hlow * 0.97                             # ~3% under the pivot — lose the base = out (TIGHT)
@@ -157,7 +241,7 @@ def scan(symbols):
     return cc, bb
 
 
-def emit(dsn, cc, bb):
+def emit(dsn, cc, bb, mr=None):
     """Insert one alert row per NEW swing signal (deduped ~weekly) so the Performance page scores them.
     user_id = master (the scan-universe owner); the types default OFF so nothing is delivered to users."""
     import psycopg2
@@ -173,7 +257,7 @@ def emit(dsn, cc, bb):
     today = date.today().isoformat()
     cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
     inserted = 0
-    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")]):
+    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")]):
         try:
             cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
                         (mid, sig["symbol"], atype, cutoff))
@@ -200,9 +284,11 @@ def main():
     syms = sorted(set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)))   # master + LTF discovery pool
     if not syms:
         raise SystemExit("no master symbols")
-    cc, bb = scan(syms)
-    body = {"character_change": cc, "base_buy": bb, "universe": len(syms)}
-    print(f"scanned {len(syms)} names — Character Change: {len(cc)}, Buying in Bases: {len(bb)}")
+    floor = _daily_ema50_floor(syms)                                    # daily 50-EMA trust floor
+    cc, bb = scan(syms, floor)
+    mr = scan_monthly(syms, floor)
+    body = {"character_change": cc, "base_buy": bb, "monthly_ma_reclaim": mr, "universe": len(syms)}
+    print(f"scanned {len(syms)} names — Character Change: {len(cc)}, Buying in Bases: {len(bb)}, Monthly MA reclaim: {len(mr)}")
     print("---JSON---")
     print(json.dumps(body))
     if args.persist:
@@ -220,7 +306,7 @@ def main():
         conn.commit()
         print(f"[persisted swing_setups {date.today().isoformat()}]")
     if args.emit:
-        print(f"[emitted {emit(dsn, cc, bb)} new swing alerts]")
+        print(f"[emitted {emit(dsn, cc, bb, mr)} new swing alerts]")
 
 
 if __name__ == "__main__":
