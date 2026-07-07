@@ -161,13 +161,16 @@ function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: 
       bySym.set(s.symbol.toUpperCase(), s);
     }
   }
-  const ranked = [...bySym.values()].sort((a, b) => Math.abs(b.gap_pct) - Math.abs(a.gap_pct));
+  // UPSIDE only (user 2026-07-07) — a premarket breakout gapping UP is momentum; a name that tagged
+  // a level but is red in premarket isn't what we want. Rank by the biggest gain.
+  const ranked = [...bySym.values()].filter((s) => s.gap_pct > 0).sort((a, b) => b.gap_pct - a.gap_pct);
   const TOP = 6;
   const top = ranked.slice(0, TOP);
   const more = ranked.length - top.length;
+  if (top.length === 0) return null;
   return (
     <div className="rounded-xl border border-accent/25 bg-accent/5 p-3">
-      <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-accent">📡 Moving premarket · biggest {top.length} of {ranked.length}</div>
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wide text-accent">📡 Premarket upside · top {top.length} of {ranked.length}</div>
       <div className="flex flex-wrap gap-1.5">
         {top.map((s) => (
           <button
