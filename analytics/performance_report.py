@@ -46,6 +46,7 @@ def classify(alert_type: str):
         ("weekly_rc",       "Weekly reclaim",        "Swing"),
         ("monthly_rc",      "Monthly reclaim",       "Long"),
         ("cml",             "Current-month low",     "Day"),
+        ("ma_bounce_long_v3_ema200", "200-EMA hold",     "Swing"),  # sustained trend support — a swing (user 2026-07-07)
         ("ma_bounce",       "MA bounce",             "Day"),
         ("staged_pdl",      "PDL held",              "Day"),
         ("staged_pdh",      "PDH break",             "Day"),
@@ -58,7 +59,8 @@ def classify(alert_type: str):
         ("weekly_10w",      "10w held",              "Long"),
         ("weekly_30w",      "30w held",              "Long"),
         ("pml_held",        "PML held",              "Long"),
-        ("rsi_oversold",    "RSI oversold",          "Day"),
+        ("rsi_oversold",    "RSI 30 buy",            "Swing"),  # oversold reclaim — a multi-day bottom, not a day trade
+        ("ema_5_20",         "5/20 EMA cross",        "Swing"),  # Steve Burns 5/20 — a sustained trend flip (swing)
         ("ema_trend",       "EMA trend",             "Swing"),
         ("ema_pullback",    "EMA trend",             "Swing"),
         ("character_change", "Character Change",      "Swing"),
