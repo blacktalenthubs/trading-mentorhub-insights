@@ -33,6 +33,26 @@ def _dsn():
     raise SystemExit("no DATABASE_URL")
 
 
+def _ltf_symbols(dsn):
+    """Long Term Finders discovery names (emerging + core leaders) from market_reports."""
+    import psycopg2, json
+    try:
+        conn = psycopg2.connect(dsn); cur = conn.cursor()
+        cur.execute("SELECT body FROM market_reports WHERE kind='long_term_finders' ORDER BY created_at DESC LIMIT 1")
+        r = cur.fetchone(); conn.close()
+        if not r:
+            return []
+        d = json.loads(r[0])
+        out = []
+        for it in (d.get("finders") or []):
+            sym = (it.get("symbol") or "").upper().strip()
+            if sym and "-USD" not in sym:
+                out.append(sym)
+        return out
+    except Exception:
+        return []
+
+
 def _master_symbols(dsn):
     import psycopg2
     conn = psycopg2.connect(dsn)
@@ -95,6 +115,7 @@ def scan(symbols):
                     "symbol": s, "setup": "Character Change", "type": "SWING",
                     "entry": _r2(price), "stop": _r2(stop),
                     "target": _r2(price + 2 * (price - stop)),
+                    "now": _r2(price), "actionable": True, "status": "buy the reclaim (entry = this week's close)",
                     "reasons": [
                         "weekly reversal — first 10w reclaim off a downtrend",
                         f"volume {V[i] / va[i]:.1f}x its 20w average (institutional)",
@@ -112,17 +133,23 @@ def scan(symbols):
         near_high = price >= 0.85 * max(H[max(0, i - 52):i + 1])                                   # a base sits NEAR the highs (not a deep pullback)
         tight_range = (max(H[max(0, i - 10):i + 1]) - min(L[max(0, i - 10):i + 1])) < 0.30 * price  # ...and is TIGHT (not a 59% range like IONQ)
         if above and ran and flat and hl_bb and vdry and tight and liq and near_high and tight_range:
-            hlow = float(L[max(0, i - 3):i + 1].min())
-            stop = hlow * 0.985
-            if stop < price:
+            hlow = float(L[max(0, i - 3):i + 1].min())     # the base's higher low = the pivot/support
+            buy = hlow * 1.01                              # BUY the pullback to just above the pivot, not the top
+            stop = hlow * 0.97                             # ~3% under the pivot — lose the base = out (TIGHT)
+            base_high = float(max(H[max(0, i - 10):i + 1]))  # top of the base = first target / breakout level
+            ext = (price / buy - 1) * 100                  # how far ABOVE the buy zone price sits now
+            actionable = ext <= 4.0                         # price is AT the zone → fillable now
+            if buy > stop and base_high > buy:
                 bb.append({
                     "symbol": s, "setup": "Buying in Bases", "type": "SWING",
-                    "entry": _r2(price), "stop": _r2(stop),
-                    "target": _r2(price + 2 * (price - stop)),
+                    "entry": _r2(buy), "stop": _r2(stop), "target": _r2(base_high),
+                    "now": _r2(price), "actionable": actionable,
+                    "status": ("buy the zone — price is at support" if actionable
+                               else f"extended +{ext:.0f}% — wait for a pullback to ${buy:.2f}"),
                     "reasons": [
                         "proven uptrend digesting — base right side lifting",
+                        f"BUY the pullback to the higher low ${hlow:.2f} (not the top of the range)",
                         "tightening range + higher lows, volume drying up",
-                        f"stop just under the higher low ${hlow:.2f}",
                     ],
                 })
     cc.sort(key=lambda x: x["symbol"])
@@ -146,7 +173,7 @@ def emit(dsn, cc, bb):
     today = date.today().isoformat()
     cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
     inserted = 0
-    for sig, atype in ([(x, "character_change") for x in cc] + [(x, "base_buy") for x in bb]):
+    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")]):
         try:
             cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
                         (mid, sig["symbol"], atype, cutoff))
@@ -170,7 +197,7 @@ def main():
     ap.add_argument("--emit", action="store_true", help="insert scored alert rows (Performance page)")
     args = ap.parse_args()
     dsn = _dsn()
-    syms = _master_symbols(dsn)
+    syms = sorted(set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)))   # master + LTF discovery pool
     if not syms:
         raise SystemExit("no master symbols")
     cc, bb = scan(syms)

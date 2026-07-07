@@ -150,7 +150,7 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
 }
 
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
-type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; reasons?: string[] };
+type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; now?: number; status?: string; actionable?: boolean; reasons?: string[] };
 function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; universe?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
@@ -164,10 +164,11 @@ function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => 
         <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400">{x.setup}</span>
       </div>
       <div className="mt-1 flex gap-3 font-mono text-[11px]">
-        <span className="text-bullish-text">entry {x.entry}</span>
+        <span className="text-bullish-text">buy {x.entry}</span>
         <span className="text-bearish-text">stop {x.stop}</span>
         <span className="text-text-muted">tgt {x.target}</span>
       </div>
+      {x.status && <p className={`mt-0.5 font-mono text-[10.5px] font-medium ${x.actionable ? "text-bullish-text" : "text-amber-400"}`}>{x.now ? `now ${x.now} · ` : ""}{x.status}</p>}
       {(x.reasons ?? []).slice(0, 2).map((r, i) => <p key={i} className="mt-0.5 text-[10.5px] leading-snug text-text-muted">• {r}</p>)}
     </button>
   );
