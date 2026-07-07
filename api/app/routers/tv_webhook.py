@@ -1471,7 +1471,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             _parse_exempt_syms(_rc["orl_always_symbols"])
             if "orl_always_symbols" in _rc else ORL_SYMS_DEFAULT
         )
-        orb_symbols = (
+        orb_default = (
             _parse_exempt_syms(_rc["orb_symbols"])
             if "orb_symbols" in _rc else ORB_SYMS_DEFAULT
         )
@@ -1488,7 +1488,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
         htf_sr_symbols = HTF_SR_DEFAULT           # read failed → keep SPY,QQQ
         orl_always_symbols = ORL_SYMS_DEFAULT     # read failed → ORL fires for nobody (safe)
-        orb_symbols = ORB_SYMS_DEFAULT            # read failed → ORB fires for nobody (safe)
+        orb_default = ORB_SYMS_DEFAULT            # read failed → ORB fires for nobody (safe)
 
     # Gap-and-go for the always-deliver names (Settings → gap_always_symbols,
     # default SPY/QQQ) fires even if a user muted gap-and-go — an index doesn't gap
@@ -1578,13 +1578,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # user-editable symbol allowlist (orb_symbols in Settings; default SPY,QQQ,SOXL,MU).
     # Symbols off the list → Not-routed. Empty list = no clamp (types still default OFF).
     # ──────────────────────────────────────────────────────────────────
-    if (
-        orb_symbols
-        and _bare_rule.startswith("orb_")
-        and (sig.symbol or "").upper() not in orb_symbols
-    ):
-        logger.info("TV webhook: ORB %s %s not in orb_symbols — Not-routed", alert_type_full, sig.symbol)
-        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orb_symbol_filter")
+    if _bare_rule.startswith("orb_"):
+        orb_union = await _orb_allow_union(db, orb_default)
+        if orb_union and (sig.symbol or "").upper() not in orb_union:
+            logger.info("TV webhook: ORB %s %s not on any user's orb_symbols — Not-routed", alert_type_full, sig.symbol)
+            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orb_symbol_filter")
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
@@ -1900,6 +1898,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # type. Fixes the multi-tenancy bug where one account's toggles changed
         # everyone's. No pref row = OFF (opt-in via Settings / Start here).
         users = await _filter_users_by_type_pref(db, users, alert_type_full)
+        users = await _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, orb_default)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
             # type the user disabled shows in the Not-routed panel for review — the
@@ -2344,6 +2343,54 @@ async def _filter_users_by_short_allowlist(db, users, sig, alert_type_full: str)
     if dropped:
         logger.info("TV webhook: short-allowlist dropped %d user(s) for %s %s",
                     len(dropped), alert_type_full, sym)
+    return [u for u in users if u.id not in dropped]
+
+
+# ── ORB per-user allowlist ────────────────────────────────────────────────────
+_ORB_UNION_CACHE: dict = {"val": None, "ts": 0.0}
+
+
+async def _orb_allow_union(db, default_syms):
+    """The ORB gate must let through any symbol on the admin default OR on ANY user's personal
+    orb_symbols — else a user's added name would be pre-suppressed before per-user delivery.
+    Cached 60s (the union changes only when a user edits their ORB list)."""
+    import time as _t
+    now = _t.time()
+    c = _ORB_UNION_CACHE
+    if c["val"] is not None and (now - c["ts"]) < 60:
+        return c["val"] | default_syms
+    try:
+        from app.models.user import User as _User
+        rows = (await db.execute(
+            select(_User.orb_symbols).where(_User.orb_symbols.isnot(None), _User.orb_symbols != "")
+        )).all()
+        u: set = set()
+        for (v,) in rows:
+            u |= {x.strip().upper() for x in (v or "").split(",") if x.strip()}
+        c["val"] = frozenset(u); c["ts"] = now
+        return frozenset(u) | default_syms
+    except Exception:
+        return (c["val"] | default_syms) if c["val"] is not None else default_syms
+
+
+async def _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, default_syms):
+    """Per-user ORB allowlist. ORB is opt-in-by-name — a user gets an ORB alert only for symbols
+    on THEIR orb_symbols; an empty personal list falls back to the admin default. ORB types only,
+    so nothing else is touched. One user's list never affects another's."""
+    if not users:
+        return users
+    if not alert_type_full.replace("tv_", "", 1).startswith("orb_"):
+        return users
+    from app.models.user import User as _User
+    sym = (sig.symbol or "").upper()
+    ids = [u.id for u in users]
+    rows = (await db.execute(select(_User.id, _User.orb_symbols).where(_User.id.in_(ids)))).all()
+    dropped: set = set()
+    for uid, allow in rows:
+        al = {x.strip().upper() for x in (allow or "").split(",") if x.strip()}
+        eff = al if al else default_syms
+        if sym not in eff:
+            dropped.add(uid)
     return [u for u in users if u.id not in dropped]
 
 

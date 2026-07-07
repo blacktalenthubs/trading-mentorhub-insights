@@ -225,6 +225,33 @@ async def update_short_allowlist(
     return {"symbols": user.short_symbols}
 
 
+class OrbAllowlistBody(BaseModel):
+    symbols: str = ""
+
+
+@router.get("/orb-allowlist")
+async def get_orb_allowlist(user: User = Depends(get_current_user)):
+    """This user's ORB allowlist — which symbols they want opening-range (ORB) alerts for. Empty
+    falls back to the admin default. ORB types default OFF; enable them + set this to pick names."""
+    return {"symbols": getattr(user, "orb_symbols", "") or ""}
+
+
+@router.put("/orb-allowlist")
+async def update_orb_allowlist(
+    body: OrbAllowlistBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    syms: list[str] = []
+    for part in (body.symbols or "").split(","):
+        t = part.strip().upper()
+        if t and t not in syms:
+            syms.append(t)
+    user.orb_symbols = ",".join(syms)
+    await db.flush()
+    return {"symbols": user.orb_symbols}
+
+
 # --- Per-Alert-Type Channel Routing ---
 
 
