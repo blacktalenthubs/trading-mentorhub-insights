@@ -152,11 +152,12 @@ function FocusPicks({ body, onChart }: { body: string; onChart: (s: string) => v
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
 type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; now?: number; status?: string; actionable?: boolean; reasons?: string[] };
 function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; universe?: number } | null = null;
+  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; monthly_ma_reclaim?: SwingSig[]; universe?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   if (!parsed) return <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-[12px] text-text-faint">No swing report yet.</div>;
   const cc = parsed.character_change ?? [];
   const bb = parsed.base_buy ?? [];
+  const mr = parsed.monthly_ma_reclaim ?? [];
   const card = (x: SwingSig) => (
     <button key={x.symbol + x.setup} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
       <div className="flex items-center justify-between">
@@ -184,7 +185,12 @@ function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => 
         {bb.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{bb.map(card)}</div>
           : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No base setting up today.</div>}
       </section>
-      <p className="text-[10px] text-text-faint">Weekly swing setups scanned on the master universe. Educational — not financial advice.</p>
+      <section className="space-y-2">
+        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Monthly MA reclaim · buy the rising trend MA (position)</h3>
+        {mr.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{mr.map(card)}</div>
+          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No name reclaiming its monthly MA today.</div>}
+      </section>
+      <p className="text-[10px] text-text-faint">Swing setups scanned on the master universe — hold-for-days patterns above the 50-EMA. Educational, not financial advice.</p>
     </div>
   );
 }
