@@ -702,17 +702,20 @@ function OrbUserAllowlistSection() {
 /* ── Alert Types (per-type enable/disable) ────────────────────────── */
 
 /* iOS-style pill toggle — the mock's on/off control (green when on). */
-function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
+function Toggle({ on, onClick, disabled, partial }: { on: boolean; onClick: () => void; disabled?: boolean; partial?: boolean }) {
+  // partial = some-but-not-all on (group with a few types off). Shows a muted-green, knob-in-the-
+  // middle "indeterminate" state so it doesn't read as fully OFF when you just disable one type.
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={partial ? "some on" : undefined}
       onClick={onClick}
       disabled={disabled}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? "bg-bullish-text" : "bg-surface-3"}`}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? "bg-bullish-text" : partial ? "bg-bullish-text/40" : "bg-surface-3"}`}
     >
-      <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${on ? "translate-x-4" : ""}`} />
+      <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${on ? "translate-x-4" : partial ? "translate-x-2" : ""}`} />
     </button>
   );
 }
@@ -766,7 +769,7 @@ function AlertTypesSection() {
                   <span className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</span>
                   <span className="text-[10px] text-text-faint">{onCount} of {items.length} on · group</span>
                 </div>
-                <Toggle on={onCount === items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
+                <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
               </div>
               {GROUP_DESC[group] && <p className="mb-3 text-[10.5px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>}
               <div className="space-y-4">
