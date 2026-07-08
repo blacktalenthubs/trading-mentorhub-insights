@@ -142,6 +142,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # ORB family (2026-07-03) — 15m opening-range (ORH/ORL) + PDH/PDL rails. Fires from
     # rc.pine on CONFIRMED 15m closes; allowlist-gated (orb_symbols in Settings, default
     # SPY,QQQ,SOXL,MU). Being TRIALED → default OFF.
+    ("orb_reclaim", "ORB reclaim — reclaim of the 1-HOUR opening-range LOW or HIGH (the clean, low-noise ORB entry; long only, once per session)", "ORB", False),
     ("orb_break", "ORB break — 15m close through a rail (ORH/ORL/PDH/PDL); 'stacked' when one close takes 2+ rails", "ORB", False),
     ("orb_held", "ORB held — a rail tested from the far side and held (the bounce)", "ORB", False),
     ("orb_retest", "ORB retest — a broken rail retested & rejected (the second entry)", "ORB", False),

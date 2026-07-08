@@ -54,6 +54,45 @@ var box orBox = na
 if showBox and nD and not na(orh) and not na(orl)
     orBox := box.new(bar_index, orh, bar_index + barsPerDay, orl, border_color = color.new(color.teal, 60), bgcolor = colBox)
 
+// ── THE SIGNAL — a RECLAIM of the 1h OR low or high. The ONLY alert; no break/held/retest/exit
+// noise (user 2026-07-07: "all we need is a reclaim of either the low or high"). ORL reclaim =
+// undercut the OR low & close back above → bounce. ORH reclaim = broke the OR high, pulled back &
+// reclaimed → breakout-retest. Both LONG, once per session (sweep-&-reclaim, the same logic as RC).
+gA = "Reclaim entry (the only alert)"
+en_orl_rc = input.bool(true, "ORL reclaim — undercut & reclaim the OR LOW (bounce, BUY)", group = gA)
+en_orh_rc = input.bool(true, "ORH reclaim — broke & reclaimed the OR HIGH (retest, BUY)", group = gA)
+showRc    = input.bool(true, "Show reclaim arrows", group = gA)
+
+f_reclaim(float level, bool en, bool arm_break) =>
+    var bool _armed = false
+    var bool _swept = false
+    var bool _fired = false
+    if ta.change(time("D")) != 0
+        _armed := false
+        _swept := false
+        _fired := false
+    bool _fire = false
+    if not na(level)
+        if (close > level) or (arm_break and high > level)
+            _armed := true
+        if _armed and low < level
+            _swept := true
+        _fire := en and _swept and close > level and not _fired
+        if _fire
+            _fired := true
+    _fire
+
+orl_rc = f_reclaim(orl, en_orl_rc, false)
+orh_rc = f_reclaim(orh, en_orh_rc, true)
+plotshape(showRc and orl_rc, "ORL reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORL, 0), size = size.small, text = "RC-L")
+plotshape(showRc and orh_rc, "ORH reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORH, 0), size = size.small, text = "RC-H")
+
+orb_pay(string note, float ent, float stp) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"orb_reclaim","direction":"BUY","interval":"60","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+if en_orl_rc and orl_rc
+    alert(orb_pay("ORB 1h · reclaimed the OR LOW " + str.tostring(orl, format.mintick) + " — bounce off the opening range, stop the reclaim low", orl, low), alert.freq_once_per_bar_close)
+if en_orh_rc and orh_rc
+    alert(orb_pay("ORB 1h · reclaimed the OR HIGH " + str.tostring(orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low", orh, orl), alert.freq_once_per_bar_close)
+
 // ── Labels — the current value at the right edge, moved to the last bar each update ──
 f_lbl(bool cond, float y, string txt, color col) =>
     var label _lb = na
