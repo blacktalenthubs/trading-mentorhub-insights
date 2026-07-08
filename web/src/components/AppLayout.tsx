@@ -64,14 +64,16 @@ const NAV_ITEMS: NavItem[] = [
 
 // Mobile: 4 primary tabs + a More sheet for the rest. 8 cramped tabs → a calm 5-slot bar (#64-E).
 const MOBILE_PRIMARY: NavItem[] = [
-  { to: "/today",       label: "Today", icon: Home },
-  { to: "/trading",     label: "Trade", icon: Crosshair },
-  { to: "/trade-ideas", label: "Ideas", icon: Target },
-  { to: "/performance", label: "Perf",  icon: ArrowLeftRight },
+  { to: "/today",       label: "Today",  icon: Home },
+  { to: "/trading",     label: "Trade",  icon: Crosshair },
+  { to: "/trade-ideas", label: "Ideas",  icon: Target },
+  // Premarket is a morning-critical tab (used every open) → keep it one-tap on the bar.
+  { to: "/premarket",   label: "Premkt", icon: Activity },
 ];
 const MORE_ITEMS: NavItem[] = [
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
-  { to: "/premarket",   label: "Premarket",   icon: Activity },
+  // Performance is a post-close retrospective — rarely opened during market hours → fine in More.
+  { to: "/performance", label: "Performance", icon: ArrowLeftRight },
   { to: "/settings",    label: "Settings",    icon: Settings },
 ];
 
