@@ -1,0 +1,66 @@
+// @version=5
+// Hourly ORB — VISUAL ONLY (no alerts). The 1-HOUR opening range (ORH/ORL) plus the prior-day
+// high/low (PDH/PDL). Every level is LOCKED to its source timeframe via request.security, so the
+// lines stay put on ANY chart TF — flip 5m ↔ 15m ↔ 1h ↔ D and nothing moves.
+//
+// Load on a REGULAR-SESSION (RTH) chart so the opening range anchors at the 9:30 open (ETH poisons
+// it). Companion to the 15-min ORB in rc.pine — this one is the slower, 1-hour range for context.
+indicator("Hourly ORB · ORH/ORL + PDH/PDL · VISUAL", "H-ORB", overlay = true, max_lines_count = 200, max_labels_count = 60, max_boxes_count = 60)
+
+gS = "Opening range (1-hour, locked to 1h bars)"
+orMin   = input.int(60,  "Opening-range minutes", minval = 60, maxval = 240, step = 60, group = gS)
+showBox = input.bool(true, "Draw the OR box (per session)", group = gS)
+gV = "Display"
+showOR  = input.bool(true, "ORH / ORL lines", group = gV)
+showPD  = input.bool(true, "PDH / PDL lines", group = gV)
+showLbl = input.bool(true, "Level labels", group = gV)
+colORH  = input.color(color.new(color.teal, 0),  "ORH", group = gV, inline = "or")
+colORL  = input.color(color.new(#0E7490, 0),     "ORL", group = gV, inline = "or")
+colPDH  = input.color(color.new(color.red, 0),   "PDH", group = gV, inline = "pd")
+colPDL  = input.color(color.new(color.green, 0), "PDL", group = gV, inline = "pd")
+colBox  = input.color(color.new(color.teal, 90), "OR box fill", group = gV)
+
+// ── PDH / PDL — prior COMPLETED daily bar, locked (lookahead_on + [1] ⇒ identical on every TF, no repaint) ──
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ── 1-hour opening range — computed on 1h bars via request.security so it's identical on any chart TF.
+// OR = the first ceil(orMin/60) 1h bars of the RTH session (orMin=60 ⇒ the first 1h bar, 9:30–10:30).
+f_or60() =>
+    var float _h = na
+    var float _l = na
+    var int   _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(orMin / 60.0))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[orh, orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
+
+// ── Lines — clean per-session horizontals (break on na so they don't connect across days) ──
+plot(showOR ? orh : na, "ORH", color = colORH, linewidth = 2, style = plot.style_linebr)
+plot(showOR ? orl : na, "ORL", color = colORL, linewidth = 2, style = plot.style_linebr)
+plot(showPD ? pdh : na, "PDH", color = colPDH, linewidth = 1, style = plot.style_linebr)
+plot(showPD ? pdl : na, "PDL", color = colPDL, linewidth = 1, style = plot.style_linebr)
+
+// ── OR box — one per session, shaded between ORH/ORL across the RTH day ──
+nD = ta.change(time("D")) != 0
+barsPerDay = math.round(390 / math.max(1.0, timeframe.in_seconds() / 60.0))
+var box orBox = na
+if showBox and nD and not na(orh) and not na(orl)
+    orBox := box.new(bar_index, orh, bar_index + barsPerDay, orl, border_color = color.new(color.teal, 60), bgcolor = colBox)
+
+// ── Labels — the current value at the right edge, moved to the last bar each update ──
+f_lbl(bool cond, float y, string txt, color col) =>
+    var label _lb = na
+    label.delete(_lb)
+    _lb := cond and not na(y) ? label.new(bar_index, y, txt + " " + str.tostring(y, format.mintick), style = label.style_label_left, color = color.new(col, 85), textcolor = col, size = size.small) : na
+    _lb
+f_lbl(showLbl and showOR, orh, "ORH", colORH)
+f_lbl(showLbl and showOR, orl, "ORL", colORL)
+f_lbl(showLbl and showPD, pdh, "PDH", colPDH)
+f_lbl(showLbl and showPD, pdl, "PDL", colPDL)
