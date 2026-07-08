@@ -135,6 +135,9 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
     buckets = {"reclaim_30": [], "breakout": []}
     multi = len(cands) > 1
     pos = "Full" if market_ok else "Half"
+    import datetime
+    from zoneinfo import ZoneInfo
+    _et_today = datetime.datetime.now(ZoneInfo("America/New_York")).date()
     for sym in cands:
         try:
             if sym.endswith("-USD"):            # crypto trades its own path — equities only here
@@ -155,8 +158,14 @@ def _daytrade_picks(data, cands, market_ok, top, adv_floor=2.0e7, live_px=None):
             rsi_prev = float(rsi_s.iloc[-2]) if len(rsi_s) >= 2 and rsi_s.iloc[-2] == rsi_s.iloc[-2] else rsi
             rsi_min5 = float(rsi_s.tail(6).iloc[:-1].min())          # min RSI of the prior 5 days
             rhi = float(h.tail(20).max())
-            pdh = float(h.iloc[-2]); pdl = float(lo.iloc[-2])
-            prior_close = float(c.iloc[-2]); open_today = float(o.iloc[-1])
+            # PRIOR-DAY levels — anchor on the DATE, not iloc[-2]. In premarket yfinance often has
+            # NO today bar yet, so iloc[-2] points 2 days back (stale PDH → a down name looks like a
+            # gap-and-go). Use the last bar as "yesterday" when today hasn't formed; iloc[-2] only if
+            # today IS present.
+            _last_today = hasattr(h.index[-1], "date") and h.index[-1].date() >= _et_today
+            _pi = -2 if _last_today else -1
+            pdh = float(h.iloc[_pi]); pdl = float(lo.iloc[_pi])
+            prior_close = float(c.iloc[_pi]); open_today = float(o.iloc[-1]) if _last_today else price
             recent_stop = round(float(lo.tail(5).min()) * 0.995, 2)
             advtxt = f"${advdol / 1e6:.0f}M/day — liquid"
 
