@@ -349,16 +349,25 @@ def emit(dsn, cc, bb, mr=None, mb=None, nh=None):
     cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
     inserted = 0
     for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")] + [(x, "monthly_box") for x in (mb or []) if x.get("actionable")] + [(x, "new_high_breakout") for x in (nh or []) if x.get("actionable")]):
+        s = sig["symbol"]
         try:
-            cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
-                        (mid, sig["symbol"], atype, cutoff))
-            if cur.fetchone():
-                continue
-            cur.execute(
-                "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, target_1, session_date, trade_type, created_at) "
-                "VALUES (%s,%s,%s,'BUY',%s,%s,%s,%s,%s,'swing',NOW())",
-                (mid, sig["symbol"], atype, sig["entry"], sig["entry"], sig["stop"], sig["target"], today))
-            inserted += 1
+            # DELIVER to the master (universe scoring) AND every user who TRACKS the symbol with this
+            # swing type ENABLED — so it reaches their Signals feed, not just the master's tracking row
+            # (2026-07-08 fix: setups showed on the report page but never hit users' feeds).
+            cur.execute("SELECT DISTINCT w.user_id FROM watchlist w "
+                        "JOIN user_alert_type_prefs p ON p.user_id=w.user_id AND p.alert_type=%s AND p.enabled=true "
+                        "WHERE UPPER(w.symbol)=%s", (atype, s))
+            targets = {r[0] for r in cur.fetchall()} | {mid}
+            for uid in targets:
+                cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
+                            (uid, s, atype, cutoff))
+                if cur.fetchone():
+                    continue
+                cur.execute(
+                    "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, target_1, session_date, trade_type, created_at) "
+                    "VALUES (%s,%s,%s,'BUY',%s,%s,%s,%s,%s,'swing',NOW())",
+                    (uid, s, atype, sig["entry"], sig["entry"], sig["stop"], sig["target"], today))
+                inserted += 1
         except Exception:
             conn.rollback()
     conn.commit()
