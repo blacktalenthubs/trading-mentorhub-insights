@@ -4,7 +4,7 @@
  *  catalyst. Tap a row to chart it; add it to your watchlist.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   usePremarketGaps,
@@ -200,8 +200,14 @@ export default function PremarketGapsTab() {
   );
 
   const entries = data?.entries ?? [];
-  const clean = entries.filter((e) => e.bucket === "clean");
-  const momentum = entries.filter((e) => e.bucket === "momentum");
+  const [sortBy, setSortBy] = useState<"recommended" | "volume" | "gap">("recommended");
+  const sortFns = {
+    recommended: (a: PremarketGapEntry, b: PremarketGapEntry) => (b.quality_score ?? 0) - (a.quality_score ?? 0) || (b.pm_dollar_vol ?? 0) - (a.pm_dollar_vol ?? 0),
+    volume: (a: PremarketGapEntry, b: PremarketGapEntry) => (b.pm_dollar_vol ?? 0) - (a.pm_dollar_vol ?? 0),
+    gap: (a: PremarketGapEntry, b: PremarketGapEntry) => (b.gap_pct ?? 0) - (a.gap_pct ?? 0),
+  };
+  const clean = entries.filter((e) => e.bucket === "clean").slice().sort(sortFns[sortBy]);
+  const momentum = entries.filter((e) => e.bucket === "momentum").slice().sort(sortFns[sortBy]);
   const queue = entries.filter((e) => e.queue_rank != null).sort((a, b) => (a.queue_rank ?? 9) - (b.queue_rank ?? 9)).slice(0, 3);
 
   function onChart(s: string) { navigate(`/trading?symbol=${encodeURIComponent(s)}`); }
@@ -220,14 +226,28 @@ export default function PremarketGapsTab() {
           {entries.length} gappers · gap ≥ 2% with real premarket volume
           {data?.captured_at && <> · {fmtAge(data.captured_at)}{data.stale && " · stale"}</>}
         </span>
-        <button
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-          className="flex items-center gap-1.5 rounded-full bg-accent/15 text-accent px-3 py-1.5 hover:bg-accent/25 disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
-          {refresh.isPending ? "Scanning…" : "Scan now"}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center overflow-hidden rounded-full border border-border-subtle text-[10px] font-semibold">
+            {(["recommended", "volume", "gap"] as const).map((k, i) => (
+              <button
+                key={k}
+                onClick={() => setSortBy(k)}
+                title={k === "recommended" ? "Volume + relative strength + structure weighted" : k === "volume" ? "Biggest premarket $-volume first" : "Biggest gap % first"}
+                className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${sortBy === k ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                {k === "recommended" ? "Recommended" : k === "volume" ? "Volume" : "Gap %"}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => refresh.mutate()}
+            disabled={refresh.isPending}
+            className="flex items-center gap-1.5 rounded-full bg-accent/15 text-accent px-3 py-1.5 hover:bg-accent/25 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`} />
+            {refresh.isPending ? "Scanning…" : "Scan now"}
+          </button>
+        </div>
       </div>
 
       {entries.length === 0 ? (
