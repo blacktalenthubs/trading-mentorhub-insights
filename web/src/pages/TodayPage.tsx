@@ -272,7 +272,12 @@ function TopSpotlights({ body, onChart }: { body?: string | null; onChart: (s: s
   let market_ok: boolean | undefined;
   try { market_ok = body ? JSON.parse(body).market_ok : undefined; } catch { market_ok = undefined; }
   const top = rankedPicks(body).slice(0, 3);
-  if (!top.length) return null;
+  if (!top.length) return (
+    <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center">
+      <p className="text-[13px] font-semibold text-text-secondary">No spotlight setups right now</p>
+      <p className="mt-1 text-[11px] leading-snug text-text-faint">Nothing gapping over yesterday's high or reclaiming a level — better empty than a forced pick. Watch the premarket movers below.</p>
+    </div>
+  );
   return (
     <div className="space-y-2.5">
       <div className="flex items-baseline justify-between">
