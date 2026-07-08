@@ -688,7 +688,11 @@ bool   orb_exFire = false
 string orb_exDir  = "BUY"
 float  orb_exLvl  = na
 int    orb_exRail = -1
-if en_orb and orb_new15
+// ORB is a STOCK opening-range concept — never run it for 24/7 crypto (its levels are meaningless
+// and it fired all night, dominating the alert flood; crypto is suppressed on delivery anyway). This
+// gate stops the state machine + every ORB emission for crypto at the source (2026-07-07).
+orb_equity = en_orb and syminfo.type != "crypto"
+if orb_equity and orb_new15
     for i = 0 to 3
         float lvl = orb_railPx(i)
         if not na(lvl)
@@ -771,13 +775,13 @@ if en_orb and orb_new15
 
 // ── ORB emits (rc_pay; entry = the confirmed 15m close, stop = the rail) ──
 orb_stacked = orb_bullN >= 2 or orb_bearN >= 2
-if en_orb and orb_bkFire
+if orb_equity and orb_bkFire
     alert(rc_pay("orb_break", orb_bkDir, "15", oC15, orb_bkLvl, "ORB break — 15m close " + (orb_bkDir == "BUY" ? "above " : "below ") + orb_railNm(orb_bkRail) + " " + str.tostring(orb_bkLvl, format.mintick) + (orb_stacked ? " · STACKED (one close took 2+ rails)" : "") + " · stop a close back through the rail"), alert.freq_once_per_bar_close)
-if en_orb and orb_hdFire
+if orb_equity and orb_hdFire
     alert(rc_pay("orb_held", orb_hdDir, "15", oC15, orb_hdLvl, "ORB held — " + orb_railNm(orb_hdRail) + " " + str.tostring(orb_hdLvl, format.mintick) + " tested from the far side and held · stop a close back through it"), alert.freq_once_per_bar_close)
-if en_orb and orb_rtFire
+if orb_equity and orb_rtFire
     alert(rc_pay("orb_retest", orb_rtDir, "15", oC15, orb_rtLvl, "ORB retest — broken " + orb_railNm(orb_rtRail) + " " + str.tostring(orb_rtLvl, format.mintick) + " retested & rejected (the second entry) · stop the rail"), alert.freq_once_per_bar_close)
-if en_orb and orb_exFire
+if orb_equity and orb_exFire
     alert(rc_pay("orb_exit", orb_exDir, "15", orb_exLvl, orb_exLvl, "ORB exit — " + orb_railNm(orb_exRail) + " " + str.tostring(orb_exLvl, format.mintick) + " given back on a confirmed 15m close · the stop"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
