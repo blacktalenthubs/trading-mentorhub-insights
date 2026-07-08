@@ -691,7 +691,13 @@ int    orb_exRail = -1
 // ORB is a STOCK opening-range concept — never run it for 24/7 crypto (its levels are meaningless
 // and it fired all night, dominating the alert flood; crypto is suppressed on delivery anyway). This
 // gate stops the state machine + every ORB emission for crypto at the source (2026-07-07).
-orb_equity = en_orb and syminfo.type != "crypto"
+// SYMBOL WHITELIST (2026-07-08) — the ORB fires ONLY for these tickers, at the PINE level, so it can
+// NEVER flood the whole watchlist again (it was firing for all 130+ symbols → ~57k alerts/day, all
+// suppressed at the backend, and it burned the TV alert's capacity). Both the 15m ORB here and the
+// 1h reclaim below are gated by this. Comma-separated, NO spaces.
+orb_syms   = input.string("SPY,QQQ,DRAM", "ORB: fire ONLY for these tickers (comma-sep, no spaces)", group = gORB)
+orb_sym_ok = str.contains("," + str.upper(orb_syms) + ",", "," + str.upper(syminfo.ticker) + ",")
+orb_equity = en_orb and syminfo.type != "crypto" and orb_sym_ok
 if orb_equity and orb_new15
     for i = 0 to 3
         float lvl = orb_railPx(i)
@@ -806,7 +812,7 @@ f_or60() =>
         _l := math.min(_l, low)
     [_h, _l]
 [o1_orh, o1_orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
-o1_on = en_orb1h and syminfo.type != "crypto"
+o1_on = en_orb1h and syminfo.type != "crypto" and orb_sym_ok
 o1_rcL = sweep_reclaim(o1_orl, o1_on, o1_on and not na(o1_orl), nD)
 o1_rcH = sweep_reclaim(o1_orh, o1_on, o1_on and not na(o1_orh), nD, true)
 if o1_on and o1_rcL
