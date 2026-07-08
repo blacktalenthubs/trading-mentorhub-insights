@@ -202,8 +202,9 @@ def gap_quality_score(e: dict) -> int:
 
     cat_s = 15.0 if e.get("catalyst") else 0.0
     focus_s = (6.0 if e.get("is_ai") else 0.0) + (4.0 if e.get("on_watchlist") else 0.0)
+    rs_s = min(15.0, max(0.0, e.get("rs") or 0.0) / 3.0)   # relative-strength bonus — the market wants it
 
-    return int(round(min(100.0, gap_s + liq_s + struct_s + cat_s + focus_s)))
+    return int(round(min(100.0, gap_s + liq_s + struct_s + cat_s + focus_s + rs_s)))
 
 
 def refresh_premarket_gaps(session_factory) -> dict:
@@ -358,7 +359,10 @@ def refresh_premarket_gaps(session_factory) -> dict:
         for e in entries:
             e["quality_score"] = gap_quality_score(e)
             e["queue_rank"] = None
-        for i, e in enumerate(sorted(entries, key=lambda x: x["quality_score"], reverse=True)[:QUEUE_SIZE]):
+        # RECOMMENDED order (user 2026-07-07): sort the board by quality_score — volume + RS + structure
+        # + catalyst weighted — not raw gap size. So the most actionable, in-demand gappers lead.
+        entries.sort(key=lambda e: (e["quality_score"], e.get("pm_dollar_vol") or 0.0), reverse=True)
+        for i, e in enumerate(entries[:QUEUE_SIZE]):
             e["queue_rank"] = i + 1
 
         snap = PremarketGapSnapshot(captured_at=datetime.utcnow(), entries=entries)
