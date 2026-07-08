@@ -87,11 +87,8 @@ orh_rc = f_reclaim(orh, en_orh_rc, true)
 plotshape(showRc and orl_rc, "ORL reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORL, 0), size = size.small, text = "RC-L")
 plotshape(showRc and orh_rc, "ORH reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORH, 0), size = size.small, text = "RC-H")
 
-orb_pay(string note, float ent, float stp) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"orb_reclaim","direction":"BUY","interval":"60","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
-if en_orl_rc and orl_rc
-    alert(orb_pay("ORB 1h · reclaimed the OR LOW " + str.tostring(orl, format.mintick) + " — bounce off the opening range, stop the reclaim low", orl, low), alert.freq_once_per_bar_close)
-if en_orh_rc and orh_rc
-    alert(orb_pay("ORB 1h · reclaimed the OR HIGH " + str.tostring(orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low", orh, orl), alert.freq_once_per_bar_close)
+// NO alert() here — H-ORB is VISUAL only (the arrows above just SHOW the reclaims). The actual
+// orb_reclaim ALERT lives in rc.pine (an already-bound pine), since only 2 alert-pines can be bound.
 
 // ── Labels — the current value at the right edge, moved to the last bar each update ──
 f_lbl(bool cond, float y, string txt, color col) =>

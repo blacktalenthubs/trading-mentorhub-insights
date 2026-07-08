@@ -784,6 +784,36 @@ if orb_equity and orb_rtFire
 if orb_equity and orb_exFire
     alert(rc_pay("orb_exit", orb_exDir, "15", orb_exLvl, orb_exLvl, "ORB exit — " + orb_railNm(orb_exRail) + " " + str.tostring(orb_exLvl, format.mintick) + " given back on a confirmed 15m close · the stop"), alert.freq_once_per_bar_close)
 
+// ── ORB 1h reclaim (2026-07-07) — the CLEAN, low-noise ORB. A reclaim of the 1-HOUR opening-range
+// LOW or HIGH (LONG, once per session), locked to 1h bars via request.security so it's identical on
+// any chart TF. Lives HERE (not a 3rd pine) because alerts must be on an already-bound pine — the
+// H-ORB pine is the VISUAL twin. Default OFF; gated by the orb_symbols allowlist in the backend.
+gO1 = "ORB 1h — reclaim of the 1h opening range (clean, low-noise)"
+en_orb1h  = input.bool(false, "Fire ORB 1h reclaim (ORL/ORH reclaim · BUY · once per session)", group = gO1)
+o1_orMin  = input.int(60, "  1h opening-range minutes (locked to 1h bars)", minval = 60, maxval = 240, step = 60, group = gO1)
+f_or60() =>
+    var float _h = na
+    var float _l = na
+    var int   _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(o1_orMin / 60.0))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[o1_orh, o1_orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
+o1_on = en_orb1h and syminfo.type != "crypto"
+o1_rcL = sweep_reclaim(o1_orl, o1_on, o1_on and not na(o1_orl), nD)
+o1_rcH = sweep_reclaim(o1_orh, o1_on, o1_on and not na(o1_orh), nD, true)
+if o1_on and o1_rcL
+    alert(rc_pay("orb_reclaim", "BUY", "60", o1_orl, low, "ORB 1h · reclaimed the OR LOW " + str.tostring(o1_orl, format.mintick) + " — bounce off the opening range, stop the reclaim low"), alert.freq_once_per_bar_close)
+if o1_on and o1_rcH
+    alert(rc_pay("orb_reclaim", "BUY", "60", o1_orh, o1_orl, "ORB 1h · reclaimed the OR HIGH " + str.tostring(o1_orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low"), alert.freq_once_per_bar_close)
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ORB VISUAL (ported from orb_pd.pine) — the look you liked:
 //   • PDH / PDL as thick multi-day STEPLINES (they step each day, so prior days
