@@ -867,6 +867,8 @@ export interface PremarketGapEntry {
   catalyst: string | null;
   quality_score?: number;        // Gap-and-Go quality 0-100
   queue_rank?: number | null;    // 1..3 for the queued top gappers, else null
+  above_50ma?: boolean | null;   // demand gate — in accumulation (above the 50-day MA)
+  rs?: number | null;            // 3-mo relative strength vs SPY, % (the market wants it)
   is_ai?: boolean;               // AI / tech-and-business space
   sector?: string | null;        // Finnhub industry
 }

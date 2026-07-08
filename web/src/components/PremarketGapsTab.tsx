@@ -115,6 +115,8 @@ function QueueCard({ e, onChart }: { e: PremarketGapEntry; onChart: () => void }
   if (e.pm_dollar_vol != null) flags.push({ t: `✓ ${fmtVol(e.pm_dollar_vol)} PM vol`, cls: "ok" });
   flags.push(abovePdh ? { t: "✓ above PDH", cls: "ok" } : { t: "◔ below PDH — needs reclaim", cls: "warn" });
   if (e.catalyst) flags.push({ t: "✓ catalyst", cls: "ok" });
+  if (e.rs != null) flags.push({ t: `RS ${e.rs >= 0 ? "+" : ""}${e.rs}% vs SPY`, cls: e.rs > 0 ? "ok" : "warn" });
+  if (e.above_50ma) flags.push({ t: "✓ above 50-MA (accumulation)", cls: "ok" });
   if (e.is_ai) flags.push({ t: "AI space", cls: "info" });
   if (e.on_watchlist) flags.push({ t: "★ on watchlist", cls: "warn" });
   if (e.bucket === "momentum") flags.push({ t: "⚠ momentum — half size", cls: "warn" });

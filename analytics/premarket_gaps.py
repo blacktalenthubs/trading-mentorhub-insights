@@ -86,6 +86,50 @@ def passes_market_cap(symbol: str, market_cap: Optional[float], trusted: set[str
     return market_cap is not None and market_cap >= floor
 
 
+def _demand_gate(symbols):
+    """{symbol: (above_50ma, rs_vs_spy)} — the DEMAND / accumulation check (user 2026-07-07: stocks
+    others want, not names under distribution; pro-long). above_50ma = in accumulation, not
+    distribution; rs = the 3-month return MINUS SPY's (>0 = the market wants it more than the index).
+    Price-only — no fundamentals API; relative strength IS the market pricing fundamentals in real time."""
+    if not symbols:
+        return {}
+    try:
+        import yfinance as yf
+        d = yf.download(list(symbols) + ["SPY"], period="6mo", interval="1d", progress=False,
+                        auto_adjust=True, group_by="ticker", threads=True)
+    except Exception:
+        return {}
+
+    def _ret63(c):
+        return (c[-1] / c[-63] - 1.0) if len(c) >= 64 else 0.0
+    try:
+        spy_ret = _ret63(d["SPY"]["Close"].dropna().values)
+    except Exception:
+        spy_ret = 0.0
+    out = {}
+    for sym in symbols:
+        try:
+            c = d[sym]["Close"].dropna().values
+            if len(c) < 55:
+                out[sym] = (False, -99.0); continue
+            out[sym] = (bool(c[-1] > float(c[-50:].mean())), round((_ret63(c) - spy_ret) * 100.0, 1))
+        except Exception:
+            out[sym] = (False, -99.0)
+    return out
+
+
+def passes_demand(entry, demand) -> bool:
+    """DEMAND gate — an up-gapper we KEEP must be (1) above its 50-day MA (accumulation, not
+    distribution), (2) positive RS vs SPY (the market wants it), and (3) HOLDING its premarket range
+    (being bought, not faded/distributed into the open)."""
+    above, rs = demand.get(entry.get("symbol", ""), (False, -99.0))
+    pm_last, pm_hi, pm_lo = entry.get("pm_last"), entry.get("pm_high"), entry.get("pm_low")
+    holding = True
+    if pm_last is not None and pm_hi is not None and pm_lo is not None and pm_hi > pm_lo:
+        holding = pm_last >= pm_lo + 0.5 * (pm_hi - pm_lo)   # upper half of the premarket range
+    return bool(above and rs > 0 and holding)
+
+
 def is_ai_space(industry: Optional[str]) -> bool:
     """True if the Finnhub industry is in the AI / tech-and-business space."""
     ind = (industry or "").lower()
@@ -175,7 +219,7 @@ def refresh_premarket_gaps(session_factory) -> dict:
     from analytics.screener import MEGA_CAP_UNIVERSE, STATIC_UNIVERSE, SMALL_CAP_UNIVERSE
 
     summary = {"scanned": 0, "gappers": 0, "enriched": 0, "fetch_failures": 0,
-               "empty_pm": 0, "no_prior": 0, "no_gap": 0, "small_cap": 0, "snapshot_id": None}
+               "empty_pm": 0, "no_prior": 0, "no_gap": 0, "small_cap": 0, "distribution": 0, "snapshot_id": None}
 
     momentum_symbols = {s.upper() for s in SMALL_CAP_UNIVERSE}
 
@@ -255,6 +299,8 @@ def refresh_premarket_gaps(session_factory) -> dict:
                 "market_cap": None,  # filled during the market-cap gate below
                 "sector": None,      # Finnhub industry
                 "is_ai": False,      # AI / tech-and-business space (user focus)
+                "above_50ma": None,  # demand gate — in accumulation, not distribution
+                "rs": None,          # 3-mo relative strength vs SPY (the market wants it)
             })
 
         # Rank by gap magnitude, then apply the market-cap floor + sector/AI tag.
@@ -267,10 +313,17 @@ def refresh_premarket_gaps(session_factory) -> dict:
         LOOKUP_BUDGET = 80
         kept: list[dict] = []
         lookups = 0
+        # DEMAND gate — keep only up-gappers the market is ACCUMULATING (above the 50-day MA + positive
+        # RS vs SPY + holding premarket). One daily fetch for the ranked up-gappers (bounded).
+        demand = _demand_gate([e["symbol"] for e in entries[:LOOKUP_BUDGET]])
         for e in entries:
             if len(kept) >= TOP_N or lookups >= LOOKUP_BUDGET:
                 break
             sym = e["symbol"]
+            if not passes_demand(e, demand):
+                summary["distribution"] += 1     # under distribution / faded — not what we want
+                continue
+            e["above_50ma"], e["rs"] = demand.get(sym, (None, None))
             mc, industry = None, None
             if MARKET_CAP_MIN > 0:
                 try:
