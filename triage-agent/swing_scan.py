@@ -333,8 +333,11 @@ def scan(symbols, floor=None):
 
 
 def emit(dsn, cc, bb, mr=None, mb=None, nh=None):
-    """Insert one alert row per NEW swing signal (deduped ~weekly) so the Performance page scores them.
-    user_id = master (the scan-universe owner); the types default OFF so nothing is delivered to users."""
+    """BROADCAST swing setups to EVERY user's Signals feed — swing alerts are rare + high-conviction, so
+    they go to ALL users, not just watchers (user 2026-07-08: "only swing delivery goes to all users;
+    they aren't a lot, but when they come they're solid"). Master-gated so each setup broadcasts once a
+    week. Returns (inserted_rows, new_setups): new_setups is one (sig, atype) per setup broadcast THIS
+    run — it drives the APNs + Telegram push in push_swing_alerts()."""
     import psycopg2
     from datetime import date, timedelta
     conn = psycopg2.connect(dsn)
@@ -343,36 +346,113 @@ def emit(dsn, cc, bb, mr=None, mb=None, nh=None):
     row = cur.fetchone()
     if not row:
         conn.close()
-        return 0
+        return 0, []
     mid = row[0]
+    cur.execute("SELECT id FROM users WHERE id != %s", (mid,))   # every REAL user (exclude master universe acct)
+    everyone = [r[0] for r in cur.fetchall()]
     today = date.today().isoformat()
-    cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one row/week
+    cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one broadcast/week
     inserted = 0
+    new_setups = []
     for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")] + [(x, "monthly_box") for x in (mb or []) if x.get("actionable")] + [(x, "new_high_breakout") for x in (nh or []) if x.get("actionable")]):
         s = sig["symbol"]
         try:
-            # DELIVER to the master (universe scoring) AND every user who TRACKS the symbol with this
-            # swing type ENABLED — so it reaches their Signals feed, not just the master's tracking row
-            # (2026-07-08 fix: setups showed on the report page but never hit users' feeds).
-            cur.execute("SELECT DISTINCT w.user_id FROM watchlist w "
-                        "JOIN user_alert_type_prefs p ON p.user_id=w.user_id AND p.alert_type=%s AND p.enabled=true "
-                        "WHERE UPPER(w.symbol)=%s", (atype, s))
-            targets = {r[0] for r in cur.fetchall()} | {mid}
-            for uid in targets:
-                cur.execute("SELECT 1 FROM alerts WHERE user_id=%s AND UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s LIMIT 1",
-                            (uid, s, atype, cutoff))
-                if cur.fetchone():
+            # one SELECT for who already has this setup this week; master row = the "already broadcast"
+            # gate so each setup broadcasts + pushes exactly once.
+            cur.execute("SELECT user_id FROM alerts WHERE UPPER(symbol)=%s AND alert_type=%s AND session_date>=%s",
+                        (s, atype, cutoff))
+            have = {r[0] for r in cur.fetchall()}
+            if mid in have:
+                continue                                     # already broadcast this week — skip + no re-push
+            for uid in everyone + [mid]:
+                if uid in have:
                     continue
                 cur.execute(
                     "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, target_1, session_date, trade_type, created_at) "
                     "VALUES (%s,%s,%s,'BUY',%s,%s,%s,%s,%s,'swing',NOW())",
                     (uid, s, atype, sig["entry"], sig["entry"], sig["stop"], sig["target"], today))
                 inserted += 1
+            new_setups.append((sig, atype))
         except Exception:
             conn.rollback()
     conn.commit()
     conn.close()
-    return inserted
+    return inserted, new_setups
+
+
+def push_swing_alerts(dsn, new_setups):
+    """Notify EVERY user of the swing setups emitted this run — APNs to all registered iOS devices
+    (reusing the reports_store fan-out) + Telegram to every linked user. Each alert is labeled SWING and
+    carries entry/stop/target + reasons (a longer-term hold). Best-effort; never raises."""
+    if not new_setups:
+        return
+    import os, logging
+    log = logging.getLogger("swing_scan")
+    required = ("APNS_AUTH_KEY", "APNS_KEY_ID", "APNS_TEAM_ID", "APNS_BUNDLE_ID")
+    tokens = []
+    try:
+        import reports_store as _rs
+        tokens = _rs._device_tokens()
+    except Exception:
+        log.exception("swing push: device-token lookup failed")
+    if tokens and all(os.environ.get(k) for k in required):
+        try:
+            from aioapns import APNs, NotificationRequest, PushType
+            import asyncio
+
+            async def _fan():
+                client = APNs(key=os.environ["APNS_AUTH_KEY"], key_id=os.environ["APNS_KEY_ID"],
+                              team_id=os.environ["APNS_TEAM_ID"], topic=os.environ["APNS_BUNDLE_ID"],
+                              use_sandbox=os.environ.get("APNS_USE_SANDBOX", "0") == "1")
+                for sig, atype in new_setups:
+                    title = f"\U0001F3AF SWING · {sig.get('setup', 'setup')}"
+                    body = f"{sig['symbol']} — buy {sig['entry']}, stop {sig['stop']}, target {sig['target']} · hold for days"
+                    message = {"aps": {"alert": {"title": title, "body": body}, "sound": "default", "thread-id": "swing"},
+                               "data": {"type": "swing_alert", "symbol": sig["symbol"], "route": "/today?tab=focus"}}
+                    for tok in tokens:
+                        try:
+                            await client.send_notification(NotificationRequest(device_token=tok, message=message, push_type=PushType.ALERT))
+                        except Exception:
+                            pass
+            asyncio.run(_fan())
+            log.info("swing push: APNs sent %d setup(s) to %d device(s)", len(new_setups), len(tokens))
+        except ImportError:
+            log.info("swing push: aioapns not installed, skipping APNs")
+        except Exception:
+            log.exception("swing push: APNs fan-out failed")
+    try:
+        _push_swing_telegram(dsn, new_setups)
+    except Exception:
+        log.exception("swing push: Telegram failed")
+
+
+def _push_swing_telegram(dsn, new_setups):
+    """Post each swing setup to every linked user's Telegram, labeled SWING with the entry reasons."""
+    import os, psycopg2
+    try:
+        import requests
+    except Exception:
+        return
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return
+    conn = psycopg2.connect(dsn); cur = conn.cursor()
+    cur.execute("SELECT telegram_chat_id FROM users WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''")
+    chats = [r[0] for r in cur.fetchall()]
+    conn.close()
+    if not chats:
+        return
+    for sig, atype in new_setups:
+        reasons = "\n".join(f"• {r}" for r in sig.get("reasons", []))
+        text = (f"\U0001F3AF *SWING · {sig.get('setup','setup')}*\n"
+                f"*{sig['symbol']}* — buy `{sig['entry']}`  stop `{sig['stop']}`  target `{sig['target']}`\n"
+                f"_{sig.get('status','')}_\n{reasons}\n\n_Longer-term hold — valid while the thesis holds. Not financial advice._")
+        for chat in chats:
+            try:
+                requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                              json={"chat_id": str(chat), "text": text, "parse_mode": "Markdown"}, timeout=10)
+            except Exception:
+                pass
 
 
 def main():
@@ -410,7 +490,11 @@ def main():
         conn.commit()
         print(f"[persisted swing_setups {date.today().isoformat()}]")
     if args.emit:
-        print(f"[emitted {emit(dsn, cc, bb, mr, mb, nh)} new swing alerts]")
+        n, new_setups = emit(dsn, cc, bb, mr, mb, nh)
+        print(f"[emitted {n} swing alert rows to ALL users · {len(new_setups)} new setup(s)]")
+        push_swing_alerts(dsn, new_setups)
+        if new_setups:
+            print(f"[pushed {len(new_setups)} setup(s) via APNs + Telegram: {', '.join(s['symbol'] for s, _ in new_setups)}]")
 
 
 if __name__ == "__main__":
