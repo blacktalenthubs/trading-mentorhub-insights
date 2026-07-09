@@ -1254,11 +1254,30 @@ async def _dispatch_background(sig) -> None:
     is no response left to attach it to."""
     try:
         await _dispatch_signal(sig)
-    except Exception:
+    except Exception as _e:
         logger.exception(
             "TV webhook: background dispatch failed for %s",
             getattr(sig, "symbol", "?"),
         )
+        # DIAGNOSTIC (2026-07-09): the dispatcher swallows the error, so a routing bug (e.g. the
+        # long-standing orb_reclaim silent drop) is invisible in prod. Persist symbol/rule/exception
+        # + traceback to webhook_errors so it can be queried. Best-effort; never re-raises.
+        try:
+            import traceback as _tb
+            from app.database import async_session_factory as _asf
+            from sqlalchemy import text as _text
+            async with _asf() as _edb:
+                await _edb.execute(_text(
+                    "CREATE TABLE IF NOT EXISTS webhook_errors (id serial primary key, symbol text, "
+                    "rule text, err text, tb text, at timestamp default now())"))
+                await _edb.execute(
+                    _text("INSERT INTO webhook_errors (symbol, rule, err, tb) VALUES (:s,:r,:e,:t)"),
+                    {"s": str(getattr(sig, "symbol", "?"))[:40],
+                     "r": str(getattr(sig, "rule", None) or getattr(sig, "alert_type", "?"))[:60],
+                     "e": str(_e)[:400], "t": _tb.format_exc()[:2500]})
+                await _edb.commit()
+        except Exception:
+            pass
 
 
 async def _dispatch_signal(sig) -> dict[str, Any]:
