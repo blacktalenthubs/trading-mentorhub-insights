@@ -695,7 +695,7 @@ int    orb_exRail = -1
 // NEVER flood the whole watchlist again (it was firing for all 130+ symbols → ~57k alerts/day, all
 // suppressed at the backend, and it burned the TV alert's capacity). Both the 15m ORB here and the
 // 1h reclaim below are gated by this. Comma-separated, NO spaces.
-orb_syms   = input.string("SPY,QQQ,DRAM", "ORB: fire ONLY for these tickers (comma-sep, no spaces)", group = gORB)
+orb_syms   = input.string("SPY,QQQ,IWM,DIA", "ORB: fire ONLY for these tickers — INDEX only (comma-sep, no spaces)", group = gORB)
 orb_sym_ok = str.contains("," + str.upper(orb_syms) + ",", "," + str.upper(syminfo.ticker) + ",")
 orb_equity = en_orb and syminfo.type != "crypto" and orb_sym_ok
 if orb_equity and orb_new15
@@ -812,7 +812,14 @@ f_or60() =>
         _l := math.min(_l, low)
     [_h, _l]
 [o1_orh, o1_orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
-o1_on = en_orb1h and syminfo.type != "crypto" and orb_sym_ok
+// FIRST ALERT ONLY AFTER THE 1h OR COMPLETES (user 2026-07-08: "first orb alert should be after 1h").
+// Track the RTH session-open time and require at least o1_orMin minutes elapsed, so no reclaim can
+// fire inside the opening hour even if lookahead surfaces the OR level early.
+var int _o1_open = na
+if nD
+    _o1_open := time
+o1_ready = not na(_o1_open) and (time - _o1_open) >= o1_orMin * 60 * 1000
+o1_on = en_orb1h and syminfo.type != "crypto" and orb_sym_ok and o1_ready
 o1_rcL = sweep_reclaim(o1_orl, o1_on, o1_on and not na(o1_orl), nD)
 o1_rcH = sweep_reclaim(o1_orh, o1_on, o1_on and not na(o1_orh), nD, true)
 if o1_on and o1_rcL
