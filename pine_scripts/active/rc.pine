@@ -562,12 +562,16 @@ if mobo_rch_fire
 // the locked w10/w30 levels. (Old per-WEEK latch + the sticky weekly-low held/reclaim
 // conditions fired at most once a week; weekly_10w_reclaim / weekly_30w_reclaim retired —
 // the single touch alert covers tag-and-hold + a shallow undercut-reclaim.)
-mb_w10 = ma_bounce(w10, en_w10)
-mb_w30 = ma_bounce(w30, en_w30)
+// WICK & RECLAIM, not held (user 2026-07-08, MU: wicked to ~900 below the 10w @922 then reclaimed to
+// 938 — a shallow "tag & held" MISSES that deep undercut). sweep_reclaim = armed above the MA, swept
+// (low < MA = the wick below), then reclaimed (close back > MA). Latched once per week (nW). Stop = the
+// reclaim/wick low, not the MA.
+mb_w10 = sweep_reclaim(w10, en_w10, en_w10 and not na(w10), nW)
+mb_w30 = sweep_reclaim(w30, en_w30, en_w30 and not na(w30), nW)
 if mb_w10
-    alert(rc_pay("weekly_10w_held", "BUY", "W", close, w10, "10w MA · tagged & held the 10-week MA — entry " + str.tostring(close, format.mintick) + ", stop a close below the 10w " + str.tostring(w10, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("weekly_10w_held", "BUY", "W", close, low, "10w MA · WICKED below & reclaimed the 10-week MA " + str.tostring(w10, format.mintick) + " — entry " + str.tostring(close, format.mintick) + ", stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
 if mb_w30
-    alert(rc_pay("weekly_30w_held", "BUY", "W", close, w30, "30w MA · tagged & held the 30-week MA (LONG-TERM support) — entry " + str.tostring(close, format.mintick) + ", stop a close below the 30w " + str.tostring(w30, format.mintick)), alert.freq_once_per_bar_close)
+    alert(rc_pay("weekly_30w_held", "BUY", "W", close, low, "30w MA · WICKED below & reclaimed the 30-week MA (LONG-TERM support) — entry " + str.tostring(close, format.mintick) + ", stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
 
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need
