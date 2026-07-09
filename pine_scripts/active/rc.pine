@@ -707,7 +707,8 @@ if o1_on and o1_rcH
 // choice now: right-click the price scale → "Scale price chart only".
 orb_dayBars = math.max(1, math.round(390.0 / (timeframe.in_seconds() / 60.0)))
 if rl_showOR and orb_orJustSet and not na(orb_orh) and not na(orb_orl)
-    box.new(bar_index - orb_orMinBars, orb_orh, bar_index + orb_dayBars - orb_orMinBars, orb_orl, border_color = color.new(color.teal, 0), bgcolor = color.new(color.teal, 88))
+    // fill lightened 88 → 96 (user 2026-07-09: "make the green background lighter")
+    box.new(bar_index - orb_orMinBars, orb_orh, bar_index + orb_dayBars - orb_orMinBars, orb_orl, border_color = color.new(color.teal, 30), bgcolor = color.new(color.teal, 96))
 
 // Right-edge NAME labels for the current session's ORH/ORL (PDH/PDL are labeled by
 // draw_level above). Redrawn on the last bar.
