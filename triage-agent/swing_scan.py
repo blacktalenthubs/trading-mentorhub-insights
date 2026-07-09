@@ -184,7 +184,10 @@ def scan_new_high(symbols, floor, data=None):
         hi52 = float(max(H[i - 252:i]))                                 # prior 52-week high (excl today)
         vol = V[i] > 1.2 * V[max(0, i - 20):i].mean()
         if hi52 > 0 and C[i] > hi52 and C[i - 1] <= hi52 and vol:       # fresh close through the 52w high on volume
-            stop = float(min(L[max(0, i - 10):i + 1])); entry = float(C[i]); risk = entry - stop
+            # TIGHT structural stop = 3% below the reclaimed 52-week high — a close back under the level
+            # it broke = failed breakout. NOT the 10-day base low (~21% away, invalidates the entry;
+            # backtested worse: +0.14R @ 21.5% risk vs +0.20R @ 6.5% risk for the tight stop).
+            entry = float(C[i]); stop = round(hi52 * 0.97, 2); risk = entry - stop
             if risk > 0:
                 nh.append({
                     "symbol": s, "setup": "52-week high breakout", "type": "SWING",
@@ -194,7 +197,7 @@ def scan_new_high(symbols, floor, data=None):
                     "reasons": [
                         f"cleared the 52-week high ${hi52:.2f} at the close",
                         "uptrend (above the daily 50-EMA) + above-average volume",
-                        "leader breaking to new highs (validated +0.22R, 61% up at 1mo)",
+                        f"tight stop ${stop:.2f} — a close back below the reclaimed high fails it (validated +0.20R)",
                     ],
                 })
     nh.sort(key=lambda x: x["symbol"])
