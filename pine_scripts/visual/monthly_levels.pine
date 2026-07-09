@@ -102,6 +102,8 @@ if newMonth
 
 bool bullFlip = false
 bool bearFlip = false
+bool bullGap  = false
+bool bearGap  = false
 bool failMark = false
 for k = 0 to 11
     int monIdx = k < 6 ? k + 1 : k - 5
@@ -115,11 +117,16 @@ for k = 0 to 11
             else if now != st
                 array.set(runN, k, array.get(runN, k) + 1)
                 if array.get(runN, k) >= confN
-                    // confirmed flip
+                    // confirmed flip — GAPPED if the bar already OPENED beyond
+                    // the rail (never traded through it): worse fill, gap-fill
+                    // risk, the better entry is usually the retest of the rail.
+                    bool gapped = now > 0 ? open > lvl : open < lvl
                     if now > 0
-                        bullFlip := true
+                        bullFlip := not gapped or bullFlip
+                        bullGap  := gapped or bullGap
                     else
-                        bearFlip := true
+                        bearFlip := not gapped or bearFlip
+                        bearGap  := gapped or bearGap
                     // ✕ if this reverses a recent flip on the SAME rail
                     if array.get(flipD, k) == -now and bar_index - array.get(flipB, k) <= gbBars
                         failMark := true
@@ -141,6 +148,10 @@ bandEnter = inBand and not inBand[1]
 
 plotshape(showArr and bullFlip,  "▲ rail flip up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
 plotshape(showArr and bearFlip,  "▼ rail flip down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+// AMBER flip = it GAPPED past the rail (opened already beyond it) — worse fill,
+// gap-fill risk; the higher-odds entry is the retest of the gapped rail.
+plotshape(showArr and bullGap,   "▲ gap-flip up",    style = shape.triangleup,   location = location.belowbar, color = color.orange, size = size.tiny)
+plotshape(showArr and bearGap,   "▼ gap-flip down",  style = shape.triangledown, location = location.abovebar, color = color.orange, size = size.tiny)
 plotshape(showBand and bandEnter, "● entered acceptance zone", style = shape.circle, location = location.abovebar, color = color.new(color.orange, 20), size = size.tiny)
 plotshape(showFail and failMark, "✕ fake break", style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
 
