@@ -1,0 +1,82 @@
+// @version=5
+//
+// WLV — Weekly Levels. Twin of MLV (monthly_levels.pine), one rung down:
+// the HIGH and LOW of the last N COMPLETED weekly candles (default 4).
+// Deliberately a SEPARATE pine — do not merge with MLV (owner keeps the
+// monthly and weekly findings independent while validating).
+//
+//   · Each rail STARTS where its week started and extends right.
+//   · Tag at the right edge: "Jun 29 H 181.40" — week-of date · side · price.
+//   · Recency fade: freshest week opaque, older weeks fade.
+//   · Highs = fuchsia · Lows = purple — the PWH/PWL convention from the
+//     day-trade pines, so weekly rails never get confused with MLV's
+//     red/teal monthly rails when both are on the chart.
+//
+// Completed weeks only (no repaint). Any chart timeframe; context, not signals.
+//
+indicator("WLV · Weekly Levels (last N weeks)", "WLV", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+gS = "Levels"
+nWk     = input.int(4, "Completed weeks to draw", minval = 1, maxval = 8, group = gS)
+showTag = input.bool(true, "Week + price tags at the right edge", group = gS)
+colHi   = input.color(color.new(color.fuchsia, 0), "Week highs", group = gS, inline = "c")
+colLo   = input.color(color.new(color.purple, 0),  "Week lows",  group = gS, inline = "c")
+
+// ── The last 8 completed weekly candles (constant offsets — no repaint) ───────
+tid = syminfo.tickerid
+wh1 = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
+wl1 = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
+wt1 = request.security(tid, "W", time[1], lookahead = barmerge.lookahead_on)
+wh2 = request.security(tid, "W", high[2], lookahead = barmerge.lookahead_on)
+wl2 = request.security(tid, "W", low[2],  lookahead = barmerge.lookahead_on)
+wt2 = request.security(tid, "W", time[2], lookahead = barmerge.lookahead_on)
+wh3 = request.security(tid, "W", high[3], lookahead = barmerge.lookahead_on)
+wl3 = request.security(tid, "W", low[3],  lookahead = barmerge.lookahead_on)
+wt3 = request.security(tid, "W", time[3], lookahead = barmerge.lookahead_on)
+wh4 = request.security(tid, "W", high[4], lookahead = barmerge.lookahead_on)
+wl4 = request.security(tid, "W", low[4],  lookahead = barmerge.lookahead_on)
+wt4 = request.security(tid, "W", time[4], lookahead = barmerge.lookahead_on)
+wh5 = request.security(tid, "W", high[5], lookahead = barmerge.lookahead_on)
+wl5 = request.security(tid, "W", low[5],  lookahead = barmerge.lookahead_on)
+wt5 = request.security(tid, "W", time[5], lookahead = barmerge.lookahead_on)
+wh6 = request.security(tid, "W", high[6], lookahead = barmerge.lookahead_on)
+wl6 = request.security(tid, "W", low[6],  lookahead = barmerge.lookahead_on)
+wt6 = request.security(tid, "W", time[6], lookahead = barmerge.lookahead_on)
+wh7 = request.security(tid, "W", high[7], lookahead = barmerge.lookahead_on)
+wl7 = request.security(tid, "W", low[7],  lookahead = barmerge.lookahead_on)
+wt7 = request.security(tid, "W", time[7], lookahead = barmerge.lookahead_on)
+wh8 = request.security(tid, "W", high[8], lookahead = barmerge.lookahead_on)
+wl8 = request.security(tid, "W", low[8],  lookahead = barmerge.lookahead_on)
+wt8 = request.security(tid, "W", time[8], lookahead = barmerge.lookahead_on)
+
+wkH(int i) => i == 1 ? wh1 : i == 2 ? wh2 : i == 3 ? wh3 : i == 4 ? wh4 : i == 5 ? wh5 : i == 6 ? wh6 : i == 7 ? wh7 : wh8
+wkL(int i) => i == 1 ? wl1 : i == 2 ? wl2 : i == 3 ? wl3 : i == 4 ? wl4 : i == 5 ? wl5 : i == 6 ? wl6 : i == 7 ? wl7 : wl8
+wkT(int i) => i == 1 ? wt1 : i == 2 ? wt2 : i == 3 ? wt3 : i == 4 ? wt4 : i == 5 ? wt5 : i == 6 ? wt6 : i == 7 ? wt7 : wt8
+
+// ── Draw once, keep updated on the last bar ───────────────────────────────────
+var line[]  lns  = array.new_line()
+var label[] lbls = array.new_label()
+
+if barstate.islast
+    for l in lns
+        line.delete(l)
+    for lb in lbls
+        label.delete(lb)
+    array.clear(lns)
+    array.clear(lbls)
+    for i = 1 to nWk
+        float h = wkH(i)
+        float l = wkL(i)
+        int   t = int(wkT(i))
+        if not na(h) and not na(l)
+            int fade = math.min(45, (i - 1) * 7)             // gentler fade — up to 8 rungs
+            color ch = color.new(colHi, fade)
+            color cl = color.new(colLo, fade)
+            int w = i == 1 ? 3 : 2
+            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
+            if showTag
+                // tags stay FULL opacity + normal size — the fade is for lines, not text
+                string wn = str.format("{0,date,MMM d}", t)
+                array.push(lbls, label.new(bar_index + 1, h, wn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
+                array.push(lbls, label.new(bar_index + 1, l, wn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
