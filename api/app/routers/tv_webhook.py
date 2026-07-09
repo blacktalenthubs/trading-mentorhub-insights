@@ -412,7 +412,6 @@ ORB_SYMS_DEFAULT: frozenset[str] = frozenset()
 # to all users, even if they didn't enable them in Settings"). Day-trade types stay per-user/per-focus.
 # Only the TV-fired swing/long-term rules here; the EOD swing_scan setups already broadcast themselves.
 SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
-    "monthly_lvl_reclaim",   # MLV — wick & reclaim of a monthly H/L from 2-4 months back
     "weekly_10w_held",       # 10-week MA wick & reclaim
     "weekly_30w_held",       # 30-week MA wick & reclaim
     "monthly_box",           # MoBO — monthly base breakout
