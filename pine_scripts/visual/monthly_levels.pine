@@ -1,0 +1,76 @@
+// @version=5
+//
+// MLV — Monthly Levels. The simple one: the HIGH and LOW of the last N
+// COMPLETED monthly candles (default 4), drawn as rails. Nothing else.
+//
+//   · Each rail STARTS where its month started (you can see which month owns
+//     which level just from where the line begins) and extends right.
+//   · Tag at the right edge: "JUN H 219.40" — month · side · price.
+//   · Recency fade: the freshest month is fully opaque, older months fade —
+//     so the eye lands on the levels that matter most without reading.
+//   · Highs = red family (resistance memory) · Lows = teal (support memory),
+//     matching the PDH/PDL convention on the day-trade pines.
+//
+// Completed months only (no repaint — the forming month is not a level yet).
+// Works on any chart timeframe; these are context rails, not signals.
+//
+indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+gS = "Levels"
+nMon    = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
+showTag = input.bool(true, "Month + price tags at the right edge", group = gS)
+colHi   = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
+colLo   = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
+
+// ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
+tid = syminfo.tickerid
+mh1 = request.security(tid, "M", high[1], lookahead = barmerge.lookahead_on)
+ml1 = request.security(tid, "M", low[1],  lookahead = barmerge.lookahead_on)
+mt1 = request.security(tid, "M", time[1], lookahead = barmerge.lookahead_on)
+mh2 = request.security(tid, "M", high[2], lookahead = barmerge.lookahead_on)
+ml2 = request.security(tid, "M", low[2],  lookahead = barmerge.lookahead_on)
+mt2 = request.security(tid, "M", time[2], lookahead = barmerge.lookahead_on)
+mh3 = request.security(tid, "M", high[3], lookahead = barmerge.lookahead_on)
+ml3 = request.security(tid, "M", low[3],  lookahead = barmerge.lookahead_on)
+mt3 = request.security(tid, "M", time[3], lookahead = barmerge.lookahead_on)
+mh4 = request.security(tid, "M", high[4], lookahead = barmerge.lookahead_on)
+ml4 = request.security(tid, "M", low[4],  lookahead = barmerge.lookahead_on)
+mt4 = request.security(tid, "M", time[4], lookahead = barmerge.lookahead_on)
+mh5 = request.security(tid, "M", high[5], lookahead = barmerge.lookahead_on)
+ml5 = request.security(tid, "M", low[5],  lookahead = barmerge.lookahead_on)
+mt5 = request.security(tid, "M", time[5], lookahead = barmerge.lookahead_on)
+mh6 = request.security(tid, "M", high[6], lookahead = barmerge.lookahead_on)
+ml6 = request.security(tid, "M", low[6],  lookahead = barmerge.lookahead_on)
+mt6 = request.security(tid, "M", time[6], lookahead = barmerge.lookahead_on)
+
+monH(int i) => i == 1 ? mh1 : i == 2 ? mh2 : i == 3 ? mh3 : i == 4 ? mh4 : i == 5 ? mh5 : mh6
+monL(int i) => i == 1 ? ml1 : i == 2 ? ml2 : i == 3 ? ml3 : i == 4 ? ml4 : i == 5 ? ml5 : ml6
+monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 5 ? mt5 : mt6
+
+// ── Draw once, keep updated on the last bar ───────────────────────────────────
+var line[]  lns  = array.new_line()
+var label[] lbls = array.new_label()
+
+if barstate.islast
+    // clear + redraw (N is small; simplest correct thing)
+    for l in lns
+        line.delete(l)
+    for lb in lbls
+        label.delete(lb)
+    array.clear(lns)
+    array.clear(lbls)
+    for i = 1 to nMon
+        float h = monH(i)
+        float l = monL(i)
+        int   t = int(monT(i))
+        if not na(h) and not na(l)
+            int fade = math.min(80, (i - 1) * 18)            // recency fade: 0 · 18 · 36 · 54 …
+            color ch = color.new(colHi, fade)
+            color cl = color.new(colLo, fade)
+            int w = i == 1 ? 2 : 1                            // freshest month slightly heavier
+            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, extend = extend.right, color = ch, width = w))
+            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, extend = extend.right, color = cl, width = w))
+            if showTag
+                string mn = str.format("{0,date,MMM}", t)
+                array.push(lbls, label.new(bar_index + 2, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = ch, size = size.small))
+                array.push(lbls, label.new(bar_index + 2, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cl, size = size.small))
