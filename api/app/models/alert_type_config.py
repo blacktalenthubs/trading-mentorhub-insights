@@ -139,14 +139,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
-    # ORB family (2026-07-03) — 15m opening-range (ORH/ORL) + PDH/PDL rails. Fires from
-    # rc.pine on CONFIRMED 15m closes; allowlist-gated (orb_symbols in Settings, default
-    # SPY,QQQ,SOXL,MU). Being TRIALED → default OFF.
+    # ORB (2026-07-08) — the 15m family (orb_break/held/retest/exit) is RETIRED
+    # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
+    # the machine is deleted from rc.pine). → OBSOLETE below. The ONE ORB alert
+    # is the 1h reclaim: clean, low-noise, once per session, allowlist-gated.
     ("orb_reclaim", "ORB reclaim — reclaim of the 1-HOUR opening-range LOW or HIGH (the clean, low-noise ORB entry; long only, once per session)", "ORB · 1h", False),
-    ("orb_break", "ORB break — 15m close through a rail (ORH/ORL/PDH/PDL); 'stacked' when one close takes 2+ rails", "ORB · 15m", False),
-    ("orb_held", "ORB held — a rail tested from the far side and held (the bounce)", "ORB · 15m", False),
-    ("orb_retest", "ORB retest — a broken rail retested & rejected (the second entry)", "ORB · 15m", False),
-    ("orb_exit", "ORB exit — a rail given back on a confirmed 15m close (the stop)", "ORB · 15m", False),
 
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
@@ -170,6 +167,12 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # CML (current-month low: cml_reclaim · cml_held) RETIRED 2026-07-03 → OBSOLETE_ALERT_TYPES
     # (user: still seeing them, wants them gone). pml_held (prior-month low) KEPT.
     ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
+    # MLV reclaim (2026-07-08) — the last-4-months H/L rails (the MLV visual pine): price
+    # WICKED below a rail from 2-4 MONTHS BACK and closed back above it (an old low
+    # defended, or a broken old high retested as support). The prior month's H/L already
+    # fire as monthly_rc / pml_held — this covers the OLDER rails those can't see. Fires
+    # from rc.pine, once per rail per day. Default OFF (opt-in).
+    ("monthly_lvl_reclaim", "MLV reclaim — wick & reclaim of a monthly HIGH/LOW from 2-4 months back", "Monthly trend", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -312,6 +315,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
+    "monthly_lvl_reclaim": "MLV reclaim: price WICKED below a monthly HIGH or LOW from 2-4 months back and closed back above it — the old monthly rail held as support (an old low defended, or a broken old high retested as support). The prior month's levels fire as Monthly RC / PML held; this covers the older rails. Entry = the rail, stop = the reclaim low. Once per rail per day; rare by nature. Pairs with the MLV visual pine (monthly_levels.pine).",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
@@ -334,6 +338,9 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
+    # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
+    "orb_break", "orb_held", "orb_retest", "orb_exit",
     # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
     # reclaim (reclaim_long) RETIRED 2026-07-03 too — superseded by the new ORB family
     # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup
