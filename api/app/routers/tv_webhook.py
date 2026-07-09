@@ -407,6 +407,17 @@ ORL_SYMS_DEFAULT: frozenset[str] = frozenset()
 # SPY,QQQ,SOXL,MU). Empty = read-fail fallback (silence, never a flood).
 ORB_SYMS_DEFAULT: frozenset[str] = frozenset()
 
+# SWING/LONG-TERM BROADCAST (2026-07-09) — these are rare, high-conviction POSITION setups. They go to
+# EVERY user regardless of watchlist membership or per-user type toggle ("swing alerts should propagate
+# to all users, even if they didn't enable them in Settings"). Day-trade types stay per-user/per-focus.
+# Only the TV-fired swing/long-term rules here; the EOD swing_scan setups already broadcast themselves.
+SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
+    "monthly_lvl_reclaim",   # MLV — wick & reclaim of a monthly H/L from 2-4 months back
+    "weekly_10w_held",       # 10-week MA wick & reclaim
+    "weekly_30w_held",       # 30-week MA wick & reclaim
+    "monthly_box",           # MoBO — monthly base breakout
+})
+
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
     """Decide whether the rc_4h SHORT (4h failed-break rejection) must be
@@ -1506,7 +1517,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if _bare_rule in OBSOLETE_ALERT_TYPES:
         logger.info("TV webhook: cut/obsolete type %s — dropped (%s)", alert_type_full, sig.symbol)
         return {"dispatched": False, "reason": "obsolete_type"}
-    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt:
+    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt and _bare_rule not in SWING_BROADCAST_TYPES:
         # Known type, just toggled OFF → record it (deduped) for EOD review:
         # no Telegram, hidden from the live feed, and NOT run through the
         # twin/level dedup so the routed pipeline's state stays clean.
@@ -1893,11 +1904,18 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
 
     async with async_session_factory() as db:
         # Fetch users whose watchlist contains this symbol.
-        users = await _users_watching(db, sig.symbol)
-        # Per-user gate (2026-06-20): deliver only to users who enabled THIS alert
-        # type. Fixes the multi-tenancy bug where one account's toggles changed
-        # everyone's. No pref row = OFF (opt-in via Settings / Start here).
-        users = await _filter_users_by_type_pref(db, users, alert_type_full)
+        # SWING/LONG-TERM BROADCAST (2026-07-09): these rare, high-conviction position setups go to
+        # EVERY user, bypassing BOTH the watchlist AND the per-user type toggle — "swing alerts should
+        # propagate to all users even if they didn't enable them." Everything else stays per-user.
+        if _bare_rule in SWING_BROADCAST_TYPES:
+            from app.models.user import User as _User
+            users = (await db.execute(select(_User))).scalars().all()
+        else:
+            users = await _users_watching(db, sig.symbol)
+            # Per-user gate (2026-06-20): deliver only to users who enabled THIS alert
+            # type. Fixes the multi-tenancy bug where one account's toggles changed
+            # everyone's. No pref row = OFF (opt-in via Settings / Start here).
+            users = await _filter_users_by_type_pref(db, users, alert_type_full)
         users = await _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, orb_default)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
