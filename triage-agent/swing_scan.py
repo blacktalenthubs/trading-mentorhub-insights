@@ -146,7 +146,9 @@ def scan_mobo(symbols, floor, data=None):
         va = float(V[i - N:i].mean())
         brk = C[i] > ceil and C[i - 1] <= ceil and C[i] > e10[i] and V[i] > va   # close clears + Stage-2 + volume
         if flat and brk and 0.03 <= depth <= 0.60:
-            entry = ceil; stop = blow; risk = entry - stop
+            # TIGHT stop = 8% below the breakout ceiling — a monthly close back into the box fails it.
+            # NOT the base low (deep boxes → ~21% risk; backtested worse: +0.95R @ 21% vs +1.15R @ 8%).
+            entry = ceil; stop = round(ceil * 0.92, 2); risk = entry - stop
             if risk <= 0:
                 continue
             mb.append({
@@ -157,7 +159,7 @@ def scan_mobo(symbols, floor, data=None):
                 "reasons": [
                     f"closed above the locked flat {N}-month ceiling (${entry:.2f}) on volume",
                     "Stage-2 (above the 10-month EMA) + above the daily 50-EMA floor",
-                    "monthly base breakout — the 'catch the next MU/SNDK' engine (validated +0.56R)",
+                    f"monthly base breakout — tight stop ${stop:.2f}, 8% below the ceiling (validated +1.15R)",
                 ],
             })
     mb.sort(key=lambda x: x["symbol"])
@@ -286,7 +288,7 @@ def scan(symbols, floor=None):
         upweek = C[i] > C[i - 1]
         hl_cc = L[max(0, i - 4):i + 1].min() > L[max(0, i - 12):i - 4].min()
         if below and volsurge and reclaim and upweek and hl_cc:
-            stop = min(L[i], s30[i]) * 0.99
+            stop = float(L[i]) * 0.99   # the RECLAIM week's low — lose the reversal bar's low = out (your "stop = reclaim low" rule; backtests same as min(low,30w) but never widens to a far-below 30w)
             if stop < price:
                 cc.append({
                     "symbol": s, "setup": "Character Change", "type": "SWING",
