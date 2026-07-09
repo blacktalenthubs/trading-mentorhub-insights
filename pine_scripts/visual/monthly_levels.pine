@@ -10,17 +10,25 @@
 //     so the eye lands on the levels that matter most without reading.
 //   · Highs = red family (resistance memory) · Lows = teal (support memory),
 //     matching the PDH/PDL convention on the day-trade pines.
+//   · v2 — THE BODY: a faint band from body-top to body-bottom per month
+//     (green = up month, red = down month). Long wicks now read instantly:
+//     a rail far from its band = a rejection zone, the band = where the
+//     month actually ACCEPTED price. Wick line + body band together are the
+//     whole candle, projected forward.
 //
 // Completed months only (no repaint — the forming month is not a level yet).
 // Works on any chart timeframe; these are context rails, not signals.
 //
-indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 20, max_labels_count = 20)
+indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 20, max_labels_count = 20, max_boxes_count = 10)
 
 gS = "Levels"
-nMon    = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
-showTag = input.bool(true, "Month + price tags at the right edge", group = gS)
-colHi   = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
-colLo   = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
+nMon     = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
+showTag  = input.bool(true, "Month + price tags at the right edge", group = gS)
+showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
+colHi    = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
+colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
+colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
+colBDn   = input.color(color.new(color.red, 88),   "Body · down month", group = gS, inline = "b")
 
 // ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
 tid = syminfo.tickerid
@@ -42,14 +50,29 @@ mt5 = request.security(tid, "M", time[5], lookahead = barmerge.lookahead_on)
 mh6 = request.security(tid, "M", high[6], lookahead = barmerge.lookahead_on)
 ml6 = request.security(tid, "M", low[6],  lookahead = barmerge.lookahead_on)
 mt6 = request.security(tid, "M", time[6], lookahead = barmerge.lookahead_on)
+mo1 = request.security(tid, "M", open[1],  lookahead = barmerge.lookahead_on)
+mc1 = request.security(tid, "M", close[1], lookahead = barmerge.lookahead_on)
+mo2 = request.security(tid, "M", open[2],  lookahead = barmerge.lookahead_on)
+mc2 = request.security(tid, "M", close[2], lookahead = barmerge.lookahead_on)
+mo3 = request.security(tid, "M", open[3],  lookahead = barmerge.lookahead_on)
+mc3 = request.security(tid, "M", close[3], lookahead = barmerge.lookahead_on)
+mo4 = request.security(tid, "M", open[4],  lookahead = barmerge.lookahead_on)
+mc4 = request.security(tid, "M", close[4], lookahead = barmerge.lookahead_on)
+mo5 = request.security(tid, "M", open[5],  lookahead = barmerge.lookahead_on)
+mc5 = request.security(tid, "M", close[5], lookahead = barmerge.lookahead_on)
+mo6 = request.security(tid, "M", open[6],  lookahead = barmerge.lookahead_on)
+mc6 = request.security(tid, "M", close[6], lookahead = barmerge.lookahead_on)
 
 monH(int i) => i == 1 ? mh1 : i == 2 ? mh2 : i == 3 ? mh3 : i == 4 ? mh4 : i == 5 ? mh5 : mh6
 monL(int i) => i == 1 ? ml1 : i == 2 ? ml2 : i == 3 ? ml3 : i == 4 ? ml4 : i == 5 ? ml5 : ml6
 monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 5 ? mt5 : mt6
+monO(int i) => i == 1 ? mo1 : i == 2 ? mo2 : i == 3 ? mo3 : i == 4 ? mo4 : i == 5 ? mo5 : mo6
+monC(int i) => i == 1 ? mc1 : i == 2 ? mc2 : i == 3 ? mc3 : i == 4 ? mc4 : i == 5 ? mc5 : mc6
 
 // ── Draw once, keep updated on the last bar ───────────────────────────────────
 var line[]  lns  = array.new_line()
 var label[] lbls = array.new_label()
+var box[]   bxs  = array.new_box()
 
 if barstate.islast
     // clear + redraw (N is small; simplest correct thing)
@@ -57,13 +80,21 @@ if barstate.islast
         line.delete(l)
     for lb in lbls
         label.delete(lb)
+    for b in bxs
+        box.delete(b)
     array.clear(lns)
     array.clear(lbls)
+    array.clear(bxs)
     for i = 1 to nMon
         float h = monH(i)
         float l = monL(i)
         int   t = int(monT(i))
         if not na(h) and not na(l)
+            // the body band — where the month ACCEPTED price (open↔close)
+            float o = monO(i)
+            float c = monC(i)
+            if showBody and not na(o) and not na(c)
+                array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, extend = extend.right, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
             int fade = math.min(80, (i - 1) * 18)            // recency fade: 0 · 18 · 36 · 54 …
             color ch = color.new(colHi, fade)
             color cl = color.new(colLo, fade)
