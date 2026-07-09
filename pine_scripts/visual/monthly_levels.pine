@@ -94,15 +94,15 @@ if barstate.islast
             float o = monO(i)
             float c = monC(i)
             if showBody and not na(o) and not na(c)
-                array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, extend = extend.right, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
+                array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
             int fade = math.min(45, (i - 1) * 12)            // gentler recency fade: 0 · 12 · 24 · 36 …
             color ch = color.new(colHi, fade)
             color cl = color.new(colLo, fade)
             int w = i == 1 ? 3 : 2                            // thicker rails, freshest heaviest
-            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, extend = extend.right, color = ch, width = w))
-            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, extend = extend.right, color = cl, width = w))
+            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
             if showTag
                 // tags stay FULL opacity + normal size — the fade is for lines, not text
                 string mn = str.format("{0,date,MMM}", t)
-                array.push(lbls, label.new(bar_index + 2, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
-                array.push(lbls, label.new(bar_index + 2, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
+                array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
+                array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))

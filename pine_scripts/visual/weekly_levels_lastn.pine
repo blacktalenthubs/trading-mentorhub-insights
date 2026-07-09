@@ -73,10 +73,10 @@ if barstate.islast
             color ch = color.new(colHi, fade)
             color cl = color.new(colLo, fade)
             int w = i == 1 ? 3 : 2
-            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, extend = extend.right, color = ch, width = w))
-            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, extend = extend.right, color = cl, width = w))
+            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
             if showTag
                 // tags stay FULL opacity + normal size — the fade is for lines, not text
                 string wn = str.format("{0,date,MMM d}", t)
-                array.push(lbls, label.new(bar_index + 2, h, wn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
-                array.push(lbls, label.new(bar_index + 2, l, wn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
+                array.push(lbls, label.new(bar_index + 1, h, wn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
+                array.push(lbls, label.new(bar_index + 1, l, wn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
