@@ -1,34 +1,46 @@
 // @version=5
 //
-// MLV — Monthly Levels. The simple one: the HIGH and LOW of the last N
-// COMPLETED monthly candles (default 4), drawn as rails. Nothing else.
+// MLV — Monthly Levels · v3 with SIGNALS. The last N COMPLETED monthly candles
+// as rails (H/L) + body bands (open↔close), and now the interpretation rules
+// printed as marks, same grammar as the day-trade pines:
 //
-//   · Each rail STARTS where its month started (you can see which month owns
-//     which level just from where the line begins) and extends right.
-//   · Tag at the right edge: "JUN H 219.40" — month · side · price.
-//   · Recency fade: the freshest month is fully opaque, older months fade —
-//     so the eye lands on the levels that matter most without reading.
-//   · Highs = red family (resistance memory) · Lows = teal (support memory),
-//     matching the PDH/PDL convention on the day-trade pines.
-//   · v2 — THE BODY: a faint band from body-top to body-bottom per month
-//     (green = up month, red = down month). Long wicks now read instantly:
-//     a rail far from its band = a rejection zone, the band = where the
-//     month actually ACCEPTED price. Wick line + body band together are the
-//     whole candle, projected forward.
+//   THE RULES → THE MARKS
+//   "enter at rails"      → ▲ / ▼ tiny arrow: a CONFIRMED close crossed a
+//                           monthly rail (break of it, or loss of it). Fires on
+//                           the flip only — parked on one side stays silent.
+//   "target into bands"   → ● amber dot: price just CLOSED INSIDE a body band
+//                           after being outside — you've entered an acceptance
+//                           zone: expect slowdown, take profit, don't chase.
+//   "fake break"          → ✕ orange: a rail flip reversed within the give-back
+//                           window (default 10 bars) — the break failed.
+//   "air pockets"         → read visually: rail far from its band = wick space,
+//                           price traverses it fast. No mark needed.
 //
-// Completed months only (no repaint — the forming month is not a level yet).
-// Works on any chart timeframe; these are context rails, not signals.
+//   Rails: highs red / lows teal · band green = up month, red = down month ·
+//   recency fade on lines, tags full-opacity at the line ends.
+//
+// Signals are chart-TF confirmed closes (works on 4h/daily/15m alike) with a
+// confirm-bars knob. Completed months only — nothing repaints.
 //
 indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 20, max_labels_count = 20, max_boxes_count = 10)
 
 gS = "Levels"
 nMon     = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
-showTag  = input.bool(true, "Month + price tags at the right edge", group = gS)
+showTag  = input.bool(true, "Month + price tags at the line ends", group = gS)
 showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
 colHi    = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
 colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
 colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
 colBDn   = input.color(color.new(color.red, 88),   "Body · down month", group = gS, inline = "b")
+
+gX = "Signals"
+showArr  = input.bool(true, "▲▼ rail flips — confirmed close crossed a monthly rail", group = gX)
+showBand = input.bool(true, "● band entry — closed inside an acceptance zone (take-profit context)", group = gX)
+showFail = input.bool(true, "✕ fake break — flip reversed inside the give-back window", group = gX)
+confN    = input.int(1,  "Confirm bars — consecutive closes on the new side", minval = 1, maxval = 3, group = gX)
+gbBars   = input.int(10, "Give-back window (bars) for the ✕", minval = 2, maxval = 50, group = gX)
+colUp    = input.color(color.lime, "▲", group = gX, inline = "m")
+colDn    = input.color(color.red,  "▼", group = gX, inline = "m")
 
 // ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
 tid = syminfo.tickerid
@@ -69,13 +81,75 @@ monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 
 monO(int i) => i == 1 ? mo1 : i == 2 ? mo2 : i == 3 ? mo3 : i == 4 ? mo4 : i == 5 ? mo5 : mo6
 monC(int i) => i == 1 ? mc1 : i == 2 ? mc2 : i == 3 ? mc3 : i == 4 ? mc4 : i == 5 ? mc5 : mc6
 
-// ── Draw once, keep updated on the last bar ───────────────────────────────────
+// ── SIGNALS ───────────────────────────────────────────────────────────────────
+// Rail flips: per rail (nMon highs + nMon lows), track which side price is on;
+// a flip confirmed by confN closes prints ▲/▼ once. New completed month → the
+// rails move → states silently re-adopt (no phantom signals on the rollover).
+railLv(int k) => k < 6 ? monH(k + 1) : monL(k - 5)   // 0..5 highs · 6..11 lows
+
+var int[] side  = array.new_int(12, 0)     // -1 below · +1 above · 0 unadopted
+var int[] runN  = array.new_int(12, 0)
+var int[] flipB = array.new_int(12, -1)    // bar of the last flip (give-back window)
+var int[] flipD = array.new_int(12, 0)
+
+newMonth = ta.change(mt1) != 0
+if newMonth
+    for k = 0 to 11
+        array.set(side, k, 0)
+        array.set(runN, k, 0)
+        array.set(flipB, k, -1)
+        array.set(flipD, k, 0)
+
+bool bullFlip = false
+bool bearFlip = false
+bool failMark = false
+for k = 0 to 11
+    int monIdx = k < 6 ? k + 1 : k - 5
+    if monIdx <= nMon
+        float lvl = railLv(k)
+        if not na(lvl)
+            int now = close > lvl ? 1 : close < lvl ? -1 : array.get(side, k)
+            int st  = array.get(side, k)
+            if st == 0
+                array.set(side, k, now)                       // silent adoption
+            else if now != st
+                array.set(runN, k, array.get(runN, k) + 1)
+                if array.get(runN, k) >= confN
+                    // confirmed flip
+                    if now > 0
+                        bullFlip := true
+                    else
+                        bearFlip := true
+                    // ✕ if this reverses a recent flip on the SAME rail
+                    if array.get(flipD, k) == -now and bar_index - array.get(flipB, k) <= gbBars
+                        failMark := true
+                    array.set(side, k, now)
+                    array.set(runN, k, 0)
+                    array.set(flipB, k, bar_index)
+                    array.set(flipD, k, now)
+            else
+                array.set(runN, k, 0)
+
+// Band entry: closed INSIDE any month's body after being outside all of them.
+inBand = false
+for i = 1 to nMon
+    float o = monO(i)
+    float c = monC(i)
+    if not na(o) and not na(c) and close <= math.max(o, c) and close >= math.min(o, c)
+        inBand := true
+bandEnter = inBand and not inBand[1]
+
+plotshape(showArr and bullFlip,  "▲ rail flip up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(showArr and bearFlip,  "▼ rail flip down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+plotshape(showBand and bandEnter, "● entered acceptance zone", style = shape.circle, location = location.abovebar, color = color.new(color.orange, 20), size = size.tiny)
+plotshape(showFail and failMark, "✕ fake break", style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
+
+// ── Draw the rails/bands once, keep updated on the last bar ───────────────────
 var line[]  lns  = array.new_line()
 var label[] lbls = array.new_label()
 var box[]   bxs  = array.new_box()
 
 if barstate.islast
-    // clear + redraw (N is small; simplest correct thing)
     for l in lns
         line.delete(l)
     for lb in lbls
@@ -90,19 +164,17 @@ if barstate.islast
         float l = monL(i)
         int   t = int(monT(i))
         if not na(h) and not na(l)
-            // the body band — where the month ACCEPTED price (open↔close)
             float o = monO(i)
             float c = monC(i)
             if showBody and not na(o) and not na(c)
                 array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
-            int fade = math.min(45, (i - 1) * 12)            // gentler recency fade: 0 · 12 · 24 · 36 …
+            int fade = math.min(45, (i - 1) * 12)
             color ch = color.new(colHi, fade)
             color cl = color.new(colLo, fade)
-            int w = i == 1 ? 3 : 2                            // thicker rails, freshest heaviest
+            int w = i == 1 ? 3 : 2
             array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
             array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
             if showTag
-                // tags stay FULL opacity + normal size — the fade is for lines, not text
                 string mn = str.format("{0,date,MMM}", t)
                 array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
                 array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
