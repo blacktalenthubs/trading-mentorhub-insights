@@ -603,6 +603,21 @@ def start_premarket_scheduler():
         except Exception:
             logger.exception("swing-scan job failed")
 
+    def _safe_master_curator():
+        # Weekly (Mon 6:00 ET, before the week's scans): keep the MASTER discovery universe fresh +
+        # on-profile — ADD new qualifying LEADERS (price>=$30, liquid, uptrend, RS>+10%, not chronically
+        # gappy) and PRUNE names that turned cheap (<$30) or chronically gappy (the biotech tell). ETFs
+        # exempt. Every agent scans the master, so this keeps discovery current. Subprocess-isolated;
+        # --apply updates the watchlist + persists market_reports[master_curation]. See
+        # feedback_no_low_price_gappy_stocks.
+        try:
+            import subprocess
+            script = str(Path(__file__).resolve().parent / "master_curator.py")
+            r = subprocess.run([sys.executable, script, "--apply"], timeout=600)
+            logger.info("master-curator job done (exit=%s)", r.returncode)
+        except Exception:
+            logger.exception("master-curator job failed")
+
     # Mon-Fri only (no weekend briefs)
     scheduler.add_job(
         _safe_premarket,
@@ -646,6 +661,11 @@ def start_premarket_scheduler():
         _safe_swing_scan,
         CronTrigger(hour=16, minute=25, day_of_week="mon-fri", timezone=et_tz),
         id="swing_scan", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_master_curator,
+        CronTrigger(hour=6, minute=0, day_of_week="mon", timezone=et_tz),
+        id="master_curator", replace_existing=True,
     )
     scheduler.start()
     logger.info("scheduler started: premarket %02d:%02d, morning-focus %02d:%02d, EOD %02d:%02d ET (mon-fri)",
