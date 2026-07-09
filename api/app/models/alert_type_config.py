@@ -172,7 +172,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # defended, or a broken old high retested as support). The prior month's H/L already
     # fire as monthly_rc / pml_held — this covers the OLDER rails those can't see. Fires
     # from rc.pine, once per rail per day. Default OFF (opt-in).
-    ("monthly_lvl_reclaim", "MLV reclaim — wick & reclaim of a monthly HIGH/LOW from 2-4 months back", "Monthly trend", False),
+    ("monthly_lvl_reclaim", "MLV reclaim — wick & reclaim of a monthly HIGH/LOW from 2-4 months back (day-trade level tool)", "Monthly", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -220,6 +220,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # Reclaims are DAY-TRADE tools — a reclaimed level is an intraday bounce, NOT a hold-for-days
     # pattern (2026-07-07). Listed FIRST so monthly_rc/weekly_rc win over the broad monthly_/weekly.
     ("monthly_rc", "day_trade"), ("weekly_rc", "day_trade"), ("staged_pwl", "day_trade"),
+    ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
