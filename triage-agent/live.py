@@ -657,10 +657,20 @@ def start_premarket_scheduler():
         CronTrigger(hour=LTF_HOUR_ET, minute=LTF_MINUTE_ET, day_of_week="mon", timezone=et_tz),
         id="long_term_finders", replace_existing=True,
     )
+    # Swing scan runs at ACTIONABLE times, not after the close (user 2026-07-09: "swing scanner should
+    # run an hour before close and an hour after open — running after close, one can't take the trade").
+    # 10:30 ET (1h after open) catches the morning setups; 15:00 ET (1h before close) catches them near
+    # the close with the day ~85% formed, so you can still enter today. Master-gated so each setup
+    # emits/pushes once per week — the 15:00 run won't re-fire what 10:30 already sent.
     scheduler.add_job(
         _safe_swing_scan,
-        CronTrigger(hour=16, minute=25, day_of_week="mon-fri", timezone=et_tz),
-        id="swing_scan", replace_existing=True,
+        CronTrigger(hour=10, minute=30, day_of_week="mon-fri", timezone=et_tz),
+        id="swing_scan_morning", replace_existing=True,
+    )
+    scheduler.add_job(
+        _safe_swing_scan,
+        CronTrigger(hour=15, minute=0, day_of_week="mon-fri", timezone=et_tz),
+        id="swing_scan_preclose", replace_existing=True,
     )
     scheduler.add_job(
         _safe_master_curator,
