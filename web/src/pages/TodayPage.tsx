@@ -298,12 +298,25 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const reportDates = datesData?.dates ?? [];
   const fmtDate = (d: string) =>
     new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  const pre = data?.premarket ?? null;
+  // Staleness gate (2026-07-10): in "Latest" mode the API returns the newest
+  // report of each kind — which, before today's jobs drop, is YESTERDAY'S.
+  // Day-specific reports (premarket brief, Today's Focus, premarket signals)
+  // shown with stale prices read as fresh and are misleading an hour before
+  // the open. Only render them when they're from TODAY'S ET session; otherwise
+  // show the section's "drops at ~…" wait message. Past sessions stay
+  // reviewable via the Session picker (explicit choice ≠ stale). EOD recap and
+  // trend setups are post-close products — still useful next morning, so they
+  // stay but get date-labeled below.
+  const todayET = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const isLatest = !selectedDate;
+  const fresh = <T extends { session_date: string }>(r: T | null): T | null =>
+    isLatest && r && r.session_date !== todayET ? null : r;
+  const pre = fresh(data?.premarket ?? null);
   const eod = data?.eod ?? null;
-  const mf = data?.morning_focus ?? null;
+  const mf = fresh(data?.morning_focus ?? null);
   const ts = data?.trend_setups ?? null;
   const sw = data?.swing_setups ?? null;
-  const ps = data?.premarket_signals ?? null;
+  const ps = fresh(data?.premarket_signals ?? null);
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
   const [activeSec, setActiveSec] = useState<string>("sec-focus");
@@ -323,30 +336,32 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
   const sections = [
     // ── ACTIONABLE CORE — Today's Focus leads (the plays for THIS day). ──
-    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
-      wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
+    { id: "sec-focus", time: "7:45a", title: "Today's Focus", present: !!mf || !!ps,
+      wait: "Leaders Near a Buy Point drop pre-open (~7:45 AM ET, refreshed ~8:45).",
       render: () => (
         <div className="space-y-4">
           {/* Top 3 ranked spotlights + the live premarket movers. No stale full grid — those
               entries invalidate by the open; the ranked spotlights + movers stay actionable. */}
           {mf
             ? <TopSpotlights body={mf.body} onChart={onChart} />
-            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~8:55 ET.</div>}
+            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~7:45 ET (refreshed ~8:45).</div>}
           <PremarketStrip body={ps?.body} onChart={onChart} />
         </div>
       ) },
     // ── CONTEXT — premarket read + EOD recap in ONE card. ──
     { id: "sec-briefing", time: "BRIEF", title: "Briefing", present: !!pre || !!eod,
-      wait: "Premarket read ~8:30 AM · EOD recap ~4:05 PM ET.",
+      wait: "Premarket read ~8:00 AM · EOD recap ~4:05 PM ET.",
       render: () => (
         <div className="space-y-4">
           {pre && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Premarket read</div><ReportBody body={pre.body} onChart={onChart} /></div>}
-          {eod && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">EOD recap</div><ReportBody body={eod.body} onChart={onChart} /></div>}
+          {eod && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">EOD recap{eod.session_date !== todayET ? ` · ${fmtDate(eod.session_date)}` : ""}</div><ReportBody body={eod.body} onChart={onChart} /></div>}
           {!pre && !eod && <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Briefing drops pre-open + after the close.</div>}
         </div>
       ) },
     // ── DISCOVERY — collapsed below the fold; belongs in Trade Ideas (planned move). ──
-    { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
+    { id: "sec-trend", time: "ALL·DAY",
+      title: ts && ts.session_date !== todayET ? `Trend setups · ${fmtDate(ts.session_date)} close` : "Trend setups",
+      present: !!ts,
       wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
     { id: "sec-swing", time: "WEEKLY", title: "Swing setups", present: !!sw,
       wait: "Weekly swing scan — generated after the close (~4:25 PM ET).", render: () => <SwingSetups body={sw!.body} onChart={onChart} /> },

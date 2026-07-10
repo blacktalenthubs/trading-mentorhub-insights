@@ -471,12 +471,16 @@ async def lifespan(app: FastAPI):
             from apscheduler.triggers.cron import CronTrigger as _Cron2
             from zoneinfo import ZoneInfo as _ZI2
             _et2 = _ZI2("America/New_York")
-            for _h, _m, _jid in [(8, 50, "morning_focus_push_am"), (9, 10, "morning_focus_push_am2")]:
+            # 8:00 slot added 2026-07-10 — the triage worker now generates the focus
+            # at 7:45 ET, so the teaser reaches phones right after the early cut. The
+            # later slots are catch-ups for a slow/late agent; the once-a-day guard
+            # inside push_morning_focus prevents double pushes.
+            for _h, _m, _jid in [(8, 0, "morning_focus_push_early"), (8, 50, "morning_focus_push_am"), (9, 10, "morning_focus_push_am2")]:
                 scheduler.add_job(
                     push_morning_focus, _Cron2(hour=_h, minute=_m, day_of_week="mon-fri", timezone=_et2),
                     args=[sync_session_factory], id=_jid, replace_existing=True,
                 )
-            logger.info("Morning-focus push scheduled (8:50 + 9:10 ET, mon-fri)")
+            logger.info("Morning-focus push scheduled (8:00 + 8:50 + 9:10 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register morning-focus push job")
 
