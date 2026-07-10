@@ -336,21 +336,21 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
   const sections = [
     // ── ACTIONABLE CORE — Today's Focus leads (the plays for THIS day). ──
-    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
-      wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
+    { id: "sec-focus", time: "7:45a", title: "Today's Focus", present: !!mf || !!ps,
+      wait: "Leaders Near a Buy Point drop pre-open (~7:45 AM ET, refreshed ~8:45).",
       render: () => (
         <div className="space-y-4">
           {/* Top 3 ranked spotlights + the live premarket movers. No stale full grid — those
               entries invalidate by the open; the ranked spotlights + movers stay actionable. */}
           {mf
             ? <TopSpotlights body={mf.body} onChart={onChart} />
-            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~8:55 ET.</div>}
+            : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~7:45 ET (refreshed ~8:45).</div>}
           <PremarketStrip body={ps?.body} onChart={onChart} />
         </div>
       ) },
     // ── CONTEXT — premarket read + EOD recap in ONE card. ──
     { id: "sec-briefing", time: "BRIEF", title: "Briefing", present: !!pre || !!eod,
-      wait: "Premarket read ~8:30 AM · EOD recap ~4:05 PM ET.",
+      wait: "Premarket read ~8:00 AM · EOD recap ~4:05 PM ET.",
       render: () => (
         <div className="space-y-4">
           {pre && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Premarket read</div><ReportBody body={pre.body} onChart={onChart} /></div>}
