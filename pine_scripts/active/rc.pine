@@ -694,30 +694,8 @@ if o1_on and o1_rcH
     alert(rc_pay("orb_reclaim", "BUY", "60", o1_orh, o1_orl, "ORB 1h · reclaimed the OR HIGH " + str.tostring(o1_orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ORB VISUAL (ported from orb_pd.pine) — the look you liked:
-//   • PDH / PDL as thick multi-day STEPLINES (they step each day, so prior days
-//     stay visible as context — replaces the old flat PDH/PDL lines).
-//   • the 15-minute opening-range (ORH→ORL) as a shaded BOX, one per session across
-//     history (toggle: "Draw the ORB 15m opening-range box"). Replaces the old
-//     ORH/ORL reclaim lines.
+// ORB ORH/ORL VISUAL — MOVED OUT (2026-07-10, user: "page too busy, put in a separate pine").
+// The opening-range BOX + ORH/ORL labels now live in the standalone opening_range.pine, so rc.pine
+// stays clean. The ORB reclaim-long ALERT logic (rl_orh/rl_orl) + the PDH/PDL flat lines (draw_level
+// above) STAY here — only the OR box + ORH/ORL labels were removed to declutter the chart.
 // ══════════════════════════════════════════════════════════════════════════════
-// PDH/PDL are drawn as flat lines by draw_level above (NOT plot() steplines — plot() is a
-// series that forces TradingView's auto-scale to include far levels, which crushed the
-// candles when price sat far from a level like PMH). The multi-day look is a chart-setting
-// choice now: right-click the price scale → "Scale price chart only".
-orb_dayBars = math.max(1, math.round(390.0 / (timeframe.in_seconds() / 60.0)))
-if rl_showOR and orb_orJustSet and not na(orb_orh) and not na(orb_orl)
-    // fill lightened 88 → 96 (user 2026-07-09: "make the green background lighter")
-    box.new(bar_index - orb_orMinBars, orb_orh, bar_index + orb_dayBars - orb_orMinBars, orb_orl, border_color = color.new(color.teal, 30), bgcolor = color.new(color.teal, 96))
-
-// Right-edge NAME labels for the current session's ORH/ORL (PDH/PDL are labeled by
-// draw_level above). Redrawn on the last bar.
-var label orb_lbORH = na
-var label orb_lbORL = na
-if barstate.islast
-    label.delete(orb_lbORH)
-    label.delete(orb_lbORL)
-    if rl_showOR and orb_orReady and not na(orb_orh)
-        orb_lbORH := label.new(bar_index + 3, orb_orh, "ORH " + str.tostring(orb_orh, format.mintick), style = label.style_label_left, color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
-    if rl_showOR and orb_orReady and not na(orb_orl)
-        orb_lbORL := label.new(bar_index + 3, orb_orl, "ORL " + str.tostring(orb_orl, format.mintick), style = label.style_label_left, color = color.new(color.teal, 0), textcolor = color.white, size = size.small)
