@@ -1,0 +1,68 @@
+// @version=5
+// Opening Range visual — the ORH/ORL box + labels, split OUT of rc.pine (2026-07-10, "page too busy,
+// put in a separate pine"). The opening range = the first N minutes of the RTH session (default 15m =
+// 9:30–9:45), drawn as a shaded box per session + right-edge ORH/ORL labels, plus optional PDH/PDL.
+// LOCKED to a base timeframe via request.security so the box is IDENTICAL on any chart TF (flip
+// 5m ↔ 15m ↔ 1h and it stays put). Visual only — no alerts (rc.pine keeps the ORB reclaim alert).
+// Load on a REGULAR-SESSION (RTH) chart so the OR anchors at the 9:30 open.
+indicator("Opening Range · ORH/ORL", "OR", overlay = true, max_boxes_count = 60, max_labels_count = 10)
+
+orMin     = input.int(15, "Opening-range minutes", minval = 5, step = 5, group = "Opening range")
+baseTf    = input.string("15", "Lock the OR to this base TF (min)", options = ["1", "5", "15", "30", "60"], group = "Opening range")
+showBox   = input.bool(true, "Draw the OR box", group = "Display")
+showLbl   = input.bool(true, "ORH / ORL labels", group = "Display")
+showPD    = input.bool(true, "PDH / PDL lines", group = "Display")
+boxCol    = input.color(color.new(color.teal, 96), "OR box fill", group = "Display")
+borderCol = input.color(color.new(color.teal, 30), "OR box border", group = "Display")
+orLblCol  = input.color(color.new(color.teal, 0),  "ORH/ORL label", group = "Display")
+pdhCol    = input.color(color.new(color.red, 0),   "PDH", group = "Display")
+pdlCol    = input.color(color.new(color.green, 0), "PDL", group = "Display")
+
+_baseMin = str.tonumber(baseTf)
+
+// ── OR levels — the first ceil(orMin/baseTf) base-TF bars of the RTH session, locked so they're
+// identical on any chart TF ──
+f_or() =>
+    var float _h = na
+    var float _l = na
+    var int   _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(orMin / _baseMin))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[orh, orl] = request.security(syminfo.tickerid, baseTf, f_or(), lookahead = barmerge.lookahead_on)
+
+// ── PDH / PDL (prior completed daily bar, locked, non-repainting) ──
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+plot(showPD ? pdh : na, "PDH", color = pdhCol, linewidth = 1, style = plot.style_linebr)
+plot(showPD ? pdl : na, "PDL", color = pdlCol, linewidth = 1, style = plot.style_linebr)
+
+// ── OR box — one per session, drawn when the OR completes, spanning the RTH day ──
+nD = ta.change(time("D")) != 0
+barsPerDay = math.max(1, math.round(390.0 / math.max(1.0, timeframe.in_seconds() / 60.0)))
+orMinBars  = math.max(1, math.round(orMin / math.max(1.0, timeframe.in_seconds() / 60.0)))
+var int  _sessBar = 0
+var bool _drawn   = false
+_sessBar := nD ? 0 : _sessBar + 1
+if nD
+    _drawn := false
+if showBox and (_sessBar >= orMinBars) and not _drawn and not na(orh) and not na(orl)
+    box.new(bar_index - orMinBars, orh, bar_index + barsPerDay - orMinBars, orl, border_color = borderCol, bgcolor = boxCol)
+    _drawn := true
+
+// ── Right-edge ORH/ORL name labels, redrawn on the last bar ──
+var label lbORH = na
+var label lbORL = na
+if barstate.islast
+    label.delete(lbORH)
+    label.delete(lbORL)
+    if showLbl and not na(orh)
+        lbORH := label.new(bar_index + 3, orh, "ORH " + str.tostring(orh, format.mintick), style = label.style_label_left, color = orLblCol, textcolor = color.white, size = size.small)
+    if showLbl and not na(orl)
+        lbORL := label.new(bar_index + 3, orl, "ORL " + str.tostring(orl, format.mintick), style = label.style_label_left, color = orLblCol, textcolor = color.white, size = size.small)
