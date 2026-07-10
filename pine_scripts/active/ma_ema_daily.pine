@@ -255,7 +255,7 @@ flat_draw(float ma, string nm, bool dotted, bool show) =>
     if show and not na(ma)
         sup = flat_is_support(ma)
         col = sup ? flat_sup_col : flat_res_col
-        ln  = line.new(bar_index - flat_len, ma, bar_index + 6, ma, color = col, width = dotted ? 1 : 2, style = dotted ? line.style_dotted : line.style_solid)
+        ln  = line.new(bar_index - flat_len, ma, bar_index + 6, ma, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
         lb  = label.new(bar_index + 6, ma, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
         array.push(flat_lines, ln)
         array.push(flat_labels, lb)
