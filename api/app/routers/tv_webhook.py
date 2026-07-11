@@ -1608,7 +1608,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # Symbols off the list → Not-routed. Empty list = no clamp (types still default OFF).
     # ──────────────────────────────────────────────────────────────────
     if _bare_rule.startswith("orb_"):
-        orb_union = await _orb_allow_union(db, orb_default)
+        # _dispatch_signal has no `db` in scope here (unlike the request handler);
+        # referencing it threw UnboundLocalError on EVERY orb_reclaim and the
+        # background wrapper swallowed it → the long-standing silent ORB drop.
+        # Open a short-lived session for the (60s-cached) union query.
+        from app.database import async_session_factory as _orb_asf
+        async with _orb_asf() as _orb_db:
+            orb_union = await _orb_allow_union(_orb_db, orb_default)
         if orb_union and (sig.symbol or "").upper() not in orb_union:
             logger.info("TV webhook: ORB %s %s not on any user's orb_symbols — Not-routed", alert_type_full, sig.symbol)
             return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orb_symbol_filter")
