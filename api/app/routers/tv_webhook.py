@@ -1601,10 +1601,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         logger.info("TV webhook: staged_orl_held %s not in orl_always_symbols — Not-routed", sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orl_symbol_filter")
 
-    # ORB routes like any other BUY alert (2026-07-10): NO special symbol allowlist.
-    # The "ORB · 1h" type toggle + the watchlist binding are the enable, and it flows
-    # through the SAME entry/confluence dedup as rc_4h. The old orb_symbols clamp + its
-    # per-user filter were removed — ORB isn't special.
+    # ORB routes like any other BUY alert (2026-07-10): the "ORB · 1h" type toggle +
+    # watchlist binding are the enable, and it flows through the SAME entry/confluence
+    # dedup as rc_4h. The old GLOBAL orb_symbol_filter suppression is gone. The per-user
+    # orb_symbols list survives as an OPTIONAL noise clamp (empty = ORB for the whole
+    # watchlist; set = restrict to those names), applied at delivery — not a special gate.
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
@@ -1927,6 +1928,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             # type. Fixes the multi-tenancy bug where one account's toggles changed
             # everyone's. No pref row = OFF (opt-in via Settings / Start here).
             users = await _filter_users_by_type_pref(db, users, alert_type_full)
+        # OPTIONAL ORB noise clamp: a user with an EMPTY orb_symbols gets ORB for their
+        # whole watchlist (like rc_4h); a user who SET a non-empty orb_symbols gets ORB
+        # only for those names. No global suppression — just a per-user delivery clamp.
+        users = await _filter_users_by_orb_allowlist(db, users, sig, alert_type_full)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
             # type the user disabled shows in the Not-routed panel for review — the
@@ -2401,10 +2406,11 @@ async def _orb_allow_union(db, default_syms):
         return (c["val"] | default_syms) if c["val"] is not None else default_syms
 
 
-async def _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, default_syms):
-    """Per-user ORB allowlist. ORB is opt-in-by-name — a user gets an ORB alert only for symbols
-    on THEIR orb_symbols; an empty personal list falls back to the admin default. ORB types only,
-    so nothing else is touched. One user's list never affects another's."""
+async def _filter_users_by_orb_allowlist(db, users, sig, alert_type_full):
+    """OPTIONAL per-user ORB noise clamp. Default (EMPTY orb_symbols) = the user gets ORB for
+    their whole watchlist, exactly like rc_4h. If a user SETS a non-empty orb_symbols, ORB is
+    clamped to just those names (for when it's noisy). Empty = no clamp; one user's list never
+    affects another's. ORB types only, so nothing else is touched."""
     if not users:
         return users
     if not alert_type_full.replace("tv_", "", 1).startswith("orb_"):
@@ -2416,8 +2422,7 @@ async def _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, defaul
     dropped: set = set()
     for uid, allow in rows:
         al = {x.strip().upper() for x in (allow or "").split(",") if x.strip()}
-        eff = al if al else default_syms
-        if sym not in eff:
+        if al and sym not in al:   # clamp ONLY when the user set a non-empty list
             dropped.add(uid)
     return [u for u in users if u.id not in dropped]
 
