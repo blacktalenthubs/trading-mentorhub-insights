@@ -22,12 +22,13 @@
 // Signals are chart-TF confirmed closes (works on 4h/daily/15m alike) with a
 // confirm-bars knob. Completed months only — nothing repaints.
 //
-indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 20, max_labels_count = 20, max_boxes_count = 10)
+indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 10)
 
 gS = "Levels"
 nMon     = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
 showTag  = input.bool(true, "Month + price tags at the line ends", group = gS)
 showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
+showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per month (dotted)", group = gS)
 colHi    = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
 colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
 colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
@@ -189,3 +190,13 @@ if barstate.islast
                 string mn = str.format("{0,date,MMM}", t)
                 array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
                 array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
+            // Body EDGES as flat lines (dotted) — the monthly OPEN and CLOSE, colored by
+            // up/down month (green up · red down), so the body reads as two rails like H/L.
+            if showBodyLn and not na(o) and not na(c)
+                color cb = color.new(c >= o ? color.green : color.red, math.min(55, fade + 10))
+                array.push(lns, line.new(t, o, time, o, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                array.push(lns, line.new(t, c, time, c, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if showTag
+                    string mnb = str.format("{0,date,MMM}", t)
+                    array.push(lbls, label.new(bar_index + 1, o, mnb + " O " + str.tostring(o, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
+                    array.push(lbls, label.new(bar_index + 1, c, mnb + " C " + str.tostring(c, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
