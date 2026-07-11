@@ -36,6 +36,8 @@ minPen      = input.float(0.15, "Min wick penetration below the level (%)", minv
 colUp       = input.color(color.lime, "▲ reclaim", group = gX)
 showBelow   = input.bool(true, "△ also mark intraday reclaims from BELOW (opened under the level, a 1h candle closed above)", group = gX)
 colBelow    = input.color(color.aqua, "△ reclaim-from-below", group = gX)
+markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
+_msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
 
 // ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
 tid = syminfo.tickerid
@@ -107,9 +109,9 @@ if (showReclaim or showBelow) and barstate.isconfirmed and not na(day_open)
             string mn   = str.format("{0,date,MMM}", int(monT(m)))
             string ty_s = ty == 0 ? "H" : ty == 1 ? "L" : ty == 2 ? "O" : "C"
             if defOn
-                label.new(bar_index, low, "▲ " + mn + " " + ty_s + " " + str.tostring(L, format.mintick) + "  stop " + str.tostring(low, format.mintick), style = label.style_label_up, color = colUp, textcolor = color.black, size = size.small)
+                label.new(bar_index, low, "▲" + mn + " " + ty_s, style = label.style_label_up, color = colUp, textcolor = color.black, size = _msz, tooltip = mn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · support reclaim · stop " + str.tostring(low, format.mintick))
             else
-                label.new(bar_index, low, "△ " + mn + " " + ty_s + " " + str.tostring(L, format.mintick) + " (from below)  stop " + str.tostring(low, format.mintick), style = label.style_label_up, color = colBelow, textcolor = color.white, size = size.small)
+                label.new(bar_index, low, "△" + mn + " " + ty_s, style = label.style_label_up, color = colBelow, textcolor = color.white, size = _msz, tooltip = mn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · reclaimed from below · stop " + str.tostring(low, format.mintick))
 
 // ── Draw the rails/bands once, keep updated on the last bar ───────────────────
 var line[]  lns  = array.new_line()
