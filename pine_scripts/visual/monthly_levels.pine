@@ -1,31 +1,27 @@
 // @version=5
 //
-// MLV — Monthly Levels · v3 with SIGNALS. The last N COMPLETED monthly candles
-// as rails (H/L) + body bands (open↔close), and now the interpretation rules
-// printed as marks, same grammar as the day-trade pines:
+// MLV — Monthly Levels · v4 DIRECTIONAL. The last N COMPLETED monthly candles as
+// rails (H/L) + body bands (open↔close) + body lines (O/C), PLUS the ONE signal we
+// actually trade: the directional SUPPORT RECLAIM.
 //
-//   THE RULES → THE MARKS
-//   "enter at rails"      → ▲ / ▼ tiny arrow: a CONFIRMED close crossed a
-//                           monthly rail (break of it, or loss of it). Fires on
-//                           the flip only — parked on one side stays silent.
-//   "target into bands"   → ● amber dot: price just CLOSED INSIDE a body band
-//                           after being outside — you've entered an acceptance
-//                           zone: expect slowdown, take profit, don't chase.
-//   "fake break"          → ✕ orange: a rail flip reversed within the give-back
-//                           window (default 10 bars) — the break failed.
-//   "air pockets"         → read visually: rail far from its band = wick space,
-//                           price traverses it fast. No mark needed.
+//   ▲ SUPPORT RECLAIM (long) — the day OPENED ABOVE a monthly level (so it's support),
+//     price wicked BELOW it, and CLOSED back above. Fires once per level per day, on
+//     H/L AND the body O/C alike. A rally UP into a level from below (open < level) is
+//     RESISTANCE and is NOT marked — we are support buyers, not breakout chasers.
+//     (Replaces the old rail-flip ▲▼ / band ● / fake-break ✕ marks, which fired on
+//      breakouts INCLUDING rallies-into-resistance — the opposite of this rule.)
 //
-//   Rails: highs red / lows teal · band green = up month, red = down month ·
-//   recency fade on lines, tags full-opacity at the line ends.
+//   Rails: highs red / lows teal · body band green = up month, red = down month ·
+//   body lines dotted · recency fade on lines, tags at the line ends.
 //
-// Signals are chart-TF confirmed closes (works on 4h/daily/15m alike) with a
-// confirm-bars knob. Completed months only — nothing repaints.
+// The level and the day-open gate are TF-independent (M/D security), so the reclaim
+// granularity follows the CHART TF: load on 1h for the neat set, 5m for the noisy one.
+// Completed months only — nothing repaints.
 //
-indicator("MLV · Monthly Levels (last N months)", "MLV", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 10)
+indicator("MLV · Monthly Levels (directional)", "MLV", overlay = true, max_lines_count = 40, max_labels_count = 500, max_boxes_count = 10)
 
 gS = "Levels"
-nMon     = input.int(4, "Completed months to draw", minval = 1, maxval = 6, group = gS)
+nMon     = input.int(6, "Completed months to draw + scan", minval = 1, maxval = 6, group = gS)
 showTag  = input.bool(true, "Month + price tags at the line ends", group = gS)
 showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
 showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per month (dotted)", group = gS)
@@ -34,14 +30,10 @@ colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inli
 colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
 colBDn   = input.color(color.new(color.red, 88),   "Body · down month", group = gS, inline = "b")
 
-gX = "Signals"
-showArr  = input.bool(true, "▲▼ rail flips — confirmed close crossed a monthly rail", group = gX)
-showBand = input.bool(true, "● band entry — closed inside an acceptance zone (take-profit context)", group = gX)
-showFail = input.bool(true, "✕ fake break — flip reversed inside the give-back window", group = gX)
-confN    = input.int(1,  "Confirm bars — consecutive closes on the new side", minval = 1, maxval = 3, group = gX)
-gbBars   = input.int(10, "Give-back window (bars) for the ✕", minval = 2, maxval = 50, group = gX)
-colUp    = input.color(color.lime, "▲", group = gX, inline = "m")
-colDn    = input.color(color.red,  "▼", group = gX, inline = "m")
+gX = "Signal — directional support reclaim (long only)"
+showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
+minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
+colUp       = input.color(color.lime, "▲ reclaim", group = gX)
 
 // ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
 tid = syminfo.tickerid
@@ -82,79 +74,31 @@ monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 
 monO(int i) => i == 1 ? mo1 : i == 2 ? mo2 : i == 3 ? mo3 : i == 4 ? mo4 : i == 5 ? mo5 : mo6
 monC(int i) => i == 1 ? mc1 : i == 2 ? mc2 : i == 3 ? mc3 : i == 4 ? mc4 : i == 5 ? mc5 : mc6
 
-// ── SIGNALS ───────────────────────────────────────────────────────────────────
-// Rail flips: per rail (nMon highs + nMon lows), track which side price is on;
-// a flip confirmed by confN closes prints ▲/▼ once. New completed month → the
-// rails move → states silently re-adopt (no phantom signals on the rollover).
-railLv(int k) => k < 6 ? monH(k + 1) : monL(k - 5)   // 0..5 highs · 6..11 lows
+// ── DIRECTIONAL SUPPORT-RECLAIM SIGNAL (▲) ──────────────────────────────────────
+// A monthly level is SUPPORT only when price OPENED above it (day_open > L). The entry
+// is the wick-below-and-reclaim on the CHART bar: low ≤ L and close > L, with a minimum
+// penetration so a penny-kiss doesn't count. Scans H/L AND body O/C of the last nMon
+// months (up to 24 levels). Long only · once per level per day. A rally UP into a level
+// from below (open < L) is resistance and is NOT marked.
+day_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
 
-var int[] side  = array.new_int(12, 0)     // -1 below · +1 above · 0 unadopted
-var int[] runN  = array.new_int(12, 0)
-var int[] flipB = array.new_int(12, -1)    // bar of the last flip (give-back window)
-var int[] flipD = array.new_int(12, 0)
+var bool[] mlvFired = array.new_bool(24, false)
+newDay = ta.change(time("D")) != 0
+if newDay
+    for k = 0 to 23
+        array.set(mlvFired, k, false)
 
-newMonth = ta.change(mt1) != 0
-if newMonth
-    for k = 0 to 11
-        array.set(side, k, 0)
-        array.set(runN, k, 0)
-        array.set(flipB, k, -1)
-        array.set(flipD, k, 0)
-
-bool bullFlip = false
-bool bearFlip = false
-bool bullGap  = false
-bool bearGap  = false
-bool failMark = false
-for k = 0 to 11
-    int monIdx = k < 6 ? k + 1 : k - 5
-    if monIdx <= nMon
-        float lvl = railLv(k)
-        if not na(lvl)
-            int now = close > lvl ? 1 : close < lvl ? -1 : array.get(side, k)
-            int st  = array.get(side, k)
-            if st == 0
-                array.set(side, k, now)                       // silent adoption
-            else if now != st
-                array.set(runN, k, array.get(runN, k) + 1)
-                if array.get(runN, k) >= confN
-                    // confirmed flip — GAPPED if the bar already OPENED beyond
-                    // the rail (never traded through it): worse fill, gap-fill
-                    // risk, the better entry is usually the retest of the rail.
-                    bool gapped = now > 0 ? open > lvl : open < lvl
-                    if now > 0
-                        bullFlip := not gapped or bullFlip
-                        bullGap  := gapped or bullGap
-                    else
-                        bearFlip := not gapped or bearFlip
-                        bearGap  := gapped or bearGap
-                    // ✕ if this reverses a recent flip on the SAME rail
-                    if array.get(flipD, k) == -now and bar_index - array.get(flipB, k) <= gbBars
-                        failMark := true
-                    array.set(side, k, now)
-                    array.set(runN, k, 0)
-                    array.set(flipB, k, bar_index)
-                    array.set(flipD, k, now)
-            else
-                array.set(runN, k, 0)
-
-// Band entry: closed INSIDE any month's body after being outside all of them.
-inBand = false
-for i = 1 to nMon
-    float o = monO(i)
-    float c = monC(i)
-    if not na(o) and not na(c) and close <= math.max(o, c) and close >= math.min(o, c)
-        inBand := true
-bandEnter = inBand and not inBand[1]
-
-plotshape(showArr and bullFlip,  "▲ rail flip up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
-plotshape(showArr and bearFlip,  "▼ rail flip down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
-// AMBER flip = it GAPPED past the rail (opened already beyond it) — worse fill,
-// gap-fill risk; the higher-odds entry is the retest of the gapped rail.
-plotshape(showArr and bullGap,   "▲ gap-flip up",    style = shape.triangleup,   location = location.belowbar, color = color.orange, size = size.tiny)
-plotshape(showArr and bearGap,   "▼ gap-flip down",  style = shape.triangledown, location = location.abovebar, color = color.orange, size = size.tiny)
-plotshape(showBand and bandEnter, "● entered acceptance zone", style = shape.circle, location = location.abovebar, color = color.new(color.orange, 20), size = size.tiny)
-plotshape(showFail and failMark, "✕ fake break", style = shape.xcross, location = location.abovebar, color = color.orange, size = size.tiny)
+if showReclaim and barstate.isconfirmed and not na(day_open)
+    for k = 0 to nMon * 4 - 1
+        int m  = int(k / 4) + 1
+        int ty = k % 4
+        float L = ty == 0 ? monH(m) : ty == 1 ? monL(m) : ty == 2 ? monO(m) : monC(m)
+        bool hit = not na(L) and day_open > L and low <= L and close > L and (L - low) / L >= minPen
+        if hit and not array.get(mlvFired, k)
+            array.set(mlvFired, k, true)
+            string mn   = str.format("{0,date,MMM}", int(monT(m)))
+            string ty_s = ty == 0 ? "H" : ty == 1 ? "L" : ty == 2 ? "O" : "C"
+            label.new(bar_index, low, "▲ " + mn + " " + ty_s + " " + str.tostring(L, format.mintick) + "  stop " + str.tostring(low, format.mintick), style = label.style_label_up, color = colUp, textcolor = color.black, size = size.small)
 
 // ── Draw the rails/bands once, keep updated on the last bar ───────────────────
 var line[]  lns  = array.new_line()
