@@ -1601,23 +1601,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         logger.info("TV webhook: staged_orl_held %s not in orl_always_symbols — Not-routed", sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orl_symbol_filter")
 
-    # ──────────────────────────────────────────────────────────────────
-    # ORB allowlist (2026-07-03). The ORB family (orb_break/orb_held/orb_retest/
-    # orb_exit — 15m opening-range + PDH/PDL) is being TRIALED, so it's clamped to a
-    # user-editable symbol allowlist (orb_symbols in Settings; default SPY,QQQ,SOXL,MU).
-    # Symbols off the list → Not-routed. Empty list = no clamp (types still default OFF).
-    # ──────────────────────────────────────────────────────────────────
-    if _bare_rule.startswith("orb_"):
-        # _dispatch_signal has no `db` in scope here (unlike the request handler);
-        # referencing it threw UnboundLocalError on EVERY orb_reclaim and the
-        # background wrapper swallowed it → the long-standing silent ORB drop.
-        # Open a short-lived session for the (60s-cached) union query.
-        from app.database import async_session_factory as _orb_asf
-        async with _orb_asf() as _orb_db:
-            orb_union = await _orb_allow_union(_orb_db, orb_default)
-        if orb_union and (sig.symbol or "").upper() not in orb_union:
-            logger.info("TV webhook: ORB %s %s not on any user's orb_symbols — Not-routed", alert_type_full, sig.symbol)
-            return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="orb_symbol_filter")
+    # ORB routes like any other BUY alert (2026-07-10): NO special symbol allowlist.
+    # The "ORB · 1h" type toggle + the watchlist binding are the enable, and it flows
+    # through the SAME entry/confluence dedup as rc_4h. The old orb_symbols clamp + its
+    # per-user filter were removed — ORB isn't special.
 
     # Multi-period S/R (htf_sr_*) — clustered weekly/monthly/daily S/R is clumpy on
     # busy names, so it's opt-in per symbol: delivers ONLY for htf_sr_symbols
@@ -1940,7 +1927,6 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             # type. Fixes the multi-tenancy bug where one account's toggles changed
             # everyone's. No pref row = OFF (opt-in via Settings / Start here).
             users = await _filter_users_by_type_pref(db, users, alert_type_full)
-        users = await _filter_users_by_orb_allowlist(db, users, sig, alert_type_full, orb_default)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
             # type the user disabled shows in the Not-routed panel for review — the
