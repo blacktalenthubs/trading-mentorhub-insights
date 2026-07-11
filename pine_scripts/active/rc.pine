@@ -685,7 +685,11 @@ var int _o1_open = na
 if nD
     _o1_open := time
 o1_ready = not na(_o1_open) and (time - _o1_open) >= o1_orMin * 60 * 1000
-o1_on = en_orb1h and syminfo.type != "crypto" and orb_sym_ok and o1_ready
+// ORB now emits for EVERY watchlist symbol (crypto included). WHICH symbols a user
+// actually RECEIVES is controlled entirely by the per-user ORB allowlist in Settings
+// (backend orb_symbols) — no Pine-level symbol gate, so you add anything from Settings
+// without editing/re-pasting this script. (orb_sym_ok + the crypto exclusion removed.)
+o1_on = en_orb1h and o1_ready
 o1_rcL = sweep_reclaim(o1_orl, o1_on, o1_on and not na(o1_orl), nD)
 o1_rcH = sweep_reclaim(o1_orh, o1_on, o1_on and not na(o1_orh), nD, true)
 if o1_on and o1_rcL
