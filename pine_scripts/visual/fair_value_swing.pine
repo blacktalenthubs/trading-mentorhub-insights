@@ -67,7 +67,7 @@ cFire = showC and reclaim and barstate.isconfirmed
 // A fallen stock is only buyable once the basis STOPS falling AND it makes higher lows in the lower
 // band. This marks that base forming so you can WATCH for the C-reclaim (of a now flattening/turning
 // fair value) to confirm the turn. It does NOT enter — the buy is still the reclaim. Good for shorter
-// holds off a bottom. flatBasis = the line has stopped falling but isn't rising yet.
+// holds off a bottom.
 // Only a GENUINE bottoming base — NOT an ordinary sideways pause inside an uptrend: the trend line is
 // LOWER than 6 weeks ago (it actually fell), has now stopped falling, price is DEEP in the lower band,
 // and it's making a higher low.
