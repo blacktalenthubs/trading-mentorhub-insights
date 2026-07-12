@@ -14,7 +14,7 @@
 //
 // Backtest (6y weekly, 540 names, ~5,200 trades): avg +0.47R — the trail lets the big rides pay for the
 // small structural stops. VISUAL ONLY — eyeball the markers + the ✕ structure-breaks, then wire survivors.
-indicator("Fair Value Swing — Bands + Entry Markers", "FV Swing", overlay = true, max_labels_count = 500, max_lines_count = 10)
+indicator("Fair Value Swing — Bands + Entry Markers", "FV Swing", overlay = true, max_labels_count = 500, max_lines_count = 200)
 
 gB = "Fair value bands"
 len   = input.int(20, "Fair-value MA length (basis / middle band)", minval = 2, group = gB)
@@ -96,6 +96,13 @@ if bFire
 
 // ✕ structure break — a close below the last higher low = stopped making higher lows = exit
 plotshape(brokeHL, "Structure break (out)", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.tiny, text = "out")
+
+// ── Per-entry STOP (red) + T1 (teal) drawn at every signal, so each entry shows its risk on-chart ──
+segLen = input.int(8, "Stop/T1 segment length (bars)", minval = 2, group = gE)
+if aFire or cFire or bFire
+    line.new(bar_index, stopLvl, bar_index + segLen, stopLvl, color = color.new(color.red, 0), style = line.style_solid, width = 1)
+    line.new(bar_index, upper, bar_index + segLen, upper, color = color.new(color.teal, 25), style = line.style_dotted, width = 1)
+    label.new(bar_index + segLen, stopLvl, "stop " + str.tostring(stopLvl, format.mintick) + " (-" + str.tostring((close - stopLvl) / close * 100, "#.#") + "%)", style = label.style_label_left, color = color.new(color.red, 82), textcolor = color.new(color.red, 0), size = size.tiny)
 
 // ── Stop/target + higher-low guide lines + status table on the last bar ─────────
 var line lnStop = na
