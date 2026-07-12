@@ -122,6 +122,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", False),
     ("monthly_ma_reclaim", "Monthly MA reclaim — pullback to a rising monthly 8/21-EMA in an uptrend, above the 50-EMA floor (position swing, validated +0.36R)", "Swing", False),
     ("new_high_breakout", "52-week high breakout — closed through the annual high in an uptrend on volume (momentum, validated +0.22R)", "Swing", False),
+    ("fv_pullback", "Fair Value pullback — held a RISING 20-week fair value (buy the pullback to the middle band); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
+    ("fv_reclaim", "Fair Value reclaim — closed back ABOVE a RISING 20-week fair value (the turn); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
@@ -225,6 +227,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("staged_pml", "long_term"),
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
+    ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
 ]
 
 
