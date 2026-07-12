@@ -68,8 +68,12 @@ cFire = showC and reclaim and barstate.isconfirmed
 // band. This marks that base forming so you can WATCH for the C-reclaim (of a now flattening/turning
 // fair value) to confirm the turn. It does NOT enter — the buy is still the reclaim. Good for shorter
 // holds off a bottom. flatBasis = the line has stopped falling but isn't rising yet.
-flatBasis = slope > -0.012 and slope <= 0.005
-baseWatch = flatBasis and pctB <= 0.45 and ta.lowest(low, 3) > ta.lowest(low, 9)[3]
+// Only a GENUINE bottoming base — NOT an ordinary sideways pause inside an uptrend: the trend line is
+// LOWER than 6 weeks ago (it actually fell), has now stopped falling, price is DEEP in the lower band,
+// and it's making a higher low.
+flatNow   = slope > -0.012 and slope <= 0.01
+declined  = basis < basis[6]
+baseWatch = declined and flatNow and pctB <= 0.30 and ta.lowest(low, 3) > ta.lowest(low, 9)[3]
 bwFire = showBase and baseWatch and not baseWatch[1] and barstate.isconfirmed
 
 // ── Trailing higher-low stop ────────────────────────────────────────────────────
@@ -131,8 +135,8 @@ if showGuide and barstate.islast
 
 var table t = table.new(position.top_right, 2, 5, border_width = 1)
 if showGuide and barstate.islast
-    string reg = rising ? "RISING (buy pullbacks)" : flatBasis ? "FLAT (watch for base)" : "FALLING (no trade)"
-    color  regc = rising ? color.new(color.green, 0) : flatBasis ? color.new(color.orange, 0) : color.new(color.red, 0)
+    string reg = rising ? "RISING (buy pullbacks)" : slope < -0.012 ? "FALLING (no trade)" : "FLAT (no trade)"
+    color  regc = rising ? color.new(color.green, 0) : slope < -0.012 ? color.new(color.red, 0) : color.new(color.gray, 0)
     string pos = (dist > 0.08 or pctB > extCut) ? "EXTENDED - skip" : pctB <= 0.35 ? "low in band" : "mid - at fair value"
     string setup = tagHold ? "A - hold" : reclaim ? "C - reclaim" : baseWatch ? "W - base (watch)" : "-"
     color  setc = setup == "-" ? color.new(color.gray, 0) : baseWatch and not (tagHold or reclaim) ? color.new(color.orange, 0) : color.new(color.blue, 0)
