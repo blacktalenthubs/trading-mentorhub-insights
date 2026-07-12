@@ -43,9 +43,10 @@ conf_tol  = input.float(0.5,  "RC-low support tolerance % (to PDL/PWL/PML/10w/30
 gDay = "Daily RC — day-trade/swing (= PDH/PDL reclaim)"
 enD_long  = input.bool(true, "Daily · RC — reclaim prior-DAY LOW / PDL (BUY)", group = gDay)
 enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BUY)", group = gDay)
-gW = "Weekly RC — swing (rare)"
-enW_long  = input.bool(true, "Weekly · RC — reclaim prior-week LOW (BUY)", group = gW)
-enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)", group = gW)
+gW = "Weekly levels — WLV (all H/L/O/C · last 4 weeks)"
+enWLV      = input.bool(true,  "WLV · weekly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 16 levels)", group = gW)
+enWLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gW)
+wlvMinPen  = input.float(0.15, "  WLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gW) / 100.0
 gM = "Monthly levels — MLV (all H/L/O/C · last 6 months)"
 enMLV      = input.bool(true,  "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
 enMLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gM)
@@ -312,8 +313,7 @@ rc4_long = sweep_reclaim(l4p, en4_long and gate4_long, ok4, n4)
 rc4_hrec = sweep_reclaim(h4p, en4_hrec and gate4_hrec, ok4, n4, true)
 rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
 rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD, true)
-rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
-rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW, false)  // require a CLOSE above the PWH to arm — a genuine reclaim, not a wick-touch (2026-07-06)
+// weekly_rc (rcW_long/rcW_hrec) REMOVED 2026-07-12 — folded into WLV (weekly_lvl_reclaim).
 // Monthly RC / CML / PML alerts REMOVED 2026-07-11 — folded into MLV (monthly_lvl_reclaim).
 // The value computations (hMp/lMp/lMd/cml) stay above — the visual PMH/PML/CML lines use them.
 
@@ -506,10 +506,7 @@ if rcD_long
     alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec
     alert(rc_pay("rc_daily_hrec", "BUY", "D", hDp, lDd, "Daily RC-H · breakout-retest of the prior-day HIGH (PDH) — entry " + str.tostring(hDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
-if rcW_long
-    alert(rc_pay("weekly_rc", "BUY", "W", lWp, lWd, "Weekly RC · reclaim of the prior-week LOW — entry at the level " + str.tostring(lWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
-if rcW_hrec
-    alert(rc_pay("weekly_rc", "BUY", "W", hWp, lWd, "Weekly RC-H · breakout-retest of the prior-week HIGH — entry " + str.tostring(hWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
+// weekly_rc fires REMOVED 2026-07-12 — folded into WLV (weekly_lvl_reclaim, below).
 // monthly_rc / cml_reclaim / cml_held / pml_held fires REMOVED 2026-07-11 — folded into MLV.
 
 // ── MLV — MONTHLY LEVELS · directional reclaim (spec 68 · 2026-07-11 rebuild). ───
@@ -544,6 +541,34 @@ if enMLV
             string _kd = array.get(mlvKdA, k)
             string _src = _def ? "held from above" : "reclaimed from below"
             alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, low, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " " + _src + " — entry at the level, stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
+
+// ── WLV — WEEKLY LEVELS · directional reclaim (spec 69 · 2026-07-12). ────────────
+// The weekly twin of MLV: every completed weekly level — H/L/O/C of the last 4 weeks
+// (16 levels). BUY when the day OPENED ABOVE the level (reuses mlv_dOpen) and price wicked
+// below & reclaimed it; optional enWLVbelow = reclaim-from-below. entry = the level, stop =
+// the reclaim low, once per level per day, 5m like rc_daily. Retires weekly_rc (folded in).
+[wvh1, wvl1, wvo1, wvc1, wvt1] = request.security(syminfo.tickerid, "W", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+[wvh2, wvl2, wvo2, wvc2, wvt2] = request.security(syminfo.tickerid, "W", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
+[wvh3, wvl3, wvo3, wvc3, wvt3] = request.security(syminfo.tickerid, "W", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
+[wvh4, wvl4, wvo4, wvc4, wvt4] = request.security(syminfo.tickerid, "W", [high[4], low[4], open[4], close[4], time[4]], lookahead = barmerge.lookahead_on)
+wlvPr  = array.from(wvh1, wvl1, wvo1, wvc1, wvh2, wvl2, wvo2, wvc2, wvh3, wvl3, wvo3, wvc3, wvh4, wvl4, wvo4, wvc4)
+wlvTmA = array.from(wvt1, wvt1, wvt1, wvt1, wvt2, wvt2, wvt2, wvt2, wvt3, wvt3, wvt3, wvt3, wvt4, wvt4, wvt4, wvt4)
+wlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
+var bool[] wlv_fired = array.new_bool(16, false)
+if nD
+    for k = 0 to 15
+        array.set(wlv_fired, k, false)
+if enWLV
+    for k = 0 to 15
+        float _WL = array.get(wlvPr, k)
+        bool _wdef = not na(_WL) and mlv_dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= wlvMinPen
+        bool _wbel = enWLVbelow and not na(_WL) and mlv_dOpen < _WL and close > _WL and close[1] <= _WL
+        if (_wdef or _wbel) and not array.get(wlv_fired, k)
+            array.set(wlv_fired, k, true)
+            string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
+            string _wkd = array.get(wlvKdA, k)
+            string _wsrc = _wdef ? "held from above" : "reclaimed from below"
+            alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, low, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " " + _wsrc + " — entry at the level, stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
 
 // MoBO — monthly BOX breakout + monthly RC-H (long-term/position; default OFF, gate-exempt).
 // entry = the locked level (the buy point), stop = the base / pre-break low.

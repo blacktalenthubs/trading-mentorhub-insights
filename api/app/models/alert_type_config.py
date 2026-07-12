@@ -71,7 +71,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
-    ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
+    # staged_pwl_held (weekly PWL held) RETIRED 2026-07-12 → folded into WLV. → OBSOLETE.
     # staged_pml_held (monthly PML held) RETIRED 2026-07-11 → folded into MLV. → OBSOLETE_ALERT_TYPES.
 
     # Proximity bounce DROPPED 2026-06-04 (spec 61) — entry = close, which
@@ -153,7 +153,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WkStage family: undercut & reclaim of the prior-week low on a GREEN week
     # (stop = the weekly low). The generic BUY/ADD/EXIT/stage NOTICEs were
     # unclear/not-actionable and are SUPPRESSED (weekly_stage → OBSOLETE).
-    ("weekly_rc", "Weekly RC — prior-week high/low reclaim (swing)", "Weekly trend", False),
+    # WLV — Weekly LEVELS · directional reclaim (spec 69, 2026-07-12). THE single weekly
+    # alert: H/L/O/C of the last 4 weeks (16 levels), directional support reclaim. weekly_rc
+    # + PWL-held folded in → OBSOLETE. The weekly 10w/30w MA stays separate (trend tool).
+    ("weekly_lvl_reclaim", "WLV — weekly-level reclaim (all H/L/O/C of the last 4 weeks, directional support entry)", "Weekly", False),
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
@@ -215,6 +218,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # pattern (2026-07-07). Listed FIRST so monthly_rc/weekly_rc win over the broad monthly_/weekly.
     ("monthly_rc", "day_trade"), ("weekly_rc", "day_trade"), ("staged_pwl", "day_trade"),
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
+    ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
@@ -311,6 +315,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
     "monthly_lvl_reclaim": "MLV — the ONE monthly-level alert. Fires a BUY when price reclaims a completed monthly level: any H/L/O/C of the last 6 months (24 levels). Directional — the day must have OPENED ABOVE the level (so it's support), then price wicked below and closed back above it (support held). Optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. monthly_rc / PML-held / CML are folded in here. Pairs with the MLV visual pine (monthly_levels.pine).",
+    "weekly_lvl_reclaim": "WLV — the ONE weekly-level alert. Fires a BUY when price reclaims a completed weekly level: any H/L/O/C of the last 4 weeks (16 levels). Directional — the day OPENED ABOVE the level (support), then wicked below and closed back above (support held); optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. weekly_rc / PWL-held are folded in here. Pairs with the WLV visual pine (weekly_levels.pine).",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
@@ -345,6 +350,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # MLV now covers every completed monthly level (H/L/O/C × 6 months incl. month[1]), so the
     # prior-month RC + PML-held are redundant. MLV is the one monthly toggle.
     "monthly_rc", "pml_held", "staged_pml_held",
+    # 2026-07-12 — weekly sub-alerts folded into WLV (weekly_lvl_reclaim, spec 69). WLV
+    # covers every completed weekly level (H/L/O/C × 4 weeks), so weekly_rc + PWL-held retire.
+    "weekly_rc", "staged_pwl_held",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
