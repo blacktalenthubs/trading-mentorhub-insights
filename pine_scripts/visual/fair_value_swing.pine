@@ -67,7 +67,6 @@ if not na(pivLow)
 hlBase  = na(lastHL) ? ta.lowest(low, 5) : lastHL
 hlStop  = math.min(hlBase, close) * 0.995
 stopLvl = math.min(math.max(hlStop, close * (1.0 - maxStop / 100.0)), close * (1.0 - minStop / 100.0))
-brokeHL = not na(lastHL) and close < lastHL and close[1] >= lastHL and barstate.isconfirmed
 
 // ── Signals (fire once at the start of the condition, on the confirmed bar) ─────
 tagHold = rising and above30 and low <= basis * 1.015 and close > basis and pctB >= 0.25 and pctB <= 0.68 and dist <= 0.06
@@ -76,6 +75,24 @@ baseBuy = nonfall and close >= ma30 * 0.97 and pctB <= 0.40 and dist < 0.03
 aFire = showA and tagHold and not tagHold[1] and barstate.isconfirmed
 cFire = showC and reclaim and barstate.isconfirmed
 bFire = showB and baseBuy and not baseBuy[1] and barstate.isconfirmed
+
+// ── Trade lifecycle — ONE position at a time; the stop TRAILS the higher lows ────
+// Entry starts the trade at the higher-low stop. As the trade proves itself and prints NEW
+// higher lows, the stop ratchets UP to each one. The single exit (✕) is a weekly close below
+// that trailing stop — this replaces the scattered structure-break marks. Stop and exit are
+// now ONE thing: the exit IS a close below the (trailing) stop.
+entrySig = aFire or cFire or bFire
+var bool  inTrade   = false
+var float trailStop = na
+if entrySig and not inTrade
+    inTrade   := true
+    trailStop := stopLvl
+if inTrade and not na(lastHL) and lastHL * 0.995 > trailStop
+    trailStop := lastHL * 0.995
+exitSig = inTrade and barstate.isconfirmed and close < trailStop
+if exitSig
+    inTrade := false
+curStop = inTrade ? trailStop : stopLvl
 
 // ── Plots: bands + regime fill + squeeze context ────────────────────────────────
 plot(basis, "Fair value (basis)", color = color.new(color.gray, 0), linewidth = 1, style = plot.style_circles)
@@ -94,15 +111,11 @@ if cFire
 if bFire
     label.new(bar_index, low, "B", style = label.style_label_up, color = color.new(color.orange, 0), textcolor = color.black, size = _msz, tooltip = _tip("B - base in the lower band", close, stopLvl, upper))
 
-// ✕ structure break — a close below the last higher low = stopped making higher lows = exit
-plotshape(brokeHL, "Structure break (out)", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.tiny, text = "out")
-
-// ── Per-entry STOP (red) + T1 (teal) drawn at every signal, so each entry shows its risk on-chart ──
-segLen = input.int(8, "Stop/T1 segment length (bars)", minval = 2, group = gE)
-if aFire or cFire or bFire
-    line.new(bar_index, stopLvl, bar_index + segLen, stopLvl, color = color.new(color.red, 0), style = line.style_solid, width = 1)
-    line.new(bar_index, upper, bar_index + segLen, upper, color = color.new(color.teal, 25), style = line.style_dotted, width = 1)
-    label.new(bar_index + segLen, stopLvl, "stop " + str.tostring(stopLvl, format.mintick) + " (-" + str.tostring((close - stopLvl) / close * 100, "#.#") + "%)", style = label.style_label_left, color = color.new(color.red, 82), textcolor = color.new(color.red, 0), size = size.tiny)
+// ── The ONE stop: a trailing higher-low line while in a trade, ending at the ✕ exit ─────────
+// Drawn only during an open trade; it steps UP as the trade makes new higher lows. The ✕ marks
+// the single exit (a close below it). No more scattered structure-break marks.
+plot(inTrade ? trailStop : na, "Trailing stop (higher lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+plotshape(exitSig, "Exit — closed below trailing stop", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "out")
 
 // ── Stop/target + higher-low guide lines + status table on the last bar ─────────
 var line lnStop = na
@@ -112,7 +125,7 @@ if showGuide and barstate.islast
     line.delete(lnStop)
     line.delete(lnT1)
     line.delete(lnHL)
-    lnStop := line.new(bar_index - 26, stopLvl, bar_index + 3, stopLvl, color = color.new(color.red, 20), style = line.style_dashed, width = 1)
+    lnStop := line.new(bar_index - 26, curStop, bar_index + 3, curStop, color = color.new(color.red, 10), style = inTrade ? line.style_solid : line.style_dashed, width = inTrade ? 2 : 1)
     lnT1   := line.new(bar_index - 26, upper, bar_index + 3, upper, color = color.new(color.teal, 20), style = line.style_dashed, width = 1)
     lnHL   := na(lastHL) ? na : line.new(bar_index - 26, lastHL, bar_index + 3, lastHL, color = color.new(color.orange, 0), style = line.style_dotted, width = 1)
 
@@ -131,5 +144,5 @@ if showGuide and barstate.islast
     table.cell(t, 1, 2, pos + "  " + str.tostring(pctB * 100, "#") + "%", text_color = color.gray, text_size = size.small)
     table.cell(t, 0, 3, "Setup now", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 3, setup, text_color = setc, text_size = size.small)
-    table.cell(t, 0, 4, "HL-stop / T1", text_color = color.gray, text_size = size.small)
-    table.cell(t, 1, 4, str.tostring(stopLvl, format.mintick) + " (-" + str.tostring((close - stopLvl) / close * 100, "#.#") + "%) / " + str.tostring(upper, format.mintick), text_color = color.gray, text_size = size.small)
+    table.cell(t, 0, 4, inTrade ? "Trail-stop / T1" : "HL-stop / T1", text_color = color.gray, text_size = size.small)
+    table.cell(t, 1, 4, str.tostring(curStop, format.mintick) + " (-" + str.tostring((close - curStop) / close * 100, "#.#") + "%) / " + str.tostring(upper, format.mintick), text_color = inTrade ? color.new(color.red, 0) : color.gray, text_size = size.small)
