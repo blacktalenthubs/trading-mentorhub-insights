@@ -70,7 +70,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
-    ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
+    # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
     # staged_pwl_held (weekly PWL held) RETIRED 2026-07-12 → folded into WLV. → OBSOLETE.
     # staged_pml_held (monthly PML held) RETIRED 2026-07-11 → folded into MLV. → OBSOLETE_ALERT_TYPES.
 
@@ -356,6 +356,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h_hrec RETIRED 2026-07-12 — the 4h HIGH reclaim chases resistance (buys into overhead).
     # Only rc_4h_long (4h LOW = support bounce) kept. Daily/weekly/monthly RC stay (directional-gated).
     "rc_4h_hrec",
+    # staged_pdl_held RETIRED 2026-07-12 — daily PDL held, redundant with the directional
+    # daily RC (rc_daily_long). Daily twin of the staged_pwl_held retire.
+    "staged_pdl_held",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
