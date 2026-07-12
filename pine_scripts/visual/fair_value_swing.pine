@@ -21,7 +21,6 @@ gB = "Fair value bands"
 len   = input.int(20, "Fair-value MA length (basis / middle band)", minval = 2, group = gB)
 mult  = input.float(2.0, "Band width (σ)", step = 0.1, group = gB)
 src   = input.source(close, "Source", group = gB)
-trLen = input.int(30, "Trend MA (30-period)", minval = 5, group = gB)
 sqLk  = input.int(52, "Squeeze lookback (bars)", minval = 20, group = gB)
 sqPct = input.float(20.0, "Squeeze percentile (<= = coiling)", minval = 1, maxval = 50, group = gB)
 
@@ -44,19 +43,17 @@ basis = ta.sma(src, len)
 dev   = mult * ta.stdev(src, len)
 upper = basis + dev
 lower = basis - dev
-ma30  = ta.sma(src, trLen)
 pctB  = (upper - lower) != 0 ? (close - lower) / (upper - lower) : 0.5
 dist  = basis != 0 ? close / basis - 1 : 0.0
 slope = basis[slopeLb] != 0 ? basis / basis[slopeLb] - 1 : 0.0
 rising  = slope > 0.005
-above30 = close >= ma30
 bw    = basis != 0 ? (upper - lower) / basis * 100 : 0.0
 bwR   = ta.percentrank(bw, sqLk)
 inSq  = bwR <= sqPct
 
 // ── Signals — two clean entries only (fire once, on the confirmed bar) ──────────
-tagHold = rising and above30 and low <= basis * 1.015 and close > basis and pctB >= 0.25 and pctB <= 0.68 and dist <= 0.06
-reclaim = rising and above30 and close > basis and close[1] <= basis[1] and pctB <= extCut
+tagHold = rising and low <= basis * 1.015 and close > basis and pctB >= 0.25 and pctB <= 0.68 and dist <= 0.06
+reclaim = rising and close > basis and close[1] <= basis[1] and pctB <= extCut
 aFire = showA and tagHold and not tagHold[1] and barstate.isconfirmed
 cFire = showC and reclaim and barstate.isconfirmed
 
@@ -86,11 +83,10 @@ curStop = inTrade ? trailStop : entryStop
 hasSetup = inTrade or tagHold or reclaim
 
 // ── Plots: bands + regime fill + squeeze context ────────────────────────────────
-plot(basis, "Fair value (basis)", color = color.new(color.gray, 0), linewidth = 1, style = plot.style_circles)
+plot(basis, "Fair value (20-MA basis)", color = color.new(color.orange, 0), linewidth = 2)
 pU = plot(upper, "Upper band", color = color.new(color.red, 65), linewidth = 1)
 pL = plot(lower, "Lower band", color = color.new(color.teal, 55), linewidth = 1)
 fill(pU, pL, color = close > basis ? color.new(color.teal, 93) : color.new(color.red, 93), title = "Regime ribbon")
-plot(ma30, "Trend MA (30)", color = color.new(color.orange, 45), linewidth = 1)
 bgcolor(inSq ? color.new(color.yellow, 90) : na, title = "Squeeze (coiling, context only)")
 
 // ── Entry markers — tooltip carries entry / trailing stop / target ──────────────
