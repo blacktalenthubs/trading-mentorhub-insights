@@ -8,9 +8,10 @@
 //   ▽ B · BASE    — deepest: coils in the LOWER band (%B<=0.40) with a NON-falling basis. (AMD 208.)
 //
 //   RISING fair value is MANDATORY for the pullback buys (A / C). Extended (high %B) = a chase, NOT marked.
-//   STOP = the last HIGHER LOW (the pullback low the setup defends). A close below it = it stopped making
-//          higher lows = OUT (✕). Clamped [min,max]% — never the far lower band, never the basis.
-//   TARGET = the upper band (T1); then TRAIL the rising fair value, exit on a close below it.
+//   STOP = the higher-low the entry defends, clamped [min,max]% — held WIDE (orange) while the trade proves
+//          itself, then TRAILS UP (red) each new week to the last COMPLETED week's low once armed (above the
+//          upper band / +armPct). ✕ = a close below the current stop. Two phases keep the big rides.
+//   TARGET = the upper band (T1); the runner rides the weekly trailing stop up.
 //
 // Backtest (6y weekly, 540 names, ~5,200 trades): avg +0.47R — the trail lets the big rides pay for the
 // small structural stops. VISUAL ONLY — eyeball the markers + the ✕ structure-breaks, then wire survivors.
@@ -34,6 +35,8 @@ pvL     = input.int(2, "Higher-low pivot: bars left", minval = 1, group = gE)
 pvR     = input.int(1, "Higher-low pivot: bars right (confirm delay)", minval = 1, group = gE)
 minStop = input.float(3.0, "Min stop distance % (floor - avoid ultra-tight stops)", minval = 0.0, step = 0.5, group = gE)
 maxStop = input.float(8.0, "Max stop distance % (beyond this the entry is too extended)", minval = 3.0, step = 0.5, group = gE)
+trailN  = input.int(1, "Trail to the lowest low of the last N COMPLETED weeks (1 = last week's low)", minval = 1, maxval = 6, group = gE)
+armPct  = input.float(10.0, "Arm the weekly-low trail once +% in profit / above upper band (else hold the wide entry stop)", minval = 0.0, step = 1.0, group = gE)
 markSz  = input.string("small", "Marker size", options = ["tiny", "small", "normal"], group = gE)
 _msz = markSz == "normal" ? size.normal : markSz == "tiny" ? size.tiny : size.small
 
@@ -82,13 +85,25 @@ bFire = showB and baseBuy and not baseBuy[1] and barstate.isconfirmed
 // that trailing stop — this replaces the scattered structure-break marks. Stop and exit are
 // now ONE thing: the exit IS a close below the (trailing) stop.
 entrySig = aFire or cFire or bFire
-var bool  inTrade   = false
-var float trailStop = na
+var bool  inTrade    = false
+var float trailStop  = na
+var float tradeEntry = na
+var bool  trailArmed = false
 if entrySig and not inTrade
-    inTrade   := true
-    trailStop := stopLvl
-if inTrade and not na(lastHL) and lastHL * 0.995 > trailStop
-    trailStop := lastHL * 0.995
+    inTrade    := true
+    tradeEntry := close
+    trailStop  := stopLvl
+    trailArmed := false
+// Phase 1 — hold the wide entry stop so the trade survives its early shakeout (AMD's base dipped
+// under the prior week's low BEFORE launching +167%; a tight trail from bar one exits at -4%).
+// Phase 2 — ARM the weekly-low trail once the move is real (closes above the upper band OR +armPct),
+// then step the stop up at each new week to the lowest low of the last N COMPLETED weeks ([1] excludes
+// the still-forming bar). Ratchet up only. This kept AMD's +124% while still moving the stop up.
+if inTrade and (close >= upper or (not na(tradeEntry) and close / tradeEntry - 1.0 >= armPct / 100.0))
+    trailArmed := true
+wkLow = ta.lowest(low, trailN)[1]
+if inTrade and trailArmed and not na(wkLow) and wkLow > trailStop
+    trailStop := wkLow
 exitSig = inTrade and barstate.isconfirmed and close < trailStop
 if exitSig
     inTrade := false
@@ -114,7 +129,8 @@ if bFire
 // ── The ONE stop: a trailing higher-low line while in a trade, ending at the ✕ exit ─────────
 // Drawn only during an open trade; it steps UP as the trade makes new higher lows. The ✕ marks
 // the single exit (a close below it). No more scattered structure-break marks.
-plot(inTrade ? trailStop : na, "Trailing stop (higher lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+plot(inTrade and not trailArmed ? trailStop : na, "Entry stop (wide, pre-arm)", color = color.new(color.orange, 0), style = plot.style_linebr, linewidth = 2)
+plot(inTrade and trailArmed ? trailStop : na, "Trailing stop (armed, weekly lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
 plotshape(exitSig, "Exit — closed below trailing stop", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "out")
 
 // ── Stop/target + higher-low guide lines + status table on the last bar ─────────
