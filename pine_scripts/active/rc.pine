@@ -50,12 +50,6 @@ gM = "Monthly levels — MLV (all H/L/O/C · last 6 months)"
 enMLV      = input.bool(false, "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
 enMLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — validate first)", group = gM)
 mlvMinPen  = input.float(0.15, "  MLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gM) / 100.0
-enM_long  = input.bool(false, "Monthly · RC low  (RETIRED — folded into MLV)", group = gM)
-enM_hrec  = input.bool(false, "Monthly · RC-H  (RETIRED — folded into MLV)", group = gM)
-enCMLrec  = input.bool(false, "Monthly · CML reclaim  (dormant)", group = gM)
-enCMLheld = input.bool(false, "Monthly · CML held  (dormant)", group = gM)
-enPMLheld = input.bool(false, "Monthly · PML held  (RETIRED — prior-month low is month[1] L in MLV)", group = gM)
-cml_tol   = input.float(0.20, "  CML/PML held touch tolerance %", minval = 0.0, step = 0.05, group = gM)
 // Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
 // of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
 // the same on any chart TF (defaults built for 5m: 15-min OR, 90-min reclaim window).
@@ -320,33 +314,8 @@ rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
 rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD, true)
 rcW_long = sweep_reclaim(lWp, enW_long, okW, nW)
 rcW_hrec = sweep_reclaim(hWp, enW_hrec, okW, nW, false)  // require a CLOSE above the PWH to arm — a genuine reclaim, not a wick-touch (2026-07-06)
-rcM_long = sweep_reclaim(lMp, enM_long, okM, nM)
-rcM_hrec = sweep_reclaim(hMp, enM_hrec, okM, nM, false)  // ditto — monthly RC-H needs a close-accept before the undercut+reclaim
-
-// ── CML reclaim/held — defend the CURRENT-month low intraday. The month low MOVES
-// (it drops as price makes new lows), so snapshot it at each NEW DAY (prior bar = no
-// same-bar leak) into a FIXED level to test through the day; reset the latch daily.
-//   reclaim = price UNDERCUT the snapshot (low < ref, a sweep) then closed back above.
-//   held    = price TAGGED it from above (ref ≤ low ≤ ref+tol, never broke) + green close.
-// Mutually exclusive by where the low sits (below = reclaim · at/above = held).
-var float cml_ref = na
-if nD
-    cml_ref := cml[1]
-okCML = not na(cml_ref) and not na(cml)
-rcCMLrec = sweep_reclaim(cml_ref, enCMLrec, okCML, nD)
-var bool cmlh_fired = false
-if nD
-    cmlh_fired := false
-cmlHeld = enCMLheld and okCML and (low >= cml_ref) and (low <= cml_ref * (1.0 + cml_tol / 100.0)) and (close > cml_ref) and (close > open) and not cmlh_fired
-if cmlHeld
-    cmlh_fired := true
-// PML held — tag & hold the PRIOR-month low (lMp, a FIXED level) from above as support.
-var bool pmlh_fired = false
-if nD
-    pmlh_fired := false
-pmlHeld = enPMLheld and (not na(lMp)) and (low >= lMp) and (low <= lMp * (1.0 + cml_tol / 100.0)) and (close > lMp) and (close > open) and not pmlh_fired
-if pmlHeld
-    pmlh_fired := true
+// Monthly RC / CML / PML alerts REMOVED 2026-07-11 — folded into MLV (monthly_lvl_reclaim).
+// The value computations (hMp/lMp/lMd/cml) stay above — the visual PMH/PML/CML lines use them.
 
 // ── RECLAIM LONG (#65, merged from index_reclaim_long.pine) ─────────────────
 // Opening range (first rl_orMin of the session), the reclaim state machine, and the
@@ -541,16 +510,7 @@ if rcW_long
     alert(rc_pay("weekly_rc", "BUY", "W", lWp, lWd, "Weekly RC · reclaim of the prior-week LOW — entry at the level " + str.tostring(lWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
 if rcW_hrec
     alert(rc_pay("weekly_rc", "BUY", "W", hWp, lWd, "Weekly RC-H · breakout-retest of the prior-week HIGH — entry " + str.tostring(hWp, format.mintick) + ", stop " + str.tostring(lWd, format.mintick)), alert.freq_once_per_bar_close)
-if rcM_long
-    alert(rc_pay("monthly_rc", "BUY", "M", lMp, lMd, "Monthly RC · reclaim of the prior-month LOW — entry at the level " + str.tostring(lMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
-if rcM_hrec
-    alert(rc_pay("monthly_rc", "BUY", "M", hMp, lMd, "Monthly RC-H · breakout-retest of the prior-month HIGH — entry " + str.tostring(hMp, format.mintick) + ", stop " + str.tostring(lMd, format.mintick)), alert.freq_once_per_bar_close)
-if rcCMLrec
-    alert(rc_pay("cml_reclaim", "BUY", "M", cml_ref, cml, "CML · undercut & reclaim of the CURRENT-month LOW (month floor swept & held) — entry at the level " + str.tostring(cml_ref, format.mintick) + ", stop " + str.tostring(cml, format.mintick)), alert.freq_once_per_bar_close)
-if cmlHeld
-    alert(rc_pay("cml_held", "BUY", "M", close, cml_ref, "CML · tag & hold of the CURRENT-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(cml_ref, format.mintick)), alert.freq_once_per_bar_close)
-if pmlHeld
-    alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
+// monthly_rc / cml_reclaim / cml_held / pml_held fires REMOVED 2026-07-11 — folded into MLV.
 
 // ── MLV — MONTHLY LEVELS · directional reclaim (spec 68 · 2026-07-11 rebuild). ───
 // ONE alert for EVERY completed monthly level: H/L/O/C of the last 6 months (24 levels).
