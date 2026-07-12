@@ -81,6 +81,9 @@ exitSig = inTrade and barstate.isconfirmed and close < trailStop
 if exitSig
     inTrade := false
 curStop = inTrade ? trailStop : entryStop
+// A stop/target is only meaningful when a setup is actually live or a trade is open — otherwise the
+// numbers are hypothetical ("if you entered now") and misleading. Gate the guide + table on this.
+hasSetup = inTrade or tagHold or reclaim
 
 // ── Plots: bands + regime fill + squeeze context ────────────────────────────────
 plot(basis, "Fair value (basis)", color = color.new(color.gray, 0), linewidth = 1, style = plot.style_circles)
@@ -107,8 +110,9 @@ var line lnT1 = na
 if showGuide and barstate.islast
     line.delete(lnStop)
     line.delete(lnT1)
-    lnStop := line.new(bar_index - 26, curStop, bar_index + 3, curStop, color = color.new(color.red, 10), style = inTrade ? line.style_solid : line.style_dashed, width = inTrade ? 2 : 1)
-    lnT1   := line.new(bar_index - 26, upper, bar_index + 3, upper, color = color.new(color.teal, 20), style = line.style_dashed, width = 1)
+    if hasSetup
+        lnStop := line.new(bar_index - 26, curStop, bar_index + 3, curStop, color = color.new(color.red, 10), style = inTrade ? line.style_solid : line.style_dashed, width = inTrade ? 2 : 1)
+        lnT1   := line.new(bar_index - 26, upper, bar_index + 3, upper, color = color.new(color.teal, 20), style = line.style_dashed, width = 1)
 
 var table t = table.new(position.top_right, 2, 5, border_width = 1)
 if showGuide and barstate.islast
@@ -126,4 +130,4 @@ if showGuide and barstate.islast
     table.cell(t, 0, 3, "Setup now", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 3, setup, text_color = setc, text_size = size.small)
     table.cell(t, 0, 4, inTrade ? "Trail-stop / T1" : "Stop / T1", text_color = color.gray, text_size = size.small)
-    table.cell(t, 1, 4, str.tostring(curStop, format.mintick) + " (-" + str.tostring((close - curStop) / close * 100, "#.#") + "%) / " + str.tostring(upper, format.mintick), text_color = inTrade ? color.new(color.red, 0) : color.gray, text_size = size.small)
+    table.cell(t, 1, 4, hasSetup ? (str.tostring(curStop, format.mintick) + " (-" + str.tostring((close - curStop) / close * 100, "#.#") + "%) / " + str.tostring(upper, format.mintick)) : "— (no setup)", text_color = inTrade ? color.new(color.red, 0) : color.gray, text_size = size.small)
