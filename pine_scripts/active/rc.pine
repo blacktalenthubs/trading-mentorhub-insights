@@ -47,8 +47,8 @@ gW = "Weekly RC — swing (rare)"
 enW_long  = input.bool(true, "Weekly · RC — reclaim prior-week LOW (BUY)", group = gW)
 enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)", group = gW)
 gM = "Monthly levels — MLV (all H/L/O/C · last 6 months)"
-enMLV      = input.bool(false, "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
-enMLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — validate first)", group = gM)
+enMLV      = input.bool(true,  "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
+enMLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gM)
 mlvMinPen  = input.float(0.15, "  MLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gM) / 100.0
 // Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
 // of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
@@ -634,7 +634,7 @@ orb_sym_ok = str.contains("," + str.upper(orb_syms) + ",", "," + str.upper(symin
 // any chart TF. Lives HERE (not a 3rd pine) because alerts must be on an already-bound pine — the
 // H-ORB pine is the VISUAL twin. Default OFF; gated by the orb_symbols allowlist in the backend.
 gO1 = "ORB 1h — reclaim of the 1h opening range (clean, low-noise)"
-en_orb1h  = input.bool(false, "Fire ORB 1h reclaim (ORL/ORH reclaim · BUY · once per session)", group = gO1)
+en_orb1h  = input.bool(true,  "Fire ORB 1h reclaim (ORL/ORH reclaim · BUY · once per session)", group = gO1)
 o1_orMin  = input.int(60, "  1h opening-range minutes (locked to 1h bars)", minval = 60, maxval = 240, step = 60, group = gO1)
 f_or60() =>
     var float _h = na
