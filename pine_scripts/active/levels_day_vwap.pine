@@ -1215,7 +1215,7 @@ if v2_break_pdh and v2_break_confluence
     s_b = low - atr_buffer
     t1_b = not na(pwh) and pwh > e_b ? pwh : (not na(pmh) and pmh > e_b ? pmh : e_b * 1.015)
     t2_b = not na(pmh) and pmh > t1_b ? pmh : t2_extend_long(e_b, t1_b)
-    alert(build_payload_v2("staged_pdh_break", "BUY", e_b, s_b, t1_b, t2_b, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+    // staged_pdh_break MOVED to rc.pine 2026-07-12 — fires there now (simplified); no alert here.
 
 if false and v2_break_pwh and v2_break_confluence
     e_b = close
@@ -1255,7 +1255,7 @@ if fire_index_shorts and is_short_index and pdl_break_short and not pdl_break_fi
     s_sh  = pdl + atr_buffer
     t1_sh = not na(pwl) and pwl < e_sh ? pwl : e_sh - atr_d
     t2_sh = t1_sh - atr_d
-    alert(build_payload_v2("staged_pdl_break", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+    // staged_pdl_break MOVED to rc.pine 2026-07-12 — fires there now (simplified); no alert here.
 
 if fire_index_shorts and is_short_index and pdh_reject_short and not pdh_reject_fired
     pdh_reject_fired := true
@@ -1263,7 +1263,7 @@ if fire_index_shorts and is_short_index and pdh_reject_short and not pdh_reject_
     s_sh  = pdh + atr_buffer
     t1_sh = not na(today_open) and today_open < e_sh ? today_open : e_sh - atr_d
     t2_sh = not na(pdl) and pdl < t1_sh ? pdl : t1_sh - atr_d
-    alert(build_payload_v2("staged_pdh_rejection", "SHORT", e_sh, s_sh, t1_sh, t2_sh, false, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+    // staged_pdh_rejection MOVED to rc.pine 2026-07-12 — fires there now (simplified); no alert here.
 
 // PDH FAILED-BREAK short (2026-06-23, allowlist only) — price ACCEPTED above the
 // prior-day high (closed above it earlier this session), then LOST it (closed back
@@ -1322,7 +1322,7 @@ if v2_gap_up_cont
     s_g = gap_open_low - atr_buffer * 0.5
     t1_g = not na(pwh) and pwh > e_g ? pwh : e_g * 1.02
     t2_g = not na(pmh) and pmh > t1_g ? pmh : t2_extend_long(e_g, t1_g)
-    alert(build_payload_v2("gap_up_continuation_long", "BUY", e_g, s_g, t1_g, t2_g, true, 1, volume_ratio, cvd_slope_n, bearish_div), alert.freq_once_per_bar_close)
+    // gap_up_continuation_long MOVED to rc.pine 2026-07-12 — fires there now (simplified); no alert here.
 // Spec 58 (2026-05-23 night) — SHORT alerts removed from Pine.
 // This script now fires LONG entries only. The deleted blocks were:
 //   • pdh_rejection (SHORT — wick to PDH/PWH/PMH from below, closes back below)

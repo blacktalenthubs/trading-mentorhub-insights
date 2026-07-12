@@ -42,6 +42,17 @@ conf_tol  = input.float(0.5,  "RC-low support tolerance % (to PDL/PWL/PML/10w/30
 gDay = "Daily RC — day-trade/swing (= PDH/PDL reclaim)"
 enD_long  = input.bool(true, "Daily · RC — reclaim prior-DAY LOW / PDL (BUY)", group = gDay)
 enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BUY)", group = gDay)
+// ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified:
+//    core level + volume + rc.pine's uptrend; dropped the VWAP/CVD/8-EMA confluence). ──
+gPB = "PDH break · gap-and-go · index shorts (from levels_day)"
+en_pdh_break  = input.bool(true, "PDH break — closed above the prior-day HIGH on volume + uptrend (BUY)", group = gPB)
+en_gap_up     = input.bool(true, "Gap-and-go — opened above PDH and ran on volume (BUY)", group = gPB)
+en_shorts     = input.bool(true, "Index SHORTS — PDL break-down + PDH rejection (SHORT, allowlist only)", group = gPB)
+short_syms_pb = input.string("SPY,QQQ,IWM,BTCUSD,BTCUSDT,BTCUSDC", "  Shorts: allowed tickers (raw TV, comma-sep)", group = gPB)
+vol_len_pb    = input.int(20, "  Volume-average length", minval = 5, group = gPB)
+vol_break_min = input.float(2.0, "  PDH-break min volume ratio", minval = 1.0, step = 0.1, group = gPB)
+vol_gap_min   = input.float(1.5, "  Gap-and-go min volume ratio", minval = 1.0, step = 0.1, group = gPB)
+vol_short_min = input.float(1.5, "  Short min volume ratio", minval = 1.0, step = 0.1, group = gPB)
 gW = "Weekly levels — WLV (all H/L/O/C · last 4 weeks)"
 enWLV      = input.bool(true,  "WLV · weekly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 16 levels)", group = gW)
 enWLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gW)
@@ -263,6 +274,26 @@ mobo_rch_fire = cross_up_once(mobo_rl, en_mobo_rch)
 // ── New-period flags (reset the sweep state at each period boundary) ───────
 n4 = ta.change(time("240")) != 0
 nD = ta.change(time("D"))   != 0
+// ── PDH/PDL break + gap-and-go + index-short state (from levels_day, simplified) ──
+vol_avg_pb   = ta.sma(volume, vol_len_pb)
+vol_ratio_pb = vol_avg_pb > 0 ? volume / vol_avg_pb : na
+_short_pb    = "," + str.replace_all(str.upper(short_syms_pb), " ", "") + ","
+short_ok_pb  = str.contains(_short_pb, "," + str.upper(syminfo.ticker) + ",")
+var float gap_low_pb   = na
+var bool  gap_armed_pb = false
+var bool  gap_fired_pb = false
+var bool  pdhb_fired   = false
+var bool  pdlbrk_fired = false
+var bool  pdhrej_fired = false
+if nD
+    gap_low_pb   := low
+    gap_armed_pb := (not na(hDp)) and (dOpen > hDp)
+    gap_fired_pb := false
+    pdhb_fired   := false
+    pdlbrk_fired := false
+    pdhrej_fired := false
+if gap_armed_pb and ((not na(gap_low_pb) and low < gap_low_pb) or (not na(hDp) and close < hDp))
+    gap_armed_pb := false
 nW = ta.change(time("W"))   != 0
 nM = ta.change(time("M"))   != 0
 
@@ -504,6 +535,19 @@ if rcD_long
     alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec
     alert(rc_pay("rc_daily_hrec", "BUY", "D", hDp, lDd, "Daily RC-H · breakout-retest of the prior-day HIGH (PDH) — entry " + str.tostring(hDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+// ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified) ──
+if en_pdh_break and not na(hDp) and not na(close[1]) and close > hDp and close[1] <= hDp and not na(vol_ratio_pb) and vol_ratio_pb >= vol_break_min and uptrend and not pdhb_fired
+    pdhb_fired := true
+    alert(rc_pay("staged_pdh_break", "BUY", "D", close, low, "PDH break — closed above the prior-day HIGH on " + str.tostring(vol_ratio_pb, "#.#") + "x volume, uptrend — stop the break-bar low"), alert.freq_once_per_bar_close)
+if en_gap_up and gap_armed_pb and not gap_fired_pb and not na(hDp) and close > hDp and close > open and not na(vol_ratio_pb) and vol_ratio_pb >= vol_gap_min
+    gap_fired_pb := true
+    alert(rc_pay("gap_up_continuation_long", "BUY", "D", close, gap_low_pb, "Gap-and-go — opened above PDH and ran on " + str.tostring(vol_ratio_pb, "#.#") + "x volume — stop the open low"), alert.freq_once_per_bar_close)
+if en_shorts and short_ok_pb and not na(lDp) and close < lDp and close < open and not na(vol_ratio_pb) and vol_ratio_pb >= vol_short_min and not pdlbrk_fired
+    pdlbrk_fired := true
+    alert(rc_pay("staged_pdl_break", "SHORT", "D", close, lDp, "PDL break — lost the prior-day LOW on " + str.tostring(vol_ratio_pb, "#.#") + "x volume — stop the PDL"), alert.freq_once_per_bar_close)
+if en_shorts and short_ok_pb and not na(hDp) and high >= hDp and close < hDp and close < open and not na(vol_ratio_pb) and vol_ratio_pb >= vol_short_min and not pdhrej_fired
+    pdhrej_fired := true
+    alert(rc_pay("staged_pdh_rejection", "SHORT", "D", close, hDp, "PDH rejection — rejected at the prior-day HIGH on " + str.tostring(vol_ratio_pb, "#.#") + "x volume — stop the PDH"), alert.freq_once_per_bar_close)
 // weekly_rc fires REMOVED 2026-07-12 — folded into WLV (weekly_lvl_reclaim, below).
 // monthly_rc / cml_reclaim / cml_held / pml_held fires REMOVED 2026-07-11 — folded into MLV.
 
