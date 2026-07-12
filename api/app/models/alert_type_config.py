@@ -133,7 +133,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # 4h reclaim — long-only now (rc_4h_short RETIRED 2026-06-29 → OBSOLETE; the only
     # shorts we keep are the structural PDL break + PDH rejection). Both default OFF.
     ("rc_4h_long",  "4h RC long — reclaim of the prior 4h LOW (swept-low bounce, support-gated)", "4h reversal", False),
-    ("rc_4h_hrec",  "4h RC-H — broken prior 4h HIGH held as support, UPTREND-gated (breakout-retest long)", "4h reversal", False),
+    # rc_4h_hrec (4h HIGH reclaim) RETIRED 2026-07-12 — chases resistance; only the 4h LOW (rc_4h_long) is kept. → OBSOLETE.
     # Daily RC (from rc.pine) — undercut & reclaim of the prior-DAY low/high (≈ PDL/PDH
     # reclaim, RC-model). All default OFF.
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
@@ -353,6 +353,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-12 — weekly sub-alerts folded into WLV (weekly_lvl_reclaim, spec 69). WLV
     # covers every completed weekly level (H/L/O/C × 4 weeks), so weekly_rc + PWL-held retire.
     "weekly_rc", "staged_pwl_held",
+    # rc_4h_hrec RETIRED 2026-07-12 — the 4h HIGH reclaim chases resistance (buys into overhead).
+    # Only rc_4h_long (4h LOW = support bounce) kept. Daily/weekly/monthly RC stay (directional-gated).
+    "rc_4h_hrec",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the

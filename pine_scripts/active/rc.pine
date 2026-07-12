@@ -28,14 +28,13 @@ indicator("Reclaim (RC) · 4h/Wk/Mo", "RC", overlay = true, max_labels_count = 3
 // ── Enables (per TF, per signal) ──────────────────────────────────────────
 g4 = "4h RC — day-trade engine"
 en4_long  = input.bool(true, "4h · RC long — reclaim prior 4h LOW (BUY)", group = g4)
-en4_hrec  = input.bool(true, "4h · RC-H — reclaim prior 4h HIGH (BUY)", group = g4)
+// 4h · RC-H (4h HIGH reclaim) REMOVED 2026-07-12 — the 4h high chases resistance; keep only the 4h LOW.
 // RC QUALITY FILTERS (2026-06-23, chart-derived). A 4h RC-H is a continuation only
 // IN AN UPTREND — otherwise it's buying into overhead resistance (SPY-on-down-days
 // trap). A 4h RC low is a spring only at SUPPORT — otherwise a naked lower-low knife.
 // Regime = the DAILY trend (handles consolidations: a bull flag is still Stage-2,
 // where local "higher highs" fails). Both gates toggleable.
 gF = "RC quality filters (4h)"
-gate_hrec = input.bool(false, "RC-H: require daily UPTREND (off = intraday tool, fire on structure; the stop is the judge)", group = gF)
 gate_low  = input.bool(false, "RC-low: require daily uptrend OR support confluence (off = every reclaim fires, the reclaim-low stop is the judge)", group = gF)
 ema_len   = input.int (20,    "Daily EMA length (trend reference)", minval = 5, group = gF)
 slope_lb  = input.int (3,     "Daily EMA rising lookback (days)", minval = 1, group = gF)
@@ -95,6 +94,7 @@ wk_recent = input.int(8, "10w↑/30w↑ signs: recent WEEKS only (0 = all — th
 // 1M chart but April on the 4h chart.)
 [h4p, l4p] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [hDp, lDp] = request.security(syminfo.tickerid, "D",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+dOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)  // today's open — the directional support gate, SHARED by daily RC + MLV + WLV
 [hWp, lWp] = request.security(syminfo.tickerid, "W",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [hMp, lMp] = request.security(syminfo.tickerid, "M",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 // Developing-period low (undercut check + stop) = the CURRENT period's running low,
@@ -308,11 +308,12 @@ sweep_reclaim(float level, bool en, bool ok, bool newper, bool arm_break = false
 // prior-4h low sits AT a real support (PDL/PWL/PML/10w/30w) — else a naked knife.
 l4_at_support = near_lvl(l4p, lDp) or near_lvl(l4p, lWp) or near_lvl(l4p, lMp) or near_lvl(l4p, w10) or near_lvl(l4p, w30)
 gate4_long = (not gate_low)  or uptrend or l4_at_support
-gate4_hrec = (not gate_hrec) or uptrend
 rc4_long = sweep_reclaim(l4p, en4_long and gate4_long, ok4, n4)
-rc4_hrec = sweep_reclaim(h4p, en4_hrec and gate4_hrec, ok4, n4, true)
-rcD_long = sweep_reclaim(lDp, enD_long, okD, nD)
-rcD_hrec = sweep_reclaim(hDp, enD_hrec, okD, nD, true)
+// rc_4h_hrec REMOVED 2026-07-12 (the 4h HIGH chases resistance; only the 4h LOW is kept).
+// Daily RC is now DIRECTIONAL like MLV/WLV: fire only when the day OPENED ABOVE the level
+// (dOpen > level = support), so the PDH reclaim is a defend-the-gap, not a chase.
+rcD_long = sweep_reclaim(lDp, enD_long and dOpen > lDp, okD, nD)
+rcD_hrec = sweep_reclaim(hDp, enD_hrec and dOpen > hDp, okD, nD, true)
 // weekly_rc (rcW_long/rcW_hrec) REMOVED 2026-07-12 — folded into WLV (weekly_lvl_reclaim).
 // Monthly RC / CML / PML alerts REMOVED 2026-07-11 — folded into MLV (monthly_lvl_reclaim).
 // The value computations (hMp/lMp/lMd/cml) stay above — the visual PMH/PML/CML lines use them.
@@ -433,11 +434,9 @@ if orhRej
 // smallest footprint) · shape + TF text. Shape = TF (4h triangle · daily circle),
 // color = side (lime low-reclaim · teal high-reclaim · red short). All size.tiny.
 plotshape(show_tags and tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
-plotshape(show_tags and tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hh")
 plotshape(show_tags and tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
 plotshape(show_tags and tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 plotshape(show_tags and not tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
-plotshape(show_tags and not tags_text and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
 plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 
@@ -500,8 +499,7 @@ rc_pay(string rule, string dir, string iv, float ent, float stp, string note) =>
 
 if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
-if rc4_hrec
-    alert(rc_pay("rc_4h_hrec", "BUY", "240", h4p, l4d, "RC-H · breakout-retest of the prior 4h high — entry " + str.tostring(h4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
+// rc_4h_hrec fire REMOVED 2026-07-12 (4h high chases resistance).
 if rcD_long
     alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 if rcD_hrec
@@ -516,7 +514,7 @@ if rcD_hrec
 // Optional (enMLVbelow): ALSO fire RECLAIM-FROM-BELOW (opened under the level, closed back
 // above). entry = the level · stop = the reclaim low · once per level per day · long only.
 // Covers month[1] too → monthly_rc / pml_held are retired (folded in here).
-mlv_dOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+// day-open support gate uses the shared dOpen (defined near the daily levels, above).
 [mvh1, mvl1, mvo1, mvc1, mvt1] = request.security(syminfo.tickerid, "M", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
 [mvh2, mvl2, mvo2, mvc2, mvt2] = request.security(syminfo.tickerid, "M", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
 [mvh3, mvl3, mvo3, mvc3, mvt3] = request.security(syminfo.tickerid, "M", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
@@ -533,8 +531,8 @@ if nD
 if enMLV
     for k = 0 to 23
         float _L = array.get(mlvPr, k)
-        bool _def = not na(_L) and mlv_dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= mlvMinPen
-        bool _bel = enMLVbelow and not na(_L) and mlv_dOpen < _L and close > _L and close[1] <= _L
+        bool _def = not na(_L) and dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= mlvMinPen
+        bool _bel = enMLVbelow and not na(_L) and dOpen < _L and close > _L and close[1] <= _L
         if (_def or _bel) and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
             string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
@@ -544,7 +542,7 @@ if enMLV
 
 // ── WLV — WEEKLY LEVELS · directional reclaim (spec 69 · 2026-07-12). ────────────
 // The weekly twin of MLV: every completed weekly level — H/L/O/C of the last 4 weeks
-// (16 levels). BUY when the day OPENED ABOVE the level (reuses mlv_dOpen) and price wicked
+// (16 levels). BUY when the day OPENED ABOVE the level (reuses dOpen) and price wicked
 // below & reclaimed it; optional enWLVbelow = reclaim-from-below. entry = the level, stop =
 // the reclaim low, once per level per day, 5m like rc_daily. Retires weekly_rc (folded in).
 [wvh1, wvl1, wvo1, wvc1, wvt1] = request.security(syminfo.tickerid, "W", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
@@ -561,8 +559,8 @@ if nD
 if enWLV
     for k = 0 to 15
         float _WL = array.get(wlvPr, k)
-        bool _wdef = not na(_WL) and mlv_dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= wlvMinPen
-        bool _wbel = enWLVbelow and not na(_WL) and mlv_dOpen < _WL and close > _WL and close[1] <= _WL
+        bool _wdef = not na(_WL) and dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= wlvMinPen
+        bool _wbel = enWLVbelow and not na(_WL) and dOpen < _WL and close > _WL and close[1] <= _WL
         if (_wdef or _wbel) and not array.get(wlv_fired, k)
             array.set(wlv_fired, k, true)
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
