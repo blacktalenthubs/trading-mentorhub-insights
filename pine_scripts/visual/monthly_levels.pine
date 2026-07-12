@@ -29,6 +29,7 @@ colHi    = input.color(color.new(color.red, 0),  "Month highs", group = gS, inli
 colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
 colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
 colBDn   = input.color(color.new(color.red, 88),   "Body · down month", group = gS, inline = "b")
+nearN    = input.int(4, "Declutter: draw only the N nearest levels ABOVE + BELOW price (0 = all)", minval = 0, maxval = 12, group = gS)
 
 gX = "Signal — directional support reclaim (long only)"
 showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
@@ -77,6 +78,22 @@ monL(int i) => i == 1 ? ml1 : i == 2 ? ml2 : i == 3 ? ml3 : i == 4 ? ml4 : i == 
 monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 5 ? mt5 : mt6
 monO(int i) => i == 1 ? mo1 : i == 2 ? mo2 : i == 3 ? mo3 : i == 4 ? mo4 : i == 5 ? mo5 : mo6
 monC(int i) => i == 1 ? mc1 : i == 2 ? mc2 : i == 3 ? mc3 : i == 4 ? mc4 : i == 5 ? mc5 : mc6
+
+// Nearest-N declutter — is level L among the N closest levels on ITS side of the current
+// close (above/below)? Keeps a compressed lower-TF chart readable: only the relevant band
+// around price draws. nearN = 0 → draw everything. Counts across all nMon months' H/L/O/C.
+nearOK(float L) =>
+    bool _ok = true
+    if nearN > 0 and not na(L)
+        bool _above = L >= close
+        int _closer = 0
+        for _i = 1 to nMon
+            for _t = 0 to 3
+                float _o = _t == 0 ? monH(_i) : _t == 1 ? monL(_i) : _t == 2 ? monO(_i) : monC(_i)
+                if not na(_o) and ((_o >= close) == _above) and math.abs(_o - close) < math.abs(L - close)
+                    _closer += 1
+        _ok := _closer < nearN
+    _ok
 
 // ── DIRECTIONAL SUPPORT-RECLAIM SIGNAL (▲) ──────────────────────────────────────
 // A monthly level is SUPPORT only when price OPENED above it (day_open > L). The entry
@@ -135,25 +152,37 @@ if barstate.islast
         if not na(h) and not na(l)
             float o = monO(i)
             float c = monC(i)
-            if showBody and not na(o) and not na(c)
+            bool okH = nearOK(h)
+            bool okL = nearOK(l)
+            bool okO = nearOK(o)
+            bool okC = nearOK(c)
+            if showBody and not na(o) and not na(c) and (okO or okC)
                 array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
             int fade = math.min(45, (i - 1) * 12)
             color ch = color.new(colHi, fade)
             color cl = color.new(colLo, fade)
             int w = i == 1 ? 3 : 2
-            array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
-            array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
+            if okH
+                array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            if okL
+                array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
             if showTag
                 string mn = str.format("{0,date,MMM}", t)
-                array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
-                array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
+                if okH
+                    array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
+                if okL
+                    array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
             // Body EDGES as flat lines (dotted) — the monthly OPEN and CLOSE, colored by
             // up/down month (green up · red down), so the body reads as two rails like H/L.
             if showBodyLn and not na(o) and not na(c)
                 color cb = color.new(c >= o ? color.green : color.red, math.min(55, fade + 10))
-                array.push(lns, line.new(t, o, time, o, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
-                array.push(lns, line.new(t, c, time, c, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if okO
+                    array.push(lns, line.new(t, o, time, o, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if okC
+                    array.push(lns, line.new(t, c, time, c, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
                 if showTag
                     string mnb = str.format("{0,date,MMM}", t)
-                    array.push(lbls, label.new(bar_index + 1, o, mnb + " O " + str.tostring(o, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
-                    array.push(lbls, label.new(bar_index + 1, c, mnb + " C " + str.tostring(c, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
+                    if okO
+                        array.push(lbls, label.new(bar_index + 1, o, mnb + " O " + str.tostring(o, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
+                    if okC
+                        array.push(lbls, label.new(bar_index + 1, c, mnb + " C " + str.tostring(c, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
