@@ -5,6 +5,8 @@
 //
 //   ▲ A · HOLD    — price tags a RISING fair value and holds (at/just above the basis). Shallowest, best.
 //   ◆ C · RECLAIM — came from BELOW a rising fair value, closes back above it (the turn).
+//   W · BASE WATCH — a FALLEN stock whose basis has FLATTENED and is making higher lows in the lower band.
+//                    A reversal SETTING UP (good for shorter holds) — NOT a buy; watch for the C-reclaim.
 //
 //   RISING fair value is MANDATORY. Extended (high %B) = a chase, NOT marked. We DELIBERATELY don't buy
 //   the coiling lower-band base — it prints lower lows (undercuts), which breaks the higher-low rule; we
@@ -27,8 +29,9 @@ sqPct = input.float(20.0, "Squeeze percentile (<= = coiling)", minval = 1, maxva
 
 gE = "Entries + stop"
 slopeLb = input.int(3, "Rising-basis slope lookback (bars)", minval = 1, group = gE)
-showA   = input.bool(true, "A - pullback-and-hold a rising fair value", group = gE)
-showC   = input.bool(true, "C - reclaim back above a rising fair value", group = gE)
+showA    = input.bool(true, "A - pullback-and-hold a rising fair value", group = gE)
+showC    = input.bool(true, "C - reclaim back above a rising fair value", group = gE)
+showBase = input.bool(true, "W - base forming (flat basis + higher lows in the lower band; a WATCH, not a buy)", group = gE)
 extCut  = input.float(0.72, "Skip pullback buys above this %B (extended)", minval = 0.5, maxval = 1.0, step = 0.02, group = gE)
 trailN  = input.int(1, "Trail to the lowest low of the last N COMPLETED weeks (1 = last week's low)", minval = 1, maxval = 6, group = gE)
 minStop = input.float(3.0, "Min stop distance % at entry (floor - avoid ultra-tight stops)", minval = 0.0, step = 0.5, group = gE)
@@ -59,6 +62,15 @@ tagHold = rising and above30 and low <= basis * 1.015 and close > basis and pctB
 reclaim = rising and above30 and close > basis and close[1] <= basis[1] and pctB <= extCut
 aFire = showA and tagHold and not tagHold[1] and barstate.isconfirmed
 cFire = showC and reclaim and barstate.isconfirmed
+
+// ── Base-forming WATCH (a reversal setting up) — NOT a buy ───────────────────────
+// A fallen stock is only buyable once the basis STOPS falling AND it makes higher lows in the lower
+// band. This marks that base forming so you can WATCH for the C-reclaim (of a now flattening/turning
+// fair value) to confirm the turn. It does NOT enter — the buy is still the reclaim. Good for shorter
+// holds off a bottom. flatBasis = the line has stopped falling but isn't rising yet.
+flatBasis = slope > -0.012 and slope <= 0.005
+baseWatch = flatBasis and pctB <= 0.45 and ta.lowest(low, 3) > ta.lowest(low, 9)[3]
+bwFire = showBase and baseWatch and not baseWatch[1] and barstate.isconfirmed
 
 // ── Trailing higher-low stop ────────────────────────────────────────────────────
 // The stop = the last COMPLETED week's low (or lowest of last N weeks) — [1] excludes the still-forming
@@ -99,6 +111,9 @@ if aFire
     label.new(bar_index, low, "A", style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = _msz, tooltip = _tip("A - hold a rising fair value", close, entryStop, upper))
 if cFire
     label.new(bar_index, low, "C", style = label.style_label_up, color = color.new(color.aqua, 0), textcolor = color.black, size = _msz, tooltip = _tip("C - reclaim a rising fair value", close, entryStop, upper))
+// W = base-forming WATCH (above the bar, muted yellow) — a reversal setting up, NOT a buy yet
+if bwFire
+    label.new(bar_index, high, "W", style = label.style_label_down, color = color.new(color.yellow, 15), textcolor = color.black, size = _msz, tooltip = "Base forming - flat basis + higher lows in the lower band. WATCH for a C-reclaim of fair value to confirm the turn. NOT a buy yet.")
 
 // ── The stop: a trailing weekly-higher-low line while in a trade, ending at the ✕ exit ──
 plot(inTrade ? trailStop : na, "Trailing stop (weekly higher lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
@@ -116,11 +131,11 @@ if showGuide and barstate.islast
 
 var table t = table.new(position.top_right, 2, 5, border_width = 1)
 if showGuide and barstate.islast
-    string reg = rising ? "RISING (buy pullbacks)" : "not rising (no trade)"
-    color  regc = rising ? color.new(color.green, 0) : color.new(color.red, 0)
+    string reg = rising ? "RISING (buy pullbacks)" : flatBasis ? "FLAT (watch for base)" : "FALLING (no trade)"
+    color  regc = rising ? color.new(color.green, 0) : flatBasis ? color.new(color.orange, 0) : color.new(color.red, 0)
     string pos = (dist > 0.08 or pctB > extCut) ? "EXTENDED - skip" : pctB <= 0.35 ? "low in band" : "mid - at fair value"
-    string setup = tagHold ? "A - hold" : reclaim ? "C - reclaim" : "-"
-    color  setc = setup == "-" ? color.new(color.gray, 0) : color.new(color.blue, 0)
+    string setup = tagHold ? "A - hold" : reclaim ? "C - reclaim" : baseWatch ? "W - base (watch)" : "-"
+    color  setc = setup == "-" ? color.new(color.gray, 0) : baseWatch and not (tagHold or reclaim) ? color.new(color.orange, 0) : color.new(color.blue, 0)
     table.cell(t, 0, 0, "Fair value", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 0, str.tostring(basis, format.mintick), text_color = color.gray, text_size = size.small)
     table.cell(t, 0, 1, "Trend", text_color = color.gray, text_size = size.small)
