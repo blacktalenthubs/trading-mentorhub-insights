@@ -73,7 +73,7 @@ cFire = showC and reclaim and barstate.isconfirmed
 // and it's making a higher low.
 flatNow   = slope > -0.012 and slope <= 0.01
 declined  = basis < basis[6]
-baseWatch = declined and flatNow and pctB <= 0.30 and ta.lowest(low, 3) > ta.lowest(low, 9)[3]
+baseWatch = declined and flatNow and pctB <= 0.42 and ta.lowest(low, 3) > ta.lowest(low, 9)[3]
 bwFire = showBase and baseWatch and not baseWatch[1] and barstate.isconfirmed
 
 // ── Trailing higher-low stop ────────────────────────────────────────────────────
