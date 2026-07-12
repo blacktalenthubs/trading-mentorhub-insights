@@ -1,21 +1,20 @@
 // @version=5
 // Fair Value Swing — Bands + Entry Markers (VISUAL, chart-TF native; put it on the 1W, or 1M).
 // The structural, low-stress swing system: buy pullbacks to a RISING fair-value line (the 20-period
-// basis / middle band), never at a premium. Three entries (by pullback DEPTH), one structural stop.
+// basis / middle band), never at a premium. TWO clean entries, one trailing structural stop.
 //
-//   ▲ A · HOLD    — price tags a RISING fair value and holds (at/just above the basis). Shallowest,best.
-//   ◆ C · RECLAIM — came from BELOW the basis, closes back above it (the turn).
-//   ▽ B · BASE    — deepest: coils in the LOWER band (%B<=0.40) with a NON-falling basis. (AMD 208.)
+//   ▲ A · HOLD    — price tags a RISING fair value and holds (at/just above the basis). Shallowest, best.
+//   ◆ C · RECLAIM — came from BELOW a rising fair value, closes back above it (the turn).
 //
-//   RISING fair value is MANDATORY for the pullback buys (A / C). Extended (high %B) = a chase, NOT marked.
-//   STOP = the last HIGHER (swing) low — clamped [min,max]% at entry, then raised to each NEW higher swing
-//          low. NEVER allow an undercut: a weekly CLOSE below the last swing low = OUT (✕). A "higher low"
-//          is a swing low, NOT every week's low — a week may wiggle as long as the swing low holds. Defined
-//          risk = always the last swing low; we never rationalize a break as "just noise".
+//   RISING fair value is MANDATORY. Extended (high %B) = a chase, NOT marked. We DELIBERATELY don't buy
+//   the coiling lower-band base — it prints lower lows (undercuts), which breaks the higher-low rule; we
+//   only take entries where the structure is already intact.
+//   STOP = the recent higher low (last COMPLETED week's low), clamped [min,max]% at entry, then TRAILS UP
+//          at the start of each new week. A weekly CLOSE below it = OUT (✕). Defined risk, and the stop
+//          keeps moving up as the trade makes higher lows. Never the far band, never the basis.
 //   TARGET = the upper band (T1); the runner rides the weekly trailing stop up.
 //
-// Backtest (6y weekly, 540 names, ~5,200 trades): avg +0.47R — the trail lets the big rides pay for the
-// small structural stops. VISUAL ONLY — eyeball the markers + the ✕ structure-breaks, then wire survivors.
+// VISUAL ONLY — eyeball the A/C markers, the trailing stop, and the ✕ exits; then wire survivors.
 indicator("Fair Value Swing — Bands + Entry Markers", "FV Swing", overlay = true, max_labels_count = 500, max_lines_count = 200)
 
 gB = "Fair value bands"
@@ -30,11 +29,9 @@ gE = "Entries + stop"
 slopeLb = input.int(3, "Rising-basis slope lookback (bars)", minval = 1, group = gE)
 showA   = input.bool(true, "A - pullback-and-hold a rising fair value", group = gE)
 showC   = input.bool(true, "C - reclaim back above a rising fair value", group = gE)
-showB   = input.bool(true, "B - base in the lower band (non-falling basis)", group = gE)
 extCut  = input.float(0.72, "Skip pullback buys above this %B (extended)", minval = 0.5, maxval = 1.0, step = 0.02, group = gE)
-pvL     = input.int(2, "Higher-low pivot: bars left", minval = 1, group = gE)
-pvR     = input.int(1, "Higher-low pivot: bars right (confirm delay)", minval = 1, group = gE)
-minStop = input.float(3.0, "Min stop distance % (floor - avoid ultra-tight stops)", minval = 0.0, step = 0.5, group = gE)
+trailN  = input.int(1, "Trail to the lowest low of the last N COMPLETED weeks (1 = last week's low)", minval = 1, maxval = 6, group = gE)
+minStop = input.float(3.0, "Min stop distance % at entry (floor - avoid ultra-tight stops)", minval = 0.0, step = 0.5, group = gE)
 maxStop = input.float(8.0, "Max stop distance % at entry (beyond this the entry is too extended)", minval = 3.0, step = 0.5, group = gE)
 markSz  = input.string("small", "Marker size", options = ["tiny", "small", "normal"], group = gE)
 _msz = markSz == "normal" ? size.normal : markSz == "tiny" ? size.tiny : size.small
@@ -52,53 +49,38 @@ pctB  = (upper - lower) != 0 ? (close - lower) / (upper - lower) : 0.5
 dist  = basis != 0 ? close / basis - 1 : 0.0
 slope = basis[slopeLb] != 0 ? basis / basis[slopeLb] - 1 : 0.0
 rising  = slope > 0.005
-nonfall = slope > -0.01
 above30 = close >= ma30
 bw    = basis != 0 ? (upper - lower) / basis * 100 : 0.0
 bwR   = ta.percentrank(bw, sqLk)
 inSq  = bwR <= sqPct
 
-// ── Higher-low structural stop ──────────────────────────────────────────────────
-// The stop is the last HIGHER LOW the setup is built on — the pullback low it defends. Break it
-// (a close below = stopped making higher lows) and you're OUT. Clamped [minStop, maxStop]% so it is
-// never the far lower band and never tighter than the floor.
-pivLow = ta.pivotlow(low, pvL, pvR)
-var float lastHL = na
-if not na(pivLow)
-    lastHL := pivLow
-hlBase  = na(lastHL) ? ta.lowest(low, 5) : lastHL
-hlStop  = math.min(hlBase, close) * 0.995
-stopLvl = math.min(math.max(hlStop, close * (1.0 - maxStop / 100.0)), close * (1.0 - minStop / 100.0))
-
-// ── Signals (fire once at the start of the condition, on the confirmed bar) ─────
+// ── Signals — two clean entries only (fire once, on the confirmed bar) ──────────
 tagHold = rising and above30 and low <= basis * 1.015 and close > basis and pctB >= 0.25 and pctB <= 0.68 and dist <= 0.06
 reclaim = rising and above30 and close > basis and close[1] <= basis[1] and pctB <= extCut
-baseBuy = nonfall and close >= ma30 * 0.97 and pctB <= 0.40 and dist < 0.03
 aFire = showA and tagHold and not tagHold[1] and barstate.isconfirmed
 cFire = showC and reclaim and barstate.isconfirmed
-bFire = showB and baseBuy and not baseBuy[1] and barstate.isconfirmed
 
-// ── Trade lifecycle — ONE position at a time; the stop TRAILS the higher lows ────
-// Entry starts the trade at the higher-low stop. As the trade proves itself and prints NEW
-// higher lows, the stop ratchets UP to each one. The single exit (✕) is a weekly close below
-// that trailing stop — this replaces the scattered structure-break marks. Stop and exit are
-// now ONE thing: the exit IS a close below the (trailing) stop.
-entrySig = aFire or cFire or bFire
+// ── Trailing higher-low stop ────────────────────────────────────────────────────
+// The stop = the last COMPLETED week's low (or lowest of last N weeks) — [1] excludes the still-forming
+// bar, so it holds during the live week and STEPS UP when a new week starts. Initial stop clamped
+// [minStop, maxStop]% so it's never absurdly wide/tight. Because we don't take coiling bases, this tight
+// weekly trail no longer whipsaws — clean A/C entries don't coil down after you're in.
+wkLow     = ta.lowest(low, trailN)[1]
+entryStop = na(wkLow) ? close * (1.0 - maxStop / 100.0) : math.min(math.max(wkLow, close * (1.0 - maxStop / 100.0)), close * (1.0 - minStop / 100.0))
+
+// ── Trade lifecycle — ONE position at a time; stop ratchets up, single ✕ exit ────
+entrySig = aFire or cFire
 var bool  inTrade   = false
 var float trailStop = na
 if entrySig and not inTrade
     inTrade   := true
-    trailStop := stopLvl                       // stop = the higher (swing) low the entry defends
-// NO-UNDERCUT trail: raise the stop to each NEW higher swing low the trade prints. A "higher low" is a
-// swing low (pivotlow), NOT every week's low — a week may wiggle as long as it holds the last swing low.
-if inTrade and not na(lastHL) and lastHL > trailStop
-    trailStop := lastHL
-// EXIT the moment the last higher low is undercut on a weekly close — no tolerance. We can't know if a
-// break is noise or the start of a failure, so we never allow it. Defined risk = always the swing low.
+    trailStop := entryStop
+if inTrade and not na(wkLow) and wkLow > trailStop
+    trailStop := wkLow
 exitSig = inTrade and barstate.isconfirmed and close < trailStop
 if exitSig
     inTrade := false
-curStop = inTrade ? trailStop : stopLvl
+curStop = inTrade ? trailStop : entryStop
 
 // ── Plots: bands + regime fill + squeeze context ────────────────────────────────
 plot(basis, "Fair value (basis)", color = color.new(color.gray, 0), linewidth = 1, style = plot.style_circles)
@@ -106,41 +88,34 @@ pU = plot(upper, "Upper band", color = color.new(color.red, 65), linewidth = 1)
 pL = plot(lower, "Lower band", color = color.new(color.teal, 55), linewidth = 1)
 fill(pU, pL, color = close > basis ? color.new(color.teal, 93) : color.new(color.red, 93), title = "Regime ribbon")
 plot(ma30, "Trend MA (30)", color = color.new(color.orange, 45), linewidth = 1)
-bgcolor(inSq ? color.new(color.yellow, 90) : na, title = "Squeeze (coiling)")
+bgcolor(inSq ? color.new(color.yellow, 90) : na, title = "Squeeze (coiling, context only)")
 
-// ── Entry markers — tooltip carries entry / higher-low stop / target ────────────
-_tip(_typ, _e, _s, _t) => _typ + "   entry " + str.tostring(_e, format.mintick) + "  ·  stop " + str.tostring(_s, format.mintick) + " (-" + str.tostring((_e - _s) / _e * 100, "#.#") + "%, last higher low)  ·  T1 " + str.tostring(_t, format.mintick) + " (+" + str.tostring((_t / _e - 1) * 100, "#.#") + "%)"
+// ── Entry markers — tooltip carries entry / trailing stop / target ──────────────
+_tip(_typ, _e, _s, _t) => _typ + "   entry " + str.tostring(_e, format.mintick) + "  ·  stop " + str.tostring(_s, format.mintick) + " (-" + str.tostring((_e - _s) / _e * 100, "#.#") + "%, last week's low)  ·  T1 " + str.tostring(_t, format.mintick) + " (+" + str.tostring((_t / _e - 1) * 100, "#.#") + "%)"
 if aFire
-    label.new(bar_index, low, "A", style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = _msz, tooltip = _tip("A - hold a rising fair value", close, stopLvl, upper))
+    label.new(bar_index, low, "A", style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = _msz, tooltip = _tip("A - hold a rising fair value", close, entryStop, upper))
 if cFire
-    label.new(bar_index, low, "C", style = label.style_label_up, color = color.new(color.aqua, 0), textcolor = color.black, size = _msz, tooltip = _tip("C - reclaim a rising fair value", close, stopLvl, upper))
-if bFire
-    label.new(bar_index, low, "B", style = label.style_label_up, color = color.new(color.orange, 0), textcolor = color.black, size = _msz, tooltip = _tip("B - base in the lower band", close, stopLvl, upper))
+    label.new(bar_index, low, "C", style = label.style_label_up, color = color.new(color.aqua, 0), textcolor = color.black, size = _msz, tooltip = _tip("C - reclaim a rising fair value", close, entryStop, upper))
 
-// ── The ONE stop: a trailing higher-low line while in a trade, ending at the ✕ exit ─────────
-// Drawn only during an open trade; it steps UP as the trade makes new higher lows. The ✕ marks
-// the single exit (a close below it). No more scattered structure-break marks.
-plot(inTrade ? trailStop : na, "Stop = last higher (swing) low", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
-plotshape(exitSig, "Exit — closed below trailing stop", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "out")
+// ── The stop: a trailing weekly-higher-low line while in a trade, ending at the ✕ exit ──
+plot(inTrade ? trailStop : na, "Trailing stop (weekly higher lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
+plotshape(exitSig, "Exit — closed below the trailing stop", style = shape.xcross, location = location.abovebar, color = color.new(color.red, 0), size = size.small, text = "out")
 
-// ── Stop/target + higher-low guide lines + status table on the last bar ─────────
+// ── Stop/target guide lines + status table on the last bar ──────────────────────
 var line lnStop = na
 var line lnT1 = na
-var line lnHL = na
 if showGuide and barstate.islast
     line.delete(lnStop)
     line.delete(lnT1)
-    line.delete(lnHL)
     lnStop := line.new(bar_index - 26, curStop, bar_index + 3, curStop, color = color.new(color.red, 10), style = inTrade ? line.style_solid : line.style_dashed, width = inTrade ? 2 : 1)
     lnT1   := line.new(bar_index - 26, upper, bar_index + 3, upper, color = color.new(color.teal, 20), style = line.style_dashed, width = 1)
-    lnHL   := na(lastHL) ? na : line.new(bar_index - 26, lastHL, bar_index + 3, lastHL, color = color.new(color.orange, 0), style = line.style_dotted, width = 1)
 
 var table t = table.new(position.top_right, 2, 5, border_width = 1)
 if showGuide and barstate.islast
-    string reg = rising ? "RISING (buy pullbacks)" : nonfall ? "flat (base only)" : "FALLING (no trade)"
-    color  regc = rising ? color.new(color.green, 0) : nonfall ? color.new(color.gray, 0) : color.new(color.red, 0)
-    string pos = (dist > 0.08 or pctB > extCut) ? "EXTENDED - skip" : pctB <= 0.40 ? "lower band - base" : "mid - at fair value"
-    string setup = tagHold ? "A - hold" : reclaim ? "C - reclaim" : baseBuy ? "B - base" : "-"
+    string reg = rising ? "RISING (buy pullbacks)" : "not rising (no trade)"
+    color  regc = rising ? color.new(color.green, 0) : color.new(color.red, 0)
+    string pos = (dist > 0.08 or pctB > extCut) ? "EXTENDED - skip" : pctB <= 0.35 ? "low in band" : "mid - at fair value"
+    string setup = tagHold ? "A - hold" : reclaim ? "C - reclaim" : "-"
     color  setc = setup == "-" ? color.new(color.gray, 0) : color.new(color.blue, 0)
     table.cell(t, 0, 0, "Fair value", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 0, str.tostring(basis, format.mintick), text_color = color.gray, text_size = size.small)
@@ -150,5 +125,5 @@ if showGuide and barstate.islast
     table.cell(t, 1, 2, pos + "  " + str.tostring(pctB * 100, "#") + "%", text_color = color.gray, text_size = size.small)
     table.cell(t, 0, 3, "Setup now", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 3, setup, text_color = setc, text_size = size.small)
-    table.cell(t, 0, 4, inTrade ? "Trail-stop / T1" : "HL-stop / T1", text_color = color.gray, text_size = size.small)
+    table.cell(t, 0, 4, inTrade ? "Trail-stop / T1" : "Stop / T1", text_color = color.gray, text_size = size.small)
     table.cell(t, 1, 4, str.tostring(curStop, format.mintick) + " (-" + str.tostring((close - curStop) / close * 100, "#.#") + "%) / " + str.tostring(upper, format.mintick), text_color = inTrade ? color.new(color.red, 0) : color.gray, text_size = size.small)
