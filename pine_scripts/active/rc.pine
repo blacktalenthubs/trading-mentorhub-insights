@@ -46,13 +46,15 @@ enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BU
 gW = "Weekly RC — swing (rare)"
 enW_long  = input.bool(true, "Weekly · RC — reclaim prior-week LOW (BUY)", group = gW)
 enW_hrec  = input.bool(true, "Weekly · RC-H — reclaim prior-week HIGH (BUY)", group = gW)
-gM = "Monthly RC — position (rare)"
-enM_long  = input.bool(true, "Monthly · RC — reclaim prior-month LOW (BUY)", group = gM)
-enM_hrec  = input.bool(true, "Monthly · RC-H — reclaim prior-month HIGH (BUY)", group = gM)
-enCMLrec  = input.bool(false, "Monthly · CML reclaim — undercut & reclaim the CURRENT-month low (BUY)", group = gM)
-enCMLheld = input.bool(false, "Monthly · CML held — tag & hold the CURRENT-month low as support (BUY)", group = gM)
-enPMLheld = input.bool(false, "Monthly · PML held — tag & hold the PRIOR-month low as support (BUY)", group = gM)
-enMLV     = input.bool(false, "Monthly · MLV reclaim — wicked below & reclaimed a monthly H/L from 2-4 months back (BUY)", group = gM)
+gM = "Monthly levels — MLV (all H/L/O/C · last 6 months)"
+enMLV      = input.bool(false, "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
+enMLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — validate first)", group = gM)
+mlvMinPen  = input.float(0.15, "  MLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gM) / 100.0
+enM_long  = input.bool(false, "Monthly · RC low  (RETIRED — folded into MLV)", group = gM)
+enM_hrec  = input.bool(false, "Monthly · RC-H  (RETIRED — folded into MLV)", group = gM)
+enCMLrec  = input.bool(false, "Monthly · CML reclaim  (dormant)", group = gM)
+enCMLheld = input.bool(false, "Monthly · CML held  (dormant)", group = gM)
+enPMLheld = input.bool(false, "Monthly · PML held  (RETIRED — prior-month low is month[1] L in MLV)", group = gM)
 cml_tol   = input.float(0.20, "  CML/PML held touch tolerance %", minval = 0.0, step = 0.05, group = gM)
 // Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
 // of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
@@ -550,27 +552,38 @@ if cmlHeld
 if pmlHeld
     alert(rc_pay("pml_held", "BUY", "M", close, lMp, "PML · tag & hold of the PRIOR-month LOW as support — entry " + str.tostring(close, format.mintick) + ", stop a close below " + str.tostring(lMp, format.mintick)), alert.freq_once_per_bar_close)
 
-// ── MLV — Monthly LEVELS wick & reclaim (2026-07-08). The last 4 completed months'
-// H/L are living rails (the MLV visual pine). The PRIOR month's H/L already fire as
-// monthly_rc / pml_held — THIS covers the OLDER rails those can't see: months 2-4
-// back. Trigger = price WICKS below a rail and CLOSES back above it on the 5m bar
-// (an old LOW defended, or a broken old HIGH retested as support — both BUY).
-// Once per rail per day. Default OFF (opt-in: Settings → Long Term → MLV reclaim).
-[hM2, lM2, tM2, hM3, lM3, tM3, hM4, lM4, tM4] = request.security(syminfo.tickerid, "M", [high[2], low[2], time[2], high[3], low[3], time[3], high[4], low[4], time[4]], lookahead = barmerge.lookahead_on)
-mlvLv(int k) => k == 0 ? hM2 : k == 1 ? lM2 : k == 2 ? hM3 : k == 3 ? lM3 : k == 4 ? hM4 : lM4
-mlvTm(int k) => k <= 1 ? tM2 : k <= 3 ? tM3 : tM4
-var bool[] mlv_fired = array.new_bool(6, false)
+// ── MLV — MONTHLY LEVELS · directional reclaim (spec 68 · 2026-07-11 rebuild). ───
+// ONE alert for EVERY completed monthly level: H/L/O/C of the last 6 months (24 levels).
+// A level is SUPPORT only when the day OPENED ABOVE it (day_open > L); entry = the wick-
+// below-and-reclaim (low ≤ L and close > L) on the 5m bar — tight, exactly like rc_daily.
+// Optional (enMLVbelow): ALSO fire RECLAIM-FROM-BELOW (opened under the level, closed back
+// above). entry = the level · stop = the reclaim low · once per level per day · long only.
+// Covers month[1] too → monthly_rc / pml_held are retired (folded in here).
+mlv_dOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+[mvh1, mvl1, mvo1, mvc1, mvt1] = request.security(syminfo.tickerid, "M", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+[mvh2, mvl2, mvo2, mvc2, mvt2] = request.security(syminfo.tickerid, "M", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
+[mvh3, mvl3, mvo3, mvc3, mvt3] = request.security(syminfo.tickerid, "M", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
+[mvh4, mvl4, mvo4, mvc4, mvt4] = request.security(syminfo.tickerid, "M", [high[4], low[4], open[4], close[4], time[4]], lookahead = barmerge.lookahead_on)
+[mvh5, mvl5, mvo5, mvc5, mvt5] = request.security(syminfo.tickerid, "M", [high[5], low[5], open[5], close[5], time[5]], lookahead = barmerge.lookahead_on)
+[mvh6, mvl6, mvo6, mvc6, mvt6] = request.security(syminfo.tickerid, "M", [high[6], low[6], open[6], close[6], time[6]], lookahead = barmerge.lookahead_on)
+mlvPr  = array.from(mvh1, mvl1, mvo1, mvc1, mvh2, mvl2, mvo2, mvc2, mvh3, mvl3, mvo3, mvc3, mvh4, mvl4, mvo4, mvc4, mvh5, mvl5, mvo5, mvc5, mvh6, mvl6, mvo6, mvc6)
+mlvTmA = array.from(mvt1, mvt1, mvt1, mvt1, mvt2, mvt2, mvt2, mvt2, mvt3, mvt3, mvt3, mvt3, mvt4, mvt4, mvt4, mvt4, mvt5, mvt5, mvt5, mvt5, mvt6, mvt6, mvt6, mvt6)
+mlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
+var bool[] mlv_fired = array.new_bool(24, false)
 if nD
-    for k = 0 to 5
+    for k = 0 to 23
         array.set(mlv_fired, k, false)
 if enMLV
-    for k = 0 to 5
-        float _lvl = mlvLv(k)
-        if not na(_lvl) and not array.get(mlv_fired, k) and low <= _lvl and close > _lvl
+    for k = 0 to 23
+        float _L = array.get(mlvPr, k)
+        bool _def = not na(_L) and mlv_dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= mlvMinPen
+        bool _bel = enMLVbelow and not na(_L) and mlv_dOpen < _L and close > _L and close[1] <= _L
+        if (_def or _bel) and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
-            string _mn = str.format("{0,date,MMM}", int(mlvTm(k)))
-            string _sd = k % 2 == 0 ? "HIGH" : "LOW"
-            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _lvl, low, "MLV · wicked below & reclaimed the " + _mn + " monthly " + _sd + " " + str.tostring(_lvl, format.mintick) + " — entry at the rail, stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
+            string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
+            string _kd = array.get(mlvKdA, k)
+            string _src = _def ? "held from above" : "reclaimed from below"
+            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, low, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " " + _src + " — entry at the level, stop the reclaim low " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
 
 // MoBO — monthly BOX breakout + monthly RC-H (long-term/position; default OFF, gate-exempt).
 // entry = the locked level (the buy point), stop = the base / pre-break low.

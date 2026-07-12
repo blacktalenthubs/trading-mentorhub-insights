@@ -72,7 +72,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     ("staged_pdl_held", "PDL held — wick test (Buy 2)", "Daily PDH/PDL", False),
     ("staged_pwl_held", "PWL held — wick test (Buy 2)", "Weekly", False),
-    ("staged_pml_held", "PML held — wick test (Buy 2)", "Monthly", False),
+    # staged_pml_held (monthly PML held) RETIRED 2026-07-11 → folded into MLV. → OBSOLETE_ALERT_TYPES.
 
     # Proximity bounce DROPPED 2026-06-04 (spec 61) — entry = close, which
     # after a bounce off the level lands far away (TSLA PDL 416, alert fired
@@ -160,19 +160,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # a shallow undercut-reclaim. Both default OFF.
     ("weekly_10w_held", "10w MA — tagged & held the 10-week MA intraday (position support)", "Weekly trend", False),
     ("weekly_30w_held", "30w MA — tagged & held the 30-week MA intraday (LONG-TERM support)", "Weekly trend", False),
-    # Monthly RC — added 2026-06-22. Same intraday level-cross model as 4h/weekly,
-    # fired from the consolidated RC pine (rc.pine): undercut & reclaim of the prior
-    # MONTH high (breakout-retest, the MU play) or low. Rare by nature. Default OFF.
-    ("monthly_rc", "Monthly RC — prior-month high/low reclaim (position)", "Monthly trend", False),
-    # CML (current-month low: cml_reclaim · cml_held) RETIRED 2026-07-03 → OBSOLETE_ALERT_TYPES
-    # (user: still seeing them, wants them gone). pml_held (prior-month low) KEPT.
-    ("pml_held", "PML held — tag & hold of the PRIOR-month low as support", "Monthly trend", False),
-    # MLV reclaim (2026-07-08) — the last-4-months H/L rails (the MLV visual pine): price
-    # WICKED below a rail from 2-4 MONTHS BACK and closed back above it (an old low
-    # defended, or a broken old high retested as support). The prior month's H/L already
-    # fire as monthly_rc / pml_held — this covers the OLDER rails those can't see. Fires
-    # from rc.pine, once per rail per day. Default OFF (opt-in).
-    ("monthly_lvl_reclaim", "MLV reclaim — wick & reclaim of a monthly HIGH/LOW from 2-4 months back (day-trade level tool)", "Monthly", False),
+    # MLV — Monthly LEVELS · directional reclaim (spec 68, 2026-07-11). THE single monthly
+    # alert: EVERY completed monthly level — H/L/O/C of the last 6 months (24 levels). BUY when
+    # the day opened ABOVE the level and price wicked below & reclaimed it (support held);
+    # optional reclaim-from-below. Entry = the level, stop = the reclaim low. Fired from rc.pine,
+    # once per level per day, day-trade. monthly_rc + pml_held + CML are FOLDED IN (retired →
+    # OBSOLETE_ALERT_TYPES); MLV is the only monthly toggle.
+    ("monthly_lvl_reclaim", "MLV — monthly-level reclaim (all H/L/O/C of the last 6 months, directional support entry)", "Monthly", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -316,7 +310,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
-    "monthly_lvl_reclaim": "MLV reclaim: price WICKED below a monthly HIGH or LOW from 2-4 months back and closed back above it — the old monthly rail held as support (an old low defended, or a broken old high retested as support). The prior month's levels fire as Monthly RC / PML held; this covers the older rails. Entry = the rail, stop = the reclaim low. Once per rail per day; rare by nature. Pairs with the MLV visual pine (monthly_levels.pine).",
+    "monthly_lvl_reclaim": "MLV — the ONE monthly-level alert. Fires a BUY when price reclaims a completed monthly level: any H/L/O/C of the last 6 months (24 levels). Directional — the day must have OPENED ABOVE the level (so it's support), then price wicked below and closed back above it (support held). Optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. monthly_rc / PML-held / CML are folded in here. Pairs with the MLV visual pine (monthly_levels.pine).",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
@@ -347,6 +341,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup
     # purges stale rows; webhook drops arrivals.
     "orh_break", "staged_orl_held", "cml_reclaim", "cml_held", "reclaim_long",
+    # 2026-07-11 — ALL monthly sub-alerts folded into MLV (monthly_lvl_reclaim, spec 68).
+    # MLV now covers every completed monthly level (H/L/O/C × 6 months incl. month[1]), so the
+    # prior-month RC + PML-held are redundant. MLV is the one monthly toggle.
+    "monthly_rc", "pml_held", "staged_pml_held",
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — drop the old combined toggle
     "rc_4h",
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
