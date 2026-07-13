@@ -97,5 +97,6 @@ if barstate.islast
                         float yb = lo + b * binw
                         float yt = lo + (b + 1) * binw
                         bool inVA = b >= li and b <= hj
-                        color hc = b == pocI ? color.new(color.orange, 30) : inVA ? color.new(color.blue, 70) : color.new(color.gray, 80)
+                        // opaque enough to actually read as a profile: POC bright, value-area teal, rest gray
+                        color hc = b == pocI ? color.new(color.orange, 5) : inVA ? color.new(color.teal, 35) : color.new(color.gray, 55)
                         array.push(histBx, box.new(bar_index + 2, yt, bar_index + 2 + w, yb, border_color = na, bgcolor = hc))
