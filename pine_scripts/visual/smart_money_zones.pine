@@ -80,8 +80,10 @@ if barstate.islast
         box.delete(instBox)
         box.delete(smzBox)
         line.delete(pocLine)
-        instBox := showInst ? box.new(x1, vaHigh, x2, poc, border_color = color.new(color.blue, 40), bgcolor = color.new(color.blue, 91), text = "Institutional Buying", text_color = color.new(color.blue, 10), text_size = size.small, text_halign = text.align_right) : na
-        smzBox  := showSMZ  ? box.new(x1, poc, x2, vaLow, border_color = color.new(color.purple, 20), bgcolor = color.new(color.purple, 86), text = "Smart Money", text_color = color.new(color.purple, 0), text_size = size.small, text_halign = text.align_right) : na
+        // Two clearly-distinct boxes like the smart-money traders draw: BLUE institutional (upper value
+        // area, POC→VA high) vs MAGENTA smart-money discount (lower value area, VA low→POC).
+        instBox := showInst ? box.new(x1, vaHigh, x2, poc, border_color = color.new(#2962ff, 0), border_width = 2, bgcolor = color.new(#2962ff, 90), text = "Institutional Buying", text_color = color.new(#2962ff, 0), text_size = size.small, text_halign = text.align_right) : na
+        smzBox  := showSMZ  ? box.new(x1, poc, x2, vaLow, border_color = color.new(#d500f9, 0), border_width = 2, bgcolor = color.new(#d500f9, 88), text = "Smart Money", text_color = color.new(#d500f9, 0), text_size = size.small, text_halign = text.align_right) : na
         pocLine := line.new(x1, poc, x2, poc, color = color.new(color.orange, 0), style = line.style_dashed, width = 1)
 
         // histogram — one box per bin on the right, length ∝ volume
