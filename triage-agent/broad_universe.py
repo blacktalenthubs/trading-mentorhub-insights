@@ -1,61 +1,58 @@
-"""Broad swing-scan universe — S&P 500 + Nasdaq 100 + high-momentum growth names.
+"""Curated thematic LEADERS universe — the pool the swing scanner + universe research draw from.
 
-Committed static list (membership drifts slowly; a few stale names do not matter for a discovery
-scan). Unioned with the master watchlist in swing_scan.main() so swing setups are found across a
-wide pool, not just the ~72-name master list. Refresh occasionally from S&P/NDX constituents.
+Philosophy (user 2026-07-12): we do NOT want all 500 S&P names. We want the TOPS + the strongest names
+in the key sectors moving the markets — AI / technology / growth and the strong "AI-proof" sectors —
+large AND mid cap, momentum-tilted. A ~100-150 baseline is enough to find setups most days. Selection is
+handled downstream by the relative-strength filter (swing_scan._rs_rank / SWING_RS_TOPN) and by the strong
+entry/exit rules, so this list just has to be the RIGHT pool, not exhaustive. Organized by theme so it's
+easy to prune/extend as leadership rotates.
+
+Unioned in swing_scan.main() with the master watchlist + LTF finders + IBD 50 / Sector Leaders, then
+RS-filtered to the top performers.
 """
 
-BROAD_UNIVERSE = [
-    "AAPL", "ABBV", "ABNB", "ABT", "ACGL", "ACN", "ADBE", "ADI", "ADM", "ADP",
-    "ADSK", "AEE", "AEHR", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "AKAM",
-    "ALAB", "ALB", "ALGN", "ALL", "ALLE", "AMAT", "AMCR", "AMD", "AME", "AMGN",
-    "AMP", "AMT", "AMZN", "ANET", "AON", "AOS", "APA", "APD", "APH", "APO",
-    "APP", "APTV", "ARE", "ARES", "ASTS", "ATO", "AVB", "AVGO", "AVY", "AWK",
-    "AXON", "AXP", "AZO", "BA", "BAC", "BALL", "BAX", "BBY", "BDX", "BEN",
-    "BF-B", "BG", "BIIB", "BKNG", "BKR", "BLDR", "BLK", "BMY", "BNY", "BR",
-    "BRK-B", "BRO", "BSX", "BX", "BXP", "CAH", "CARR", "CASY", "CAT", "CB",
-    "CBOE", "CBRE", "CCI", "CCL", "CDNS", "CDW", "CEG", "CF", "CFG", "CHD",
-    "CHRW", "CHTR", "CI", "CIEN", "CINF", "CL", "CLS", "CLX", "CMCSA", "CME",
-    "CMG", "CMI", "CMS", "CNC", "CNP", "COF", "COHR", "COIN", "COO", "COP",
-    "COR", "COST", "CPAY", "CPRT", "CPT", "CRDO", "CRH", "CRL", "CRM", "CRWD",
-    "CRWV", "CSCO", "CSGP", "CSX", "CTAS", "CTSH", "CTVA", "CVNA", "CVS", "CVX",
-    "DAL", "DASH", "DAVE", "DD", "DDOG", "DE", "DECK", "DELL", "DG", "DGX",
-    "DHI", "DHR", "DIS", "DLR", "DLTR", "DOC", "DOV", "DOW", "DPZ", "DRI",
-    "DTE", "DUK", "DUOL", "DVA", "DVN", "DXCM", "EA", "EBAY", "ECHO", "ECL",
-    "ED", "EFX", "EG", "EIX", "EL", "ELV", "EME", "EMR", "EOG", "EQIX",
-    "EQR", "EQT", "ERIE", "ES", "ESS", "ETN", "ETR", "EVRG", "EW", "EXC",
-    "EXE", "EXPD", "EXPE", "EXR", "FANG", "FAST", "FCX", "FDS", "FDX", "FDXF",
-    "FE", "FFIV", "FICO", "FIS", "FISV", "FITB", "FIX", "FLEX", "FOX", "FOXA",
-    "FRT", "FSLR", "FTNT", "FTV", "GD", "GDDY", "GE", "GEHC", "GEN", "GEV",
-    "GILD", "GIS", "GL", "GLW", "GM", "GNRC", "GOOG", "GOOGL", "GPC", "GPN",
-    "GRMN", "GS", "GWW", "HAL", "HAS", "HBAN", "HCA", "HD", "HIG", "HII",
-    "HIMS", "HLT", "HON", "HONA", "HOOD", "HPE", "HPQ", "HRL", "HSIC", "HST",
-    "HSY", "HUBB", "HUM", "HWM", "IBKR", "IBM", "ICE", "IDXX", "IEX", "IFF",
-    "INCY", "INTC", "INTU", "INVH", "IP", "IQV", "IR", "IREN", "IRM", "ISRG",
-    "IT", "ITW", "IVZ", "JBHT", "JBL", "JCI", "JKHY", "JNJ", "JPM", "KDP",
-    "KEY", "KEYS", "KHC", "KIM", "KKR", "KLAC", "KMB", "KMI", "KO", "KR",
-    "KVUE", "LDOS", "LEN", "LH", "LHX", "LII", "LIN", "LITE", "LLY", "LMT",
-    "LNT", "LOW", "LRCX", "LULU", "LUV", "LVS", "LYB", "LYV", "MA", "MAA",
-    "MAR", "MAS", "MCD", "MCHP", "MCK", "MCO", "MDLZ", "MDT", "MET", "META",
-    "MGM", "MKC", "MLM", "MMM", "MNST", "MO", "MOS", "MPC", "MPWR", "MRK",
-    "MRNA", "MRSH", "MRVL", "MS", "MSCI", "MSFT", "MSI", "MSTR", "MTB", "MTD",
-    "MU", "NBIS", "NCLH", "NDAQ", "NDSN", "NEE", "NEM", "NFLX", "NI", "NKE",
-    "NOC", "NOW", "NRG", "NSC", "NTAP", "NTRS", "NUE", "NVDA", "NVR", "NWS",
-    "NWSA", "NXPI", "ODFL", "OKE", "OKLO", "OMC", "ON", "ONON", "ORCL", "ORLY",
-    "OTIS", "OXY", "PANW", "PAYX", "PCAR", "PCG", "PEG", "PEP", "PFE", "PFG",
-    "PG", "PGR", "PH", "PHM", "PKG", "PLD", "PLTR", "PM", "PNC", "PNR",
-    "PNW", "PODD", "PPG", "PPL", "PRU", "PSA", "PSKY", "PSX", "PTC", "PWR",
-    "PYPL", "QCOM", "RCL", "RDDT", "REG", "REGN", "RF", "RJF", "RKLB", "RL",
-    "RMD", "ROK", "ROL", "ROP", "ROST", "RSG", "RTX", "RVTY", "SBAC", "SBUX",
-    "SCHW", "SEZL", "SHW", "SJM", "SLB", "SMCI", "SNA", "SNDK", "SNPS", "SO",
-    "SOLV", "SPG", "SPGI", "SRE", "STE", "STLD", "STT", "STX", "STZ", "SW",
-    "SWK", "SWKS", "SYF", "SYK", "SYY", "TAP", "TDG", "TDY", "TECH", "TEL",
-    "TER", "TFC", "TGT", "TGTX", "TJX", "TKO", "TMO", "TMUS", "TOST", "TPL",
-    "TPR", "TRGP", "TRMB", "TROW", "TRV", "TSCO", "TSLA", "TSN", "TT", "TTD",
-    "TTWO", "TXN", "TXT", "TYL", "UAL", "UBER", "UDR", "UHS", "ULTA", "UNH",
-    "UNP", "UPS", "URI", "USB", "VEEV", "VICI", "VLO", "VLTO", "VMC", "VRSK",
-    "VRSN", "VRT", "VRTX", "VST", "VTR", "VTRS", "VZ", "WAB", "WAT", "WBD",
-    "WDAY", "WDC", "WEC", "WELL", "WFC", "WM", "WMB", "WMT", "WRB", "WSM",
-    "WST", "WTW", "WY", "WYNN", "XEL", "XOM", "XYL", "XYZ", "YUM", "ZBH",
-    "ZBRA", "ZETA", "ZTS",
-]
+THEMES = {
+    "AI / Software / Data": [
+        "NVDA", "MSFT", "GOOGL", "META", "AMZN", "PLTR", "NOW", "CRWD", "PANW", "ZS",
+        "FTNT", "NET", "SNOW", "DDOG", "MDB", "APP", "DUOL", "RDDT", "AI", "INOD",
+        "ZETA", "ADBE", "CRM", "ORCL", "INTU", "WDAY", "HUBS", "TWLO", "OKTA", "MNDY",
+        "GTLB", "CFLT", "ESTC", "TEAM", "S", "FROG", "TOST",
+    ],
+    "Semis / Chips / Hardware": [
+        "AVGO", "AMD", "TSM", "ASML", "MU", "MRVL", "LRCX", "AMAT", "KLAC", "ARM",
+        "QCOM", "TXN", "ADI", "NXPI", "MCHP", "ON", "ALAB", "CRDO", "COHR", "LITE",
+        "AEHR", "ACMR", "ONTO", "NVMI", "RMBS", "SITM", "UCTT", "SMCI", "DELL", "ANET",
+        "CIEN", "STX", "WDC", "SNDK", "INTC", "TER", "ENTG", "KEYS", "MPWR", "POET",
+    ],
+    "AI Power / Nuclear / Energy infra": [
+        "VST", "CEG", "GEV", "OKLO", "SMR", "NNE", "TLN", "VRT", "POWL", "ETN",
+        "PWR", "NRG", "BE", "BWXT", "FIX",
+    ],
+    "Space / Defense / Autonomy": [
+        "RKLB", "ASTS", "LUNR", "RDW", "KTOS", "AXON", "LMT", "RTX", "GD", "NOC",
+        "PL", "ACHR", "JOBY", "OUST",
+    ],
+    "Quantum": [
+        "IONQ", "RGTI", "QBTS", "QUBT",
+    ],
+    "Fintech / Crypto": [
+        "COIN", "HOOD", "AFRM", "SOFI", "DAVE", "SEZL", "NU", "MSTR", "PYPL", "FI",
+        "MARA", "RIOT", "CLSK", "IREN", "CRWV", "NBIS", "WULF",
+    ],
+    "Healthcare / Biotech leaders (AI-proof)": [
+        "LLY", "VRTX", "ISRG", "ARGX", "REGN", "AMGN", "GILD", "CRSP", "NTLA", "TGTX",
+        "HIMS", "ALNY", "NBIX", "EXEL", "KRYS", "RXRX", "TEM",
+    ],
+    "Consumer / Retail momentum": [
+        "COST", "WMT", "ANF", "ONON", "CAVA", "CELH", "DECK", "CMG", "DASH", "ABNB",
+        "BKNG", "RCL", "SG", "WING",
+    ],
+    "Industrials / Infrastructure leaders": [
+        "CAT", "DE", "PH", "HWM", "GE", "URI",
+    ],
+    "Mega-cap anchors": [
+        "AAPL", "TSLA", "NFLX",
+    ],
+}
+
+BROAD_UNIVERSE = sorted({s for names in THEMES.values() for s in names})
