@@ -75,8 +75,8 @@ if barstate.islast
         box.delete(instBox)
         box.delete(smzBox)
         line.delete(pocLine)
-        instBox := showInst ? box.new(x1, vaHigh, x2, poc, border_color = color.new(color.blue, 40), bgcolor = color.new(color.blue, 91), text = "Institutional Buying", text_color = color.new(color.blue, 10), text_size = size.small, text_halign = text.align_center) : na
-        smzBox  := showSMZ  ? box.new(x1, poc, x2, vaLow, border_color = color.new(color.purple, 20), bgcolor = color.new(color.purple, 86), text = "Smart Money", text_color = color.new(color.purple, 0), text_size = size.small, text_halign = text.align_center) : na
+        instBox := showInst ? box.new(x1, vaHigh, x2, poc, border_color = color.new(color.blue, 40), bgcolor = color.new(color.blue, 91), text = "Institutional Buying", text_color = color.new(color.blue, 10), text_size = size.small, text_halign = text.align_right) : na
+        smzBox  := showSMZ  ? box.new(x1, poc, x2, vaLow, border_color = color.new(color.purple, 20), bgcolor = color.new(color.purple, 86), text = "Smart Money", text_color = color.new(color.purple, 0), text_size = size.small, text_halign = text.align_right) : na
         pocLine := line.new(x1, poc, x2, poc, color = color.new(color.orange, 0), style = line.style_dashed, width = 1)
 
         // histogram — one box per bin on the right, length ∝ volume
