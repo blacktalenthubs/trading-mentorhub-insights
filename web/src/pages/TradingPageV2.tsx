@@ -61,6 +61,7 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  Star,
   ChevronDown,
   ChevronUp,
   Menu,
@@ -1473,19 +1474,28 @@ export default function TradingPageV2() {
           {!isCollapsed && syms.map((sy) => {
             const lp = livePrices[sy];
             const chg = lp?.change_pct ?? null;
+            const isFocused = focusSymbols.has(sy);
             return (
-              <button
+              <div
                 key={sy}
-                onClick={() => selectSymbol(sy)}
-                className={`flex w-full items-center gap-2 px-2.5 py-1 text-left transition-colors ${selectedSymbol === sy ? "bg-accent/15" : "hover:bg-surface-2"}`}
+                className={`flex w-full items-center gap-1.5 px-2.5 py-1 transition-colors ${selectedSymbol === sy ? "bg-accent/15" : "hover:bg-surface-2"}`}
               >
-                <span className="font-mono text-[11px] font-semibold text-text-primary">{sy}</span>
-                {chg != null && (
-                  <span className={`ml-auto font-mono text-[10px] ${chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
-                    {chg >= 0 ? "+" : ""}{chg.toFixed(2)}%
-                  </span>
-                )}
-              </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleFocusMut.mutate(sy); }}
+                  title={isFocused ? `Remove ${sy} from focus` : `Add ${sy} to focus`}
+                  className={isFocused ? "text-amber-400" : "text-text-faint transition-colors hover:text-amber-400"}
+                >
+                  <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
+                </button>
+                <button onClick={() => selectSymbol(sy)} className="flex flex-1 items-center gap-2 text-left">
+                  <span className="font-mono text-[11px] font-semibold text-text-primary">{sy}</span>
+                  {chg != null && (
+                    <span className={`ml-auto font-mono text-[10px] ${chg >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+                      {chg >= 0 ? "+" : ""}{chg.toFixed(2)}%
+                    </span>
+                  )}
+                </button>
+              </div>
             );
           })}
         </div>
