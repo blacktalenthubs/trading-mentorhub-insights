@@ -37,6 +37,7 @@ import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
 import PatternLearnPage from "./pages/PatternLearnPage";
+import UniverseResearchPage from "./pages/UniverseResearchPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -137,6 +138,7 @@ export default function App() {
                 <Route path="trade-ideas" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
                 <Route path="conviction"  element={<Navigate to="/trade-ideas" replace />} />
                 <Route path="watchlist"   element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
+                <Route path="research"    element={<ErrorBoundary><UniverseResearchPage /></ErrorBoundary>} />
                 <Route path="premarket"   element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
                 <Route path="performance" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
                 <Route path="settings"    element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />

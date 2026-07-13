@@ -621,6 +621,31 @@ export function useRefreshFundamentals() {
   });
 }
 
+// --- Universe research (spec 71): the whole leaders universe grouped by sector ---
+
+export interface UniverseSector {
+  sector: string;
+  strength: number;   // sector momentum median — used to rank sectors strongest-first
+  count: number;
+  items: FundamentalsItem[];
+}
+
+export interface UniverseResponse {
+  sectors: UniverseSector[];   // already sorted strongest-first by the server
+  last_refreshed_at: string | null;
+}
+
+// The full cached leaders universe grouped by sector (all signed-in users, not
+// gated to the caller's watchlist). Sectors arrive sorted strongest-first; sort
+// within a sector is client-side. GET /fundamentals/universe.
+export function useUniverse() {
+  return useQuery({
+    queryKey: ["fundamentals-universe"],
+    queryFn: () => api.get<UniverseResponse>("/fundamentals/universe"),
+    staleTime: 30 * 60_000,  // fundamentals change slowly; refreshed nightly server-side
+  });
+}
+
 // Per-symbol fundamentals + AI brief for ANY symbol (the Top-Ideas dossier, where an
 // idea may not be on the user's watchlist). GET /fundamentals/{symbol}.
 export function useSymbolFundamentals(symbol: string | null) {
