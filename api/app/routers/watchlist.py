@@ -389,8 +389,9 @@ async def toggle_focus(
 ):
     """Toggle the focus flag on a watchlist item (today's focus list).
 
-    Visual-only filter — alert routing is unaffected. Symbol is normalized
-    to uppercase, must already exist on the user's watchlist.
+    Visual-only filter — alert routing is unaffected. If the symbol isn't on the caller's watchlist yet
+    (e.g. focusing a name straight from the Research/Universe page), it is ADDED with focus on — so one
+    click = "add to focus". Symbol is normalized to uppercase.
     """
     sym = symbol.upper().strip()
     item = (await db.execute(
@@ -400,8 +401,10 @@ async def toggle_focus(
         )
     )).scalar_one_or_none()
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Symbol not on watchlist")
-    item.focus = not item.focus
+        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True)
+        db.add(item)
+    else:
+        item.focus = not item.focus
     await db.flush()
     return item
 

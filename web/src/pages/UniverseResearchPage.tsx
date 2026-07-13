@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Layers, Search, ChevronDown, ChevronRight, LineChart, Loader2, X, AlertCircle,
+  Layers, Search, ChevronDown, ChevronRight, LineChart, Loader2, X, AlertCircle, Star,
 } from "lucide-react";
 import {
   useUniverse,
@@ -15,6 +15,8 @@ import {
   useRefreshFundamentals,
   useGenerateAIBrief,
   useMe,
+  useWatchlist,
+  useToggleWatchlistFocus,
   type FundamentalsItem,
   type UniverseSector,
 } from "../api/hooks";
@@ -63,26 +65,37 @@ function StrengthBar({ strength, max }: { strength: number; max: number }) {
 
 /* ── a single collapsible sector section with its sortable table ─────── */
 function SectorSection({
-  group, maxStrength, onPick, onChart,
+  group, maxStrength, onPick, onChart, focusSet, onFocus,
 }: {
   group: UniverseSector; maxStrength: number;
   onPick: (sym: string) => void; onChart: (sym: string) => void;
+  focusSet: Set<string>; onFocus: (sym: string) => void;
 }) {
   const [open, setOpen] = useState(true);
 
-  const symbolCell = (r: FundamentalsItem) => (
-    <span className="flex items-center gap-2">
-      <span className="font-bold text-text-primary">{r.symbol}</span>
-      {r.company_name && <span className="hidden lg:inline truncate max-w-[180px] text-[10px] text-text-faint">{r.company_name}</span>}
-      <button
-        onClick={(e) => { e.stopPropagation(); onChart(r.symbol); }}
-        title={`Open ${r.symbol} on the Trading chart`}
-        className="text-text-faint transition-colors hover:text-accent"
-      >
-        <LineChart className="h-3.5 w-3.5" />
-      </button>
-    </span>
-  );
+  const symbolCell = (r: FundamentalsItem) => {
+    const focused = focusSet.has(r.symbol.toUpperCase());
+    return (
+      <span className="flex items-center gap-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); onFocus(r.symbol); }}
+          title={focused ? `Remove ${r.symbol} from focus` : `Add ${r.symbol} to focus`}
+          className={focused ? "text-amber-400" : "text-text-faint transition-colors hover:text-amber-400"}
+        >
+          <Star className="h-3.5 w-3.5" fill={focused ? "currentColor" : "none"} />
+        </button>
+        <span className="font-bold text-text-primary">{r.symbol}</span>
+        {r.company_name && <span className="hidden lg:inline truncate max-w-[180px] text-[10px] text-text-faint">{r.company_name}</span>}
+        <button
+          onClick={(e) => { e.stopPropagation(); onChart(r.symbol); }}
+          title={`Open ${r.symbol} on the Trading chart`}
+          className="text-text-faint transition-colors hover:text-accent"
+        >
+          <LineChart className="h-3.5 w-3.5" />
+        </button>
+      </span>
+    );
+  };
 
   const columns: Column<FundamentalsItem>[] = [
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: symbolCell },
@@ -195,6 +208,12 @@ function ResearchModal({ symbol, onClose }: { symbol: string; onClose: () => voi
 /* ── the page ────────────────────────────────────────────────────────── */
 export default function UniverseResearchPage() {
   const { data, isLoading, isError } = useUniverse();
+  const { data: watchlist } = useWatchlist();
+  const toggleFocus = useToggleWatchlistFocus();
+  const focusSet = useMemo(
+    () => new Set((watchlist ?? []).filter((w) => w.focus).map((w) => w.symbol.toUpperCase())),
+    [watchlist],
+  );
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -280,6 +299,8 @@ export default function UniverseResearchPage() {
               maxStrength={maxStrength}
               onPick={setSelected}
               onChart={(sym) => navigate(`/trading?symbol=${encodeURIComponent(sym)}`)}
+              focusSet={focusSet}
+              onFocus={(sym) => toggleFocus.mutate(sym)}
             />
           ))}
         </div>
