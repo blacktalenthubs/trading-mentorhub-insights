@@ -44,6 +44,55 @@ router = APIRouter()
 # Cache TTLs (seconds)
 _INTRADAY_TTL = 180  # 3 min — matches monitor interval
 _PRIOR_DAY_TTL = 3600  # 1 hour — stale after close
+_PRICES_TTL = 10  # live quote ticker — short cache dedupes concurrent users' 15s polls
+
+
+def _fetch_prices_alpaca(syms: List[str]) -> dict:
+    """Live price + daily change% for many symbols via Alpaca's batch snapshot (one IEX call).
+
+    yfinance's fast_info is cloud-blocked on Railway (stale price + no previous_close → the
+    frozen-ticker / universal +0.00% bug). Alpaca's snapshot gives latest trade AND the prior
+    daily close in a single request, so both the price and the change% are real. IEX feed pinned
+    (the free plan blocks recent SIP data); ALPACA_FEED=sip to override.
+    """
+    import os
+    if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
+        return {}
+    key = os.environ.get("ALPACA_API_KEY", "")
+    secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret or not syms:
+        return {}
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockSnapshotRequest
+        from alpaca.data.enums import DataFeed
+
+        feed = DataFeed.SIP if os.environ.get("ALPACA_FEED", "iex").lower() == "sip" else DataFeed.IEX
+        client = StockHistoricalDataClient(key, secret)
+        snaps = client.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=list(syms), feed=feed))
+        out = {}
+        for sym, snap in (snaps or {}).items():
+            if snap is None:
+                continue
+            # latest price: prefer the last trade, fall back to the freshest bar
+            price = None
+            if getattr(snap, "latest_trade", None) and snap.latest_trade.price:
+                price = float(snap.latest_trade.price)
+            elif getattr(snap, "minute_bar", None) and snap.minute_bar.close:
+                price = float(snap.minute_bar.close)
+            elif getattr(snap, "daily_bar", None) and snap.daily_bar.close:
+                price = float(snap.daily_bar.close)
+            if not price:
+                continue
+            prev = None
+            if getattr(snap, "previous_daily_bar", None) and snap.previous_daily_bar.close:
+                prev = float(snap.previous_daily_bar.close)
+            change = round(((price - prev) / prev) * 100, 2) if prev else 0
+            out[sym] = {"price": round(price, 2), "change_pct": change}
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.info("Alpaca snapshot fetch failed: %s — falling back to yfinance", str(e)[:120])
+        return {}
 
 
 @router.get("/status", response_model=MarketStatusResponse)
@@ -75,7 +124,13 @@ async def live_prices(user: User = Depends(get_current_user)):
     if not symbols:
         return {"prices": {}}
 
-    def _fetch_prices(syms):
+    cache_key = "prices:" + ",".join(sorted(symbols))
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return {"prices": cached}
+
+    def _fetch_prices_yf(syms):
+        """Last-resort fallback only — yfinance is unreliable in prod (see _fetch_prices_alpaca)."""
         import yfinance as yf
         prices = {}
         for sym in syms:
@@ -90,7 +145,17 @@ async def live_prices(user: User = Depends(get_current_user)):
                 pass
         return prices
 
+    def _fetch_prices(syms):
+        # Alpaca first (reliable IEX feed in prod), yfinance only for whatever Alpaca misses.
+        prices = _fetch_prices_alpaca(syms)
+        missing = [s for s in syms if s not in prices]
+        if missing:
+            prices.update(_fetch_prices_yf(missing))
+        return prices
+
     prices = await loop.run_in_executor(None, partial(_fetch_prices, symbols))
+    if prices:
+        cache_set(cache_key, prices, _PRICES_TTL)
     return {"prices": prices}
 
 
