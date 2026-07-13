@@ -461,6 +461,30 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register bottom-watch scan job")
 
+        # Nightly fundamentals refresh (2026-07-12) — keep the leaders-universe research fresh (EPS /
+        # growth / margins / analyst recs / metrics for every watchlist symbol, incl. the ~183 curated
+        # leaders now on the master list). with_ai=False so it's cheap — AI briefs stay on-demand (one
+        # LLM call each). Runs in the app context where the models + session work. Self-contained imports.
+        try:
+            from analytics.fundamentals_refresh import refresh_all as _refresh_fund_all
+            from apscheduler.triggers.cron import CronTrigger as _CronF
+            from zoneinfo import ZoneInfo as _ZIF
+            _etf = _ZIF("America/New_York")
+
+            def _run_fundamentals_refresh():
+                try:
+                    _refresh_fund_all(sync_session_factory, with_ai=False)
+                except Exception:
+                    logger.exception("nightly fundamentals refresh failed")
+
+            scheduler.add_job(
+                _run_fundamentals_refresh, _CronF(hour=2, minute=0, timezone=_etf),
+                id="fundamentals_refresh_nightly", replace_existing=True,
+            )
+            logger.info("Fundamentals refresh scheduled (02:00 ET nightly, with_ai=False)")
+        except Exception:
+            logger.exception("Failed to register fundamentals refresh job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;
