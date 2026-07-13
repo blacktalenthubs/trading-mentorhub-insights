@@ -23,6 +23,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Star,
+  Layers,
   Activity,
   Target,
   MoreHorizontal,
@@ -57,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
+  { to: "/research",    label: "Research",    icon: Layers },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },
   { to: "/settings",    label: "Settings",    icon: Settings },
@@ -72,6 +74,7 @@ const MOBILE_PRIMARY: NavItem[] = [
 ];
 const MORE_ITEMS: NavItem[] = [
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
+  { to: "/research",    label: "Research",    icon: Layers },
   // Performance is a post-close retrospective — rarely opened during market hours → fine in More.
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },
   { to: "/settings",    label: "Settings",    icon: Settings },
