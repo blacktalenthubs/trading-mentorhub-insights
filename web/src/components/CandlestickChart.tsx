@@ -383,6 +383,59 @@ function CandlestickChartInner({
         continue;
       }
 
+      // Smart Money Zones — volume profile over the loaded candles (mirrors the SMZ pine + a paid
+      // TradingView Volume Profile). Bin the price range, spread each bar's volume across its high-low
+      // (TV-faithful), find the POC + the 70% value area. Institutional Buying = POC→VA-high, Smart
+      // Money = VA-low→POC. Drawn as labeled price lines so the pattern (where price sits vs the
+      // high-volume shelf) reads at a glance.
+      if (ind.key === "smz") {
+        const prof = sortedRaw.filter((b) => b.high != null && b.low != null);
+        const totVol = prof.reduce((a, b) => a + (b.volume || 0), 0);
+        if (prof.length > 20 && totVol > 0) {
+          const hi = Math.max(...prof.map((b) => b.high));
+          const lo = Math.min(...prof.map((b) => b.low));
+          const bins = 50;
+          const binw = (hi - lo) / bins;
+          if (binw > 0) {
+            const vp = new Array(bins).fill(0);
+            for (const b of prof) {
+              const lob = Math.max(0, Math.min(bins - 1, Math.floor((b.low - lo) / binw)));
+              const hib = Math.max(0, Math.min(bins - 1, Math.floor((b.high - lo) / binw)));
+              const vper = (b.volume || 0) / (hib - lob + 1);
+              for (let k = lob; k <= hib; k++) vp[k] += vper;
+            }
+            let pocI = 0;
+            for (let k = 1; k < bins; k++) if (vp[k] > vp[pocI]) pocI = k;
+            const tot = vp.reduce((a: number, c: number) => a + c, 0);
+            let acc = vp[pocI], li = pocI, hj = pocI;
+            while (acc < 0.7 * tot && (li > 0 || hj < bins - 1)) {
+              const left = li > 0 ? vp[li - 1] : -1;
+              const right = hj < bins - 1 ? vp[hj + 1] : -1;
+              if (right >= left && hj < bins - 1) { hj++; acc += vp[hj]; }
+              else if (li > 0) { li--; acc += vp[li]; }
+              else break;
+            }
+            const poc = lo + (pocI + 0.5) * binw;
+            const vaHigh = lo + (hj + 1) * binw;
+            const vaLow = lo + li * binw;
+            const zone: { price: number; color: string; style: number; title: string }[] = [
+              { price: vaHigh, color: "#2962ff", style: 0, title: "Institutional Buying" },
+              { price: poc, color: "#f59e0b", style: 2, title: "POC" },
+              { price: vaLow, color: "#d500f9", style: 0, title: "Smart Money" },
+            ];
+            for (const z of zone) {
+              const line = seriesRef.current!.createPriceLine({
+                price: z.price, color: z.color, lineWidth: 2, lineStyle: z.style as any,
+                axisLabelVisible: true, title: z.title,
+              });
+              priceLinesRef.current.push(line);
+            }
+            drawnIndicators.push({ key: "smz", color: "#2962ff", label: "Smart Money Zones" });
+          }
+        }
+        continue;
+      }
+
       let lineData: { time: string | number; value: number }[] = [];
 
       const smaMatch = ind.key.match(/^sma(\d+)$/);
