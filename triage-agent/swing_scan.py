@@ -23,6 +23,19 @@ warnings.filterwarnings("ignore")
 MASTER_EMAIL = "master@busytradersdesk"
 
 
+def _broad_symbols():
+    """Static broad universe (S&P 500 + Nasdaq 100 + growth leaders) so swing setups are discovered
+    across a WIDE pool, not just the ~72-name master watchlist. See broad_universe.py."""
+    try:
+        from broad_universe import BROAD_UNIVERSE
+    except Exception:
+        try:
+            from .broad_universe import BROAD_UNIVERSE
+        except Exception:
+            return []
+    return [s for s in BROAD_UNIVERSE if "-USD" not in s]
+
+
 def _dsn():
     v = os.environ.get("DATABASE_URL")
     if v:
@@ -466,7 +479,7 @@ def main():
     ap.add_argument("--emit", action="store_true", help="insert scored alert rows (Performance page)")
     args = ap.parse_args()
     dsn = _dsn()
-    syms = sorted(set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)))   # master + LTF discovery pool
+    syms = sorted(set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)) | set(_broad_symbols()))   # master + LTF + broad S&P/NDX pool
     if not syms:
         raise SystemExit("no master symbols")
     ddata = _daily(syms)                                                # one daily download (floor + new-high breakout)
