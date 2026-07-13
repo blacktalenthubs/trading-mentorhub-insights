@@ -14,7 +14,9 @@
 //          keeps moving up as the trade makes higher lows. Never the far band, never the basis.
 //   TARGET = the upper band (T1); the runner rides the weekly trailing stop up.
 //
-// VISUAL ONLY — eyeball the A/C markers, the trailing stop, and the ✕ exits; then wire survivors.
+// WIRED — put this on a WEEKLY chart and bind a watchlist alert ("Any alert() call"): it fires
+// fv_pullback (A) and fv_reclaim (C) on the weekly close. It also draws the markers / trailing stop /
+// table for eyeballing. Manage the trail (weekly higher low) + exit (✕) by eye — no exit alert.
 indicator("Fair Value Swing — Bands + Entry Markers", "FV Swing", overlay = true, max_labels_count = 500, max_lines_count = 200)
 
 gB = "Fair value bands"
@@ -95,6 +97,13 @@ if aFire
     label.new(bar_index, low, "A", style = label.style_label_up, color = color.new(color.lime, 0), textcolor = color.black, size = _msz, tooltip = _tip("A - hold a rising fair value", close, entryStop, upper))
 if cFire
     label.new(bar_index, low, "C", style = label.style_label_up, color = color.new(color.aqua, 0), textcolor = color.black, size = _msz, tooltip = _tip("C - reclaim a rising fair value", close, entryStop, upper))
+
+// ── ALERTS — bind this pine to a WEEKLY watchlist alert; fires the entries on the weekly close ──
+fvPay(_rule, _note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + _rule + '","direction":"BUY","interval":"W","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(entryStop, format.mintick) + '","target_1":"' + str.tostring(upper, format.mintick) + '","note":"' + _note + '","fired_at":"' + str.tostring(timenow) + '"}'
+if aFire
+    alert(fvPay("fv_pullback", "Fair Value pullback - held a rising 20w fair value; stop = last weeks low, T1 = upper band, then trail the weekly higher low"), alert.freq_once_per_bar_close)
+if cFire
+    alert(fvPay("fv_reclaim", "Fair Value reclaim - closed back above a rising 20w fair value; stop = last weeks low, T1 = upper band, then trail the weekly higher low"), alert.freq_once_per_bar_close)
 
 // ── The stop: a trailing weekly-higher-low line while in a trade, ending at the ✕ exit ──
 plot(inTrade ? trailStop : na, "Trailing stop (weekly higher lows)", color = color.new(color.red, 0), style = plot.style_linebr, linewidth = 2)
