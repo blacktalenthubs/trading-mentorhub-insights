@@ -1,0 +1,96 @@
+// @version=5
+// Smart Money Zones — Volume Profile. Maps the two accumulation zones the "smart money" traders draw
+// (à la @pdicarlotrader) from a real VOLUME PROFILE over a long lookback, so it's mechanical, not eyeballed.
+//
+//   • Build a volume profile over the last N bars (default 156 = ~3y weekly): bin the price range, sum
+//     volume per bin. POC = the highest-volume price (where accumulation concentrated).
+//   • VALUE AREA = the price band holding `vaPct`% of the volume around the POC (institutions' range).
+//   • INSTITUTIONAL BUYING zone = the UPPER half of the value area (POC → VA high).
+//   • SMART MONEY / discount zone = the LOWER half (VA low → POC) — the deep discount you wait to tap.
+//   • Optional horizontal histogram on the right shows the full profile.
+//
+// Put it on the WEEKLY. A pullback INTO the Smart Money (lower) zone is the setup those traders buy; the
+// companion backtest measures whether that tap actually reclaims prior highs on large caps.
+indicator("Smart Money Zones — Volume Profile", "SMZ", overlay = true, max_boxes_count = 120, max_lines_count = 20, max_labels_count = 10)
+
+gP = "Volume profile"
+lookback = input.int(156, "Lookback (bars) — 156 = ~3y weekly", minval = 20, group = gP)
+bins     = input.int(50, "Price bins", minval = 10, maxval = 100, group = gP)
+vaPct    = input.float(70.0, "Value area % of volume", minval = 50, maxval = 90, step = 5, group = gP) / 100.0
+
+gZ = "Zones + histogram"
+showInst = input.bool(true, "Institutional Buying zone (upper value area)", group = gZ)
+showSMZ  = input.bool(true, "Smart Money / discount zone (lower value area)", group = gZ)
+showHist = input.bool(true, "Draw the volume-profile histogram (right)", group = gZ)
+histWide = input.int(50, "Histogram width (bars)", minval = 10, maxval = 200, group = gZ)
+extendR  = input.int(10, "Extend zones right (bars)", minval = 0, group = gZ)
+
+// ── Compute the profile on the last bar only ────────────────────────────────────
+var box   instBox = na
+var box   smzBox  = na
+var line  pocLine = na
+var box[] histBx  = array.new_box()
+
+if barstate.islast
+    float hi = ta.highest(high, lookback)
+    float lo = ta.lowest(low, lookback)
+    if hi > lo and not na(hi) and not na(lo)
+        float binw = (hi - lo) / bins
+        float[] vp = array.new_float(bins, 0.0)
+        for k = 0 to lookback - 1
+            float p = (high[k] + low[k] + close[k]) / 3.0
+            int b = int((p - lo) / binw)
+            b := math.max(0, math.min(bins - 1, b))
+            array.set(vp, b, array.get(vp, b) + nz(volume[k]))
+        // POC (highest-volume bin)
+        int pocI = 0
+        float pocV = 0.0
+        for b = 0 to bins - 1
+            if array.get(vp, b) > pocV
+                pocV := array.get(vp, b)
+                pocI := b
+        // value area — expand from the POC until vaPct of total volume is captured
+        float tot = array.sum(vp)
+        float acc = array.get(vp, pocI)
+        int li = pocI
+        int hj = pocI
+        while acc < vaPct * tot and (li > 0 or hj < bins - 1)
+            float lft = li > 0 ? array.get(vp, li - 1) : -1.0
+            float rgt = hj < bins - 1 ? array.get(vp, hj + 1) : -1.0
+            if rgt >= lft and hj < bins - 1
+                hj += 1
+                acc += array.get(vp, hj)
+            else if li > 0
+                li -= 1
+                acc += array.get(vp, li)
+            else
+                break
+        float poc    = lo + (pocI + 0.5) * binw
+        float vaLow  = lo + li * binw
+        float vaHigh = lo + (hj + 1) * binw
+
+        int x1 = bar_index - lookback
+        int x2 = bar_index + extendR
+
+        box.delete(instBox)
+        box.delete(smzBox)
+        line.delete(pocLine)
+        instBox := showInst ? box.new(x1, vaHigh, x2, poc, border_color = color.new(color.blue, 40), bgcolor = color.new(color.blue, 91), text = "Institutional Buying", text_color = color.new(color.blue, 10), text_size = size.small, text_halign = text.align_center) : na
+        smzBox  := showSMZ  ? box.new(x1, poc, x2, vaLow, border_color = color.new(color.purple, 20), bgcolor = color.new(color.purple, 86), text = "Smart Money", text_color = color.new(color.purple, 0), text_size = size.small, text_halign = text.align_center) : na
+        pocLine := line.new(x1, poc, x2, poc, color = color.new(color.orange, 0), style = line.style_dashed, width = 1)
+
+        // histogram — one box per bin on the right, length ∝ volume
+        for b in array.copy(histBx)
+            box.delete(b)
+        array.clear(histBx)
+        if showHist and pocV > 0
+            for b = 0 to bins - 1
+                float v = array.get(vp, b)
+                if v > 0
+                    int w = int(v / pocV * histWide)
+                    if w > 0
+                        float yb = lo + b * binw
+                        float yt = lo + (b + 1) * binw
+                        bool inVA = b >= li and b <= hj
+                        color hc = b == pocI ? color.new(color.orange, 30) : inVA ? color.new(color.blue, 70) : color.new(color.gray, 80)
+                        array.push(histBx, box.new(bar_index + 2, yt, bar_index + 2 + w, yb, border_color = na, bgcolor = hc))
