@@ -617,6 +617,7 @@ export function useRefreshFundamentals() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["fundamentals-watchlist"] });
       qc.invalidateQueries({ queryKey: ["fundamentals-symbol"] });
+      qc.invalidateQueries({ queryKey: ["fundamentals-universe"] });
     },
   });
 }
