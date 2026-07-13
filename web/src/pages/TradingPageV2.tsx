@@ -163,6 +163,7 @@ const ALL_INDICATORS: IndicatorDef[] = [
   { key: "sma100", label: "SMA 100", color: "#c084fc", group: "sma" },
   { key: "sma200", label: "SMA 200", color: "#4ade80", group: "sma" },
   { key: "vwap", label: "VWAP", color: "#e879f9", group: "other" },
+  { key: "fvbands", label: "FV Bands", color: "#fb923c", group: "other" },
 ];
 
 // Key EMAs always on by default: 8 / 21 / 50 / 100 / 200.

@@ -351,6 +351,38 @@ function CandlestickChartInner({
 
     const drawnIndicators: { key: string; color: string; label: string }[] = [];
     for (const ind of indicators) {
+      // Fair Value Bands — 20-period SMA basis ± 2σ. Mirrors the weekly Fair Value Swing pine: on the
+      // "W" timeframe this IS the weekly fair value (buy pullbacks to a rising basis, trim at the upper
+      // band). Three lines: basis (solid) + upper/lower (faint). Rendered here since it's 3 series, not 1.
+      if (ind.key === "fvbands") {
+        const period = 20, mult = 2;
+        const band: { time: string | number; basis: number; up: number; lo: number }[] = [];
+        for (let i = period - 1; i < closes.length; i++) {
+          let sum = 0;
+          for (let j = i - period + 1; j <= i; j++) sum += closes[j].close;
+          const mean = sum / period;
+          let varSum = 0;
+          for (let j = i - period + 1; j <= i; j++) varSum += (closes[j].close - mean) ** 2;
+          const sd = Math.sqrt(varSum / period);
+          band.push({ time: closes[i].time, basis: mean, up: mean + mult * sd, lo: mean - mult * sd });
+        }
+        if (band.length > 0) {
+          const addBand = (pick: (b: (typeof band)[number]) => number, color: string, width: number) => {
+            const s = chart.addSeries(LineSeries, {
+              color, lineWidth: width as any, crosshairMarkerVisible: false,
+              priceLineVisible: false, lastValueVisible: false,
+            });
+            s.setData(band.map((b) => ({ time: b.time, value: pick(b) })) as any);
+            lineSeriesRefs.current.push(s);
+          };
+          addBand((b) => b.basis, ind.color || "#fb923c", 2);
+          addBand((b) => b.up, "rgba(239,68,68,0.35)", 1);
+          addBand((b) => b.lo, "rgba(20,184,166,0.35)", 1);
+          drawnIndicators.push({ key: "fvbands", color: ind.color || "#fb923c", label: "FV Bands (20±2σ)" });
+        }
+        continue;
+      }
+
       let lineData: { time: string | number; value: number }[] = [];
 
       const smaMatch = ind.key.match(/^sma(\d+)$/);
