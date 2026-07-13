@@ -37,11 +37,16 @@ if barstate.islast
     if hi > lo and not na(hi) and not na(lo)
         float binw = (hi - lo) / bins
         float[] vp = array.new_float(bins, 0.0)
+        // Distribute each bar's volume across every price bin its HIGH-LOW range spans (like TradingView's
+        // Volume Profile) rather than dumping it all in the typical-price bin — so the histogram + POC +
+        // value area line up with VPFR/VPVR precisely.
         for k = 0 to lookback - 1
-            float p = (high[k] + low[k] + close[k]) / 3.0
-            int b = int((p - lo) / binw)
-            b := math.max(0, math.min(bins - 1, b))
-            array.set(vp, b, array.get(vp, b) + nz(volume[k]))
+            int lob = math.max(0, math.min(bins - 1, int((low[k] - lo) / binw)))
+            int hib = math.max(0, math.min(bins - 1, int((high[k] - lo) / binw)))
+            int span = hib - lob + 1
+            float vper = nz(volume[k]) / span
+            for b = lob to hib
+                array.set(vp, b, array.get(vp, b) + vper)
         // POC (highest-volume bin)
         int pocI = 0
         float pocV = 0.0
