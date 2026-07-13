@@ -163,6 +163,68 @@ async def watchlist_fundamentals(
     return FundamentalsResponse(items=items, last_refreshed_at=most_recent)
 
 
+class SectorGroup(BaseModel):
+    sector: str
+    strength: float          # median momentum across the sector's names (higher = hotter) — for ranking
+    count: int
+    items: List[FundamentalsItem]
+
+
+class UniverseResponse(BaseModel):
+    sectors: List[SectorGroup]
+    last_refreshed_at: Optional[str]
+
+
+def _momentum(item: FundamentalsItem) -> Optional[float]:
+    """Strength proxy from cached metrics: blend of distance above the 200-DMA and position in the
+    52-week range. Higher = stronger leader. None if not computable."""
+    m = item.metrics or {}
+    lp = m.get("last_price"); ma200 = m.get("ma200")
+    hi = m.get("week52_high"); lo = m.get("week52_low")
+    parts = []
+    if lp and ma200:
+        parts.append(lp / ma200 - 1.0)
+    if hi and lo and hi > lo and lp is not None:
+        parts.append((lp - lo) / (hi - lo) - 0.5)
+    return sum(parts) / len(parts) if parts else None
+
+
+def _median(xs) -> float:
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return 0.0
+    n = len(xs)
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
+
+
+@router.get("/universe", response_model=UniverseResponse)
+async def universe_fundamentals(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The whole cached leaders universe grouped by SECTOR, strongest sector first — for ANY signed-in
+    user (not gated to the caller's watchlist). Sort within a sector is client-side. Names not yet
+    fetched aren't here; the per-symbol endpoint fetches on-demand when a user opens one."""
+    rows = (await db.execute(select(SymbolFundamentals))).scalars().all()
+    groups: dict[str, List[FundamentalsItem]] = {}
+    most_recent: Optional[str] = None
+    for row in rows:
+        item = _to_item(row.symbol, row)
+        sec = (item.sector or "Other").strip() or "Other"
+        groups.setdefault(sec, []).append(item)
+        if row.fetched_at:
+            iso = row.fetched_at.isoformat()
+            if most_recent is None or iso > most_recent:
+                most_recent = iso
+    sectors = [
+        SectorGroup(sector=sec, strength=round(_median([_momentum(it) for it in items]), 4),
+                    count=len(items), items=items)
+        for sec, items in groups.items()
+    ]
+    sectors.sort(key=lambda g: g.strength, reverse=True)
+    return UniverseResponse(sectors=sectors, last_refreshed_at=most_recent)
+
+
 @router.get("/{symbol}", response_model=FundamentalsItem)
 async def symbol_fundamentals(
     symbol: str,
