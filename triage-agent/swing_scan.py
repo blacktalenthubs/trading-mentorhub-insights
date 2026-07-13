@@ -36,6 +36,55 @@ def _broad_symbols():
     return [s for s in BROAD_UNIVERSE if "-USD" not in s]
 
 
+def _ibd_symbols():
+    """IBD 50 + Sector Leaders (the growth/earnings CAN SLIM screen) from the .xls exports, if present.
+    IBD/MarketSurge .xls put the tickers under a 'Symbol' header a few rows down (header=None + find the
+    row). Laptop-only — returns [] in prod, where the master watchlist carries these via the sync."""
+    out = set()
+    here = os.path.dirname(__file__)
+    roots = [os.path.join(here, ".."), os.path.join(here, "..", "..")]   # trade-analytics + its parent
+    for fn in ("ibd50.xls", "sectorleaders.xls"):
+        for root in roots:
+            p = os.path.join(root, fn)
+            if not os.path.exists(p):
+                continue
+            try:
+                import pandas as pd
+                df = pd.read_excel(p, header=None)
+                hdr = next(i for i in range(min(15, len(df)))
+                           if "Symbol" in [str(x).strip() for x in df.iloc[i].tolist()])
+                col = [str(x).strip() for x in df.iloc[hdr].tolist()].index("Symbol")
+                for v in df.iloc[hdr + 1:, col].dropna():
+                    s = str(v).upper().strip()
+                    if s and s.isascii() and 1 < len(s) <= 6 and s.replace("-", "").isalpha():
+                        out.add(s)
+            except Exception:
+                pass
+            break
+    return out
+
+
+def _rs_rank(symbols, ddata):
+    """IBD-style relative strength — a recent-weighted blend of 3/6/12-month price return. Returns
+    {symbol: score}; higher = stronger leader. Used to keep only the top performers from the broad pool."""
+    out = {}
+    multi = len(symbols) > 1
+    for s in symbols:
+        try:
+            df = (ddata[s] if multi else ddata).dropna()
+        except Exception:
+            continue
+        C = df["Close"].values
+        if len(C) < 130:
+            continue
+        c = float(C[-1])
+        r3 = c / C[-63] - 1 if len(C) >= 63 else 0.0
+        r6 = c / C[-126] - 1 if len(C) >= 126 else 0.0
+        r12 = c / C[-252] - 1 if len(C) >= 252 else r6
+        out[s] = 0.4 * r3 + 0.3 * r6 + 0.3 * r12
+    return out
+
+
 def _dsn():
     v = os.environ.get("DATABASE_URL")
     if v:
@@ -479,18 +528,26 @@ def main():
     ap.add_argument("--emit", action="store_true", help="insert scored alert rows (Performance page)")
     args = ap.parse_args()
     dsn = _dsn()
-    syms = sorted(set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)) | set(_broad_symbols()))   # master + LTF + broad S&P/NDX pool
-    if not syms:
-        raise SystemExit("no master symbols")
-    ddata = _daily(syms)                                                # one daily download (floor + new-high breakout)
+    keep = set(_master_symbols(dsn)) | set(_ltf_symbols(dsn)) | set(_ibd_symbols())   # curated names — always scanned
+    broad = set(_broad_symbols())
+    pool = sorted(keep | broad)
+    if not pool:
+        raise SystemExit("no symbols")
+    ddata = _daily(pool)                                                # daily for RS rank + 50-EMA floor + new-high
+    # Keep only the top-performer LEADERS from the broad S&P/NDX pool by relative strength (the curated
+    # master/LTF/IBD names are always kept). SWING_RS_TOPN caps how many leaders (default 150).
+    topn = int(os.environ.get("SWING_RS_TOPN", "150"))
+    rs = _rs_rank(sorted(broad - keep), ddata)
+    top_broad = set(sorted(rs, key=rs.get, reverse=True)[:topn])
+    syms = sorted(keep | top_broad)                                     # final quality universe = curated + leaders
     floor = _daily_ema50_floor(syms, ddata)                            # daily 50-EMA trust floor
     cc, bb = scan(syms, floor)
     mdata = _monthly(syms)                                              # one monthly download for both monthly scanners
     mr = scan_monthly(syms, floor, mdata)
     mb = scan_mobo(syms, floor, mdata)
     nh = scan_new_high(syms, floor, ddata)
-    body = {"character_change": cc, "base_buy": bb, "monthly_ma_reclaim": mr, "mobo_breakout": mb, "new_high_breakout": nh, "universe": len(syms)}
-    print(f"scanned {len(syms)} names — CC: {len(cc)}, Bases: {len(bb)}, Monthly MA reclaim: {len(mr)}, MoBO: {len(mb)}, New-high: {len(nh)}")
+    body = {"character_change": cc, "base_buy": bb, "monthly_ma_reclaim": mr, "mobo_breakout": mb, "new_high_breakout": nh, "universe": len(syms), "pool": len(pool), "leaders": len(top_broad)}
+    print(f"scanned {len(syms)} leaders (top-{topn} RS + curated, of {len(pool)} pool) — CC: {len(cc)}, Bases: {len(bb)}, Monthly MA reclaim: {len(mr)}, MoBO: {len(mb)}, New-high: {len(nh)}")
     print("---JSON---")
     print(json.dumps(body))
     if args.persist:
