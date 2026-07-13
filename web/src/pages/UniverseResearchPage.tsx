@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Layers, Search, ChevronDown, ChevronRight, LineChart, Loader2, X, AlertCircle, Star,
+  Layers, Search, ChevronDown, ChevronRight, LineChart, Loader2, X, AlertCircle, Star, RefreshCw,
 } from "lucide-react";
 import {
   useUniverse,
@@ -210,6 +210,7 @@ export default function UniverseResearchPage() {
   const { data, isLoading, isError } = useUniverse();
   const { data: watchlist } = useWatchlist();
   const toggleFocus = useToggleWatchlistFocus();
+  const refreshAll = useRefreshFundamentals();
   const focusSet = useMemo(
     () => new Set((watchlist ?? []).filter((w) => w.focus).map((w) => w.symbol.toUpperCase())),
     [watchlist],
@@ -261,6 +262,15 @@ export default function UniverseResearchPage() {
         <div className="flex items-center gap-3 text-xs text-text-faint">
           {totalNames > 0 && <span>{totalNames} names</span>}
           {refreshed && <span>Updated {refreshed.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>}
+          <button
+            onClick={() => refreshAll.mutate(undefined)}
+            disabled={refreshAll.isPending}
+            title="Fetch numbers + earnings for every leader (runs in the background — a few minutes; new names fill in). Also runs nightly."
+            className="flex items-center gap-1.5 rounded-lg border border-border-subtle bg-surface-2 px-2.5 py-1 font-medium text-text-secondary transition-colors hover:text-text-primary disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshAll.isPending ? "animate-spin" : ""}`} />
+            {refreshAll.isPending ? "Refreshing…" : "Refresh"}
+          </button>
         </div>
       </div>
 
