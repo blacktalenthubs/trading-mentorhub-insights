@@ -23,6 +23,7 @@ gX = "Entry marks — how price interacts with a support level (long)"
 showReclaim = input.bool(true, "RC · RECLAIM — wicked below the level & closed back above (undercut & reclaim)", group = gX)
 showHeld    = input.bool(true, "HD · HELD — pulled back to the level from above, held & closed above (no break)", group = gX)
 showBreak   = input.bool(true, "BK · BREAK — opened below & closed up through the level (breakout)", group = gX)
+showReject  = input.bool(true, "RJ · REJECT — opened below, wicked ABOVE the level & closed back below (rejection · bearish)", group = gX)
 minPen      = input.float(0.15, "Reclaim: min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
 heldTol     = input.float(0.25, "Held: max touch distance above the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
 only1h      = input.bool(false, "Only draw marks on the 1h chart (OFF = show on whatever timeframe you're viewing)", group = gX)
@@ -69,13 +70,16 @@ markLevel(int k, float L, bool[] fired, string tf) =>
         bool rc = showReclaim and day_open > L and low <= L and close > L and (L - low) / L >= minPen
         bool hd = showHeld and day_open > L and low >= L and low <= L * (1 + heldTol) and close > L
         bool bk = showBreak and day_open < L and close > L and close[1] <= L
-        if rc or hd or bk
+        bool rj = showReject and day_open < L and high >= L and close < L and (high - L) / L >= minPen
+        if rc or hd or bk or rj
             array.set(fired, k, true)
-            string _code = rc ? "RC" : hd ? "HD" : "BK"
-            color  _col  = rc ? color.lime : hd ? color.yellow : color.aqua
-            string _kind = rc ? "wick & reclaim" : hd ? "held (touched & held)" : "break (closed up through)"
+            string _code = rc ? "RC" : hd ? "HD" : bk ? "BK" : "RJ"
+            color  _col  = rc ? color.lime : hd ? color.yellow : bk ? color.aqua : color.red
+            string _kind = rc ? "wick & reclaim" : hd ? "held (touched & held)" : bk ? "break (closed up through)" : "reject (wicked above & lost it)"
             string _tfn  = tf == "W" ? "weekly" : "monthly"
-            label.new(bar_index, low, _code + tf, style = label.style_label_up, color = _col, textcolor = color.black, size = _msz, tooltip = _tfn + "-level " + str.tostring(L, format.mintick) + " · " + _kind + " · stop " + str.tostring(low, format.mintick))
+            float  _y    = rj ? high : low
+            color  _tcol = rj ? color.white : color.black
+            label.new(bar_index, _y, _code + tf, style = rj ? label.style_label_down : label.style_label_up, color = _col, textcolor = _tcol, size = _msz, tooltip = _tfn + "-level " + str.tostring(L, format.mintick) + " · " + _kind + " · stop " + str.tostring(_y, format.mintick))
 
 if tfOK and barstate.isconfirmed and not na(day_open)
     for k = 0 to nWk * 2 - 1
