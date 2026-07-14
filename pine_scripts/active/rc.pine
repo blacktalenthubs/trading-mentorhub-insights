@@ -158,7 +158,7 @@ near_lvl(float a, float b) => not na(a) and not na(b) and b != 0 and (math.abs(a
 //   COOLDOWN — re-arm only after price moves clearly ABOVE the MA again, so a "walk"
 //              along the MA fires ONCE per touch, not every bar.
 gMA = "MA bounce (daily MA, ported)"
-en_ma     = input.bool(true,  "Fire MA-bounce longs (held test of a daily MA)", group = gMA)
+en_ma     = input.bool(false, "Fire MA-bounce longs (held test of a daily MA) — OFF: MA/EMA bounces are chop noise, using levels + rc_daily instead (user 2026-07-13)", group = gMA)
 ma_regime = input.bool(true,  "8/21/50 require uptrend (50>100>200); 100/200 always", group = gMA)
 ma_tol    = input.float(0.25, "Touch tolerance % (low within this of the MA)", minval = 0.0, step = 0.05, group = gMA)
 ma_rearm  = input.float(1.0,  "Re-arm % (price must move this far above the MA to reset)", minval = 0.1, step = 0.1, group = gMA)

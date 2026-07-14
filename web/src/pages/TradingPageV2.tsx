@@ -169,7 +169,7 @@ const ALL_INDICATORS: IndicatorDef[] = [
 ];
 
 // Key EMAs always on by default: 8 / 21 / 50 / 100 / 200.
-const DEFAULT_INDICATORS = new Set(["ema8", "ema21", "ema50", "ema100", "ema200"]);
+const DEFAULT_INDICATORS = new Set(["ema8", "ema21", "ema50", "ema100", "ema200", "sma50"]);
 
 function loadSavedIndicators(): Set<string> | null {
   try {
