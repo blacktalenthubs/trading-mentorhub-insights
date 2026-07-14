@@ -22,7 +22,7 @@ colMo    = input.color(color.new(color.orange, 0), "Monthly rails", group = gS, 
 gX = "Reclaim marks — wick below a support level & reclaim (long)"
 showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
 minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
-only1h      = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — rc.pine owns alerts)", group = gX)
+only1h      = input.bool(false, "Only draw marks on the 1h chart (OFF = show reclaims on whatever timeframe you're viewing)", group = gX)
 markSz      = input.string("tiny", "Mark size", options = ["tiny", "small", "normal"], group = gX)
 _msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
 tfOK = not only1h or timeframe.period == "60"
