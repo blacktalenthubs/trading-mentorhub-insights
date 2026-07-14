@@ -727,9 +727,10 @@ function AlertTypesSection() {
 
   // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
   // whole style in one shot, not 45 toggles (2026-06-20).
-  const GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"];
+  const GROUP_ORDER = ["Day Trade", "Levels", "Swing Trade", "Long Term", "Notice", "Other"];
   const GROUP_DESC: Record<string, string> = {
     "Day Trade": "Out by the close — you sell it the same session at some point. Reclaims, ORB, MA bounces, gaps.",
+    "Levels": "Weekly + monthly High/Low levels (2 of each). One switch for all four structures: reclaim / held / break (long) + reject (short). Day-trade entries at the levels price actually reaches.",
     "Swing Trade": "Held multiple days while the thesis stays good, above the 50-EMA. 20-EMA retest, 5/20 cross, RSI-30, bases, reversals, monthly-MA reclaim.",
     "Long Term": "Position holds — weeks to months. Monthly box breakouts (MoBO), weekly 10w/30w MAs.",
     "Notice": "Context only — not a tradable setup. Opt in per item if you want the heads-up.",

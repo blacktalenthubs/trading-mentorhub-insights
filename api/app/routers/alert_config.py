@@ -61,7 +61,7 @@ CATEGORY_TO_GROUP: dict[str, str] = {
     "Monthly trend": "Long Term",     # monthly_rc — prior-month H/L reclaim (rare position)
 }
 # Notice = info-only context, NOT tradable setups. Default OFF; users opt in per item.
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Long Term", "Notice", "Other"]
+TRADE_GROUP_ORDER = ["Day Trade", "Levels", "Swing Trade", "Long Term", "Notice", "Other"]
 
 _STYLE_GROUP = {"day_trade": "Day Trade", "swing": "Swing Trade", "long_term": "Long Term"}
 
@@ -70,6 +70,11 @@ def _group_for(alert_type: str, category: str) -> str:
     """The Settings bucket for a type. Info/context keeps its category group; tradable types follow
     style_for() so a SHARED category (weekly_rc vs weekly_10w) splits correctly by hold-horizon
     (2026-07-07 — reclaims are day trades, MA bounces are day trades, trend-MA holds are swings)."""
+    # WLV/MLV levels get their OWN one-toggle group (user 2026-07-13): weekly + monthly, reclaim/held/
+    # break (BUY) + reject (SHORT) all flip together with the "Levels" master toggle. (Feed routing is
+    # unchanged — style_for still files them in the day_trade feed.)
+    if alert_type.startswith(("weekly_lvl", "monthly_lvl")):
+        return "Levels"
     g = CATEGORY_TO_GROUP.get(category, "Other")
     if g in ("Notice", "Other"):
         return g
