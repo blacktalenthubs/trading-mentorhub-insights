@@ -1,0 +1,104 @@
+// @version=5
+//
+// WML — Weekly + Monthly Levels, COMBINED. Replaces weekly_levels.pine + monthly_levels.pine with a
+// single overlay: the last nWk weeks' + nMon months' H/L/O/C as horizontal rails, colour-coded by
+// timeframe (weekly vs monthly). Each rail terminates on the RIGHT with a plain tag — "weekly-level"
+// or "monthly-level" — instead of the old busy per-candle "Jun H 421.78" annotations. With only 2 of
+// each tracked by default the chart stays clean, and the timeframe colour + line position tell you
+// the rest.
+//
+// PLUS the one signal we watch: the wick-below-and-reclaim of a SUPPORT level — the day OPENED ABOVE
+// the level, price wicked BELOW it, and CLOSED back above (support held). Visual only, 1h-locked —
+// rc.pine owns the actual alerts (monthly_lvl_reclaim / weekly_lvl_reclaim).
+//
+indicator("WML · Weekly + Monthly Levels", "WML", overlay = true, max_lines_count = 50, max_labels_count = 80, max_boxes_count = 16)
+
+gS = "Levels"
+nWk      = input.int(2, "Weeks to draw + scan (H/L/O/C each)", minval = 1, maxval = 4, group = gS)
+nMon     = input.int(2, "Months to draw + scan (H/L/O/C each)", minval = 1, maxval = 6, group = gS)
+showPrice = input.bool(true, "Include the price in the end tag", group = gS)
+showBody = input.bool(false, "Body band — open↔close zone per candle", group = gS)
+colWk    = input.color(color.new(color.teal, 0),   "Weekly rails",  group = gS, inline = "c")
+colMo    = input.color(color.new(color.orange, 0), "Monthly rails", group = gS, inline = "c")
+
+gX = "Reclaim marks — wick below a support level & reclaim (long)"
+showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
+minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
+only1h      = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — rc.pine owns alerts)", group = gX)
+markSz      = input.string("tiny", "Mark size", options = ["tiny", "small", "normal"], group = gX)
+_msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
+tfOK = not only1h or timeframe.period == "60"
+
+// ── Source candles: last 4 weeks + 6 months (constant offsets · lookahead_on · no repaint) ──
+tid = syminfo.tickerid
+[wh1, wl1, wo1, wc1, wt1] = request.security(tid, "W", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+[wh2, wl2, wo2, wc2, wt2] = request.security(tid, "W", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
+[wh3, wl3, wo3, wc3, wt3] = request.security(tid, "W", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
+[wh4, wl4, wo4, wc4, wt4] = request.security(tid, "W", [high[4], low[4], open[4], close[4], time[4]], lookahead = barmerge.lookahead_on)
+[mh1, ml1, mo1, mc1, mt1] = request.security(tid, "M", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+[mh2, ml2, mo2, mc2, mt2] = request.security(tid, "M", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
+[mh3, ml3, mo3, mc3, mt3] = request.security(tid, "M", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
+[mh4, ml4, mo4, mc4, mt4] = request.security(tid, "M", [high[4], low[4], open[4], close[4], time[4]], lookahead = barmerge.lookahead_on)
+[mh5, ml5, mo5, mc5, mt5] = request.security(tid, "M", [high[5], low[5], open[5], close[5], time[5]], lookahead = barmerge.lookahead_on)
+[mh6, ml6, mo6, mc6, mt6] = request.security(tid, "M", [high[6], low[6], open[6], close[6], time[6]], lookahead = barmerge.lookahead_on)
+
+// Flat level arrays: nWk weeks × H/L/O/C (16 max), nMon months × H/L/O/C (24 max).
+wPr = array.from(wh1, wl1, wo1, wc1, wh2, wl2, wo2, wc2, wh3, wl3, wo3, wc3, wh4, wl4, wo4, wc4)
+wTm = array.from(wt1, wt1, wt1, wt1, wt2, wt2, wt2, wt2, wt3, wt3, wt3, wt3, wt4, wt4, wt4, wt4)
+mPr = array.from(mh1, ml1, mo1, mc1, mh2, ml2, mo2, mc2, mh3, ml3, mo3, mc3, mh4, ml4, mo4, mc4, mh5, ml5, mo5, mc5, mh6, ml6, mo6, mc6)
+mTm = array.from(mt1, mt1, mt1, mt1, mt2, mt2, mt2, mt2, mt3, mt3, mt3, mt3, mt4, mt4, mt4, mt4, mt5, mt5, mt5, mt5, mt6, mt6, mt6, mt6)
+
+// ── Reclaim marks — wick below a support level, close back above. Once per level per day, 1h-locked. ──
+day_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+var bool[] wFired = array.new_bool(16, false)
+var bool[] mFired = array.new_bool(24, false)
+newDay = ta.change(time("D")) != 0
+if newDay
+    for k = 0 to 15
+        array.set(wFired, k, false)
+    for k = 0 to 23
+        array.set(mFired, k, false)
+
+if showReclaim and tfOK and barstate.isconfirmed and not na(day_open)
+    for k = 0 to nWk * 4 - 1
+        float L = array.get(wPr, k)
+        if not na(L) and day_open > L and low <= L and close > L and (L - low) / L >= minPen and not array.get(wFired, k)
+            array.set(wFired, k, true)
+            label.new(bar_index, low, "▲W", style = label.style_label_up, color = colWk, textcolor = color.white, size = _msz, tooltip = "weekly-level " + str.tostring(L, format.mintick) + " · wick & reclaim · stop " + str.tostring(low, format.mintick))
+    for k = 0 to nMon * 4 - 1
+        float L = array.get(mPr, k)
+        if not na(L) and day_open > L and low <= L and close > L and (L - low) / L >= minPen and not array.get(mFired, k)
+            array.set(mFired, k, true)
+            label.new(bar_index, low, "▲M", style = label.style_label_up, color = colMo, textcolor = color.white, size = _msz, tooltip = "monthly-level " + str.tostring(L, format.mintick) + " · wick & reclaim · stop " + str.tostring(low, format.mintick))
+
+// ── Draw the rails once, on the last bar. Each ends with a plain "weekly-level" / "monthly-level" tag. ──
+var line[]  lns  = array.new_line()
+var label[] lbls = array.new_label()
+var box[]   bxs  = array.new_box()
+
+drawSet(float[] pr, int[] tm, int n, color col, string tag) =>
+    for k = 0 to n * 4 - 1
+        float L = array.get(pr, k)
+        int   t = int(array.get(tm, k))
+        if not na(L) and not na(t)
+            array.push(lns, line.new(t, L, time, L, xloc = xloc.bar_time, color = col, width = 1))
+            string _txt = showPrice ? tag + "  " + str.tostring(L, format.mintick) : tag
+            array.push(lbls, label.new(bar_index + 1, L, _txt, style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small))
+        if showBody and (k % 4) == 3
+            float _o = array.get(pr, k - 1)
+            float _c = array.get(pr, k)
+            if not na(_o) and not na(_c)
+                array.push(bxs, box.new(t, math.max(_o, _c), time, math.min(_o, _c), xloc = xloc.bar_time, border_color = na, bgcolor = color.new(col, 90)))
+
+if barstate.islast
+    for l in lns
+        line.delete(l)
+    for lb in lbls
+        label.delete(lb)
+    for b in bxs
+        box.delete(b)
+    array.clear(lns)
+    array.clear(lbls)
+    array.clear(bxs)
+    drawSet(wPr, wTm, nWk, colWk, "weekly-level")
+    drawSet(mPr, mTm, nMon, colMo, "monthly-level")
