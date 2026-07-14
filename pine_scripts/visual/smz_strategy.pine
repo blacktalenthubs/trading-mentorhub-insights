@@ -1,0 +1,152 @@
+//@version=5
+// SMZ Strategy — a replica of the THT "smart money zone" long-term swing system (@pdicarlotrader),
+// built from scratch so it's yours, not his paid Pine. It's a strategy() so TradingView's Strategy
+// Tester gives you his stat panel for free (win rate, profit factor, avg win/loss, max DD) and plots
+// the entry/exit markers automatically. On top of that it draws:
+//   • the SMART MONEY / INSTITUTIONAL zones (a real volume profile over the lookback)
+//   • the 33-period FAIR VALUE BAND regime (basis rising = GREEN bull / falling = RED)
+//   • BUY markers when price taps the discount (lower FV band) in a green regime + momentum up
+//   • an on-chart stats table (trades, win%, PF, avg win/loss, R/R, net%)
+//
+// Rules (his, mechanised): CONTEXT = 33-FVB basis rising. ENTRY = price taps the lower fair value
+// band (the discount) and closes back above it, momentum (MACD hist) turning up. STOP = swing low.
+// TARGET = prior high. EXIT also on regime flip to red. Put it on the WEEKLY.
+//
+// NOTE: not compile-verified here — paste into TradingView, add to a weekly chart, and check the
+// Pine console + Strategy Tester. The BX momentum wave is a separate-pane study; here momentum is
+// folded into the entry gate + the stats table (a companion BX pane can be added later).
+strategy("SMZ Strategy — THT replica", "SMZ Strat", overlay = true, initial_capital = 10000, default_qty_type = strategy.percent_of_equity, default_qty_value = 100, pyramiding = 0, calc_on_every_tick = false, max_boxes_count = 60, max_labels_count = 200, max_lines_count = 20)
+
+// ── Inputs ─────────────────────────────────────────────────────────────────────
+gF = "Fair value / regime"
+fvbLen  = input.int(33, "FVB basis length", minval = 5, group = gF)
+fvbMult = input.float(2.0, "FVB width (σ)", minval = 0.5, group = gF)
+useMom  = input.bool(true, "Require momentum up (MACD hist)", group = gF)
+showBg  = input.bool(true, "Shade regime background", group = gF)
+
+gV = "Smart money zones (visual)"
+lookback  = input.int(156, "Volume-profile lookback (bars)", minval = 20, group = gV)
+bins      = input.int(50, "Price bins", minval = 10, maxval = 100, group = gV)
+vaPct     = input.float(70.0, "Value area % of volume", minval = 50, maxval = 90, step = 5, group = gV) / 100.0
+showZones = input.bool(true, "Draw the zones", group = gV)
+
+gE = "Entry / exit"
+swingLen  = input.int(4, "Swing-low stop lookback", minval = 1, group = gE)
+targetLen = input.int(104, "Prior-high target lookback", minval = 10, group = gE)
+exitOnRed = input.bool(true, "Exit when regime flips red", group = gE)
+
+showTable = input.bool(true, "Show stats table", group = "Stats")
+
+// ── Fair value band + regime ────────────────────────────────────────────────────
+basis   = ta.sma(close, fvbLen)
+dev     = fvbMult * ta.stdev(close, fvbLen)
+upperFV = basis + dev
+lowerFV = basis - dev
+regimeGreen = basis > basis[1]
+
+plot(basis, "FV basis", color = color.new(color.orange, 0), linewidth = 2)
+plot(upperFV, "FV upper", color = color.new(color.gray, 60))
+plot(lowerFV, "FV lower", color = color.new(color.gray, 60))
+bgcolor(showBg ? (regimeGreen ? color.new(color.green, 92) : color.new(color.red, 92)) : na)
+
+// ── Momentum (MACD histogram) ─────────────────────────────────────────────────
+[_m, _s, hist] = ta.macd(close, 12, 26, 9)
+momUp = hist > hist[1]
+
+// ── Entry / exit logic ──────────────────────────────────────────────────────────
+tapped  = low <= lowerFV
+reclaim = close > lowerFV
+momOk   = not useMom or momUp
+flat    = strategy.position_size == 0
+longCond = regimeGreen and tapped and reclaim and momOk and flat
+
+swingLow  = ta.lowest(low, swingLen)
+priorHigh = ta.highest(high, targetLen)[1]
+
+if longCond
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit", "Long", stop = swingLow, limit = priorHigh)
+
+if exitOnRed and strategy.position_size > 0 and not regimeGreen
+    strategy.close("Long", comment = "regime red")
+
+plotshape(longCond, "BUY", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
+
+// ── Volume-profile smart money zones (drawn on the last bar) ──────────────────────
+var box  instBox = na
+var box  smzBox  = na
+var line pocLine = na
+
+if barstate.islast and showZones
+    float hi = ta.highest(high, lookback)
+    float lo = ta.lowest(low, lookback)
+    if hi > lo and not na(hi) and not na(lo)
+        float binw = (hi - lo) / bins
+        float[] vp = array.new_float(bins, 0.0)
+        for k = 0 to lookback - 1
+            int lob = math.max(0, math.min(bins - 1, int((low[k] - lo) / binw)))
+            int hib = math.max(0, math.min(bins - 1, int((high[k] - lo) / binw)))
+            float vper = nz(volume[k]) / (hib - lob + 1)
+            for b = lob to hib
+                array.set(vp, b, array.get(vp, b) + vper)
+        int pocI = 0
+        float pocV = 0.0
+        for b = 0 to bins - 1
+            if array.get(vp, b) > pocV
+                pocV := array.get(vp, b)
+                pocI := b
+        float tot = array.sum(vp)
+        float acc = array.get(vp, pocI)
+        int li = pocI
+        int hj = pocI
+        while acc < vaPct * tot and (li > 0 or hj < bins - 1)
+            float lft = li > 0 ? array.get(vp, li - 1) : -1.0
+            float rgt = hj < bins - 1 ? array.get(vp, hj + 1) : -1.0
+            if rgt >= lft and hj < bins - 1
+                hj += 1
+                acc += array.get(vp, hj)
+            else if li > 0
+                li -= 1
+                acc += array.get(vp, li)
+            else
+                break
+        float poc    = lo + (pocI + 0.5) * binw
+        float vaLow  = lo + li * binw
+        float vaHigh = lo + (hj + 1) * binw
+        int x1 = bar_index - lookback
+        int x2 = bar_index + 10
+        box.delete(instBox)
+        box.delete(smzBox)
+        line.delete(pocLine)
+        instBox := box.new(x1, vaHigh, x2, poc, border_color = color.new(#2962ff, 0), border_width = 2, bgcolor = color.new(#2962ff, 90), text = "Institutional Buying", text_color = color.new(#2962ff, 0), text_size = size.small, text_halign = text.align_right)
+        smzBox  := box.new(x1, poc, x2, vaLow, border_color = color.new(#d500f9, 0), border_width = 2, bgcolor = color.new(#d500f9, 88), text = "Smart Money", text_color = color.new(#d500f9, 0), text_size = size.small, text_halign = text.align_right)
+        pocLine := line.new(x1, poc, x2, poc, color = color.new(color.orange, 0), style = line.style_dashed, width = 1)
+
+// ── Stats table (his panel, from the built-in strategy metrics) ───────────────────
+var table stat = na
+if barstate.islast and showTable
+    int    trades  = strategy.closedtrades
+    float  winRate = trades > 0 ? strategy.wintrades / trades * 100 : 0.0
+    float  pf      = strategy.grossloss > 0 ? strategy.grossprofit / strategy.grossloss : 0.0
+    float  avgWin  = strategy.wintrades > 0 ? strategy.grossprofit / strategy.wintrades : 0.0
+    float  avgLoss = strategy.losstrades > 0 ? strategy.grossloss / strategy.losstrades : 0.0
+    float  rr      = avgLoss > 0 ? avgWin / avgLoss : 0.0
+    float  netPct  = strategy.netprofit / strategy.initial_capital * 100
+    table.delete(stat)
+    stat := table.new(position.top_right, 2, 8, bgcolor = color.new(color.black, 20), border_color = color.new(color.gray, 50), border_width = 1)
+    table.cell(stat, 0, 0, "SMZ STRATEGY", text_color = color.white, text_size = size.small, bgcolor = color.new(color.blue, 40))
+    table.cell(stat, 1, 0, regimeGreen ? "GREEN" : "RED", text_color = regimeGreen ? color.lime : color.red, text_size = size.small)
+    table.cell(stat, 0, 1, "Trades", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 1, str.tostring(trades), text_color = color.white, text_size = size.small)
+    table.cell(stat, 0, 2, "Win rate", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 2, str.tostring(winRate, "#.#") + "%", text_color = color.white, text_size = size.small)
+    table.cell(stat, 0, 3, "Profit factor", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 3, str.tostring(pf, "#.##"), text_color = color.white, text_size = size.small)
+    table.cell(stat, 0, 4, "Avg win $", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 4, str.tostring(avgWin, "#.#"), text_color = color.lime, text_size = size.small)
+    table.cell(stat, 0, 5, "Avg loss $", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 5, str.tostring(avgLoss, "#.#"), text_color = color.red, text_size = size.small)
+    table.cell(stat, 0, 6, "R/R", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 6, str.tostring(rr, "#.##"), text_color = color.white, text_size = size.small)
+    table.cell(stat, 0, 7, "Net return", text_color = color.gray, text_size = size.small)
+    table.cell(stat, 1, 7, str.tostring(netPct, "#.#") + "%", text_color = netPct >= 0 ? color.lime : color.red, text_size = size.small)
