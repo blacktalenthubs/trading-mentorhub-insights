@@ -38,8 +38,7 @@ showBelow   = input.bool(true, "△ also mark reclaims from BELOW (opened under 
 colBelow    = input.color(color.aqua, "△ reclaim-from-below", group = gX)
 markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
 _msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
-only1h  = input.bool(true, "Lock the reclaim signal + alert to the 1h timeframe", group = gX)
-alertOn = input.bool(true, "Fire an alert on each reclaim (webhook JSON)", group = gX)
+only1h  = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — RC pine owns the alerts)", group = gX)
 tfOK = not only1h or timeframe.period == "60"
 
 // ── The last 4 completed weekly candles (constant offsets, lookahead_on — no repaint) ──
@@ -96,10 +95,6 @@ if (showReclaim or showBelow) and tfOK and barstate.isconfirmed and not na(day_o
                 label.new(bar_index, low, "▲" + wn + " " + ty_s, style = label.style_label_up, color = colUp, textcolor = color.black, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · support reclaim · stop " + str.tostring(low, format.mintick))
             else
                 label.new(bar_index, low, "△" + wn + " " + ty_s, style = label.style_label_up, color = colBelow, textcolor = color.white, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · reclaimed from below · stop " + str.tostring(low, format.mintick))
-            if alertOn
-                string _rule = defOn ? "wlv_reclaim" : "wlv_reclaim_below"
-                string _pay = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + _rule + '","direction":"BUY","interval":"60","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","level":"' + str.tostring(L, format.mintick) + '","note":"' + wn + " " + ty_s + " weekly support reclaim","fired_at":"' + str.tostring(timenow) + '"}'
-                alert(_pay, alert.freq_once_per_bar_close)
 
 // ── Draw the rails/bands/body-lines once, on the last bar ───────────────────────
 var line[]  lns  = array.new_line()
