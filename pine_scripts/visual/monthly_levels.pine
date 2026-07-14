@@ -21,7 +21,7 @@
 indicator("MLV · Monthly Levels (directional)", "MLV", overlay = true, max_lines_count = 40, max_labels_count = 500, max_boxes_count = 10)
 
 gS = "Levels"
-nMon     = input.int(6, "Completed months to draw + scan", minval = 1, maxval = 6, group = gS)
+nMon     = input.int(2, "Completed months to draw + scan", minval = 1, maxval = 6, group = gS)
 showTag  = input.bool(true, "Month + price tags at the line ends", group = gS)
 showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
 showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per month (dotted)", group = gS)
@@ -39,6 +39,9 @@ showBelow   = input.bool(true, "△ also mark intraday reclaims from BELOW (open
 colBelow    = input.color(color.aqua, "△ reclaim-from-below", group = gX)
 markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
 _msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
+only1h  = input.bool(true, "Lock the reclaim signal + alert to the 1h timeframe", group = gX)
+alertOn = input.bool(true, "Fire an alert on each reclaim (webhook JSON)", group = gX)
+tfOK = not only1h or timeframe.period == "60"
 
 // ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
 tid = syminfo.tickerid
@@ -109,7 +112,7 @@ if newDay
     for k = 0 to 23
         array.set(mlvFired, k, false)
 
-if (showReclaim or showBelow) and barstate.isconfirmed and not na(day_open)
+if (showReclaim or showBelow) and tfOK and barstate.isconfirmed and not na(day_open)
     for k = 0 to nMon * 4 - 1
         int m  = int(k / 4) + 1
         int ty = k % 4
@@ -129,6 +132,10 @@ if (showReclaim or showBelow) and barstate.isconfirmed and not na(day_open)
                 label.new(bar_index, low, "▲" + mn + " " + ty_s, style = label.style_label_up, color = colUp, textcolor = color.black, size = _msz, tooltip = mn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · support reclaim · stop " + str.tostring(low, format.mintick))
             else
                 label.new(bar_index, low, "△" + mn + " " + ty_s, style = label.style_label_up, color = colBelow, textcolor = color.white, size = _msz, tooltip = mn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · reclaimed from below · stop " + str.tostring(low, format.mintick))
+            if alertOn
+                string _rule = defOn ? "mlv_reclaim" : "mlv_reclaim_below"
+                string _pay = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + _rule + '","direction":"BUY","interval":"60","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","level":"' + str.tostring(L, format.mintick) + '","note":"' + mn + " " + ty_s + " monthly support reclaim","fired_at":"' + str.tostring(timenow) + '"}'
+                alert(_pay, alert.freq_once_per_bar_close)
 
 // ── Draw the rails/bands once, keep updated on the last bar ───────────────────
 var line[]  lns  = array.new_line()
