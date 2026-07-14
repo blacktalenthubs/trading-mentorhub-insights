@@ -159,6 +159,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # alert: H/L/O/C of the last 4 weeks (16 levels), directional support reclaim. weekly_rc
     # + PWL-held folded in → OBSOLETE. The weekly 10w/30w MA stays separate (trend tool).
     ("weekly_lvl_reclaim", "WLV — weekly-level reclaim (all H/L/O/C of the last 4 weeks, directional support entry)", "Weekly", False),
+    # WLV/MLV reject — the bearish mirror (rc.pine, 2026-07-13). Price rallied UP into a weekly/monthly
+    # H/L level from below and closed back under it = failed breakout / resistance held → SHORT, stop the
+    # poke high. Fired by the same one-toggle level engine as the reclaim/held/break BUYs. day_trade.
+    ("weekly_lvl_reject", "WLV — weekly-level REJECT (rallied into a weekly H/L from below & closed back under — SHORT)", "Weekly", False),
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
@@ -172,6 +176,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # once per level per day, day-trade. monthly_rc + pml_held + CML are FOLDED IN (retired →
     # OBSOLETE_ALERT_TYPES); MLV is the only monthly toggle.
     ("monthly_lvl_reclaim", "MLV — monthly-level reclaim (all H/L/O/C of the last 6 months, directional support entry)", "Monthly", False),
+    ("monthly_lvl_reject", "MLV — monthly-level REJECT (rallied into a monthly H/L from below & closed back under — SHORT)", "Monthly", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
