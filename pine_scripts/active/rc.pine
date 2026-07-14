@@ -55,7 +55,8 @@ vol_gap_min   = input.float(1.5, "  Gap-and-go min volume ratio", minval = 1.0, 
 vol_short_min = input.float(1.5, "  Short min volume ratio", minval = 1.0, step = 0.1, group = gPB)
 gW = "Weekly levels — WLV (wick-below-and-reclaim only)"
 enWLV      = input.bool(true,  "WLV · weekly-level RECLAIM — opened above a level, wick below & reclaim (BUY)", group = gW)
-wlvWk      = input.int(2,      "  WLV weeks to scan (H/L/O/C each)", minval = 1, maxval = 4, group = gW)
+wlvWk      = input.int(2,      "  WLV weeks to scan", minval = 1, maxval = 4, group = gW)
+lvlHLonly  = input.bool(true,  "  Reclaim on HIGH & LOW only — skip the open/close body levels (WLV + MLV)", group = gW)
 enWLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened UNDER & broke up through — NOT a wick-reclaim · default OFF)", group = gW)
 wlvMinPen  = input.float(0.15, "  WLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gW) / 100.0
 gM = "Monthly levels — MLV (wick-below-and-reclaim only)"
@@ -579,7 +580,7 @@ if enMLV
         float _L = array.get(mlvPr, k)
         bool _def = not na(_L) and dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= mlvMinPen
         bool _bel = enMLVbelow and not na(_L) and dOpen < _L and close > _L and close[1] <= _L
-        if (_def or _bel) and not array.get(mlv_fired, k)
+        if (_def or _bel) and (k % 4 < 2 or not lvlHLonly) and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
             string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kd = array.get(mlvKdA, k)
@@ -607,7 +608,7 @@ if enWLV
         float _WL = array.get(wlvPr, k)
         bool _wdef = not na(_WL) and dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= wlvMinPen
         bool _wbel = enWLVbelow and not na(_WL) and dOpen < _WL and close > _WL and close[1] <= _WL
-        if (_wdef or _wbel) and not array.get(wlv_fired, k)
+        if (_wdef or _wbel) and (k % 4 < 2 or not lvlHLonly) and not array.get(wlv_fired, k)
             array.set(wlv_fired, k, true)
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
