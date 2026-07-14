@@ -53,13 +53,15 @@ vol_len_pb    = input.int(20, "  Volume-average length", minval = 5, group = gPB
 vol_break_min = input.float(2.0, "  PDH-break min volume ratio", minval = 1.0, step = 0.1, group = gPB)
 vol_gap_min   = input.float(1.5, "  Gap-and-go min volume ratio", minval = 1.0, step = 0.1, group = gPB)
 vol_short_min = input.float(1.5, "  Short min volume ratio", minval = 1.0, step = 0.1, group = gPB)
-gW = "Weekly levels — WLV (all H/L/O/C · last 4 weeks)"
-enWLV      = input.bool(true,  "WLV · weekly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 16 levels)", group = gW)
-enWLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gW)
+gW = "Weekly levels — WLV (wick-below-and-reclaim only)"
+enWLV      = input.bool(true,  "WLV · weekly-level RECLAIM — opened above a level, wick below & reclaim (BUY)", group = gW)
+wlvWk      = input.int(2,      "  WLV weeks to scan (H/L/O/C each)", minval = 1, maxval = 4, group = gW)
+enWLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened UNDER & broke up through — NOT a wick-reclaim · default OFF)", group = gW)
 wlvMinPen  = input.float(0.15, "  WLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gW) / 100.0
-gM = "Monthly levels — MLV (all H/L/O/C · last 6 months)"
-enMLV      = input.bool(true,  "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY, all 24 levels)", group = gM)
-enMLVbelow = input.bool(true,  "  └ ALSO fire reclaim-from-BELOW (opened under the level, closed back above — turn OFF if noisy)", group = gM)
+gM = "Monthly levels — MLV (wick-below-and-reclaim only)"
+enMLV      = input.bool(true,  "MLV · monthly-level RECLAIM — opened above a level, wick below & reclaim (BUY)", group = gM)
+mlvMon     = input.int(2,      "  MLV months to scan (H/L/O/C each)", minval = 1, maxval = 6, group = gM)
+enMLVbelow = input.bool(false, "  └ ALSO fire reclaim-from-BELOW (opened UNDER & broke up through — NOT a wick-reclaim · default OFF)", group = gM)
 mlvMinPen  = input.float(0.15, "  MLV min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gM) / 100.0
 // Reclaim long (#65, merged from index_reclaim_long.pine 2026-06-25). Morning reclaim
 // of the ORH/PDH with the option-strike payload. Windows are MINUTE-based so it behaves
@@ -573,7 +575,7 @@ if nD
     for k = 0 to 23
         array.set(mlv_fired, k, false)
 if enMLV
-    for k = 0 to 23
+    for k = 0 to mlvMon * 4 - 1
         float _L = array.get(mlvPr, k)
         bool _def = not na(_L) and dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= mlvMinPen
         bool _bel = enMLVbelow and not na(_L) and dOpen < _L and close > _L and close[1] <= _L
@@ -601,7 +603,7 @@ if nD
     for k = 0 to 15
         array.set(wlv_fired, k, false)
 if enWLV
-    for k = 0 to 15
+    for k = 0 to wlvWk * 4 - 1
         float _WL = array.get(wlvPr, k)
         bool _wdef = not na(_WL) and dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= wlvMinPen
         bool _wbel = enWLVbelow and not na(_WL) and dOpen < _WL and close > _WL and close[1] <= _WL
