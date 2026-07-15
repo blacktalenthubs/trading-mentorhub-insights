@@ -50,6 +50,8 @@ export function formatSetup(alertType?: string): string {
     orb_held: "ORB held",
     orb_retest: "ORB retest",
     orb_exit: "ORB exit",
+    orb_reclaim_low: "ORB low reclaim",
+    orb_reclaim_high: "ORB high reclaim",
     cml_held: "Month-low support hold",
     cml_reclaim: "Month-low reclaim",
     pml_held: "Prior-month-low support hold",

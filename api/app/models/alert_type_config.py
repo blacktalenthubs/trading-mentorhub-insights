@@ -149,7 +149,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
     # the machine is deleted from rc.pine). → OBSOLETE below. The ONE ORB alert
     # is the 1h reclaim: clean, low-noise, once per session, allowlist-gated.
-    ("orb_reclaim", "ORB reclaim — reclaim of the 1-HOUR opening-range LOW or HIGH (the clean, low-noise ORB entry; long only, once per session)", "ORB · 1h", False),
+    # ORB reclaim split into LOW vs HIGH (user 2026-07-14) — the side is essential context: a LOW
+    # reclaim (bounce off the OR low, stop just under it) is BETTER RISK than a HIGH reclaim (breakout-
+    # retest, stop the OR low = wider). Two types so the card names them + you can toggle each.
+    ("orb_reclaim_low", "ORB reclaim · LOW — bounced & reclaimed the 1h opening-range LOW (tight stop under the OR low · better risk)", "ORB · 1h", False),
+    ("orb_reclaim_high", "ORB reclaim · HIGH — broke & reclaimed the 1h opening-range HIGH (breakout-retest · stop the OR low)", "ORB · 1h", False),
 
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
@@ -353,6 +357,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
+    # 2026-07-14 — the combined orb_reclaim SPLIT into orb_reclaim_low / orb_reclaim_high (the side
+    # matters: low reclaim = better risk). Retire the merged one so Settings shows the two.
+    "orb_reclaim",
     # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
     # reclaim (reclaim_long) RETIRED 2026-07-03 too — superseded by the new ORB family
     # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup

@@ -760,9 +760,9 @@ o1_on = en_orb1h and o1_ready
 o1_rcL = sweep_reclaim(o1_orl, o1_on, o1_on and not na(o1_orl), nD)
 o1_rcH = sweep_reclaim(o1_orh, o1_on, o1_on and not na(o1_orh), nD, true)
 if o1_on and o1_rcL
-    alert(rc_pay("orb_reclaim", "BUY", "60", o1_orl, low, "ORB 1h · reclaimed the OR LOW " + str.tostring(o1_orl, format.mintick) + " — bounce off the opening range, stop the reclaim low"), alert.freq_once_per_bar_close)
+    alert(rc_pay("orb_reclaim_low", "BUY", "60", o1_orl, low, "ORB 1h · reclaimed the OR LOW " + str.tostring(o1_orl, format.mintick) + " — bounce off the opening range, tight stop under the OR low (better risk)"), alert.freq_once_per_bar_close)
 if o1_on and o1_rcH
-    alert(rc_pay("orb_reclaim", "BUY", "60", o1_orh, o1_orl, "ORB 1h · reclaimed the OR HIGH " + str.tostring(o1_orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low"), alert.freq_once_per_bar_close)
+    alert(rc_pay("orb_reclaim_high", "BUY", "60", o1_orh, o1_orl, "ORB 1h · reclaimed the OR HIGH " + str.tostring(o1_orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low (wider risk)"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ORB ORH/ORL VISUAL — MOVED OUT (2026-07-10, user: "page too busy, put in a separate pine").
