@@ -191,6 +191,16 @@ mb_s20  = ma_bounce(sma20d,  en_ma)
 mb_s50  = ma_bounce(sma50d,  en_ma)
 mb_s100 = ma_bounce(sma100d, en_ma)
 mb_s200 = ma_bounce(sma200d, en_ma)
+// LEVEL HELD (2026-07-14, user "the held is the alert — a break can fade, a hold shows strength").
+// Broke/above a key level, pulled back TO it and HELD (green close back above within tol) → strength.
+// Reuses ma_bounce() = touch-and-hold + re-arm latch (DEDUP: fires once, re-arms only after >1% away).
+gHeld = "Held levels — PDH/PDL + ORB high/low retest & hold (strength · deduped)"
+en_pdh_held = input.bool(true, "PDH held — broke the prior-day HIGH, retested & held it (BUY · strength)", group = gHeld)
+en_pdl_held = input.bool(true, "PDL held — held above the prior-day LOW as support (BUY)", group = gHeld)
+en_orb_hheld = input.bool(true, "ORB high held — broke the 1h OR HIGH, retested & held it (BUY)", group = gHeld)
+en_orb_lheld = input.bool(true, "ORB low held — held above the 1h OR LOW as support (BUY)", group = gHeld)
+h_pdh = ma_bounce(hDp, en_pdh_held)
+h_pdl = ma_bounce(lDp, en_pdl_held)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MoBO — monthly BOX breakout + monthly RC-H (ported from monthly_breakout.pine, the
@@ -691,6 +701,10 @@ if mb_s100
     alert(ma_pay("100S", sma100d), alert.freq_once_per_bar_close)
 if mb_s200
     alert(ma_pay("200S", sma200d), alert.freq_once_per_bar_close)
+if h_pdh
+    alert(rc_pay("pdh_held", "BUY", "D", close, hDp, "PDH held · broke the prior-day HIGH " + str.tostring(hDp, format.mintick) + " and held it on the retest — strength, stop below the PDH"), alert.freq_once_per_bar_close)
+if h_pdl
+    alert(rc_pay("pdl_held", "BUY", "D", close, lDp, "PDL held · held above the prior-day LOW " + str.tostring(lDp, format.mintick) + " as support — stop below the PDL"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ORB — the 15m ALERT MACHINE (break/held/retest/exit) was REMOVED 2026-07-08
@@ -763,6 +777,12 @@ if o1_on and o1_rcL
     alert(rc_pay("orb_reclaim_low", "BUY", "60", o1_orl, low, "ORB 1h · reclaimed the OR LOW " + str.tostring(o1_orl, format.mintick) + " — bounce off the opening range, tight stop under the OR low (better risk)"), alert.freq_once_per_bar_close)
 if o1_on and o1_rcH
     alert(rc_pay("orb_reclaim_high", "BUY", "60", o1_orh, o1_orl, "ORB 1h · reclaimed the OR HIGH " + str.tostring(o1_orh, format.mintick) + " — breakout-retest of the opening range, stop the OR low (wider risk)"), alert.freq_once_per_bar_close)
+h_orh = ma_bounce(o1_orh, en_orb_hheld and o1_ready)
+h_orl = ma_bounce(o1_orl, en_orb_lheld and o1_ready)
+if h_orh
+    alert(rc_pay("orb_high_held", "BUY", "60", close, o1_orh, "ORB high held · broke the 1h OR HIGH " + str.tostring(o1_orh, format.mintick) + " and held it on the retest — strength, stop below the OR high"), alert.freq_once_per_bar_close)
+if h_orl
+    alert(rc_pay("orb_low_held", "BUY", "60", close, o1_orl, "ORB low held · held above the 1h OR LOW " + str.tostring(o1_orl, format.mintick) + " as support — stop below the OR low"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ORB ORH/ORL VISUAL — MOVED OUT (2026-07-10, user: "page too busy, put in a separate pine").

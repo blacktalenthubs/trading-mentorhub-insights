@@ -72,6 +72,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # RC pine owns the high reclaims (rc_*_hrec, uptrend-gated). → OBSOLETE_ALERT_TYPES.
     # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP. KEPT.
     ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
+    # PDH/PDL HELD (2026-07-14, user: "the held is the alert — a break can fade, a hold shows strength").
+    ("pdh_held", "PDH held — broke the prior-day HIGH, retested & held it (strength continuation)", "Daily PDH/PDL", False),
+    ("pdl_held", "PDL held — held above the prior-day LOW as support (dip to it & hold)", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -154,6 +157,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # retest, stop the OR low = wider). Two types so the card names them + you can toggle each.
     ("orb_reclaim_low", "ORB reclaim · LOW — bounced & reclaimed the 1h opening-range LOW (tight stop under the OR low · better risk)", "ORB · 1h", False),
     ("orb_reclaim_high", "ORB reclaim · HIGH — broke & reclaimed the 1h opening-range HIGH (breakout-retest · stop the OR low)", "ORB · 1h", False),
+    # ORB HELD (2026-07-14) — the "held is the alert" on the 1h OR levels (deduped, re-arm latch).
+    ("orb_high_held", "ORB high held — broke the 1h OR HIGH, retested & held it (strength continuation)", "ORB · 1h", False),
+    ("orb_low_held", "ORB low held — held above the 1h OR LOW as support", "ORB · 1h", False),
 
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
