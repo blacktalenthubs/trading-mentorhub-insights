@@ -51,8 +51,12 @@ _MA_TOGGLES = (
     ("ema100", "EMA 100"),   # re-added 2026-06-23 — the deep-pullback support (NVDA);
                              # rc.pine MA bounce fires the 100/200 in any regime.
     ("ema200", "EMA 200"),
-    # SMA 50/200 CUT 2026-06-23 — the EMA sits ~1pt away and captures the same test;
-    # no need for SMA separately. (rc.pine ports the EMA ladder only.)
+    # SMA ladder RE-ADDED 2026-07-14 (user): the SMA is its own support level (traders watch the
+    # round 20/50/100/200 SMA, not just the EMA) — reclaim it the same way. rc.pine emits the "S" tags.
+    ("sma20",  "SMA 20"),
+    ("sma50",  "SMA 50"),
+    ("sma100", "SMA 100"),
+    ("sma200", "SMA 200"),
 )
 
 
