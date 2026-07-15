@@ -724,6 +724,9 @@ function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
   const toggle = useToggleAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
+  // Collapsible groups — ALL collapsed by default so the page isn't a wall of toggles (user 2026-07-14:
+  // "too scary, too much"). Expand a group to manage its types; the master toggle flips the whole group.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
   // whole style in one shot, not 45 toggles (2026-06-20).
@@ -763,15 +766,21 @@ function AlertTypesSection() {
             items.reduce((acc, t) => { (acc[t.category] ??= []).push(t); return acc; }, {} as Record<string, AlertTypeConfigItem[]>),
           );
           return (
-            <div key={group}>
-              {/* Group header + master toggle */}
-              <div className="mb-1 flex items-center justify-between">
-                <div className="flex items-baseline gap-2">
+            <div key={group} className="rounded-lg border border-border-subtle bg-surface-1/40">
+              {/* Group header — click the row to expand/collapse; master toggle on the right */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <button
+                  onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
+                  className="flex flex-1 items-center gap-2 text-left"
+                >
+                  <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-text-faint transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
                   <span className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</span>
-                  <span className="text-[10px] text-text-faint">{onCount} of {items.length} on · group</span>
-                </div>
+                  <span className="text-[10px] text-text-faint">{onCount} of {items.length} on</span>
+                </button>
                 <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
               </div>
+              {expanded.has(group) && (
+              <div className="border-t border-border-subtle px-3 pb-3 pt-2">
               {GROUP_DESC[group] && <p className="mb-3 text-[10.5px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>}
               <div className="space-y-4">
                 {clusters.map(([cluster, rows]) => (
@@ -797,6 +806,8 @@ function AlertTypesSection() {
                   </div>
                 ))}
               </div>
+              </div>
+              )}
             </div>
           );
         })}
