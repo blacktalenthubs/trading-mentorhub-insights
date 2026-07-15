@@ -421,7 +421,9 @@ def emit(dsn, cc, bb, mr=None, mb=None, nh=None):
     cutoff = (date.today() - timedelta(days=5)).isoformat()  # weekly setup, daily scan -> one broadcast/week
     inserted = 0
     new_setups = []
-    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_ma_reclaim") for x in (mr or []) if x.get("actionable")] + [(x, "monthly_box") for x in (mb or []) if x.get("actionable")] + [(x, "new_high_breakout") for x in (nh or []) if x.get("actionable")]):
+    # monthly_ma_reclaim ("monthly m8") emission REMOVED 2026-07-14 (user: mostly false/bad). mr is
+    # still scanned for the report count, just no longer fired as an alert. Monthly BREAKOUT (MoBO) stays.
+    for sig, atype in ([(x, "character_change") for x in cc if x.get("actionable")] + [(x, "base_buy") for x in bb if x.get("actionable")] + [(x, "monthly_box") for x in (mb or []) if x.get("actionable")] + [(x, "new_high_breakout") for x in (nh or []) if x.get("actionable")]):
         s = sig["symbol"]
         try:
             # one SELECT for who already has this setup this week; master row = the "already broadcast"
