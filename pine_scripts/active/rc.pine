@@ -177,7 +177,7 @@ ma_bounce(float ma, bool eligible) =>
     if (not na(ma)) and (close > ma * (1.0 + ma_rearm / 100.0))
         armed := true
         fired := false
-    touch = (not na(ma)) and (low <= ma * (1.0 + ma_tol / 100.0)) and (close > ma) and (close > open)
+    touch = (not na(ma)) and (low <= ma * (1.0 + ma_tol / 100.0)) and (close > ma)
     fire = eligible and armed and touch and not fired
     if fire
         fired := true
