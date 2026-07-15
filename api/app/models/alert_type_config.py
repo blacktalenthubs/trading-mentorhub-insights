@@ -124,7 +124,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
-    ("monthly_ma_reclaim", "Monthly MA reclaim — pullback to a rising monthly 8/21-EMA in an uptrend, above the 50-EMA floor (position swing, validated +0.36R)", "Swing", True),
+    # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
     ("new_high_breakout", "52-week high breakout — closed through the annual high in an uptrend on volume (momentum, validated +0.22R)", "Swing", True),
     ("fv_pullback", "Fair Value pullback — held a RISING 20-week fair value (buy the pullback to the middle band); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
     ("fv_reclaim", "Fair Value reclaim — closed back ABOVE a RISING 20-week fair value (the turn); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
@@ -360,6 +360,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-14 — the combined orb_reclaim SPLIT into orb_reclaim_low / orb_reclaim_high (the side
     # matters: low reclaim = better risk). Retire the merged one so Settings shows the two.
     "orb_reclaim",
+    # 2026-07-14 — monthly_ma_reclaim ("monthly m8") retired: mostly false/bad (user). Monthly
+    # BREAKOUT (monthly_box/MoBO) stays; only the monthly-MA reclaim is dropped.
+    "monthly_ma_reclaim",
     # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
     # reclaim (reclaim_long) RETIRED 2026-07-03 too — superseded by the new ORB family
     # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup
