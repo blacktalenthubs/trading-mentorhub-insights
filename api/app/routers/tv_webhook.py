@@ -1919,14 +1919,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # SWING/LONG-TERM BROADCAST (2026-07-09): these rare, high-conviction position setups go to
         # EVERY user, bypassing BOTH the watchlist AND the per-user type toggle — "swing alerts should
         # propagate to all users even if they didn't enable them." Everything else stays per-user.
-        if _bare_rule in SWING_BROADCAST_TYPES:
-            from app.models.user import User as _User
-            users = (await db.execute(select(_User))).scalars().all()
-        else:
-            users = await _users_watching(db, sig.symbol)
-            # Per-user gate (2026-06-20): deliver only to users who enabled THIS alert
-            # type. Fixes the multi-tenancy bug where one account's toggles changed
-            # everyone's. No pref row = OFF (opt-in via Settings / Start here).
+        # WATCHLIST-GATED for EVERYTHING (user 2026-07-14: "all alerts based on my watchlist — if it's
+        # NOT on my watchlist, no alert"). Reverses the 2026-07-09 swing/trend broadcast-to-all: the
+        # master watchlist is for the AGENTS (premarket / trends / monthly-breakout scans), not user
+        # pushes. Empty-watchlist users still fall back to broadcast (onboarding) inside _users_watching.
+        users = await _users_watching(db, sig.symbol)
+        if _bare_rule not in SWING_BROADCAST_TYPES:
+            # Per-user type toggle (2026-06-20). SWING_BROADCAST types still bypass the toggle (deliver
+            # without opting in) but are now scoped to the user's watchlist, not broadcast to all.
             users = await _filter_users_by_type_pref(db, users, alert_type_full)
         # OPTIONAL ORB noise clamp: a user with an EMPTY orb_symbols gets ORB for their
         # whole watchlist (like rc_4h); a user who SET a non-empty orb_symbols gets ORB

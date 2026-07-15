@@ -72,6 +72,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # RC pine owns the high reclaims (rc_*_hrec, uptrend-gated). → OBSOLETE_ALERT_TYPES.
     # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP. KEPT.
     ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
+    # PDH/PDL HELD (2026-07-14, user: "the held is the alert — a break can fade, a hold shows strength").
+    ("pdh_held", "PDH held — broke the prior-day HIGH, retested & held it (strength continuation)", "Daily PDH/PDL", False),
+    ("pdl_held", "PDL held — held above the prior-day LOW as support (dip to it & hold)", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -124,7 +127,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
-    ("monthly_ma_reclaim", "Monthly MA reclaim — pullback to a rising monthly 8/21-EMA in an uptrend, above the 50-EMA floor (position swing, validated +0.36R)", "Swing", True),
+    # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
     ("new_high_breakout", "52-week high breakout — closed through the annual high in an uptrend on volume (momentum, validated +0.22R)", "Swing", True),
     ("fv_pullback", "Fair Value pullback — held a RISING 20-week fair value (buy the pullback to the middle band); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
     ("fv_reclaim", "Fair Value reclaim — closed back ABOVE a RISING 20-week fair value (the turn); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
@@ -154,6 +157,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # retest, stop the OR low = wider). Two types so the card names them + you can toggle each.
     ("orb_reclaim_low", "ORB reclaim · LOW — bounced & reclaimed the 1h opening-range LOW (tight stop under the OR low · better risk)", "ORB · 1h", False),
     ("orb_reclaim_high", "ORB reclaim · HIGH — broke & reclaimed the 1h opening-range HIGH (breakout-retest · stop the OR low)", "ORB · 1h", False),
+    # ORB HELD (2026-07-14) — the "held is the alert" on the 1h OR levels (deduped, re-arm latch).
+    ("orb_high_held", "ORB high held — broke the 1h OR HIGH, retested & held it (strength continuation)", "ORB · 1h", False),
+    ("orb_low_held", "ORB low held — held above the 1h OR LOW as support", "ORB · 1h", False),
 
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
@@ -360,6 +366,7 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-14 — the combined orb_reclaim SPLIT into orb_reclaim_low / orb_reclaim_high (the side
     # matters: low reclaim = better risk). Retire the merged one so Settings shows the two.
     "orb_reclaim",
+    "monthly_ma_reclaim",   # "monthly m8" retired 2026-07-14 (user: mostly false/bad). MoBO stays.
     # 2026-07-03 — ORL/ORH opening-range types + current-month-low (CML) RETIRED. Index
     # reclaim (reclaim_long) RETIRED 2026-07-03 too — superseded by the new ORB family
     # (orb_held/orb_retest), removed to avoid double-firing during the ORB eval. Startup
