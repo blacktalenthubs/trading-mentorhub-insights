@@ -1,13 +1,18 @@
 /** Shared formatting for alert types — used by the Signals feed and
  *  the browser-notification hook. */
 
-/** True for SWING alerts (multi-day hold) — mirror of _is_swing_alert in
- *  api/.../tv_webhook.py: the daily RSI/EMA momentum rules + any slow-MA bounce
- *  (50/100/200, EMA or SMA). Keep the two in sync. */
+/** True for SWING alerts (multi-day hold) — drives the "SWING ·" feed-label
+ *  prefix. Matches style_for()'s swing bucket in alert_type_config.py: the
+ *  30-RSI reclaim + daily RSI/EMA momentum, and — among the MA ladder — ONLY the
+ *  200 EMA/SMA reclaim (major moving support, held for days). The 8/21/50/100
+ *  bounces, ORB, levels and RC are DAY trades, NOT swings (user 2026-07-15,
+ *  revises the earlier 50/100/200 rule). Keep in sync with style_for(). */
 export function isSwingAlert(alertType?: string): boolean {
   const t = (alertType ?? "").replace(/^tv_/, "");
   if (t === "rsi_70" || t === "ema_5_20_cross" || t === "rsi_oversold") return true;
-  if (t.startsWith("ma_bounce_long_v3") && /50|100|200/.test(t)) return true;
+  if (t.startsWith("swing_")) return true;                 // 30-RSI reclaim (swing_rsi_30) etc.
+  // MA ladder: ONLY the 200 EMA/SMA reclaim is a swing; 8/21/50/100 are day trades.
+  if (t.startsWith("ma_bounce_long_v3") && /(ema|sma)200/.test(t)) return true;
   return false;
 }
 

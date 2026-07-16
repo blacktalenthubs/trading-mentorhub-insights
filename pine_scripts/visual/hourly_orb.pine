@@ -41,14 +41,31 @@ f_or60() =>
     [_h, _l]
 [orh, orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
 
-// ── Lines — clean per-session horizontals (break on na so they don't connect across days) ──
-plot(showOR ? orh : na, "ORH", color = colORH, linewidth = 2, style = plot.style_linebr)
-plot(showOR ? orl : na, "ORL", color = colORL, linewidth = 2, style = plot.style_linebr)
-plot(showPD ? pdh : na, "PDH", color = colPDH, linewidth = 1, style = plot.style_linebr)
-plot(showPD ? pdl : na, "PDL", color = colPDL, linewidth = 1, style = plot.style_linebr)
+// ── Lines — TRUE flat horizontals (one line.new per level per session, y1 == y2 so it never
+// curves; a fresh line each day so they don't connect across sessions) ──
+nD = ta.change(time("D")) != 0
+
+f_flat(line ln, bool show, float y, color col, int w, bool newDay) =>
+    line _ln = ln
+    if show and not na(y)
+        if na(_ln) or newDay
+            _ln := line.new(bar_index, y, bar_index, y, color = col, width = w)
+        else
+            line.set_y1(_ln, y)
+            line.set_y2(_ln, y)
+            line.set_x2(_ln, bar_index)
+    _ln
+
+var line lnORH = na
+var line lnORL = na
+var line lnPDH = na
+var line lnPDL = na
+lnORH := f_flat(lnORH, showOR, orh, colORH, 2, nD)
+lnORL := f_flat(lnORL, showOR, orl, colORL, 2, nD)
+lnPDH := f_flat(lnPDH, showPD, pdh, colPDH, 1, nD)
+lnPDL := f_flat(lnPDL, showPD, pdl, colPDL, 1, nD)
 
 // ── OR box — one per session, shaded between ORH/ORL across the RTH day ──
-nD = ta.change(time("D")) != 0
 barsPerDay = math.round(390 / math.max(1.0, timeframe.in_seconds() / 60.0))
 var box orBox = na
 if showBox and nD and not na(orh) and not na(orl)
