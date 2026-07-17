@@ -148,6 +148,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
 
+    # ── Day-trade CORE (2026-07-17) — the LMR pine: on a crossover, price reclaims (▲ BUY) or rejects
+    # (▼ SHORT) a daily MA or PDH/PDL. The level is named in the alert (ma_tag). Intended to be the
+    # ONLY day-trade signal set (user 2026-07-17); the legacy MA-bounce / gap / ORL / open-line / held
+    # families are being retired. Bind the LMR pine on the day-trade TF (e.g. 10m). Default ON. ──
+    ("lmr_reclaim", "Reclaim ▲ — closed back ABOVE a daily MA or PDH/PDL (day-trade long; level named in the alert)", "Day-trade", True),
+    ("lmr_reject", "Reject ▼ — closed back BELOW a daily MA or PDH/PDL (day-trade short / exit)", "Day-trade", True),
+
     # ORB (2026-07-08) — the 15m family (orb_break/held/retest/exit) is RETIRED
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
     # the machine is deleted from rc.pine). → OBSOLETE below. The ONE ORB alert
@@ -364,6 +371,22 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # ── 2026-07-17 DAY-TRADE CONSOLIDATION (user) — LMR (lmr_reclaim / lmr_reject) is now the SINGLE
+    # day-trade signal: reclaim/reject of any daily MA + PDH/PDL + PWH/PWL + PMH/PML, on a crossover,
+    # from ONE pine bound on the day-trade TF. Everything that duplicated a slice of that is retired:
+    # the per-MA bounce ladder, ORB, daily/4h RC, WLV/MLV level reclaims, PDH/PDL-held, HTF-held,
+    # pullback, gap-and-go. The SWING / POSITION book (character change, bases, 52w breakout, fair
+    # value, RSI, weekly 10w/30w holds, monthly box + MoBO, index shorts) is UNTOUCHED.
+    "ma_bounce_long_v3_ema8", "ma_bounce_long_v3_ema21", "ma_bounce_long_v3_ema50",
+    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_ema200",
+    "ma_bounce_long_v3_sma20", "ma_bounce_long_v3_sma50", "ma_bounce_long_v3_sma100", "ma_bounce_long_v3_sma200",
+    "pullback_long",
+    "orb_reclaim_low", "orb_reclaim_high", "orb_high_held", "orb_low_held",
+    "rc_daily_long", "rc_daily_hrec", "rc_4h_long",
+    "weekly_lvl_reclaim", "weekly_lvl_reject", "monthly_lvl_reclaim", "monthly_lvl_reject",
+    "pdh_held", "pdl_held",
+    "htf_support_held", "htf_proximity",
+    "gap_up_continuation_long",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",

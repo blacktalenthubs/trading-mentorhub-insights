@@ -1,0 +1,69 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Flat 5 EMA — the 5-period EMA drawn as ONE clean horizontal line.
+// ─────────────────────────────────────────────────────────────────────────────
+// The 5 EMA hugs price and curves bar-to-bar. This pine takes its CURRENT value
+// and pins it flat — a single horizontal S/R level you can read at a glance,
+// same treatment prior_levels_flat gives PDH/PDL. Colored by role:
+//   • SUPPORT  (green) — price is currently ABOVE the 5 EMA
+//   • RESISTANCE (red) — price is currently BELOW the 5 EMA (overhead)
+// Right-edge label names it + prints the value. VISUAL ONLY — no alerts.
+//
+// Source TF: leave blank to use the chart's EMA, or set e.g. "240" to pin the
+// 4h 5 EMA onto a lower-timeframe chart, "D" for the daily 5 EMA, etc.
+//
+// RC tag — when price closes back ABOVE the 5 EMA from below (a reclaim), an "RC"
+// label drops below the bar. Optional ▲/▼ markers flag reclaim/hold vs rejection.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Flat 5 EMA", overlay = true, max_lines_count = 4, max_labels_count = 500)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+ema_len   = input.int  (5,     "EMA length", minval = 1)
+src_tf    = input.timeframe("", "Source timeframe (blank = chart · 240 = 4h · D = daily)")
+show_rc   = input.bool (true,  "Show RC (reclaim) tags")
+show_long = input.bool (true,  "▲ Long markers (reclaim / hold)")
+show_short= input.bool (false, "▼ Short markers (rejection)")
+rc_recent = input.int  (0,     "RC tags: recent bars only (0 = all)", minval = 0, maxval = 2000)
+line_len  = input.int  (60,    "Line length (bars back)", minval = 10, maxval = 500)
+col_sup   = input.color(#26A69A, "Support color (price above)")
+col_res   = input.color(#EF5350, "Resistance color (price below)")
+col_rc    = input.color(#2962FF, "RC tag color")
+
+// ── 5 EMA, optionally from a higher timeframe (flat on the chart) ────────────
+ema_raw = ta.ema(close, ema_len)
+ema5    = src_tf == "" ? ema_raw : request.security(syminfo.tickerid, src_tf, ema_raw, lookahead = barmerge.lookahead_on)
+
+is_support(float lvl) => not na(lvl) and close > lvl
+reclaim(float lvl)    => not na(lvl) and not na(close[1]) and close > lvl and close[1] <= lvl
+
+// ── flat line + label, redrawn on the last bar ───────────────────────────────
+var line  g_line  = na
+var label g_label = na
+
+if barstate.islast and not na(ema5)
+    line.delete(g_line)
+    label.delete(g_label)
+    sup = is_support(ema5)
+    col = sup ? col_sup : col_res
+    nm  = (src_tf == "" ? "" : src_tf + " ") + str.tostring(ema_len) + " EMA"
+    g_line  := line.new(bar_index - line_len, ema5, bar_index + 2, ema5, color = col, width = 2, style = line.style_solid)
+    g_label := label.new(bar_index + 2, ema5, nm + "  " + str.tostring(ema5, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+
+// ── RC (reclaim) tags — close back ABOVE the 5 EMA from below, per confirmed bar
+rc_window = rc_recent == 0 or (last_bar_index - bar_index) <= rc_recent
+
+if show_rc and barstate.isconfirmed and rc_window and reclaim(ema5)
+    label.new(bar_index, low, "RC " + str.tostring(ema_len) + "EMA", yloc = yloc.belowbar, style = label.style_none, textcolor = col_rc, size = size.small)
+
+// ── Long / Short markers — reclaim/hold vs rejection at the 5 EMA ─────────────
+// ▲ LONG  = reclaim (was below, closed back above) OR support-hold (above it,
+//           dipped to it, held on a green bar).
+// ▼ SHORT = rejection (below it, wicked up into it, closed back below on a red bar).
+mk_reclaim = not na(close[1]) and close > ema5 and close[1] <= ema5
+mk_hold    = not na(close[1]) and close[1] > ema5 and low <= ema5 and close > ema5 and close > open
+mk_reject  = not na(close[1]) and close[1] < ema5 and high >= ema5 and close < ema5 and close < open
+any_long   = barstate.isconfirmed and not na(ema5) and (mk_reclaim or mk_hold)
+any_short  = barstate.isconfirmed and not na(ema5) and mk_reject
+
+plotshape(show_long and any_long, title = "LONG", location = location.belowbar, color = col_sup, style = shape.triangleup, size = size.small)
+plotshape(show_short and any_short, title = "SHORT", location = location.abovebar, color = col_res, style = shape.triangledown, size = size.small)

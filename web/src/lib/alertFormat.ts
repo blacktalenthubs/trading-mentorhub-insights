@@ -47,6 +47,8 @@ export function formatSetup(alertType?: string): string {
     rc_4h_hrec: "4-hour high break",
     rc_daily_long: "Prior-day low reclaim",
     rc_daily_hrec: "Prior-day high break",
+    lmr_reclaim: "Reclaim (day-trade long)",
+    lmr_reject: "Reject (day-trade short)",
     pdh_held: "PDH held (broke + held)",
     pdl_held: "PDL held (support)",
     orb_high_held: "ORB high held",
@@ -120,6 +122,8 @@ export function setupBlurb(alertType?: string): string {
     return `Price ${act}.`;
   }
   const BLURB: Record<string, string> = {
+    lmr_reclaim: "Closed back above a daily MA or PDH/PDL — the level (named in the alert) flipped to support.",
+    lmr_reject: "Closed back below a daily MA or PDH/PDL — lost the level (named in the alert).",
     rc_4h_long: "Dipped under the 4-hour low and reclaimed it — bounce off support.",
     rc_4h_hrec: "Pushed back above the 4-hour high — continuation.",
     rc_daily_long: "Dipped under yesterday's low and reclaimed it — bounce.",

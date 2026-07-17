@@ -335,6 +335,15 @@ strict_long(float ma) =>
 strict_short(float ma) =>
     not na(ma) and day_open < ma and high >= ma and close < ma
 
+// Reclaim (VISUAL arrow only — NO alert). Price OPENED BELOW the MA (it was resistance)
+// and is now CLOSED back ABOVE it = reclaimed the level from below. The mirror of a
+// rejection. Uses only THIS bar's open/close (no close[1] cross), so it renders live on the
+// forming candle — including a gap-down-then-reclaim (yesterday closed above, today opened
+// below & reclaimed). Deliberately not alerted — reclaim-longs grind up through overhead
+// stacks (see header notes); this is just an on-chart heads-up.
+reclaim_long(float ma) =>
+    not na(ma) and day_open < ma and open <= ma and close > ma
+
 band_long(float ma) =>
     not na(ma) and recently_above_ma(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
 
@@ -403,6 +412,9 @@ prox_s200_s = fire_proximity_alerts and proximity_short(sma200, proximity_pct) a
 // sma100 dropped (kept the per-MA fires above, just excluded from the aggregate/tag).
 any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e200   or fire_s50   or fire_s200
 any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e200 or s_fire_s50 or s_fire_s200
+// Reclaim is VISUAL-only, so it uses the FULL MA set (incl. 100 EMA/SMA that the #282
+// alert-aggregate dropped) — the 100s are prime reclaim levels (NVDA 100 EMA/SMA).
+any_reclaim = reclaim_long(ema8) or reclaim_long(ema21) or reclaim_long(ema50) or reclaim_long(ema100) or reclaim_long(ema200) or reclaim_long(sma50) or reclaim_long(sma100) or reclaim_long(sma200)
 
 any_prox_long  = prox_e8_l or prox_e21_l or prox_e50_l or prox_e100_l or prox_e200_l or prox_s50_l or prox_s100_l or prox_s200_l
 any_prox_short = prox_e8_s or prox_e21_s or prox_e50_s or prox_e100_s or prox_e200_s or prox_s50_s or prox_s100_s or prox_s200_s
@@ -423,6 +435,12 @@ plotshape(show_markers and any_short,
           color = color.new(color.red, 0), style = shape.triangledown,
           size = size.tiny)
 
+// Reclaim arrow (visual only) — price closed back above an MA it opened below.
+plotshape(show_markers and any_reclaim,
+          title = "Reclaim LONG", location = location.belowbar,
+          color = color.new(color.aqua, 0), style = shape.triangleup,
+          size = size.small, text = "RC")
+
 // Proximity NOTICE markers — small dots, distinct from solid triangles so the
 // user can tell at-a-glance "near level" vs "actual defense".
 plotshape(show_markers and any_prox_long,
@@ -441,8 +459,7 @@ plotshape(show_markers and any_prox_short,
 // which MA it was lives in the alert payload (ma_tag from long_tag/short_tag,
 // kept) and is obvious from the colored flat line the bar is touching.
 
-bgcolor(any_long  ? color.new(color.green, 90) : na, title = "Bounce bg")
-bgcolor(any_short ? color.new(color.red,   90) : na, title = "Reject bg")
+// Bounce/Reject background shading REMOVED 2026-07-17 (user) — the arrows carry the signal.
 
 // MA value to anchor swing-mode stop -----------------------------------------
 float bounced_ma_long = na

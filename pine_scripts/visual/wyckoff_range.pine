@@ -1,0 +1,106 @@
+// @version=5
+//
+// WYCKOFF — Accumulation / Distribution range reader. VISUAL ONLY (no alerts).
+//
+// Wyckoff's core idea: big money ACCUMULATES (buys quietly) in a range NEAR THE LOWS after a decline,
+// then marks price up; and DISTRIBUTES (sells quietly) in a range NEAR THE HIGHS after an advance, then
+// marks it down. Phase ID is discretionary, but the mechanical tells are codable. This reads FOUR:
+//
+//   1. STRUCTURE  — is price in a RANGE or trending? (efficiency ratio: lots of motion, no net progress = range)
+//   2. LOCATION   — is the range in the UPPER part of the bigger picture (distribution zone) or LOWER (accumulation)?
+//   3. PRIOR MOVE — did it get there via an advance (distrib) or a decline (accum)?
+//   4. EFFORT     — is OBV/volume RISING (buying absorbed) or FALLING (selling) inside the range?
+//
+// LOCATION is the fix that makes it faithful: distribution only paints near HIGHS, accumulation only near
+// LOWS — so a topping range reads red, a basing range reads green, and a post-crash bounce won't get
+// mislabeled "distribution". Shades GREEN=accum / RED=distrib / GREY=neutral range, draws the rails, marks
+// SPRINGS (▲ dip & reclaim) / UPTHRUSTS (▼ poke & fail) / CLIMAX bars (SC/BC), and shows its reasoning.
+//
+// Load on a symbol WITH volume. Heuristic — the table shows WHY it guessed, so read it as a lens.
+//
+indicator("Wyckoff · Accumulation / Distribution", "Wyckoff", overlay = true, max_labels_count = 100)
+
+gR = "Range detection"
+look     = input.int(30, "Range / effort lookback (bars)", minval = 10, maxval = 120, group = gR)
+erTh     = input.float(0.35, "Range threshold (efficiency ratio; higher = calls range more readily)", minval = 0.1, maxval = 0.9, step = 0.05, group = gR)
+locTh    = input.float(0.15, "Location deadband (how far from mid before it's 'near a high/low')", minval = 0.0, maxval = 0.4, step = 0.05, group = gR)
+gE = "Effort (volume / OBV)"
+climaxMult = input.float(2.0, "Climax volume = this × the average", minval = 1.2, step = 0.1, group = gE)
+gV = "Display"
+showBox   = input.bool(true,  "Shade the range (green=accum / red=distrib / grey=neutral)", group = gV)
+showRails = input.bool(true,  "Draw the range high / low rails", group = gV)
+showSpr   = input.bool(true,  "Mark Springs (▲) and Upthrusts (▼)", group = gV)
+showClimax= input.bool(true,  "Mark climax bars — SC (selling climax) / BC (buying climax)", group = gV)
+showTable = input.bool(true,  "Show the reasoning table", group = gV)
+
+// ── 1. STRUCTURE — range vs trend, via Kaufman's efficiency ratio (net move ÷ total path). ──
+// ER ≈ 1 → clean trend (all motion in one direction); ER ≈ 0 → choppy range (motion cancels out).
+netMove = math.abs(close - close[look])
+path    = math.sum(math.abs(close - close[1]), look)
+er      = path == 0 ? 0.0 : netMove / path
+inRange = er < erTh
+dirUp   = close > close[look]                             // recent net direction (for the trend label)
+
+// The range boundaries over the lookback (support = low, resistance = high).
+rngHi = ta.highest(high, look)
+rngLo = ta.lowest(low, look)
+
+// ── 2. LOCATION — where price sits inside the BIGGER picture (3× the lookback). ──
+bigHi = ta.highest(high, look * 3)
+bigLo = ta.lowest(low,  look * 3)
+pos   = bigHi == bigLo ? 0.5 : (close - bigLo) / (bigHi - bigLo)   // 0 = at the big low, 1 = at the big high
+nearHigh = pos >= 0.5 + locTh
+nearLow  = pos <= 0.5 - locTh
+
+// ── 3 & 4. PRIOR MOVE + EFFORT — context and volume pressure. ──
+obv     = ta.obv
+obvUp   = obv > obv[look]                                 // net buying pressure over the window
+
+// ── Classify — LOCATION *and* EFFORT must AGREE, or it stays neutral. Wyckoff:
+//   ACCUMULATION = a range near the LOWS with BUYING pressure absorbing supply.
+//   DISTRIBUTION = a range near the HIGHS with SELLING pressure (OBV rolling over while price holds up).
+// A range near the highs WITH buying pressure is NOT distribution — it's a bullish hold / re-accumulation
+// that usually breaks higher, so it stays NEUTRAL (grey). Only textbook agreement paints a colour. ──
+accum   = inRange and nearLow  and obvUp
+distrib = inRange and nearHigh and not obvUp
+neutral = inRange and not accum and not distrib
+
+colAcc = color.new(color.green,  85)
+colDis = color.new(color.red,    85)
+colNeu = color.new(color.gray,   90)
+boxCol = accum ? colAcc : distrib ? colDis : neutral ? colNeu : na
+bgcolor(showBox ? boxCol : na, title = "Phase shade")
+
+// ── Rails — flat range high / low while in a range ──
+plot(showRails and inRange ? rngHi : na, "Range high (resistance)", color = color.new(color.red, 20),   linewidth = 1, style = plot.style_linebr)
+plot(showRails and inRange ? rngLo : na, "Range low (support)",     color = color.new(color.green, 20), linewidth = 1, style = plot.style_linebr)
+
+// ── Springs & Upthrusts — the traps at the range edges (use the PRIOR bar's edge) ──
+spring   = showSpr and inRange and low  < rngLo[1] and close > rngLo[1]     // pierced support, closed back in → bear trap
+upthrust = showSpr and inRange and high > rngHi[1] and close < rngHi[1]     // pierced resistance, closed back in → bull trap
+plotshape(spring,   "Spring",   style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "Spring")
+plotshape(upthrust, "Upthrust", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.small, text = "UT")
+
+// ── Climax bars — high-volume extremes that often START a range (SC at lows, BC at highs) ──
+volMA = ta.sma(volume, look)
+sc = showClimax and volume > volMA * climaxMult and close < open and low  <= rngLo[1] * 1.003
+bc = showClimax and volume > volMA * climaxMult and close > open and high >= rngHi[1] * 0.997
+plotshape(sc, "Selling climax", style = shape.diamond, location = location.belowbar, color = color.new(color.aqua, 0),   size = size.tiny, text = "SC")
+plotshape(bc, "Buying climax",  style = shape.diamond, location = location.abovebar, color = color.new(color.orange, 0), size = size.tiny, text = "BC")
+
+// ── Reasoning table — solid dark cells so EVERY value is readable; shows WHY it guessed. ──
+phase = accum ? "ACCUMULATION" : distrib ? "DISTRIBUTION" : neutral ? "neutral range" : dirUp ? "trend up (markup)" : "trend down (markdown)"
+phCol = accum ? color.green : distrib ? color.red : color.gray
+cbg   = color.new(#1b1f2a, 0)                             // solid dark cell background
+if showTable and barstate.islast
+    var table t = table.new(position.top_right, 2, 5, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+    table.cell(t, 0, 0, "Wyckoff", text_color = color.white, bgcolor = color.new(color.black, 0), text_size = size.small)
+    table.cell(t, 1, 0, phase, text_color = color.white, bgcolor = color.new(phCol, 20), text_size = size.small)
+    table.cell(t, 0, 1, "Structure", text_color = color.silver, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 1, 1, inRange ? "RANGE (choppy)" : dirUp ? "trending UP" : "trending DOWN", text_color = color.white, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 0, 2, "Location", text_color = color.silver, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 1, 2, nearHigh ? "upper (near highs)" : nearLow ? "lower (near lows)" : "middle", text_color = color.white, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 0, 3, "Effort (OBV)", text_color = color.silver, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 1, 3, obvUp ? "BUYING pressure" : "SELLING pressure", text_color = obvUp ? color.lime : color.red, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 0, 4, "Range", text_color = color.silver, bgcolor = cbg, text_size = size.tiny)
+    table.cell(t, 1, 4, str.tostring(rngLo, format.mintick) + " – " + str.tostring(rngHi, format.mintick), text_color = color.white, bgcolor = cbg, text_size = size.tiny)

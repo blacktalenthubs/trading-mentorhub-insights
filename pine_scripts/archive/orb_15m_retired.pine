@@ -1,0 +1,325 @@
+// @version=5
+//
+// ORB — Opening Range Breakout, 15m. THE one ORB pine (the 5m engine is retired
+// to archive/orb_5m_retired.pine — sub-15m proved too noisy to trade).
+//
+// One call per session, then the pine both TRADES it and GRADES it:
+//
+//   BIAS↑ = first confirmed 15m CLOSE above the OR high (window) → day leans long.
+//   BIAS↓ = first confirmed 15m CLOSE below the OR low            → day leans short.
+//   CHOP  = window ends with no break                             → no call.
+//
+// PDH/PDL TRUST LAYER — an ORB is only trustworthy in confluence with the prior
+// day's levels. Live invalidation on every confirmed close after the call:
+//   ✗ broke PDL — a long that closes below the prior-day LOW is a failed entry.
+//   ✗ lost PDH  — once price has closed ABOVE the prior-day HIGH it must STAY
+//                 above; a close back below PDH invalidates the trade.
+//                 (SPY Jul-2: BIAS↑ fired at PDH 749.3, lost it, bled to 740.)
+// Shorts mirrored. The losing bar gets an orange "✗ INVAL — reason" tag the
+// moment it happens (exit signal, not an EOD autopsy) and the session tint
+// turns orange.
+//
+// TRADE GEOMETRY — each call draws its plan: stop = the opposite OR edge,
+// target = a measured move (1× the OR range), pulled in to the PDH when that
+// wall sits closer (a real level to trade into beats a projection).
+//
+// SCOREBOARD (top right) — every historical session self-grades at the close:
+//   HELD ✓ (closed beyond the box, call was right) · FADE ~ (back inside) ·
+//   REV ✗ (through the other side) · INVAL (trust layer killed it live),
+//   plus avg follow-through of SURVIVING calls in OR-range units. Flip the
+//   noise knobs / gates / trust layer and watch the table move — that is the
+//   validation, measured instead of eyeballed. Chop days: % that stayed in-box.
+//
+// VISUAL-ONLY validation pine — load on a 15m REGULAR-SESSION chart (ETH prints
+// would poison the OR and the PDH/PDL). Validate on SPY / QQQ / SOXL.
+//
+indicator("ORB · 15m Opening Range Breakout", "ORB", overlay = true, max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
+
+// ── Calls ─────────────────────────────────────────────────────────────────────
+gE = "Direction calls"
+en_long  = input.bool(true, "BIAS↑ — close above the OR high calls the day long", group = gE)
+en_short = input.bool(true, "BIAS↓ — close below the OR low calls the day short", group = gE)
+
+// ── PDH/PDL confluence — the trust layer ──────────────────────────────────────
+gP = "PDH/PDL trust layer"
+usePD  = input.bool(true, "Live invalidation — long dies on a close below PDL, or on losing PDH once crossed (shorts mirrored)", group = gP)
+showPD = input.bool(true, "Draw the PDH / PDL rails (thick steplines)", group = gP)
+colPDH = input.color(color.new(color.red, 0),    "PDH rail", group = gP, inline = "pd")
+colPDL = input.color(color.new(color.maroon, 0), "PDL rail", group = gP, inline = "pd")
+
+// ── Opening range + timing (MINUTE-based → TF-agnostic, tuned for 15m) ────────
+gW = "Opening range & window"
+orMin   = input.int(15,  "Opening-range minutes (15 = the classic first 15m bar)", minval = 15, maxval = 60, step = 15, group = gW)
+mornMin = input.int(120, "Call window minutes from the open (no call after this)", minval = 30, group = gW)
+
+// ── Noise knobs — default RAW (see everything), then tighten one at a time and
+// watch the table: buffer kills the graze-throughs, confirm bars the one-bar pokes.
+gN = "Noise knobs (default RAW)"
+bufPct  = input.float(0.0, "Break buffer — close must clear the box by this % of OR range", minval = 0.0, maxval = 50.0, step = 5.0, group = gN)
+confN   = input.int(1,     "Confirm bars — consecutive closes outside before the call", minval = 1, maxval = 3, group = gN)
+
+// ── Quality gates — ALL DEFAULT OFF (data before filter) ──────────────────────
+gQ = "Quality gates (default OFF — turn on to grade)"
+useVol   = input.bool(false, "Require volume expansion on the call bar", group = gQ)
+volMult  = input.float(1.2,  "  call-bar volume ≥ this × a rolling avg", minval = 1.0, step = 0.1, group = gQ)
+volLb    = input.int(20,     "  rolling volume-average lookback (bars)", minval = 5, group = gQ)
+useVwap  = input.bool(false, "Require close on the trend side of VWAP", group = gQ)
+useWidth = input.bool(false, "Require OR width inside a sane band", group = gQ)
+orMinPct = input.float(0.3,  "  OR width FLOOR — box ≥ this % of price (noise)", minval = 0.0, step = 0.1, group = gQ)
+orMaxPct = input.float(3.0,  "  OR width CAP — box ≤ this % of price (no room)", minval = 0.5, step = 0.5, group = gQ)
+
+// ── Visual ────────────────────────────────────────────────────────────────────
+gV = "Visual"
+showBox   = input.bool(true,  "Shade the opening-range box + edges", group = gV)
+showMid   = input.bool(true,  "Draw the OR midline (the day's pivot)", group = gV)
+showTrade = input.bool(true,  "Draw stop / target on the call bar", group = gV)
+showTint  = input.bool(true,  "Tint the session in the bias color after a call", group = gV)
+showTags  = input.bool(true,  "Mark call bars + EOD report-card tags", group = gV)
+showTable = input.bool(true,  "Show the hit-rate scoreboard", group = gV)
+colUp     = input.color(color.lime,   "BIAS↑",  group = gV, inline = "mk")
+colDn     = input.color(color.red,    "BIAS↓",  group = gV, inline = "mk")
+colBox    = input.color(color.new(color.gray, 90), "OR box fill", group = gV)
+colTgt    = input.color(color.green,  "Target", group = gV, inline = "tr")
+colStop   = input.color(color.red,    "Stop",   group = gV, inline = "tr")
+
+// ── Session anchor — new RTH session = the daily rollover (9:30 ET on an RTH chart).
+nD = ta.change(time("D")) != 0
+barsPerMin = math.max(1.0, timeframe.in_seconds() / 60.0)
+orBars   = math.max(1, math.round(orMin / barsPerMin))
+mornBars = math.round(mornMin / barsPerMin)
+
+var int sbar = 0
+
+// ── Prior-day levels (COMPLETED daily bars, no repaint) — the trust rails.
+hDp = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+lDp = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+// ── Per-session state (declared before grading so the nD block can read PRIOR
+// session values before anything resets).
+var float orh = na
+var float orl = na
+var int   biasDir  = 0       // 0 none · +1 long · -1 short (this session's call)
+var float callPx   = na      // close of the call bar (follow-through measured from here)
+var bool  hadOR    = false   // prior session completed an OR (so a no-call day counts as CHOP)
+var bool  inval    = false   // trust layer tripped this session
+var bool  crossUp  = false   // long has closed above PDH → must now hold it
+var bool  crossDn  = false   // short has closed below PDL → must now hold it
+
+// ── Scoreboard counters (grow across all visible history) ─────────────────────
+var int nLong = 0
+var int nLongHeld = 0
+var int nLongFade = 0
+var int nLongRev = 0
+var int nLongInv = 0
+var int nShort = 0
+var int nShortHeld = 0
+var int nShortFade = 0
+var int nShortRev = 0
+var int nShortInv = 0
+var int nChop = 0
+var int nChopIn = 0
+var float ftLongSum = 0.0    // follow-through of SURVIVING calls, in OR-range units
+var float ftShortSum = 0.0
+
+// ── GRADE THE PRIOR SESSION — on the first bar of a new day, close[1] is the prior
+// session's final 15m close (RTH chart ⇒ the daily close). orh/orl/biasDir/inval
+// still hold prior-session values here; everything resets right after.
+if nD and not na(orh)
+    float eod = close[1]
+    float rng = orh - orl
+    if biasDir != 0 and rng > 0
+        if inval
+            // already tagged live at the losing bar — just count it
+            if biasDir > 0
+                nLong += 1
+                nLongInv += 1
+            else
+                nShort += 1
+                nShortInv += 1
+        else
+            bool held = biasDir > 0 ? eod > orh : eod < orl
+            bool rev  = biasDir > 0 ? eod < orl : eod > orh
+            float ft  = biasDir > 0 ? (eod - callPx) / rng : (callPx - eod) / rng
+            if biasDir > 0
+                nLong += 1
+                nLongHeld += held ? 1 : 0
+                nLongFade += (not held and not rev) ? 1 : 0
+                nLongRev  += rev ? 1 : 0
+                ftLongSum += ft
+            else
+                nShort += 1
+                nShortHeld += held ? 1 : 0
+                nShortFade += (not held and not rev) ? 1 : 0
+                nShortRev  += rev ? 1 : 0
+                ftShortSum += ft
+            if showTags
+                string tag = held ? "✓ HELD" : rev ? "✗ REV" : "~ FADE"
+                color  tc  = held ? color.new(biasDir > 0 ? colUp : colDn, 0) : rev ? color.orange : color.gray
+                label.new(bar_index - 1, eod, tag + " " + str.tostring(ft, "#.#") + "R", style = biasDir > 0 ? label.style_label_down : label.style_label_up, color = na, textcolor = tc, size = size.small)
+    else if hadOR
+        // no call all morning — a chop day. Did the box hold the whole day?
+        nChop += 1
+        bool inside = eod <= orh and eod >= orl
+        nChopIn += inside ? 1 : 0
+        if showTags
+            label.new(bar_index - 1, eod, inside ? "▭ CHOP·in" : "▭ CHOP·out", style = label.style_label_down, color = na, textcolor = color.gray, size = size.small)
+
+// ── Session bookkeeping + OR build ────────────────────────────────────────────
+sbar := nD ? 0 : sbar + 1
+if nD
+    orh := high
+    orl := low
+    biasDir := 0
+    callPx  := na
+    hadOR   := false
+    inval   := false
+    crossUp := false
+    crossDn := false
+else if sbar < orBars
+    orh := math.max(orh, high)
+    orl := math.min(orl, low)
+orReady = sbar >= orBars
+if orReady
+    hadOR := true
+inMorn  = sbar <= mornBars
+
+orRange    = (not na(orh)) and (not na(orl)) ? orh - orl : na
+orMid      = not na(orRange) ? (orh + orl) / 2.0 : na
+orWidthPct = (not na(orRange)) and close > 0 ? orRange / close * 100.0 : na
+widthOK    = (not useWidth) or ((not na(orWidthPct)) and orWidthPct >= orMinPct and orWidthPct <= orMaxPct)
+
+volAvg = ta.sma(volume, volLb)
+volOK  = (not useVol) or ((not na(volAvg)) and volume >= volAvg * volMult)
+vwap   = ta.vwap(hlc3)
+
+// ── The call — first N consecutive closes beyond the box (+ buffer), once/day.
+// The buffer + run counters are THE noise fix: a graze-through no longer counts.
+float bufAbs = not na(orRange) ? orRange * bufPct / 100.0 : 0.0
+var int upRun = 0
+var int dnRun = 0
+upRun := (orReady and not na(orh) and close > orh + bufAbs) ? upRun + 1 : 0
+dnRun := (orReady and not na(orl) and close < orl - bufAbs) ? dnRun + 1 : 0
+
+vwapUpOK = (not useVwap) or close > vwap
+vwapDnOK = (not useVwap) or close < vwap
+callLong  = en_long  and biasDir == 0 and orReady and inMorn and widthOK and upRun >= confN and volOK and vwapUpOK
+callShort = en_short and biasDir == 0 and orReady and inMorn and widthOK and dnRun >= confN and volOK and vwapDnOK
+if callLong
+    biasDir := 1
+    callPx  := close
+if callShort and biasDir == 0
+    biasDir := -1
+    callPx  := close
+
+// ── TRADE GEOMETRY — stop = opposite OR edge · target = measured move (1× OR
+// range), pulled in to the PDH when that wall sits closer than the projection.
+longTgtRaw = (not na(orh)) and (not na(orRange)) ? orh + orRange : na
+longTgt    = (not na(hDp)) and (not na(longTgtRaw)) and hDp > close and hDp < longTgtRaw ? hDp : longTgtRaw
+shortTgt   = (not na(orl)) and (not na(orRange)) ? orl - orRange : na
+draw_trade(bool fire, float stp, float tgt) =>
+    if fire and showTrade and not na(stp) and not na(tgt)
+        line.new(bar_index, tgt, bar_index + 6, tgt, color = colTgt,  width = 1, style = line.style_dashed)
+        line.new(bar_index, stp, bar_index + 6, stp, color = colStop, width = 1, style = line.style_dashed)
+        label.new(bar_index + 6, tgt, "T " + str.tostring(tgt, format.mintick), style = label.style_label_left, color = na, textcolor = colTgt,  size = size.small)
+        label.new(bar_index + 6, stp, "S " + str.tostring(stp, format.mintick), style = label.style_label_left, color = na, textcolor = colStop, size = size.small)
+draw_trade(callLong,  orl, longTgt)
+draw_trade(callShort, orh, shortTgt)
+
+// ── TRUST LAYER — live invalidation on every confirmed close after the call.
+// Long : ✗ close below PDL (failed entry) · ✗ crossed above PDH then closed back
+// below it (must STAY above once through). Shorts mirrored. Marks the losing bar
+// the moment it happens — no waiting for EOD to find out the trade died.
+string invalWhy = na
+if usePD and biasDir != 0 and not inval and not na(hDp) and not na(lDp)
+    if biasDir > 0
+        crossUp := crossUp or close > hDp
+        if close < lDp
+            invalWhy := "broke PDL"
+        else if crossUp and close < hDp
+            invalWhy := "lost PDH"
+    else
+        crossDn := crossDn or close < lDp
+        if close > hDp
+            invalWhy := "broke PDH"
+        else if crossDn and close > lDp
+            invalWhy := "reclaimed PDL"
+if not na(invalWhy)
+    inval := true
+    if showTags and not na(orRange) and orRange > 0
+        float ftX = biasDir > 0 ? (close - callPx) / orRange : (callPx - close) / orRange
+        label.new(bar_index, close, "✗ INVAL — " + invalWhy + " " + str.tostring(ftX, "#.#") + "R", style = biasDir > 0 ? label.style_label_down : label.style_label_up, color = na, textcolor = color.orange, size = size.small)
+
+// ── CONFLUENCE MARKERS — the moment a PD level becomes the live rule, say so on
+// the chart. At the call: the FAIL line (the level that kills the entry). On the
+// first close through the far level: the HOLD line (the level that must not be
+// given back). This is the ORB↔PDH/PDL confluence made visible, bar by bar.
+if showPD and usePD
+    if callLong and not na(lDp)
+        line.new(bar_index, lDp, bar_index + 8, lDp, color = colPDL, width = 2)
+        label.new(bar_index + 8, lDp, "✗ FAIL below PDL", style = label.style_label_left, color = na, textcolor = colPDL, size = size.small)
+    if callShort and not na(hDp)
+        line.new(bar_index, hDp, bar_index + 8, hDp, color = colPDH, width = 2)
+        label.new(bar_index + 8, hDp, "✗ FAIL above PDH", style = label.style_label_left, color = na, textcolor = colPDH, size = size.small)
+    if biasDir > 0 and not inval and crossUp and not crossUp[1] and not na(hDp)
+        line.new(bar_index, hDp, bar_index + 8, hDp, color = color.orange, width = 2)
+        label.new(bar_index + 8, hDp, "✋ HOLD above PDH", style = label.style_label_left, color = na, textcolor = color.orange, size = size.small)
+    if biasDir < 0 and not inval and crossDn and not crossDn[1] and not na(lDp)
+        line.new(bar_index, lDp, bar_index + 8, lDp, color = color.orange, width = 2)
+        label.new(bar_index + 8, lDp, "✋ HOLD below PDL", style = label.style_label_left, color = na, textcolor = color.orange, size = size.small)
+
+// ── Visuals ───────────────────────────────────────────────────────────────────
+// OR box + PDH/PDL rails once per session, framed across the full day (the grade
+// is about the CLOSE, so they should reach it). 390 RTH minutes ⇒ dayBars.
+dayBars = math.round(390 / barsPerMin)
+orDone  = sbar == orBars
+if orDone and not na(orh)
+    if showBox
+        box.new(bar_index - orBars, orh, bar_index + dayBars - orBars, orl, border_color = color.new(color.gray, 55), bgcolor = colBox)
+        if showMid
+            line.new(bar_index - orBars, orMid, bar_index + dayBars - orBars, orMid, color = color.new(color.gray, 55), style = line.style_dotted)
+
+// PDH/PDL rails — PLOTS, not line objects: always drawn on every session (no
+// garbage collection on long histories), thick and opaque, and restyleable from
+// the indicator's Style tab. The step is the day boundary.
+plot(showPD ? hDp : na, "PDH", color = colPDH, linewidth = 3, style = plot.style_stepline)
+plot(showPD ? lDp : na, "PDL", color = colPDL, linewidth = 3, style = plot.style_stepline)
+
+plotshape(showTags and callLong,  title = "Bias up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.small, text = "BIAS↑")
+plotshape(showTags and callShort, title = "Bias down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.small, text = "BIAS↓")
+
+// session tint: bias color while the call lives · ORANGE once the trust layer kills it
+bgcolor(showTint and biasDir != 0 ? (inval ? color.new(color.orange, 92) : biasDir > 0 ? color.new(colUp, 94) : color.new(colDn, 94)) : na)
+
+// ── Scoreboard ────────────────────────────────────────────────────────────────
+var table tb = table.new(position.top_right, 7, 4, border_width = 1)
+pct(int a, int b) => b > 0 ? str.tostring(100.0 * a / b, "#") + "%" : "—"
+if showTable and barstate.islast
+    color hd = color.new(color.gray, 40)
+    table.cell(tb, 0, 0, "ORB",    text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 1, 0, "N",      text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 2, 0, "HELD",   text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 3, 0, "FADE",   text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 4, 0, "REV",    text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 5, 0, "INVAL",  text_color = color.orange, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 6, 0, "avg FT", text_color = color.white, bgcolor = hd, text_size = size.small)
+    table.cell(tb, 0, 1, "BIAS↑",  text_color = colUp, text_size = size.small)
+    table.cell(tb, 1, 1, str.tostring(nLong), text_color = color.white, text_size = size.small)
+    table.cell(tb, 2, 1, pct(nLongHeld, nLong), text_color = colUp, text_size = size.small)
+    table.cell(tb, 3, 1, pct(nLongFade, nLong), text_color = color.gray, text_size = size.small)
+    table.cell(tb, 4, 1, pct(nLongRev, nLong),  text_color = color.orange, text_size = size.small)
+    table.cell(tb, 5, 1, pct(nLongInv, nLong),  text_color = color.orange, text_size = size.small)
+    table.cell(tb, 6, 1, nLong - nLongInv > 0 ? str.tostring(ftLongSum / (nLong - nLongInv), "#.##") + "R" : "—", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 2, "BIAS↓",  text_color = colDn, text_size = size.small)
+    table.cell(tb, 1, 2, str.tostring(nShort), text_color = color.white, text_size = size.small)
+    table.cell(tb, 2, 2, pct(nShortHeld, nShort), text_color = colUp, text_size = size.small)
+    table.cell(tb, 3, 2, pct(nShortFade, nShort), text_color = color.gray, text_size = size.small)
+    table.cell(tb, 4, 2, pct(nShortRev, nShort),  text_color = color.orange, text_size = size.small)
+    table.cell(tb, 5, 2, pct(nShortInv, nShort),  text_color = color.orange, text_size = size.small)
+    table.cell(tb, 6, 2, nShort - nShortInv > 0 ? str.tostring(ftShortSum / (nShort - nShortInv), "#.##") + "R" : "—", text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 3, "CHOP",   text_color = color.gray, text_size = size.small)
+    table.cell(tb, 1, 3, str.tostring(nChop), text_color = color.white, text_size = size.small)
+    table.cell(tb, 2, 3, pct(nChopIn, nChop) + " in-box", text_color = color.gray, text_size = size.small)
+    table.cell(tb, 3, 3, "", text_size = size.small)
+    table.cell(tb, 4, 3, "", text_size = size.small)
+    table.cell(tb, 5, 3, "", text_size = size.small)
+    table.cell(tb, 6, 3, "", text_size = size.small)
