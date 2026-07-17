@@ -125,6 +125,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
+    # Prior-Quarter reclaim (2026-07-17) — a DAILY CLOSE bounces the prior-quarter LOW, reclaims the
+    # CLOSE (value), or breaks the HIGH. Low win% / high R:R bottom-bounce & breakout swing (validated
+    # ~3-5:1 R:R). The level is named in the alert. From prior_quarter_hl.pine (bind on the daily chart).
+    ("pq_reclaim", "PQ reclaim — daily close bounced the prior-quarter LOW / reclaimed the CLOSE / broke the HIGH (bottom-bounce & breakout swing; level named)", "Swing", True),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
@@ -248,9 +252,11 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
-    ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
-    ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
-    ("staged_pml", "long_term"),
+    # 2026-07-17 (user) — MERGE long-term INTO swing (same focus). Monthly box / MoBO + weekly 10w/30w
+    # now classify as swing so Settings shows ONE swing group, not separate long-term panels.
+    ("monthly_", "swing"), ("mobo_", "swing"),
+    ("weekly_10w", "swing"), ("weekly_30w", "swing"),
+    ("cml_", "long_term"), ("pml_", "long_term"), ("staged_pml", "long_term"),
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
     ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
@@ -387,6 +393,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "pdh_held", "pdl_held",
     "htf_support_held", "htf_proximity",
     "gap_up_continuation_long",
+    # 2026-07-17 SWING TRIM (user) — swing keeps only RSI-30 reclaim + 5/20 cross + the new PQ reclaim.
+    # These are retired; long-term (weekly/monthly) merges INTO the swing group (style_for change below).
+    "base_buy", "character_change", "new_high_breakout", "rsi_70", "rsi_oversold",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
