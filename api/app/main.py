@@ -485,6 +485,37 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register fundamentals refresh job")
 
+        # Nightly Fundamentals ENGINE (EDGAR deep fundamentals) — pulls SEC XBRL
+        # for every watchlist symbol, computes the red-flag / value metrics, scores
+        # + flags each name, and alerts on NEW red flags. Free (EDGAR only), cached
+        # + throttled. Runs at 03:00 ET, after the Finnhub refresh, so the two
+        # external feeds don't burst together. with notify=True. Self-contained imports.
+        try:
+            from analytics.fundamentals_engine_refresh import refresh_all as _refresh_engine
+            from apscheduler.triggers.cron import CronTrigger as _CronFE
+            from zoneinfo import ZoneInfo as _ZIFE
+            _etfe = _ZIFE("America/New_York")
+
+            def _run_fundamentals_engine():
+                try:
+                    from datetime import datetime as _dt
+                    _refresh_engine(sync_session_factory, as_of=_dt.now(_etfe).date(), notify=True)
+                except Exception:
+                    logger.exception("nightly fundamentals engine failed")
+
+            _engine_enabled = os.environ.get("FUND_ENGINE_ENABLED", "true").strip().lower() \
+                not in ("false", "0", "no", "off")
+            if _engine_enabled:
+                scheduler.add_job(
+                    _run_fundamentals_engine, _CronFE(hour=3, minute=0, timezone=_etfe),
+                    id="fundamentals_engine_nightly", replace_existing=True,
+                )
+                logger.info("Fundamentals engine scheduled (03:00 ET nightly, EDGAR)")
+            else:
+                logger.info("Fundamentals engine disabled (FUND_ENGINE_ENABLED=false)")
+        except Exception:
+            logger.exception("Failed to register fundamentals engine job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;

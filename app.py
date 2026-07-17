@@ -80,6 +80,7 @@ if _use_new_nav:
             "Analysis": [
                 _page("pages/performance.py", "Performance", ":material/assessment:", "pro"),
                 _page("pages/analysis.py", "Analysis", ":material/psychology:", "pro"),
+                _page("pages/fundamentals.py", "Fundamentals", ":material/account_balance:", "free"),
                 _page("pages/backtest.py", "Backtest", ":material/replay:", "elite"),
             ],
             "Account": [

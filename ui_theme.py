@@ -1050,6 +1050,7 @@ _PAGE_TITLES = {
     "dashboard": "TradeCoPilot",
     "performance": "Performance | TradeCoPilot",
     "analysis": "Analysis | TradeCoPilot",
+    "fundamentals": "Fundamentals | TradeCoPilot",
 }
 
 
