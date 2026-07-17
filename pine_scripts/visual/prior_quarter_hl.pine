@@ -1,0 +1,70 @@
+// @version=5
+//
+// PQHL — Prior Quarter High / Low. VISUAL ONLY. Two horizontal lines: the HIGH and LOW of the last
+// COMPLETED 3-month (quarterly) candle, locked via request.security so they sit at the same price on
+// every chart TF. The completed quarter = fixed values (no repaint). A starting block for longer-term
+// entry patterns — the prior-quarter range is major, slow S/R.
+//
+indicator("Prior Quarter High/Low", "PQ H/L", overlay = true, max_lines_count = 10, max_labels_count = 10)
+
+colH      = input.color(color.new(color.red, 0),   "Prior-quarter HIGH",  group = "Lines")
+colL      = input.color(color.new(color.teal, 0),  "Prior-quarter LOW",   group = "Lines")
+colC      = input.color(color.new(color.gray, 0),  "Prior-quarter CLOSE", group = "Lines")
+showClose = input.bool(true, "Show the CLOSE line", group = "Lines")
+lineW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = "Lines")
+showPrice = input.bool(true, "Show price in the label", group = "Lines")
+
+// Previous completed quarter's high / low / close (via [1] on the 3M timeframe, locked + no repaint).
+[pqh, pql, pqc] = request.security(syminfo.tickerid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+var line  lnH = na
+var line  lnL = na
+var line  lnC = na
+var label lbH = na
+var label lbL = na
+var label lbC = na
+
+if barstate.islast
+    line.delete(lnH)
+    line.delete(lnL)
+    line.delete(lnC)
+    label.delete(lbH)
+    label.delete(lbL)
+    label.delete(lbC)
+    if not na(pqh)
+        lnH := line.new(bar_index - 1, pqh, bar_index, pqh, extend = extend.both, color = colH, width = lineW)
+        lbH := label.new(bar_index + 5, pqh, "PQ High" + (showPrice ? "  " + str.tostring(pqh, format.mintick) : ""), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colH, 85), textcolor = colH, size = size.small)
+    if not na(pql)
+        lnL := line.new(bar_index - 1, pql, bar_index, pql, extend = extend.both, color = colL, width = lineW)
+        lbL := label.new(bar_index + 5, pql, "PQ Low" + (showPrice ? "  " + str.tostring(pql, format.mintick) : ""), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colL, 85), textcolor = colL, size = size.small)
+    if showClose and not na(pqc)
+        lnC := line.new(bar_index - 1, pqc, bar_index, pqc, extend = extend.both, color = colC, width = lineW, style = line.style_dashed)
+        lbC := label.new(bar_index + 5, pqc, "PQ Close" + (showPrice ? "  " + str.tostring(pqc, format.mintick) : ""), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colC, 85), textcolor = colC, size = size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// SWING ALERTS — a DAILY CLOSE reclaiming/bouncing a PQ level. BIND THIS PINE ON THE DAILY CHART.
+// Fires pq_reclaim (BUY) with the level named. Bottom-bounce / value-reclaim / breakout swing:
+// backtested low win% (~25-40%) but 3-5:1 R:R — the winners run the range (INOD 34→125), losers cut
+// under the level. Entry = close, stop = 1.5% under the level, targets = up the range toward PQ High.
+gA = "Swing alerts (bind on the DAILY chart)"
+fireAlerts = input.bool(true, "Fire PQ reclaim / bounce alerts on a daily close", group = gA)
+showMarks  = input.bool(true, "Show reclaim ▲ marks", group = gA)
+
+f_pqpay(string tag, float e, float s, float t1, float t2) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e, format.mintick) + '","stop":"' + str.tostring(s, format.mintick) + '","target_1":"' + str.tostring(t1, format.mintick) + '","target_2":"' + str.tostring(t2, format.mintick) + '","rule":"pq_reclaim","direction":"BUY","ma_tag":"' + tag + '"}'
+
+rng     = pqh - pql
+rc_low  = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql   // bounce off the quarterly LOW
+rc_close= not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc   // reclaim the quarterly CLOSE (value)
+rc_high = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh   // break the quarterly HIGH
+
+plotshape(showMarks and rc_low,   "PQ Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "PQ-L")
+plotshape(showMarks and rc_close, "PQ Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "PQ-C")
+plotshape(showMarks and rc_high,  "PQ High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "PQ-H")
+
+if fireAlerts and rc_low
+    alert(f_pqpay("PQ Low",   close, pql * 0.985, pqc, pqh), alert.freq_once_per_bar_close)
+if fireAlerts and rc_close
+    alert(f_pqpay("PQ Close", close, pqc * 0.985, pqh, pqh + rng * 0.5), alert.freq_once_per_bar_close)
+if fireAlerts and rc_high
+    alert(f_pqpay("PQ High",  close, pqh * 0.985, pqh + rng * 0.5, pqh + rng), alert.freq_once_per_bar_close)
