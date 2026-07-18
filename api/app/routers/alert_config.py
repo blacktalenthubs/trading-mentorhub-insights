@@ -40,10 +40,13 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
 # and the 5/20 EMA cross. EVERY other type is Day Trade. (Feed panels still use
 # style_for(); this mapping only drives the Settings buckets + bulk toggles.)
 SWING_TRADE_TYPES: frozenset[str] = frozenset({
-    "weekly_30w_held",   # wicked below & reclaimed the 30-week MA — long-hold trend support
-    "pq_reclaim",        # prior-quarter Low bounce / Close reclaim / High break
-    "ma200_bounce",      # daily close reclaimed the 200 EMA/SMA
-    "ema_5_20_cross",    # Steve Burns 5/20 daily bullish cross
+    "weekly_30w_held",         # wicked below & reclaimed the 30-week MA — long-hold trend support
+    "pq_reclaim",              # prior-quarter Low bounce / Close reclaim / High break
+    "ma200_bounce",            # daily close reclaimed the 200 EMA/SMA
+    "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross
+    "monthly_box",             # MoBO — monthly flat-base ceiling breakout (user 2026-07-18: breakout → swing)
+    "mobo_rch",                # MoBO RC-H — prior monthly high that capped price, broken
+    "ma_bounce_long_v3_sma200",  # the 200 SMA is swing support, not a day-trade bounce (user 2026-07-18)
 })
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
 
