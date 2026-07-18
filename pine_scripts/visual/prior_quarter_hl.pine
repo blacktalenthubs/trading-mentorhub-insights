@@ -16,6 +16,9 @@ showPrice = input.bool(true, "Show price in the label", group = "Lines")
 
 // Previous completed quarter's high / low / close (via [1] on the 3M timeframe, locked + no repaint).
 [pqh, pql, pqc] = request.security(syminfo.tickerid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+// Daily 200 EMA + 200 SMA — the institutional dip-buy zone. A DAILY-CLOSE bounce here is a SWING entry
+// (an intraday bounce is a day-trade, already fired by LMR). Emits ma200_bounce.
+[ema200d, sma200d] = request.security(syminfo.tickerid, "D", [ta.ema(close, 200)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
 
 var line  lnH = na
 var line  lnL = na
@@ -50,21 +53,28 @@ gA = "Swing alerts (bind on the DAILY chart)"
 fireAlerts = input.bool(true, "Fire PQ reclaim / bounce alerts on a daily close", group = gA)
 showMarks  = input.bool(true, "Show reclaim ▲ marks", group = gA)
 
-f_pqpay(string tag, float e, float s, float t1, float t2) =>
-    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e, format.mintick) + '","stop":"' + str.tostring(s, format.mintick) + '","target_1":"' + str.tostring(t1, format.mintick) + '","target_2":"' + str.tostring(t2, format.mintick) + '","rule":"pq_reclaim","direction":"BUY","ma_tag":"' + tag + '"}'
+f_pqpay(string rule, string tag, float e, float s, float t1, float t2) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e, format.mintick) + '","stop":"' + str.tostring(s, format.mintick) + '","target_1":"' + str.tostring(t1, format.mintick) + '","target_2":"' + str.tostring(t2, format.mintick) + '","rule":"' + rule + '","direction":"BUY","ma_tag":"' + tag + '"}'
 
 rng     = pqh - pql
 rc_low  = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql   // bounce off the quarterly LOW
 rc_close= not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc   // reclaim the quarterly CLOSE (value)
 rc_high = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh   // break the quarterly HIGH
+rc_e200 = not na(ema200d) and not na(close[1]) and close > ema200d and close[1] <= ema200d   // daily 200-EMA bounce
+rc_s200 = not na(sma200d) and not na(close[1]) and close > sma200d and close[1] <= sma200d   // daily 200-SMA bounce
 
 plotshape(showMarks and rc_low,   "PQ Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "PQ-L")
 plotshape(showMarks and rc_close, "PQ Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "PQ-C")
 plotshape(showMarks and rc_high,  "PQ High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "PQ-H")
+plotshape(showMarks and (rc_e200 or rc_s200), "200-MA bounce", style = shape.triangleup, location = location.belowbar, color = color.new(#7E57C2, 0), size = size.small, text = "200")
 
 if fireAlerts and rc_low
-    alert(f_pqpay("PQ Low",   close, pql * 0.985, pqc, pqh), alert.freq_once_per_bar_close)
+    alert(f_pqpay("pq_reclaim", "PQ Low",   close, pql * 0.985, pqc, pqh), alert.freq_once_per_bar_close)
 if fireAlerts and rc_close
-    alert(f_pqpay("PQ Close", close, pqc * 0.985, pqh, pqh + rng * 0.5), alert.freq_once_per_bar_close)
+    alert(f_pqpay("pq_reclaim", "PQ Close", close, pqc * 0.985, pqh, pqh + rng * 0.5), alert.freq_once_per_bar_close)
 if fireAlerts and rc_high
-    alert(f_pqpay("PQ High",  close, pqh * 0.985, pqh + rng * 0.5, pqh + rng), alert.freq_once_per_bar_close)
+    alert(f_pqpay("pq_reclaim", "PQ High",  close, pqh * 0.985, pqh + rng * 0.5, pqh + rng), alert.freq_once_per_bar_close)
+if fireAlerts and rc_e200
+    alert(f_pqpay("ma200_bounce", "EMA 200", close, ema200d * 0.985, close + (close - ema200d) * 2, close + (close - ema200d) * 3), alert.freq_once_per_bar_close)
+if fireAlerts and rc_s200
+    alert(f_pqpay("ma200_bounce", "SMA 200", close, sma200d * 0.985, close + (close - sma200d) * 2, close + (close - sma200d) * 3), alert.freq_once_per_bar_close)
