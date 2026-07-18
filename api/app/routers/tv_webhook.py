@@ -1045,6 +1045,12 @@ class TVWebhookPayload(BaseModel):
     # degrade conviction since directional setups have lower hit rate.
     inside_day: Optional[str] = None
     today_open: Optional[str] = None
+    # 2026-07-18: nearby_levels — the pine's full S/R stack as a "kind|value|label,..."
+    # CSV (PDH/PDL, PWH/PWL, PMH/PML + the daily EMA/SMA ladder). Feeds the Day-type
+    # target picker (T1 = nearest clustered level/EMA in the trade direction — every
+    # overhead MA/EMA and PDH/PDL IS the resistance a bounce trades into) and the
+    # confluence check. Absent on older pine snapshots → picker skips, fallback targets.
+    nearby_levels: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1890,7 +1896,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # level (a second MA / a prior high or low / the monthly AVWAP), append
     # a "Confluence:" line to the message. Single alert covers both setups
     # — never fire a second alert for a confluent twin.
-    _nearby_levels = getattr(sig, "_tv_nearby_levels", []) or []
+    # Prefer the pine's nearby_levels CSV (kind|value|label,...); legacy _tv_nearby_levels
+    # attr kept as fallback for any non-webhook caller that stamps it directly.
+    from analytics.target_picker import parse_nearby_levels as _parse_nl
+    if getattr(sig, "nearby_levels", None):
+        _nearby_levels = [{"label": _l, "value": _v} for _l, _v in _parse_nl(sig.nearby_levels)]
+    else:
+        _nearby_levels = getattr(sig, "_tv_nearby_levels", []) or []
     _entry_for_confluence = sig.entry if sig.entry not in (None, 0) else None
     if _nearby_levels and _entry_for_confluence:
         _confluences = find_confluences(float(_entry_for_confluence), _nearby_levels)
