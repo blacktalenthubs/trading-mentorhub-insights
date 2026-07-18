@@ -159,14 +159,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
     # the machine is deleted from rc.pine). → OBSOLETE below. The ONE ORB alert
     # is the 1h reclaim: clean, low-noise, once per session, allowlist-gated.
-    # ORB reclaim split into LOW vs HIGH (user 2026-07-14) — the side is essential context: a LOW
-    # reclaim (bounce off the OR low, stop just under it) is BETTER RISK than a HIGH reclaim (breakout-
-    # retest, stop the OR low = wider). Two types so the card names them + you can toggle each.
-    ("orb_reclaim_low", "ORB reclaim · LOW — bounced & reclaimed the 1h opening-range LOW (tight stop under the OR low · better risk)", "ORB · 1h", False),
-    ("orb_reclaim_high", "ORB reclaim · HIGH — broke & reclaimed the 1h opening-range HIGH (breakout-retest · stop the OR low)", "ORB · 1h", False),
-    # ORB HELD (2026-07-14) — the "held is the alert" on the 1h OR levels (deduped, re-arm latch).
-    ("orb_high_held", "ORB high held — broke the 1h OR HIGH, retested & held it (strength continuation)", "ORB · 1h", False),
-    ("orb_low_held", "ORB low held — held above the 1h OR LOW as support", "ORB · 1h", False),
+    # ORB · 1h family (orb_reclaim_low/high + orb_high/low_held) RETIRED 2026-07-18
+    # (user: "remove all orb alerts in settings") → OBSOLETE below. day_trade.pine still
+    # computes/emits them; fires drop at the global gate.
 
     # Index reclaim long (#65) RETIRED 2026-07-03 → OBSOLETE. Superseded by the new ORB
     # family (orb_held / orb_retest cover the ORH/PDH reclaim, across all rails) — removed
@@ -376,6 +371,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # (swing_scan.py may still emit base_buy/character_change — those fires now drop at the
     # global gate as type_not_enabled, which is the intent.)
     "character_change", "base_buy", "new_high_breakout", "fv_pullback", "fv_reclaim",
+    # 2026-07-18 — the whole ORB · 1h family retired too (user: "remove all orb alerts in settings").
+    "orb_reclaim_low", "orb_reclaim_high", "orb_high_held", "orb_low_held",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
