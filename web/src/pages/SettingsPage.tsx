@@ -604,7 +604,7 @@ function AlertTypesSection() {
   const GROUP_ORDER = ["Day Trade", "Swing Trade"];
   const GROUP_DESC: Record<string, string> = {
     "Day Trade": "In and out the same session. Reclaims (4h / prior-day), PDH/PDL breaks & holds, weekly + monthly levels, MA/EMA bounces, gap-and-go, index shorts.",
-    "Swing Trade": "Levels that create the potential to hold for multiple days into weeks: 30-week MA reclaim · prior-quarter (PQ) reclaim · 200-MA bounce · 5/20 EMA cross.",
+    "Swing Trade": "Levels that create the potential to hold for multiple days into weeks: 30-week MA reclaim · prior-quarter (PQ) reclaim · 200-MA bounce (daily close + SMA-200) · 5/20 EMA cross · monthly box breakouts (MoBO).",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
@@ -647,7 +647,7 @@ function AlertTypesSection() {
                 <div className="border-t border-border-subtle px-3 pb-3 pt-2">
                   <div className="divide-y divide-border-subtle/40">
                     {items.map((t) => {
-                      const isShort = /\bshort\b/i.test(t.label);
+                      const isShort = t.category === "Short" || /\b(short|reject)\b/i.test(t.label);
                       const [name] = t.label.split(" — ");
                       return (
                         <div key={t.alert_type} className="flex items-center gap-2.5 py-1.5">
