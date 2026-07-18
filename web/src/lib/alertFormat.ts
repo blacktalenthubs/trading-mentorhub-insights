@@ -48,6 +48,7 @@ export function formatSetup(alertType?: string): string {
     rc_daily_long: "Prior-day low reclaim",
     rc_daily_hrec: "Prior-day high break",
     pq_reclaim: "Prior-quarter reclaim (swing)",
+    ma200_bounce: "200-MA bounce (swing)",
     pdh_held: "PDH held (broke + held)",
     pdl_held: "PDL held (support)",
     orb_high_held: "ORB high held",
@@ -122,6 +123,7 @@ export function setupBlurb(alertType?: string): string {
   }
   const BLURB: Record<string, string> = {
     pq_reclaim: "Daily close bounced the prior-quarter low, reclaimed the close, or broke the high — bottom-bounce / breakout swing.",
+    ma200_bounce: "Daily close reclaimed the 200 EMA/SMA — the institutional dip-buy zone; a swing bottom.",
     rc_4h_long: "Dipped under the 4-hour low and reclaimed it — bounce off support.",
     rc_4h_hrec: "Pushed back above the 4-hour high — continuation.",
     rc_daily_long: "Dipped under yesterday's low and reclaimed it — bounce.",
