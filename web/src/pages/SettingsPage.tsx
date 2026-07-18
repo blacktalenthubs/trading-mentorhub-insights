@@ -16,7 +16,6 @@ import {
   useTelegramLink,
   useTelegramUnlink,
   useAlertConfig,
-  useToggleAlertConfig,
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
@@ -722,91 +721,69 @@ function Toggle({ on, onClick, disabled, partial }: { on: boolean; onClick: () =
 
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
-  const toggle = useToggleAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
-  // Collapsible groups — ALL collapsed by default so the page isn't a wall of toggles (user 2026-07-14:
-  // "too scary, too much"). Expand a group to manage its types; the master toggle flips the whole group.
+  // TWO controls only (user 2026-07-18): Day Trade + Swing Trade. Each switch flips
+  // EVERY type in its style; "what's included" expands to a read-only list.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Group by the trade-style bucket (Day / Swing / Long-term) so users enable a
-  // whole style in one shot, not 45 toggles (2026-06-20).
-  const GROUP_ORDER = ["Day Trade", "Levels", "Swing Trade", "Long Term", "Notice", "Other"];
+  const GROUP_ORDER = ["Day Trade", "Swing Trade"];
   const GROUP_DESC: Record<string, string> = {
-    "Day Trade": "Out by the close — you sell it the same session at some point. Reclaims, ORB, MA bounces, gaps.",
-    "Levels": "Weekly + monthly High/Low levels (2 of each). One switch for all four structures: reclaim / held / break (long) + reject (short). Day-trade entries at the levels price actually reaches.",
-    "Swing Trade": "Held multiple days while the thesis stays good, above the 50-EMA. 20-EMA retest, 5/20 cross, RSI-30, bases, reversals, monthly-MA reclaim.",
-    "Long Term": "Position holds — weeks to months. Monthly box breakouts (MoBO), weekly 10w/30w MAs.",
-    "Notice": "Context only — not a tradable setup. Opt in per item if you want the heads-up.",
+    "Day Trade": "In and out the same session. Reclaims (4h / prior-day), PDH/PDL breaks & holds, weekly + monthly levels, ORB, MA/EMA bounces, gap-and-go, index shorts.",
+    "Swing Trade": "Levels that create the potential to hold for multiple days into weeks: 30-week MA reclaim · prior-quarter (PQ) reclaim · 200-MA bounce · 5/20 EMA cross.",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
-    (grouped[t.trade_group ?? "Other"] ??= []).push(t);
+    (grouped[t.trade_group ?? "Day Trade"] ??= []).push(t);
   }
   const orderedGroups = GROUP_ORDER.filter((g) => (grouped[g]?.length ?? 0) > 0);
-  const enabledCount = (types ?? []).filter((t) => t.enabled).length;
-  const total = types?.length ?? 0;
-  const busy = toggle.isPending || toggleAll.isPending;
+  const busy = toggleAll.isPending;
 
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
       <div className="mb-4 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2 text-[11px] leading-relaxed text-text-muted">
-        <b className="text-bullish-text">ON</b> = delivered to Telegram + your Signals feed ·{" "}
-        <b className="text-text-secondary">OFF</b> = still fires &amp; records silently for review ·
-        each <b className="text-text-secondary">family</b> toggles as a group.
-        {types && <span className="text-text-faint"> · {enabledCount} of {total} on</span>}
+        <b className="text-bullish-text">ON</b> = delivered to your Signals feed + notifications ·{" "}
+        <b className="text-text-secondary">OFF</b> = still fires &amp; records silently for review.
+        One switch per style — it turns the whole style on or off.
       </div>
 
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         {orderedGroups.map((group) => {
           const items = grouped[group];
           const onCount = items.filter((i) => i.enabled).length;
-          const clusters = Object.entries(
-            items.reduce((acc, t) => { (acc[t.category] ??= []).push(t); return acc; }, {} as Record<string, AlertTypeConfigItem[]>),
-          );
           return (
             <div key={group} className="rounded-lg border border-border-subtle bg-surface-1/40">
-              {/* Group header — click the row to expand/collapse; master toggle on the right */}
-              <div className="flex items-center justify-between px-3 py-2.5">
-                <button
-                  onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
-                  className="flex flex-1 items-center gap-2 text-left"
-                >
-                  <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-text-faint transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
-                  <span className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</span>
-                  <span className="text-[10px] text-text-faint">{onCount} of {items.length} on</span>
-                </button>
+              <div className="flex items-start justify-between gap-3 px-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</div>
+                  <p className="mt-1 text-[11px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>
+                  <button
+                    onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
+                    className="mt-2 flex items-center gap-1 text-[10.5px] text-text-faint hover:text-text-secondary"
+                  >
+                    <ChevronRight className={`h-3 w-3 transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
+                    {items.length} signals included · {onCount} on
+                  </button>
+                </div>
                 <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
               </div>
               {expanded.has(group) && (
-              <div className="border-t border-border-subtle px-3 pb-3 pt-2">
-              {GROUP_DESC[group] && <p className="mb-3 text-[10.5px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>}
-              <div className="space-y-4">
-                {clusters.map(([cluster, rows]) => (
-                  <div key={cluster}>
-                    <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-text-faint">{cluster}</div>
-                    <div className="divide-y divide-border-subtle/40 rounded-lg border border-border-subtle bg-surface-1 px-3">
-                      {rows.map((t) => {
-                        const isShort = /\bshort\b/i.test(t.label);
-                        const [name, ...rest] = t.label.split(" — ");
-                        const desc = rest.join(" — ");
-                        return (
-                          <div key={t.alert_type} className="flex items-center gap-2.5 py-2.5">
-                            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
-                            <div className="min-w-0 flex-1">
-                              <span className={`text-[12px] font-semibold ${t.enabled ? "text-text-primary" : "text-text-secondary"}`}>{name}</span>
-                              {desc && <span className="ml-2 text-[11px] text-text-faint">{desc}</span>}
-                            </div>
-                            <Toggle on={t.enabled} disabled={busy} onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })} />
-                          </div>
-                        );
-                      })}
-                    </div>
+                <div className="border-t border-border-subtle px-3 pb-3 pt-2">
+                  <div className="divide-y divide-border-subtle/40">
+                    {items.map((t) => {
+                      const isShort = /\bshort\b/i.test(t.label);
+                      const [name] = t.label.split(" — ");
+                      return (
+                        <div key={t.alert_type} className="flex items-center gap-2.5 py-1.5">
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
+                          <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-secondary">{name}</span>
+                          <span className={`text-[9px] font-bold uppercase ${t.enabled ? "text-bullish-text" : "text-text-faint"}`}>{t.enabled ? "on" : "off"}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-              </div>
+                </div>
               )}
             </div>
           );
