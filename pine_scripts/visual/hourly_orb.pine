@@ -5,7 +5,7 @@
 //
 // Load on a REGULAR-SESSION (RTH) chart so the opening range anchors at the 9:30 open (ETH poisons
 // it). Companion to the 15-min ORB in rc.pine — this one is the slower, 1-hour range for context.
-indicator("Hourly ORB · ORH/ORL + PDH/PDL + MA reclaim/reject · VISUAL", "H-ORB", overlay = true, max_lines_count = 200, max_labels_count = 500, max_boxes_count = 60)
+indicator("Hourly ORB · ORH/ORL + PDH/PDL · VISUAL", "H-ORB", overlay = true, max_lines_count = 200, max_labels_count = 60, max_boxes_count = 60)
 
 gS = "Opening range (1-hour, locked to 1h bars)"
 orMin   = input.int(60,  "Opening-range minutes", minval = 60, maxval = 240, step = 60, group = gS)
@@ -106,71 +106,6 @@ plotshape(showRc and orh_rc, "ORH reclaim", style = shape.triangleup, location =
 
 // NO alert() here — H-ORB is VISUAL only (the arrows above just SHOW the reclaims). The actual
 // orb_reclaim ALERT lives in rc.pine (an already-bound pine), since only 2 alert-pines can be bound.
-
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// MA / EMA reclaim (▲) + reject (▼) — a pure day-trade tool on the daily MA levels. A daily MA is a
-// FLAT intraday level (it only updates on the daily close, like PDL). When a bar CLOSES BACK ABOVE
-// an MA it was below = RECLAIM (bullish ▲); when it CLOSES BACK BELOW an MA it was above = REJECT /
-// lose (bearish ▼). ta.crossover/under fire ON the crossing bar and render live on the forming bar,
-// and each arrow is TAGGED with which MA crossed (8E / 21E / 100E / 200S …).
-gM = "MA / EMA reclaim (▲) + reject (▼)"
-enMA     = input.bool(true, "Mark MA reclaim (▲) / reject (▼) with a tag", group = gM)
-showMAln = input.bool(true, "Draw the daily MA levels as flat lines", group = gM)
-maSzIn   = input.string("small", "Arrow tag size", options = ["tiny", "small", "normal"], group = gM)
-useE8   = input.bool(true, "EMA 8",   group = gM, inline = "e")
-useE21  = input.bool(true, "EMA 21",  group = gM, inline = "e")
-useE50  = input.bool(true, "EMA 50",  group = gM, inline = "e")
-useE100 = input.bool(true, "EMA 100", group = gM, inline = "f")
-useE200 = input.bool(true, "EMA 200", group = gM, inline = "f")
-useS50  = input.bool(true, "SMA 50",  group = gM, inline = "s")
-useS100 = input.bool(true, "SMA 100", group = gM, inline = "s")
-useS200 = input.bool(true, "SMA 200", group = gM, inline = "s")
-_maSz = maSzIn == "tiny" ? size.tiny : maSzIn == "normal" ? size.normal : size.small
-
-// Daily MAs (yesterday's settled value via [1] — flat intraday), bundled into 2 security calls.
-[ema8, ema21, ema50, ema100, ema200] = request.security(syminfo.tickerid, "D", [ta.ema(close, 8)[1], ta.ema(close, 21)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1]], lookahead = barmerge.lookahead_on)
-[sma50, sma100, sma200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
-
-// Tag builders — ta.crossover/under evaluated unconditionally (Pine needs ta.* on every bar).
-f_rc(bool use, float ma, string nm) =>
-    bool x = ta.crossover(close, ma)
-    use and not na(ma) and x ? nm + " " : ""
-f_rj(bool use, float ma, string nm) =>
-    bool x = ta.crossunder(close, ma)
-    use and not na(ma) and x ? nm + " " : ""
-
-rcTag = f_rc(useE8, ema8, "8E") + f_rc(useE21, ema21, "21E") + f_rc(useE50, ema50, "50E") + f_rc(useE100, ema100, "100E") + f_rc(useE200, ema200, "200E") + f_rc(useS50, sma50, "50S") + f_rc(useS100, sma100, "100S") + f_rc(useS200, sma200, "200S")
-rjTag = f_rj(useE8, ema8, "8E") + f_rj(useE21, ema21, "21E") + f_rj(useE50, ema50, "50E") + f_rj(useE100, ema100, "100E") + f_rj(useE200, ema200, "200E") + f_rj(useS50, sma50, "50S") + f_rj(useS100, sma100, "100S") + f_rj(useS200, sma200, "200S")
-
-if enMA and rcTag != ""
-    label.new(bar_index, low, "▲ " + rcTag, yloc = yloc.belowbar, style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = _maSz)
-if enMA and rjTag != ""
-    label.new(bar_index, high, "▼ " + rjTag, yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = _maSz)
-
-// Flat MA lines — drawn once on the last bar, colored by role (green = support / red = resistance).
-var line[]  maLines = array.new_line()
-var label[] maLbls  = array.new_label()
-f_maLine(float ma, string nm, bool dotted, bool use) =>
-    if showMAln and use and not na(ma)
-        bool sup = close > ma
-        color mc = sup ? color.new(color.teal, 0) : color.new(color.red, 0)
-        array.push(maLines, line.new(bar_index - 60, ma, bar_index + 4, ma, color = mc, width = 1, style = dotted ? line.style_dotted : line.style_solid))
-        array.push(maLbls, label.new(bar_index + 4, ma, nm + (sup ? " S " : " R ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = color.new(mc, 80), textcolor = mc, size = size.small))
-if barstate.islast
-    for l in maLines
-        line.delete(l)
-    for lb in maLbls
-        label.delete(lb)
-    array.clear(maLines)
-    array.clear(maLbls)
-    f_maLine(ema8,   "EMA 8",   false, useE8)
-    f_maLine(ema21,  "EMA 21",  false, useE21)
-    f_maLine(ema50,  "EMA 50",  false, useE50)
-    f_maLine(ema100, "EMA 100", false, useE100)
-    f_maLine(ema200, "EMA 200", false, useE200)
-    f_maLine(sma50,  "SMA 50",  true,  useS50)
-    f_maLine(sma100, "SMA 100", true,  useS100)
-    f_maLine(sma200, "SMA 200", true,  useS200)
 
 // ── Labels — the current value at the right edge, moved to the last bar each update ──
 f_lbl(bool cond, float y, string txt, color col) =>
