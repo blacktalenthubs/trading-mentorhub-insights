@@ -537,13 +537,21 @@ if show_lvl and barstate.islast
 //    end of the file replaces them. rl_orh/rl_orl are still computed above for the
 //    ORH/PDH reclaim-long alert logic; they just aren't drawn as lines anymore.) ──
 
+// ── nearby_levels — the full S/R stack, shipped with every alert (2026-07-18). ──
+// The backend target picker (spec 58 / #64-A) reads this to set T1 = the NEAREST
+// clustered level/EMA in the trade direction: every overhead MA/EMA and PDH/PDL IS
+// the resistance a bounce trades into — never an R-multiple. kind|value|label CSV;
+// na levels emit nothing. Day types consume it server-side; harmless on the rest.
+f_nl(string kind, float v, string lbl) => na(v) ? "" : kind + "|" + str.tostring(v, format.mintick) + "|" + lbl + ","
+nl_csv = f_nl("pdh", hDp, "PDH") + f_nl("pdl", lDp, "PDL") + f_nl("pwh", hWp, "PWH") + f_nl("pwl", lWp, "PWL") + f_nl("pmh", hMp, "PMH") + f_nl("pml", lMp, "PML") + f_nl("ema", ema8d, "EMA 8") + f_nl("ema", ema21d, "EMA 21") + f_nl("ema", ema50d, "EMA 50") + f_nl("ema", ema100d, "EMA 100") + f_nl("ema", ema200d, "EMA 200") + f_nl("sma", sma20d, "SMA 20") + f_nl("sma", sma50d, "SMA 50") + f_nl("sma", sma100d, "SMA 100") + f_nl("sma", sma200d, "SMA 200")
+
 // ── Alerts ────────────────────────────────────────────────────────────────
 // entry = the RECLAIMED LEVEL (the prior-period low for RC, high for RC-H) — NOT
 // the bar's close. On a sharp V-reclaim the close can sit far above the level
 // (GOOGL daily 2026-06-23: wick 340.20 → close 348, but the reclaimed PDL was
 // 341.72 — entry must read 341.72, where the rc actually happened, stop 340.20).
 // "price" stays the live close so the feed shows level → current.
-rc_pay(string rule, string dir, string iv, float ent, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + iv + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","fired_at":"' + str.tostring(timenow) + '"}'
+rc_pay(string rule, string dir, string iv, float ent, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + iv + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + nl_csv + '","fired_at":"' + str.tostring(timenow) + '"}'
 
 if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
@@ -668,7 +676,7 @@ if mb_w30
 // Reclaim long (#65) — entry = the reclaim close, stop = the dip low, target = next
 // resistance. strike = nearest whole-dollar = the ~ATM call (small intraday moves need
 // ATM delta to pay). rule = reclaim_long so the backend routes + records it unchanged.
-reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C, nearest weekly expiry","fired_at":"' + str.tostring(timenow) + '"}'
+reclaim_pay(string lvl, float ent, float stp, float tgt) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"reclaim_long","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","strike":"' + str.tostring(int(math.round(ent))) + '","option":"~ATM ' + str.tostring(int(math.round(ent))) + 'C nearest weekly","note":"Reclaim long · reclaimed the ' + lvl + ' with room · stop ' + str.tostring(stp, format.mintick) + ' · take profit into ' + str.tostring(tgt, format.mintick) + ' · buy ≈ATM ' + str.tostring(int(math.round(ent))) + 'C, nearest weekly expiry","nearby_levels":"' + nl_csv + '","fired_at":"' + str.tostring(timenow) + '"}'
 if en_reclaim and rl_orhSig
     alert(reclaim_pay("ORH", close, rl_orhStop, rl_orhTgt), alert.freq_once_per_bar_close)
 if en_reclaim and rl_pdhSig
@@ -682,7 +690,7 @@ if en_reclaim and rl_pdhSig
 // MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
 // ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close
 // below = support lost). interval = the chart TF (intraday test of the daily MA).
-ma_pay(string matag, float ma) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ma_bounce_long_v3","direction":"BUY","ma_tag":"' + matag + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(ma, format.mintick) + '","note":"MA bounce — held the daily ' + matag + ' (stop = close below it)","fired_at":"' + str.tostring(timenow) + '"}'
+ma_pay(string matag, float ma) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ma_bounce_long_v3","direction":"BUY","ma_tag":"' + matag + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(ma, format.mintick) + '","note":"MA bounce — held the daily ' + matag + ' (stop = close below it)","nearby_levels":"' + nl_csv + '","fired_at":"' + str.tostring(timenow) + '"}'
 if mb_e8
     alert(ma_pay("8E", ema8d), alert.freq_once_per_bar_close)
 if mb_e21
