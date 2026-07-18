@@ -161,6 +161,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # families are being retired. Bind the LMR pine on the day-trade TF (e.g. 10m). Default ON. ──
     ("lmr_reclaim", "Reclaim ▲ — closed back ABOVE a daily MA or PDH/PDL (day-trade long; level named in the alert)", "Day-trade", True),
     ("lmr_reject", "Reject ▼ — closed back BELOW a daily MA or PDH/PDL (day-trade short / exit)", "Day-trade", True),
+    ("gap_up_continuation_long", "Gap-and-go ▲ — opened COMPLETELY ABOVE the prior-day high (full gap up) and holding above the open (day-trade momentum)", "Day-trade", True),
 
     # ORB (2026-07-08) — the 15m family (orb_break/held/retest/exit) is RETIRED
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
@@ -395,7 +396,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "weekly_lvl_reclaim", "weekly_lvl_reject", "monthly_lvl_reclaim", "monthly_lvl_reject",
     "pdh_held", "pdl_held",
     "htf_support_held", "htf_proximity",
-    "gap_up_continuation_long",
+    # gap_up_continuation_long RE-ADDED to the catalog 2026-07-17 (user) — the gap-and-go day-trade
+    # (opened completely above PDH & holding), emitted by LMR. No longer obsolete.
     # 2026-07-17 SWING TRIM (user) — swing keeps only RSI-30 reclaim + 5/20 cross + the new PQ reclaim.
     # These are retired; long-term (weekly/monthly) merges INTO the swing group (style_for change below).
     "base_buy", "character_change", "new_high_breakout", "rsi_70", "rsi_oversold",

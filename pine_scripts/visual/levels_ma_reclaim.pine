@@ -49,11 +49,13 @@ _tsz = tagSzIn == "small" ? size.small : tagSzIn == "normal" ? size.normal : siz
 // ── Flat level lines ──
 gV = "Level lines"
 showLines = input.bool(true, "Draw the levels as flat lines (green support / red resistance)", group = gV)
+lineW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = gV)
 
 // ── Daily levels — flat intraday, locked (yesterday's settled value via [1] + lookahead_on) ──
 [ema8, ema21, ema50, ema100, ema200] = request.security(tid, "D", [ta.ema(close, 8)[1], ta.ema(close, 21)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1]], lookahead = barmerge.lookahead_on)
 [sma50, sma100, sma200] = request.security(tid, "D", [ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
 [pdh, pdl] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+day_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)   // today's daily open (gap detect)
 // Prior WEEK + prior MONTH high/low — flat, locked. Same day-trade S/R role, bigger degree.
 [pwh, pwl] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -111,6 +113,23 @@ f_level(sma50,  "50S",  "SMA 50",  useS50)
 f_level(sma100, "100S", "SMA 100", useS100)
 f_level(sma200, "200S", "SMA 200", useS200)
 
+// ── GAP-AND-GO — the day OPENED COMPLETELY ABOVE the prior-day HIGH (a full gap up) and is HOLDING
+// above the open. Distinct from a reclaim (no dip below): price gapped over PDH and is running. Fires
+// once per session. Entry = close, stop = the gap floor (day open), targets 2R / 3R. ──
+gG = "Gap-and-go (opened above PDH)"
+enGap = input.bool(true, "Gap-and-go — opened above PDH & holding (day-trade long)", group = gG)
+var bool gapFired = false
+if newDay
+    gapFired := false
+gap_go = enGap and not na(day_open) and not na(pdh) and day_open > pdh and close > day_open and close > close[1] and not gapFired
+if gap_go
+    gapFired := true
+    label.new(bar_index, high, "GAP↑", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(color.orange, 0), textcolor = color.white, size = _tsz)
+    if fire_alerts
+        float gs = day_open
+        float gr = math.max(close - gs, close * 0.001)
+        alert(f_pay("gap_up_continuation_long", "BUY", "Gap-up", close, gs, close + gr * 2, close + gr * 3), alert.freq_once_per_bar_close)
+
 // ── Flat level lines — drawn once on the last bar, colored by role (green support / red resistance). ──
 var line[]  lnArr = array.new_line()
 var label[] lbArr = array.new_label()
@@ -118,7 +137,7 @@ f_line(float lev, string nm, bool dotted, bool en) =>
     if showLines and en and not na(lev)
         bool sup = close > lev
         color mc = sup ? color.new(color.teal, 0) : color.new(color.red, 0)
-        array.push(lnArr, line.new(bar_index - 50, lev, bar_index + 3, lev, color = mc, width = 1, style = dotted ? line.style_dotted : line.style_solid))
+        array.push(lnArr, line.new(bar_index - 50, lev, bar_index + 3, lev, color = mc, width = lineW, style = dotted ? line.style_dashed : line.style_solid))
         array.push(lbArr, label.new(bar_index + 3, lev, nm + (sup ? " S" : " R"), style = label.style_label_left, color = color.new(mc, 82), textcolor = mc, size = size.small))
 if barstate.islast
     for l in lnArr
