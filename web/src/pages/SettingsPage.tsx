@@ -648,11 +648,17 @@ function AlertTypesSection() {
                   <div className="divide-y divide-border-subtle/40">
                     {items.map((t) => {
                       const isShort = t.category === "Short" || /\b(short|reject)\b/i.test(t.label);
-                      const [name] = t.label.split(" — ");
+                      const [name, ...rest] = t.label.split(" — ");
+                      // Subtitle: the plain-language description from the catalog, falling back to
+                      // the label's own explainer after the dash.
+                      const subtitle = t.description || rest.join(" — ");
                       return (
-                        <div key={t.alert_type} className="flex items-center gap-2.5 py-1.5">
-                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
-                          <span className={`min-w-0 flex-1 truncate text-[11.5px] ${t.enabled ? "text-text-secondary" : "text-text-faint"}`}>{name}</span>
+                        <div key={t.alert_type} className="flex items-start gap-2.5 py-2">
+                          <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className={`text-[11.5px] ${t.enabled ? "text-text-secondary" : "text-text-faint"}`}>{name}</div>
+                            {subtitle && <div className="mt-0.5 text-[10px] leading-snug text-text-faint">{subtitle}</div>}
+                          </div>
                           <Toggle on={t.enabled} disabled={busy} onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })} />
                         </div>
                       );
