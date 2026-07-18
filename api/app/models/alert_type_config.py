@@ -132,6 +132,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # broadcast to every user who enabled the toggle, regardless of personal watchlist.
     # Label MUST stay < 200 chars — a longer label aborts the whole startup seed (see #821).
     ("pq_reclaim", "PQ reclaim (master universe) — quarterly-level bounce/reclaim/break on the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
+    # 200-MA bounce — the OTHER emit of swing_trade.pine (daily-close reclaim of the 200 EMA/SMA).
+    ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
