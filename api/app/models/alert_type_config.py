@@ -26,7 +26,7 @@ class AlertTypeConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     alert_type: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
-    label: Mapped[str] = mapped_column(String(140), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)  # fv_* labels run 167 chars; DB widened 140→200 (2026-07-18) — a too-long label aborts the WHOLE startup seed (silently: main.py catches it as a warning)
     category: Mapped[str] = mapped_column(String(60), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
