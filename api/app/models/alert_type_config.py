@@ -396,6 +396,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-17 SWING TRIM (user) — swing keeps only RSI-30 reclaim + 5/20 cross + the new PQ reclaim.
     # These are retired; long-term (weekly/monthly) merges INTO the swing group (style_for change below).
     "base_buy", "character_change", "new_high_breakout", "rsi_70", "rsi_oversold",
+    # 2026-07-17 SHORT = the MIRROR of the long (user) — the day-trade short is lmr_reject (close back
+    # BELOW a MA/PDH/PDL), the exact reverse of lmr_reclaim. The old SPY-only structural shorts are
+    # redundant with it → retired.
+    "staged_pdl_break", "staged_pdh_rejection", "pdh_fail_short", "staged_pdh_break",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
