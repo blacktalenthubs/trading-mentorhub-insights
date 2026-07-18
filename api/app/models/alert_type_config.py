@@ -128,7 +128,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Prior-Quarter reclaim (2026-07-17) — a DAILY CLOSE bounces the prior-quarter LOW, reclaims the
     # CLOSE (value), or breaks the HIGH. Low win% / high R:R bottom-bounce & breakout swing (validated
     # ~3-5:1 R:R). The level is named in the alert. From prior_quarter_hl.pine (bind on the daily chart).
-    ("pq_reclaim", "PQ reclaim — daily close bounced the prior-quarter LOW / reclaimed the CLOSE / broke the HIGH (bottom-bounce & breakout swing; level named)", "Swing", True),
+    ("pq_reclaim", "PQ reclaim (master universe) — a quarterly-level bounce/reclaim/break, scanned across the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
     # 200-MA bounce (2026-07-17) — daily close reclaimed the 200 EMA/SMA (institutional dip-buy zone).
     # Qualifies as BOTH swing (this, daily-close) and day-trade (LMR fires the intraday 200 reclaim).
     ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
