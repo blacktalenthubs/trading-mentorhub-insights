@@ -45,23 +45,50 @@ if barstate.islast
         lbC := label.new(bar_index + 5, pqc, "PQ Close" + (showPrice ? "  " + str.tostring(pqc, format.mintick) : ""), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colC, 85), textcolor = colC, size = size.small)
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
-// SWING ALERTS — a DAILY CLOSE reclaiming/bouncing a PQ level. BIND THIS PINE ON THE DAILY CHART.
-// Fires pq_reclaim (BUY) with the level named. Bottom-bounce / value-reclaim / breakout swing:
-// backtested low win% (~25-40%) but 3-5:1 R:R — the winners run the range (INOD 34→125), losers cut
-// under the level. Entry = close, stop = 1.5% under the level, targets = up the range toward PQ High.
-gA = "Swing alerts (bind on the DAILY chart)"
-fireAlerts = input.bool(true, "Fire PQ reclaim / bounce alerts on a daily close", group = gA)
+// SWING ALERTS — fire THE MOMENT a PQ level is reclaimed / broken, INTRADAY. BIND ON AN INTRADAY TF
+// (1h recommended) so you catch the break as it happens (AAPL 317 → 326), NOT the EOD close. Deduped
+// once per SESSION per level (the level breaks once, alerts once, resets next day). Fires pq_reclaim
+// (BUY) with the level named. Bottom-bounce / value-reclaim / breakout swing: backtested low win%
+// (~25-40%) but 3-5:1 R:R — winners run the range (INOD 34→125), losers cut under the level. Entry =
+// close, stop = 1.5% under the level, targets = up the range toward PQ High.
+gA = "Swing alerts — bind on an INTRADAY TF (e.g. 1h)"
+fireAlerts = input.bool(true, "Fire PQ reclaim / break alerts when a level is crossed (intraday, once/session)", group = gA)
 showMarks  = input.bool(true, "Show reclaim ▲ marks", group = gA)
 
 f_pqpay(string rule, string tag, float e, float s, float t1, float t2) =>
     '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e, format.mintick) + '","stop":"' + str.tostring(s, format.mintick) + '","target_1":"' + str.tostring(t1, format.mintick) + '","target_2":"' + str.tostring(t2, format.mintick) + '","rule":"' + rule + '","direction":"BUY","ma_tag":"' + tag + '"}'
 
+// Once-per-session latch per level — reset on a new day, so an intraday cross fires once (not on
+// every re-cross in chop). The cross itself (close crosses above the level) is TF-agnostic — on a 1h
+// chart it triggers on the 1h bar that breaks the level, i.e. intraday, not at the daily close.
+newDay = ta.change(time("D")) != 0
+var bool fL = false
+var bool fC = false
+var bool fH = false
+var bool fE2 = false
+var bool fS2 = false
+if newDay
+    fL := false
+    fC := false
+    fH := false
+    fE2 := false
+    fS2 := false
 rng     = pqh - pql
-rc_low  = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql   // bounce off the quarterly LOW
-rc_close= not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc   // reclaim the quarterly CLOSE (value)
-rc_high = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh   // break the quarterly HIGH
-rc_e200 = not na(ema200d) and not na(close[1]) and close > ema200d and close[1] <= ema200d   // daily 200-EMA bounce
-rc_s200 = not na(sma200d) and not na(close[1]) and close > sma200d and close[1] <= sma200d   // daily 200-SMA bounce
+rc_low  = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql and not fL         // bounce the quarterly LOW
+rc_close= not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc and not fC         // reclaim the quarterly CLOSE
+rc_high = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh and not fH         // break the quarterly HIGH
+rc_e200 = not na(ema200d) and not na(close[1]) and close > ema200d and close[1] <= ema200d and not fE2   // 200-EMA bounce
+rc_s200 = not na(sma200d) and not na(close[1]) and close > sma200d and close[1] <= sma200d and not fS2   // 200-SMA bounce
+if rc_low
+    fL := true
+if rc_close
+    fC := true
+if rc_high
+    fH := true
+if rc_e200
+    fE2 := true
+if rc_s200
+    fS2 := true
 
 plotshape(showMarks and rc_low,   "PQ Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "PQ-L")
 plotshape(showMarks and rc_close, "PQ Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "PQ-C")
