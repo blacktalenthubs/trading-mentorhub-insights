@@ -125,6 +125,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
+    # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
+    # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
+    # bottom-bounce & breakout swing. The level is named in the alert. From prior_quarter_hl.pine
+    # (bind on the daily chart, MASTER watchlist). Delivery = MASTER_OPTIN_TYPES in tv_webhook:
+    # broadcast to every user who enabled the toggle, regardless of personal watchlist.
+    # Label MUST stay < 200 chars — a longer label aborts the whole startup seed (see #821).
+    ("pq_reclaim", "PQ reclaim (master universe) — quarterly-level bounce/reclaim/break on the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
