@@ -3,9 +3,8 @@
 // WML — Weekly + Monthly Levels, COMBINED. Replaces weekly_levels.pine + monthly_levels.pine with a
 // single overlay: the last nWk weeks' + nMon months' HIGH and LOW as horizontal rails, colour-coded
 // by timeframe (weekly vs monthly). We track only H/L — the true swing extremes / strongest support
-// & resistance — not the open/close body edges. Each rail terminates on the RIGHT with its RECENCY tag
-// — PWH/PWL (prior week), PPWH/PPWL (prior-prior week), PMH/PML (prior month), PPMH/PPML (prior-prior
-// month) — price optional — so you can tell PW from PPW at a glance, instead of busy annotations.
+// & resistance — not the open/close body edges. Each rail terminates on the RIGHT with a plain tag,
+// "weekly-level" or "monthly-level" (price optional), instead of busy per-candle annotations.
 //
 // PLUS the one signal we watch: the wick-below-and-reclaim of a SUPPORT level — the day OPENED ABOVE
 // the level, price wicked BELOW it, and CLOSED back above (support held). Visual only, 1h-locked —
@@ -16,12 +15,9 @@ indicator("WML · Weekly + Monthly Levels", "WML", overlay = true, max_lines_cou
 gS = "Levels (High + Low only)"
 nWk      = input.int(2, "Weeks to draw + scan", minval = 1, maxval = 4, group = gS)
 nMon     = input.int(2, "Months to draw + scan", minval = 1, maxval = 6, group = gS)
-showCurLow = input.bool(true, "Track CURRENT week + month LOW (developing support · CWL / CML)", group = gS)
-confTol  = input.float(0.4, "Confluence merge tolerance (%) — levels within this collapse to one S/R mark", minval = 0.0, step = 0.1, group = gS) / 100.0
-tagOff   = input.int(3, "S/R mark offset — bars to the RIGHT of the last candle", minval = 0, maxval = 60, group = gS)
+showPrice = input.bool(true, "Include the price in the end tag", group = gS)
 colWk    = input.color(color.new(color.teal, 0),   "Weekly rails",  group = gS, inline = "c")
 colMo    = input.color(color.new(color.orange, 0), "Monthly rails", group = gS, inline = "c")
-lineW    = input.int(2, "Rail line thickness", minval = 1, maxval = 6, group = gS)
 
 gX = "Entry marks — how price interacts with a support level (long)"
 showReclaim = input.bool(true, "RC · RECLAIM — wicked below the level & closed back above (undercut & reclaim)", group = gX)
@@ -47,9 +43,6 @@ tid = syminfo.tickerid
 [mh4, ml4, mt4] = request.security(tid, "M", [high[4], low[4], time[4]], lookahead = barmerge.lookahead_on)
 [mh5, ml5, mt5] = request.security(tid, "M", [high[5], low[5], time[5]], lookahead = barmerge.lookahead_on)
 [mh6, ml6, mt6] = request.security(tid, "M", [high[6], low[6], time[6]], lookahead = barmerge.lookahead_on)
-// Current (developing) week + month LOW — lookahead_on so the realtime bar sees the running low.
-[curWkLow, curWkT] = request.security(tid, "W", [low, time], lookahead = barmerge.lookahead_on)
-[curMoLow, curMoT] = request.security(tid, "M", [low, time], lookahead = barmerge.lookahead_on)
 
 // Flat level arrays: nWk weeks × H/L (8 max), nMon months × H/L (12 max).
 wPr = array.from(wh1, wl1, wh2, wl2, wh3, wl3, wh4, wl4)
@@ -72,14 +65,6 @@ if newDay
     for k = 0 to 11
         array.set(mFired, k, false)
 
-// Recency name from the flat H/L index: k/2 → how many periods back (1 = prior "P",
-// 2 = prior-prior "PP"), k%2 → High (even) / Low (odd). → PWH/PWL (prior week),
-// PPWH/PPWL (prior-prior week), PMH/PML (prior month), PPMH/PPML (prior-prior month).
-f_pname(int k, string tf) =>
-    int _p = k / 2 + 1
-    string _ps = _p == 1 ? "P" : _p == 2 ? "PP" : "P" + str.tostring(_p)
-    _ps + tf + (k % 2 == 0 ? "H" : "L")
-
 markLevel(int k, float L, bool[] fired, string tf) =>
     if not na(L) and not array.get(fired, k)
         bool rc = showReclaim and day_open > L and low <= L and close > L and (L - low) / L >= minPen
@@ -92,10 +77,9 @@ markLevel(int k, float L, bool[] fired, string tf) =>
             color  _col  = rc ? color.lime : hd ? color.yellow : bk ? color.aqua : color.red
             string _kind = rc ? "wick & reclaim" : hd ? "held (touched & held)" : bk ? "break (closed up through)" : "reject (wicked above & lost it)"
             string _tfn  = tf == "W" ? "weekly" : "monthly"
-            string _pn   = f_pname(k, tf)
             float  _y    = rj ? high : low
             color  _tcol = rj ? color.white : color.black
-            label.new(bar_index, _y, _code + " " + _pn, style = rj ? label.style_label_down : label.style_label_up, color = _col, textcolor = _tcol, size = _msz, tooltip = _pn + " (" + _tfn + "-level) " + str.tostring(L, format.mintick) + " · " + _kind + " · stop " + str.tostring(_y, format.mintick))
+            label.new(bar_index, _y, _code + tf, style = rj ? label.style_label_down : label.style_label_up, color = _col, textcolor = _tcol, size = _msz, tooltip = _tfn + "-level " + str.tostring(L, format.mintick) + " · " + _kind + " · stop " + str.tostring(_y, format.mintick))
 
 if tfOK and barstate.isconfirmed and not na(day_open)
     for k = 0 to nWk * 2 - 1
@@ -103,22 +87,18 @@ if tfOK and barstate.isconfirmed and not na(day_open)
     for k = 0 to nMon * 2 - 1
         markLevel(k, array.get(mPr, k), mFired, "M")
 
-// ── Draw the rails once, on the last bar; collect every level, then cluster into S/R confluence marks. ──
+// ── Draw the rails once, on the last bar. Each ends with a plain "weekly-level" / "monthly-level" tag. ──
 var line[]  lns  = array.new_line()
 var label[] lbls = array.new_label()
-var float[] levs = array.new_float()
 
-// Append a level's NAME to `cur` (joined with "+") when its price falls inside the cluster [lo, hi].
-f_addName(string cur, float val, float lo, float hi, string nm) =>
-    (not na(val) and val >= lo and val <= hi) ? (cur == "" ? nm : cur + "+" + nm) : cur
-
-drawSet(float[] pr, int[] tm, int n, color col) =>
+drawSet(float[] pr, int[] tm, int n, color col, string tag) =>
     for k = 0 to n * 2 - 1
         float L = array.get(pr, k)
         int   t = int(array.get(tm, k))
         if not na(L) and not na(t)
-            array.push(lns, line.new(t, L, time, L, xloc = xloc.bar_time, color = col, width = lineW))
-            array.push(levs, L)
+            array.push(lns, line.new(t, L, time, L, xloc = xloc.bar_time, color = col, width = 1))
+            string _txt = showPrice ? tag + "  " + str.tostring(L, format.mintick) : tag
+            array.push(lbls, label.new(bar_index + 1, L, _txt, style = label.style_label_left, color = color.new(color.black, 100), textcolor = col, size = size.small))
 
 if barstate.islast
     for l in lns
@@ -127,41 +107,5 @@ if barstate.islast
         label.delete(lb)
     array.clear(lns)
     array.clear(lbls)
-    array.clear(levs)
-    drawSet(wPr, wTm, nWk, colWk)
-    drawSet(mPr, mTm, nMon, colMo)
-    // Current week + month LOW — developing support (dashed = live, repaints as the period unfolds).
-    if showCurLow and not na(curWkLow) and not na(curWkT)
-        array.push(lns, line.new(int(curWkT), curWkLow, int(time), curWkLow, xloc = xloc.bar_time, color = colWk, width = lineW, style = line.style_dashed))
-        array.push(levs, curWkLow)
-    if showCurLow and not na(curMoLow) and not na(curMoT)
-        array.push(lns, line.new(int(curMoT), curMoLow, int(time), curMoLow, xloc = xloc.bar_time, color = colMo, width = lineW, style = line.style_dashed))
-        array.push(levs, curMoLow)
-    // Cluster nearby levels → ONE mark, labelled by WHICH week/month it holds (PWH / PML / CWL / PWL+PMH…).
-    // Colour = role by side: price ABOVE → Support (green), BELOW → Resistance (red).
-    if array.size(levs) > 0
-        array.sort(levs, order.ascending)
-        int nL = array.size(levs)
-        int i = 0
-        while i < nL
-            float base = array.get(levs, i)
-            float sum  = base
-            int   j    = i + 1
-            while j < nL and (array.get(levs, math.min(j, nL - 1)) - base) <= base * confTol
-                sum := sum + array.get(levs, j)
-                j := j + 1
-            float avg  = sum / (j - i)
-            float cmax = array.get(levs, j - 1)
-            string nm = ""
-            for k = 0 to nWk * 2 - 1
-                nm := f_addName(nm, array.get(wPr, k), base, cmax, f_pname(k, "W"))
-            for k = 0 to nMon * 2 - 1
-                nm := f_addName(nm, array.get(mPr, k), base, cmax, f_pname(k, "M"))
-            if showCurLow
-                nm := f_addName(nm, curWkLow, base, cmax, "CWL")
-                nm := f_addName(nm, curMoLow, base, cmax, "CML")
-            bool  conf  = str.contains(nm, "+")
-            bool  isSup = close >= avg
-            color rcol  = isSup ? color.new(color.green, 0) : color.new(color.red, 0)
-            array.push(lbls, label.new(bar_index + tagOff, avg, nm, xloc = xloc.bar_index, style = label.style_label_left, color = color.new(rcol, conf ? 0 : 25), textcolor = color.white, size = conf ? size.normal : size.small))
-            i := j
+    drawSet(wPr, wTm, nWk, colWk, "weekly-level")
+    drawSet(mPr, mTm, nMon, colMo, "monthly-level")

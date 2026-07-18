@@ -125,13 +125,6 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
-    # Prior-Quarter reclaim (2026-07-17) — a DAILY CLOSE bounces the prior-quarter LOW, reclaims the
-    # CLOSE (value), or breaks the HIGH. Low win% / high R:R bottom-bounce & breakout swing (validated
-    # ~3-5:1 R:R). The level is named in the alert. From prior_quarter_hl.pine (bind on the daily chart).
-    ("pq_reclaim", "PQ reclaim (master universe) — a quarterly-level bounce/reclaim/break, scanned across the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
-    # 200-MA bounce (2026-07-17) — daily close reclaimed the 200 EMA/SMA (institutional dip-buy zone).
-    # Qualifies as BOTH swing (this, daily-close) and day-trade (LMR fires the intraday 200 reclaim).
-    ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
     ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
     ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
@@ -154,14 +147,6 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # reclaim, RC-model). All default OFF.
     ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
     ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
-
-    # ── Day-trade CORE (2026-07-17) — the LMR pine: on a crossover, price reclaims (▲ BUY) or rejects
-    # (▼ SHORT) a daily MA or PDH/PDL. The level is named in the alert (ma_tag). Intended to be the
-    # ONLY day-trade signal set (user 2026-07-17); the legacy MA-bounce / gap / ORL / open-line / held
-    # families are being retired. Bind the LMR pine on the day-trade TF (e.g. 10m). Default ON. ──
-    ("lmr_reclaim", "Reclaim ▲ — closed back ABOVE a daily MA or PDH/PDL (day-trade long; level named in the alert)", "Day-trade", True),
-    ("lmr_reject", "Reject ▼ — closed back BELOW a daily MA or PDH/PDL (day-trade short / exit)", "Day-trade", True),
-    ("gap_up_continuation_long", "Gap-and-go ▲ — opened COMPLETELY ABOVE the prior-day high (full gap up) and holding above the open (day-trade momentum)", "Day-trade", True),
 
     # ORB (2026-07-08) — the 15m family (orb_break/held/retest/exit) is RETIRED
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
@@ -256,11 +241,9 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
-    # 2026-07-17 (user) — MERGE long-term INTO swing (same focus). Monthly box / MoBO + weekly 10w/30w
-    # now classify as swing so Settings shows ONE swing group, not separate long-term panels.
-    ("monthly_", "swing"), ("mobo_", "swing"),
-    ("weekly_10w", "swing"), ("weekly_30w", "swing"),
-    ("cml_", "long_term"), ("pml_", "long_term"), ("staged_pml", "long_term"),
+    ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
+    ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
+    ("staged_pml", "long_term"),
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
     ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
@@ -381,30 +364,6 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
-    # ── 2026-07-17 DAY-TRADE CONSOLIDATION (user) — LMR (lmr_reclaim / lmr_reject) is now the SINGLE
-    # day-trade signal: reclaim/reject of any daily MA + PDH/PDL + PWH/PWL + PMH/PML, on a crossover,
-    # from ONE pine bound on the day-trade TF. Everything that duplicated a slice of that is retired:
-    # the per-MA bounce ladder, ORB, daily/4h RC, WLV/MLV level reclaims, PDH/PDL-held, HTF-held,
-    # pullback, gap-and-go. The SWING / POSITION book (character change, bases, 52w breakout, fair
-    # value, RSI, weekly 10w/30w holds, monthly box + MoBO, index shorts) is UNTOUCHED.
-    "ma_bounce_long_v3_ema8", "ma_bounce_long_v3_ema21", "ma_bounce_long_v3_ema50",
-    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_ema200",
-    "ma_bounce_long_v3_sma20", "ma_bounce_long_v3_sma50", "ma_bounce_long_v3_sma100", "ma_bounce_long_v3_sma200",
-    "pullback_long",
-    "orb_reclaim_low", "orb_reclaim_high", "orb_high_held", "orb_low_held",
-    "rc_daily_long", "rc_daily_hrec", "rc_4h_long",
-    "weekly_lvl_reclaim", "weekly_lvl_reject", "monthly_lvl_reclaim", "monthly_lvl_reject",
-    "pdh_held", "pdl_held",
-    "htf_support_held", "htf_proximity",
-    # gap_up_continuation_long RE-ADDED to the catalog 2026-07-17 (user) — the gap-and-go day-trade
-    # (opened completely above PDH & holding), emitted by LMR. No longer obsolete.
-    # 2026-07-17 SWING TRIM (user) — swing keeps only RSI-30 reclaim + 5/20 cross + the new PQ reclaim.
-    # These are retired; long-term (weekly/monthly) merges INTO the swing group (style_for change below).
-    "base_buy", "character_change", "new_high_breakout", "rsi_70", "rsi_oversold",
-    # 2026-07-17 SHORT = the MIRROR of the long (user) — the day-trade short is lmr_reject (close back
-    # BELOW a MA/PDH/PDL), the exact reverse of lmr_reclaim. The old SPY-only structural shorts are
-    # redundant with it → retired.
-    "staged_pdl_break", "staged_pdh_rejection", "pdh_fail_short", "staged_pdh_break",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",

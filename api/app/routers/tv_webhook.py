@@ -417,13 +417,6 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
     "monthly_box",           # MoBO — monthly base breakout
 })
 
-# Master-universe OPT-IN broadcast (2026-07-17, user). pq_reclaim (a quarterly-level bounce/break) is
-# RARE + high-value, so it scans the BROAD master watchlist (bind the PQ pine there) and delivers to
-# ANY user who OPTED IN — i.e. enabled the type — REGARDLESS of their personal watchlist. The per-user
-# type toggle IS the opt-in. Distinct from SWING_BROADCAST_TYPES: those bypass the toggle but stay
-# watchlist-gated; these are the opposite — broadcast to opted-in users, not watchlist-gated.
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim"})
-
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
     """Decide whether the rc_4h SHORT (4h failed-break rejection) must be
@@ -1931,17 +1924,11 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # master watchlist is for the AGENTS (premarket / trends / monthly-breakout scans), not user
         # pushes. A user with an EMPTY watchlist still falls back to broadcast (onboarding) inside
         # _users_watching.
-        if _bare_rule in MASTER_OPTIN_TYPES:
-            # Master-universe OPT-IN broadcast (2026-07-17, user): the rare quarterly PQ signal reaches
-            # every user who ENABLED it, regardless of their personal watchlist (the type toggle is the
-            # opt-in). Bind the PQ pine to the master watchlist so it scans the broad universe.
-            users = await _users_optedin_type(db, alert_type_full)
-        else:
-            users = await _users_watching(db, sig.symbol)
-            if _bare_rule not in SWING_BROADCAST_TYPES:
-                # Per-user type toggle (2026-06-20). The SWING_BROADCAST types still bypass the toggle
-                # (deliver without opting in) but are now scoped to the user's watchlist, not broadcast.
-                users = await _filter_users_by_type_pref(db, users, alert_type_full)
+        users = await _users_watching(db, sig.symbol)
+        if _bare_rule not in SWING_BROADCAST_TYPES:
+            # Per-user type toggle (2026-06-20). The SWING_BROADCAST types still bypass the toggle
+            # (deliver without opting in) but are now scoped to the user's watchlist, not broadcast.
+            users = await _filter_users_by_type_pref(db, users, alert_type_full)
         # OPTIONAL ORB noise clamp: a user with an EMPTY orb_symbols gets ORB for their
         # whole watchlist (like rc_4h); a user who SET a non-empty orb_symbols gets ORB
         # only for those names. No global suppression — just a per-user delivery clamp.
@@ -2324,33 +2311,6 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
         u for u in users
         if _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set()))
     ]
-
-
-async def _users_optedin_type(db, alert_type_full: str):
-    """ALL users who ENABLED this alert type (per-user pref), regardless of watchlist. For
-    MASTER_OPTIN_TYPES (pq_reclaim) — the quarterly scan runs on the broad master universe and the
-    per-user type toggle is the opt-in. Excludes the master-watchlist account. No pref row = OFF."""
-    from sqlalchemy.orm import selectinload
-    from app.models.user import User
-    from app.models.alert_type_pref import UserAlertTypePref
-    from app.dependencies import MASTER_WATCHLIST_EMAIL
-
-    rows = (await db.execute(
-        select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type).where(
-            UserAlertTypePref.enabled.is_(True)
-        )
-    )).all()
-    by_user: dict[int, set[str]] = {}
-    for uid, at in rows:
-        by_user.setdefault(uid, set()).add(at)
-    opted = [uid for uid, types in by_user.items() if _is_allowed_alert_type(alert_type_full, types)]
-    if not opted:
-        return []
-    result = await db.execute(
-        select(User).options(selectinload(User.subscription))
-        .where(User.id.in_(opted), User.email != MASTER_WATCHLIST_EMAIL)
-    )
-    return result.scalars().all()
 
 
 async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):

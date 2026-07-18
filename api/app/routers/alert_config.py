@@ -39,7 +39,6 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
 # one-shot "enable all Day / Swing / Long-term" so beginners pick a style, not
 # 45 toggles. Any category not listed falls under "Other".
 CATEGORY_TO_GROUP: dict[str, str] = {
-    "Day-trade": "Day Trade",         # LMR — lmr_reclaim / lmr_reject (the day-trade core)
     "Daily PDH/PDL": "Day Trade",
     "Weekly": "Day Trade",            # prior-week H/L levels, traded intraday
     "Monthly": "Day Trade",           # prior-month H/L levels
