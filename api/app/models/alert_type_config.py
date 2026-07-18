@@ -121,7 +121,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # gate), ≤ once/day each. rsi_70 = bullish (daily RSI above 70 can start a
     # parabola), rsi_oversold = first time the daily RSI enters the 30-35 buy zone
     # (reclaim 30 or hold — NEVER below 30), ema_5_20_cross = Steve Burns 5/20.
-    ("rsi_70", "RSI 70 — daily RSI crossed above 70 (momentum)", "Swing", False),
+    # rsi_70 RETIRED 2026-07-18 (user: "pointless for entry") → OBSOLETE below.
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
@@ -373,6 +373,8 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "character_change", "base_buy", "new_high_breakout", "fv_pullback", "fv_reclaim",
     # 2026-07-18 — the whole ORB · 1h family retired too (user: "remove all orb alerts in settings").
     "orb_reclaim_low", "orb_reclaim_high", "orb_high_held", "orb_low_held",
+    # 2026-07-18 — rsi_70 retired (user: "pointless for entry" — RSI>70 confirms momentum, doesn't time one).
+    "rsi_70",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
