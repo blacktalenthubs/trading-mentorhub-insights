@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.alert_type_config import AlertTypeConfig, describe_alert_type, style_for
+from app.models.alert_type_config import AlertTypeConfig, describe_alert_type
 from app.models.alert_type_pref import UserAlertTypePref
 from app.models.user import User
 
@@ -34,51 +34,23 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
         db.add(UserAlertTypePref(user_id=user_id, alert_type=alert_type, enabled=enabled))
 
 
-# Group the catalog's fine-grained categories into the 3 trade-style buckets
-# users actually think in (2026-06-20). Powers the Settings grouping + the
-# one-shot "enable all Day / Swing / Long-term" so beginners pick a style, not
-# 45 toggles. Any category not listed falls under "Other".
-CATEGORY_TO_GROUP: dict[str, str] = {
-    "Daily PDH/PDL": "Day Trade",
-    "Weekly": "Day Trade",            # prior-week H/L levels, traded intraday
-    "Monthly": "Day Trade",           # prior-month H/L levels
-    "Gap S/R": "Notice",              # gap fill/reject/support — context, not a setup
-    "Gap-and-go": "Day Trade",        # tradable (RSI 75 / morning-low stop)
-    "Multi-period S/R": "Notice",     # HTF S/R bounce/reject — context
-    "Index shorts": "Day Trade",
-    "Multi-touch levels": "Notice",   # multi-touch cross — context
-    "Market context": "Notice",       # index_open_strength removed
-    "4h reversal": "Day Trade",       # rc_4h / RC-H — the cornerstone
-    "Daily RC": "Day Trade",          # rc_daily_long/hrec — prior-day H/L reclaim (RC-model)
-    # "ORB · 15m" mapping removed 2026-07-08 — the 15m family retired (→ OBSOLETE).
-    "ORB · 1h": "Day Trade",           # orb_reclaim — 1h OR reclaim (the clean, low-noise one)
-    "Index reclaim": "Day Trade",     # reclaim_long — the backtested SPY/QQQ/DRAM edge (#65)
-    "Levels": "Notice",               # lost_support_reject — context
-    "Swing": "Swing Trade",
-    "MA / EMA · Bounce Long": "Swing Trade",
-    "MA / EMA · Rejection Short": "Notice",   # shorts → context; we prefer the long side
-    "Weekly trend": "Long Term",      # weekly 10w/30w MA + weekly RC
-    "Monthly trend": "Long Term",     # monthly_rc — prior-month H/L reclaim (rare position)
-}
-# Notice = info-only context, NOT tradable setups. Default OFF; users opt in per item.
-TRADE_GROUP_ORDER = ["Day Trade", "Levels", "Swing Trade", "Long Term", "Notice", "Other"]
-
-_STYLE_GROUP = {"day_trade": "Day Trade", "swing": "Swing Trade", "long_term": "Long Term"}
+# TWO-control Settings (user 2026-07-18): one switch per style, nothing else.
+# Swing Trade = the levels that create the potential to HOLD for multiple days
+# into weeks — 30-week MA reclaim, prior-quarter (PQ) reclaim, 200-MA bounce,
+# and the 5/20 EMA cross. EVERY other type is Day Trade. (Feed panels still use
+# style_for(); this mapping only drives the Settings buckets + bulk toggles.)
+SWING_TRADE_TYPES: frozenset[str] = frozenset({
+    "weekly_30w_held",   # wicked below & reclaimed the 30-week MA — long-hold trend support
+    "pq_reclaim",        # prior-quarter Low bounce / Close reclaim / High break
+    "ma200_bounce",      # daily close reclaimed the 200 EMA/SMA
+    "ema_5_20_cross",    # Steve Burns 5/20 daily bullish cross
+})
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
 
 
 def _group_for(alert_type: str, category: str) -> str:
-    """The Settings bucket for a type. Info/context keeps its category group; tradable types follow
-    style_for() so a SHARED category (weekly_rc vs weekly_10w) splits correctly by hold-horizon
-    (2026-07-07 — reclaims are day trades, MA bounces are day trades, trend-MA holds are swings)."""
-    # WLV/MLV levels get their OWN one-toggle group (user 2026-07-13): weekly + monthly, reclaim/held/
-    # break (BUY) + reject (SHORT) all flip together with the "Levels" master toggle. (Feed routing is
-    # unchanged — style_for still files them in the day_trade feed.)
-    if alert_type.startswith(("weekly_lvl", "monthly_lvl")):
-        return "Levels"
-    g = CATEGORY_TO_GROUP.get(category, "Other")
-    if g in ("Notice", "Other"):
-        return g
-    return _STYLE_GROUP.get(style_for(alert_type), g)
+    """The Settings bucket for a type — exactly two: Day Trade or Swing Trade."""
+    return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"
 
 
 class AlertConfigUpdate(BaseModel):
