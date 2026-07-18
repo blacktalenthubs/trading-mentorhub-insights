@@ -16,6 +16,7 @@ import {
   useTelegramLink,
   useTelegramUnlink,
   useAlertConfig,
+  useToggleAlertConfig,
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
@@ -721,9 +722,10 @@ function Toggle({ on, onClick, disabled, partial }: { on: boolean; onClick: () =
 
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
+  const toggle = useToggleAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
-  // TWO controls only (user 2026-07-18): Day Trade + Swing Trade. Each switch flips
-  // EVERY type in its style; "what's included" expands to a read-only list.
+  // TWO controls (user 2026-07-18): Day Trade + Swing Trade master switches; the
+  // expanded list keeps a small per-signal toggle ("i cant uncheck some" — same day).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const GROUP_ORDER = ["Day Trade", "Swing Trade"];
@@ -736,7 +738,7 @@ function AlertTypesSection() {
     (grouped[t.trade_group ?? "Day Trade"] ??= []).push(t);
   }
   const orderedGroups = GROUP_ORDER.filter((g) => (grouped[g]?.length ?? 0) > 0);
-  const busy = toggleAll.isPending;
+  const busy = toggle.isPending || toggleAll.isPending;
 
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
@@ -777,8 +779,8 @@ function AlertTypesSection() {
                       return (
                         <div key={t.alert_type} className="flex items-center gap-2.5 py-1.5">
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
-                          <span className="min-w-0 flex-1 truncate text-[11.5px] text-text-secondary">{name}</span>
-                          <span className={`text-[9px] font-bold uppercase ${t.enabled ? "text-bullish-text" : "text-text-faint"}`}>{t.enabled ? "on" : "off"}</span>
+                          <span className={`min-w-0 flex-1 truncate text-[11.5px] ${t.enabled ? "text-text-secondary" : "text-text-faint"}`}>{name}</span>
+                          <Toggle on={t.enabled} disabled={busy} onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })} />
                         </div>
                       );
                     })}
