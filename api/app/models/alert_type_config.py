@@ -134,12 +134,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("pq_reclaim", "PQ reclaim (master universe) — quarterly-level bounce/reclaim/break on the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
     # 200-MA bounce — the OTHER emit of swing_trade.pine (daily-close reclaim of the 200 EMA/SMA).
     ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
-    ("character_change", "Character Change — weekly reversal: volume surge + first 10w reclaim + higher low (validated +0.48R)", "Swing", True),
-    ("base_buy", "Buying in Bases — proven uptrend digesting, base right side lifting; tight stop (validated +0.22R)", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
-    ("new_high_breakout", "52-week high breakout — closed through the annual high in an uptrend on volume (momentum, validated +0.22R)", "Swing", True),
-    ("fv_pullback", "Fair Value pullback — held a RISING 20-week fair value (buy the pullback to the middle band); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
-    ("fv_reclaim", "Fair Value reclaim — closed back ABOVE a RISING 20-week fair value (the turn); stop = last week's low, T1 = upper band, then trail the weekly higher low", "Swing", True),
+    # character_change / base_buy / new_high_breakout / fv_pullback / fv_reclaim RETIRED 2026-07-18
+    # (user: "remove — we dont need them") → OBSOLETE below. The swing book is the two-control set:
+    # weekly_30w_held + pq_reclaim + ma200_bounce + ema_5_20_cross.
 
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
@@ -373,6 +371,11 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-07-18 — swing-book trim (user: "remove — we dont need them"). The swing set is now
+    # exactly weekly_30w_held / pq_reclaim / ma200_bounce / ema_5_20_cross; these five are cut.
+    # (swing_scan.py may still emit base_buy/character_change — those fires now drop at the
+    # global gate as type_not_enabled, which is the intent.)
+    "character_change", "base_buy", "new_high_breakout", "fv_pullback", "fv_reclaim",
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
