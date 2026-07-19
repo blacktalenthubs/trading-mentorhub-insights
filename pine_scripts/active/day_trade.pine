@@ -594,23 +594,30 @@ mlvPr  = array.from(mvh1, mvl1, mvo1, mvc1, mvh2, mvl2, mvo2, mvc2, mvh3, mvl3, 
 mlvTmA = array.from(mvt1, mvt1, mvt1, mvt1, mvt2, mvt2, mvt2, mvt2, mvt3, mvt3, mvt3, mvt3, mvt4, mvt4, mvt4, mvt4, mvt5, mvt5, mvt5, mvt5, mvt6, mvt6, mvt6, mvt6)
 mlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
 var bool[] mlv_fired = array.new_bool(24, false)
+var bool[] mlv_swept = array.new_bool(24, false)
 if nD
     for k = 0 to 23
         array.set(mlv_fired, k, false)
+        array.set(mlv_swept, k, false)
 // RECLAIM ONLY (user 2026-07-18): "an undercut level is a chance; a level approached from below
 // is resistance — we can't buy into resistance unless it's a breakout, and breakouts have their
 // own alerts." held / break / reject variants REMOVED — the ONE weekly/monthly level entry is the
 // undercut-and-reclaim: day opened ABOVE the level, price wicked below it, closed back above.
+// STATEFUL sweep (2026-07-18, SPY 07-10 replay): the dip and the reclaim may be DIFFERENT bars —
+// a multi-bar undercut (SPY spent 40 min under 751.31, dipped 0.43%, then reclaimed and ran to
+// 755) must still fire. Same ARM→SWEPT→FIRE idea as sweep_reclaim; sweep = any bar penetrating
+// >= lvlMinPen below the level, fire = the FIRST close back above it. Stop = the day low (lDd).
 if enLevels
     for k = 0 to mlvMon * 4 - 1
         float _L = array.get(mlvPr, k)
         bool _hl = k % 4 < 2 or not lvlHLonly
-        bool _rc = _hl and not na(_L) and dOpen > _L and low <= _L and close > _L and (_L - low) / _L >= lvlMinPen
-        if _rc and not array.get(mlv_fired, k)
+        if _hl and not na(_L) and dOpen > _L and low <= _L * (1.0 - lvlMinPen)
+            array.set(mlv_swept, k, true)
+        if _hl and not na(_L) and dOpen > _L and array.get(mlv_swept, k) and close > _L and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
             string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kd = array.get(mlvKdA, k)
-            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, low, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " — RECLAIM (undercut & reclaimed), entry at the level, stop " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
+            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, lDd, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 
 // ── WLV — WEEKLY LEVELS · directional reclaim (spec 69 · 2026-07-12). ────────────
 // The weekly twin of MLV: every completed weekly level — H/L/O/C of the last 4 weeks
@@ -625,20 +632,23 @@ wlvPr  = array.from(wvh1, wvl1, wvo1, wvc1, wvh2, wvl2, wvo2, wvc2, wvh3, wvl3, 
 wlvTmA = array.from(wvt1, wvt1, wvt1, wvt1, wvt2, wvt2, wvt2, wvt2, wvt3, wvt3, wvt3, wvt3, wvt4, wvt4, wvt4, wvt4)
 wlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
 var bool[] wlv_fired = array.new_bool(16, false)
+var bool[] wlv_swept = array.new_bool(16, false)
 if nD
     for k = 0 to 15
         array.set(wlv_fired, k, false)
-// RECLAIM ONLY (user 2026-07-18) — same rule as MLV above: held / break / reject removed.
+        array.set(wlv_swept, k, false)
+// RECLAIM ONLY + STATEFUL sweep (2026-07-18) — same rule as MLV above.
 if enLevels
     for k = 0 to wlvWk * 4 - 1
         float _WL = array.get(wlvPr, k)
         bool _whl = k % 4 < 2 or not lvlHLonly
-        bool _wrc = _whl and not na(_WL) and dOpen > _WL and low <= _WL and close > _WL and (_WL - low) / _WL >= lvlMinPen
-        if _wrc and not array.get(wlv_fired, k)
+        if _whl and not na(_WL) and dOpen > _WL and low <= _WL * (1.0 - lvlMinPen)
+            array.set(wlv_swept, k, true)
+        if _whl and not na(_WL) and dOpen > _WL and array.get(wlv_swept, k) and close > _WL and not array.get(wlv_fired, k)
             array.set(wlv_fired, k, true)
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
-            alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, low, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " — RECLAIM (undercut & reclaimed), entry at the level, stop " + str.tostring(low, format.mintick)), alert.freq_once_per_bar_close)
+            alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, lDd, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 
 // MoBO — monthly BOX breakout + monthly RC-H (long-term/position; default OFF, gate-exempt).
 // entry = the locked level (the buy point), stop = the base / pre-break low.
