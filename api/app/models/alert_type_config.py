@@ -40,7 +40,8 @@ MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
     # ma_rejection_short_v3 REVIVED 2026-07-18 (user: "a level above is resistance — a tag of the MA
     # from below that moves back below is a short; sometimes they don't wick, resistance is
-    # resistance until price STAYS above"). Tag tolerance ma_tol (0.25%), index allowlist only.
+    # resistance until price STAYS above"). Tag tolerance ma_tol (0.25%); whole watchlist (user:
+    # "short should be users watchlists not limited to anything").
     ("ma_rejection_short_v3", "MA rejection SHORT", "MA / EMA · Rejection Short"),
 )
 # #282 (2026-06-17) — narrowed to 8/21/50/200 EMA + 50/200 SMA. Dropped 100 EMA,

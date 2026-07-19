@@ -163,7 +163,7 @@ en_ma     = input.bool(true,  "Fire MA reclaim longs — price dipped to a daily
 ma_regime = input.bool(false, "8/21/50 require uptrend (50>100>200) — default OFF: the reclaim fires, the stop is the judge (no trend filter)", group = gMA)
 ma_tol    = input.float(0.25, "Touch tolerance % (low within this of the MA)", minval = 0.0, step = 0.05, group = gMA)
 ma_rearm  = input.float(1.0,  "Re-arm % (price must move this far above the MA to reset)", minval = 0.1, step = 0.1, group = gMA)
-en_ma_short = input.bool(true, "Fire MA rejection SHORTS — price below a daily MA tagged it from below & closed back under (index allowlist)", group = gMA)
+en_ma_short = input.bool(true, "Fire MA rejection SHORTS — price below a daily MA tagged it from below & closed back under", group = gMA)
 ema8d   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
 ema21d  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50d  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
@@ -302,7 +302,8 @@ short_ok_pb  = str.contains(_short_pb, "," + str.upper(syminfo.ticker) + ",")
 // that moves back below is a short entry; sometimes they don't wick — resistance is resistance until
 // price STAYS above." Mirror of ma_bounce: price BELOW the MA, rallies INTO it (high within ma_tol —
 // just below OR above), closes back below → SHORT. Once per touch; re-arm only after price moves
-// ma_rearm% BELOW the MA. Index allowlist (short_ok_pb) only. Stop = the poke high (or the MA).
+// ma_rearm% BELOW the MA. Whole watchlist (user 2026-07-18: "short should be users watchlists
+// not limited to anything"). Stop = the poke high (or the MA).
 ma_reject(float ma, bool eligible) =>
     var bool armed = false
     var bool fired = false
@@ -314,15 +315,15 @@ ma_reject(float ma, bool eligible) =>
     if fire
         fired := true
     fire
-mr_e8   = ma_reject(ema8d,   en_ma_short and short_ok_pb)
-mr_e21  = ma_reject(ema21d,  en_ma_short and short_ok_pb)
-mr_e50  = ma_reject(ema50d,  en_ma_short and short_ok_pb)
-mr_e100 = ma_reject(ema100d, en_ma_short and short_ok_pb)
-mr_e200 = ma_reject(ema200d, en_ma_short and short_ok_pb)
-mr_s20  = ma_reject(sma20d,  en_ma_short and short_ok_pb)
-mr_s50  = ma_reject(sma50d,  en_ma_short and short_ok_pb)
-mr_s100 = ma_reject(sma100d, en_ma_short and short_ok_pb)
-mr_s200 = ma_reject(sma200d, en_ma_short and short_ok_pb)
+mr_e8   = ma_reject(ema8d,   en_ma_short)
+mr_e21  = ma_reject(ema21d,  en_ma_short)
+mr_e50  = ma_reject(ema50d,  en_ma_short)
+mr_e100 = ma_reject(ema100d, en_ma_short)
+mr_e200 = ma_reject(ema200d, en_ma_short)
+mr_s20  = ma_reject(sma20d,  en_ma_short)
+mr_s50  = ma_reject(sma50d,  en_ma_short)
+mr_s100 = ma_reject(sma100d, en_ma_short)
+mr_s200 = ma_reject(sma200d, en_ma_short)
 var float gap_low_pb   = na
 var bool  gap_armed_pb = false
 var bool  gap_fired_pb = false
@@ -650,10 +651,10 @@ if enLevels
             string _kd = array.get(mlvKdA, k)
             alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, lDd, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
         // REJECTION SHORT (2026-07-18): day opened BELOW the level (resistance), price rallied into it
-        // (high within lvlTol — tag or poke), then closed back under: resistance held. Index allowlist.
+        // (high within lvlTol — tag or poke), then closed back under: resistance held. Whole watchlist.
         if _hl and not na(_L) and dOpen < _L and high >= _L * (1.0 - lvlTol)
             array.set(mlv_rj_swept, k, true)
-        if _hl and not na(_L) and dOpen < _L and array.get(mlv_rj_swept, k) and close < _L and en_shorts and short_ok_pb and not array.get(mlv_rj_fired, k)
+        if _hl and not na(_L) and dOpen < _L and array.get(mlv_rj_swept, k) and close < _L and not array.get(mlv_rj_fired, k)
             array.set(mlv_rj_fired, k, true)
             string _mnr = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kdr = array.get(mlvKdA, k)
@@ -693,10 +694,10 @@ if enLevels
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
             alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, lDd, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
-        // REJECTION SHORT (2026-07-18) — same rule as MLV above. Index allowlist.
+        // REJECTION SHORT (2026-07-18) — same rule as MLV above. Whole watchlist.
         if _whl and not na(_WL) and dOpen < _WL and high >= _WL * (1.0 - lvlTol)
             array.set(wlv_rj_swept, k, true)
-        if _whl and not na(_WL) and dOpen < _WL and array.get(wlv_rj_swept, k) and close < _WL and en_shorts and short_ok_pb and not array.get(wlv_rj_fired, k)
+        if _whl and not na(_WL) and dOpen < _WL and array.get(wlv_rj_swept, k) and close < _WL and not array.get(wlv_rj_fired, k)
             array.set(wlv_rj_fired, k, true)
             string _wnr  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkdr = array.get(wlvKdA, k)
