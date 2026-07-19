@@ -942,9 +942,10 @@ def _check_entry_time_dedup(
     for lvl in st.get("levels", []):
         if lvl > 0 and abs(entry - lvl) / lvl <= band:
             return {"reason": "dedup_confluence", "anchor": lvl}
-    # LEVEL at a NEW price → always fires (a distinct level)
-    if is_level:
-        return None
+    # LEVEL exemption REMOVED 2026-07-18 (user, NVDA 07-17 review: SMA-100 bounce fired at
+    # 199.24, then the weekly reclaim fired at 200.63 ten minutes later — a WORSE entry on
+    # the same move). Levels now pass the same cooldown + chase gates as MA/day-trade:
+    # only a same-price merge or a genuinely LOWER entry (for longs) fires.
     # DAY-TRADE / MA — the two gates
     is_long = (direction or "").upper() in ("BUY", "LONG")
     try:
