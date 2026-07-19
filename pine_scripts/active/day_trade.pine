@@ -113,6 +113,7 @@ dOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.looka
 // lookahead_off so it never leaks the future. (No [1] — we want this period, not last.)
 l4d = request.security(syminfo.tickerid, "240", low, lookahead = barmerge.lookahead_off)
 lDd = request.security(syminfo.tickerid, "D",   low, lookahead = barmerge.lookahead_off)
+hDd = request.security(syminfo.tickerid, "D",   high, lookahead = barmerge.lookahead_off)  // developing day HIGH — the rejection-short stop
 lWd = request.security(syminfo.tickerid, "W",   low, lookahead = barmerge.lookahead_off)
 lMd = request.security(syminfo.tickerid, "M",   low, lookahead = barmerge.lookahead_off)
 // CML (current-month low) for the visual — regular-session ticker + lookahead_on so
@@ -162,6 +163,7 @@ en_ma     = input.bool(true,  "Fire MA reclaim longs — price dipped to a daily
 ma_regime = input.bool(false, "8/21/50 require uptrend (50>100>200) — default OFF: the reclaim fires, the stop is the judge (no trend filter)", group = gMA)
 ma_tol    = input.float(0.25, "Touch tolerance % (low within this of the MA)", minval = 0.0, step = 0.05, group = gMA)
 ma_rearm  = input.float(1.0,  "Re-arm % (price must move this far above the MA to reset)", minval = 0.1, step = 0.1, group = gMA)
+en_ma_short = input.bool(true, "Fire MA rejection SHORTS — price below a daily MA tagged it from below & closed back under (index allowlist)", group = gMA)
 ema8d   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
 ema21d  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50d  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
@@ -296,6 +298,31 @@ vol_avg_pb   = ta.sma(volume, vol_len_pb)
 vol_ratio_pb = vol_avg_pb > 0 ? volume / vol_avg_pb : na
 _short_pb    = "," + str.replace_all(str.upper(short_syms_pb), " ", "") + ","
 short_ok_pb  = str.contains(_short_pb, "," + str.upper(syminfo.ticker) + ",")
+// MA REJECTION SHORT (2026-07-18, user): "a level above is resistance — a tag of the MA from below
+// that moves back below is a short entry; sometimes they don't wick — resistance is resistance until
+// price STAYS above." Mirror of ma_bounce: price BELOW the MA, rallies INTO it (high within ma_tol —
+// just below OR above), closes back below → SHORT. Once per touch; re-arm only after price moves
+// ma_rearm% BELOW the MA. Index allowlist (short_ok_pb) only. Stop = the poke high (or the MA).
+ma_reject(float ma, bool eligible) =>
+    var bool armed = false
+    var bool fired = false
+    if (not na(ma)) and (close < ma * (1.0 - ma_rearm / 100.0))
+        armed := true
+        fired := false
+    touch = (not na(ma)) and (high >= ma * (1.0 - ma_tol / 100.0)) and (close < ma)
+    fire = eligible and armed and touch and not fired
+    if fire
+        fired := true
+    fire
+mr_e8   = ma_reject(ema8d,   en_ma_short and short_ok_pb)
+mr_e21  = ma_reject(ema21d,  en_ma_short and short_ok_pb)
+mr_e50  = ma_reject(ema50d,  en_ma_short and short_ok_pb)
+mr_e100 = ma_reject(ema100d, en_ma_short and short_ok_pb)
+mr_e200 = ma_reject(ema200d, en_ma_short and short_ok_pb)
+mr_s20  = ma_reject(sma20d,  en_ma_short and short_ok_pb)
+mr_s50  = ma_reject(sma50d,  en_ma_short and short_ok_pb)
+mr_s100 = ma_reject(sma100d, en_ma_short and short_ok_pb)
+mr_s200 = ma_reject(sma200d, en_ma_short and short_ok_pb)
 var float gap_low_pb   = na
 var bool  gap_armed_pb = false
 var bool  gap_fired_pb = false
@@ -595,10 +622,14 @@ mlvTmA = array.from(mvt1, mvt1, mvt1, mvt1, mvt2, mvt2, mvt2, mvt2, mvt3, mvt3, 
 mlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
 var bool[] mlv_fired = array.new_bool(24, false)
 var bool[] mlv_swept = array.new_bool(24, false)
+var bool[] mlv_rj_swept = array.new_bool(24, false)
+var bool[] mlv_rj_fired = array.new_bool(24, false)
 if nD
     for k = 0 to 23
         array.set(mlv_fired, k, false)
         array.set(mlv_swept, k, false)
+        array.set(mlv_rj_swept, k, false)
+        array.set(mlv_rj_fired, k, false)
 // RECLAIM ONLY (user 2026-07-18): "an undercut level is a chance; a level approached from below
 // is resistance — we can't buy into resistance unless it's a breakout, and breakouts have their
 // own alerts." held / break / reject variants REMOVED — the ONE weekly/monthly level entry is the
@@ -618,6 +649,15 @@ if enLevels
             string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kd = array.get(mlvKdA, k)
             alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, lDd, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+        // REJECTION SHORT (2026-07-18): day opened BELOW the level (resistance), price rallied into it
+        // (high within lvlTol — tag or poke), then closed back under: resistance held. Index allowlist.
+        if _hl and not na(_L) and dOpen < _L and high >= _L * (1.0 - lvlTol)
+            array.set(mlv_rj_swept, k, true)
+        if _hl and not na(_L) and dOpen < _L and array.get(mlv_rj_swept, k) and close < _L and en_shorts and short_ok_pb and not array.get(mlv_rj_fired, k)
+            array.set(mlv_rj_fired, k, true)
+            string _mnr = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
+            string _kdr = array.get(mlvKdA, k)
+            alert(rc_pay("monthly_lvl_reject", "SHORT", "M", close, hDd, "MLV · " + _mnr + " " + _kdr + " " + str.tostring(_L, format.mintick) + " — REJECTION at resistance (rallied into the level & closed back under), stop the poke high " + str.tostring(hDd, format.mintick)), alert.freq_once_per_bar_close)
 
 // ── WLV — WEEKLY LEVELS · directional reclaim (spec 69 · 2026-07-12). ────────────
 // The weekly twin of MLV: every completed weekly level — H/L/O/C of the last 4 weeks
@@ -633,10 +673,14 @@ wlvTmA = array.from(wvt1, wvt1, wvt1, wvt1, wvt2, wvt2, wvt2, wvt2, wvt3, wvt3, 
 wlvKdA = array.from("H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C", "H", "L", "O", "C")
 var bool[] wlv_fired = array.new_bool(16, false)
 var bool[] wlv_swept = array.new_bool(16, false)
+var bool[] wlv_rj_swept = array.new_bool(16, false)
+var bool[] wlv_rj_fired = array.new_bool(16, false)
 if nD
     for k = 0 to 15
         array.set(wlv_fired, k, false)
         array.set(wlv_swept, k, false)
+        array.set(wlv_rj_swept, k, false)
+        array.set(wlv_rj_fired, k, false)
 // RECLAIM ONLY + STATEFUL sweep (2026-07-18) — same rule as MLV above.
 if enLevels
     for k = 0 to wlvWk * 4 - 1
@@ -649,6 +693,14 @@ if enLevels
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
             alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, lDd, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+        // REJECTION SHORT (2026-07-18) — same rule as MLV above. Index allowlist.
+        if _whl and not na(_WL) and dOpen < _WL and high >= _WL * (1.0 - lvlTol)
+            array.set(wlv_rj_swept, k, true)
+        if _whl and not na(_WL) and dOpen < _WL and array.get(wlv_rj_swept, k) and close < _WL and en_shorts and short_ok_pb and not array.get(wlv_rj_fired, k)
+            array.set(wlv_rj_fired, k, true)
+            string _wnr  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
+            string _wkdr = array.get(wlvKdA, k)
+            alert(rc_pay("weekly_lvl_reject", "SHORT", "W", close, hDd, "WLV · wk " + _wnr + " " + _wkdr + " " + str.tostring(_WL, format.mintick) + " — REJECTION at resistance (rallied into the level & closed back under), stop the poke high " + str.tostring(hDd, format.mintick)), alert.freq_once_per_bar_close)
 
 // MoBO — monthly BOX breakout + monthly RC-H (long-term/position; default OFF, gate-exempt).
 // entry = the locked level (the buy point), stop = the base / pre-break low.
@@ -691,6 +743,7 @@ if en_reclaim and rl_pdhSig
 // MA bounce — rule "ma_bounce_long_v3" + ma_tag (number+E); backend forms
 // ma_bounce_long_v3_<ema>. entry = close (held above the MA), stop = the MA (close
 // below = support lost). interval = the chart TF (intraday test of the daily MA).
+ma_pay_s(string matag, float ma) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ma_rejection_short_v3","direction":"SHORT","ma_tag":"' + matag + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(math.max(high, ma), format.mintick) + '","note":"MA rejection — rallied into the daily ' + matag + ' from below & closed back under (resistance held; stop = the poke high)","nearby_levels":"' + nl_csv + '","fired_at":"' + str.tostring(timenow) + '"}'
 ma_pay(string matag, float ma) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"ma_bounce_long_v3","direction":"BUY","ma_tag":"' + matag + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(ma, format.mintick) + '","note":"MA bounce — held the daily ' + matag + ' (stop = close below it)","nearby_levels":"' + nl_csv + '","fired_at":"' + str.tostring(timenow) + '"}'
 if mb_e8
     alert(ma_pay("8E", ema8d), alert.freq_once_per_bar_close)
@@ -710,6 +763,24 @@ if mb_s100
     alert(ma_pay("100S", sma100d), alert.freq_once_per_bar_close)
 if mb_s200
     alert(ma_pay("200S", sma200d), alert.freq_once_per_bar_close)
+if mr_e8
+    alert(ma_pay_s("8E", ema8d), alert.freq_once_per_bar_close)
+if mr_e21
+    alert(ma_pay_s("21E", ema21d), alert.freq_once_per_bar_close)
+if mr_e50
+    alert(ma_pay_s("50E", ema50d), alert.freq_once_per_bar_close)
+if mr_e100
+    alert(ma_pay_s("100E", ema100d), alert.freq_once_per_bar_close)
+if mr_e200
+    alert(ma_pay_s("200E", ema200d), alert.freq_once_per_bar_close)
+if mr_s20
+    alert(ma_pay_s("20S", sma20d), alert.freq_once_per_bar_close)
+if mr_s50
+    alert(ma_pay_s("50S", sma50d), alert.freq_once_per_bar_close)
+if mr_s100
+    alert(ma_pay_s("100S", sma100d), alert.freq_once_per_bar_close)
+if mr_s200
+    alert(ma_pay_s("200S", sma200d), alert.freq_once_per_bar_close)
 if h_pdh
     alert(rc_pay("pdh_held", "BUY", "D", close, hDp, "PDH held · broke the prior-day HIGH " + str.tostring(hDp, format.mintick) + " and held it on the retest — strength, stop below the PDH"), alert.freq_once_per_bar_close)
 if h_pdl

@@ -38,8 +38,10 @@ class AlertTypeConfig(Base):
 # (rejection=short). The NOTICE (proximity) family stays removed (too noisy).
 MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
-    # ma_rejection_short_v3 CUT 2026-06-23 — long-only book; rc.pine ports only the
-    # bounce. (DB rows deleted; nothing bound emits the rejection.)
+    # ma_rejection_short_v3 REVIVED 2026-07-18 (user: "a level above is resistance — a tag of the MA
+    # from below that moves back below is a short; sometimes they don't wick, resistance is
+    # resistance until price STAYS above"). Tag tolerance ma_tol (0.25%), index allowlist only.
+    ("ma_rejection_short_v3", "MA rejection SHORT", "MA / EMA · Rejection Short"),
 )
 # #282 (2026-06-17) — narrowed to 8/21/50/200 EMA + 50/200 SMA. Dropped 100 EMA,
 # 100 SMA, and the combined SMA toggle (split into explicit 50/200). All default OFF;
@@ -178,7 +180,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WLV/MLV reject — the bearish mirror (rc.pine, 2026-07-13). Price rallied UP into a weekly/monthly
     # H/L level from below and closed back under it = failed breakout / resistance held → SHORT, stop the
     # poke high. Fired by the same one-toggle level engine as the reclaim/held/break BUYs. day_trade.
-    # weekly_lvl_reject RETIRED 2026-07-18 (user: levels fire RECLAIM only) → OBSOLETE below.
+    ("weekly_lvl_reject", "WLV rejection SHORT — day opened BELOW a weekly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
@@ -192,7 +194,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # once per level per day, day-trade. monthly_rc + pml_held + CML are FOLDED IN (retired →
     # OBSOLETE_ALERT_TYPES); MLV is the only monthly toggle.
     ("monthly_lvl_reclaim", "MLV — monthly-level RECLAIM (High/Low of the last 2 months · undercut & reclaimed the level)", "Monthly", False),
-    # monthly_lvl_reject RETIRED 2026-07-18 (user: levels fire RECLAIM only) → OBSOLETE below.
+    ("monthly_lvl_reject", "MLV rejection SHORT — day opened BELOW a monthly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -375,9 +377,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "orb_reclaim_low", "orb_reclaim_high", "orb_high_held", "orb_low_held",
     # 2026-07-18 — rsi_70 retired (user: "pointless for entry" — RSI>70 confirms momentum, doesn't time one).
     "rsi_70",
-    # 2026-07-18 — WLV/MLV rejects retired (user: "weekly and monthly levels should only fire for a
-    # reclaim — undercut and reclaim; we can't buy into resistance, and breakouts have their own alerts").
-    "weekly_lvl_reject", "monthly_lvl_reject",
+    # 2026-07-18 — WLV/MLV rejects briefly retired, then REVIVED same day as the short book:
+    # rejection AT resistance (day opened BELOW the level, price tagged it within lvlTol, closed
+    # back below). Index allowlist only. See the catalog entries.
     # 2026-07-08 — the 15m ORB family RETIRED (user: "there should be no orb in 15mins").
     # The state machine is deleted from rc.pine; the 1h orb_reclaim is the one ORB alert.
     "orb_break", "orb_held", "orb_retest", "orb_exit",
@@ -410,10 +412,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h_short RETIRED 2026-06-29 — long-only 4h; the only shorts we keep are the
     # structural PDL break + PDH rejection (levels_day_vwap). No 4h/EMA rejection shorts.
     "rc_4h_short",
-    # ma_rejection_short_v3 family — long-only book; no pine emits it (descriptions were
-    # leftover). Kept here so any stale row is purged + arrival is dropped.
-    "ma_rejection_short_v3", "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
-    "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_ema200",
+    # ma_rejection_short_v3 FAMILY REVIVED 2026-07-18 — only the bare prefix (never a real type)
+    # and the old combined _sma toggle stay retired.
+    "ma_rejection_short_v3",
     # weekly_10w/30w_reclaim RETIRED 2026-06-29 — the 10w/30w now fire once-per-TOUCH
     # intraday (the _held type covers tag-and-hold + shallow reclaim). No separate reclaim.
     "weekly_10w_reclaim", "weekly_30w_reclaim",
@@ -481,7 +482,7 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # ma_bounce_long_v3_ema100 RE-ADDED 2026-06-23 (deep-pullback support, rc.pine).
     # The combined SMA toggle stays retired (split into sma50/sma200).
     "ma_bounce_long_v3_sma",
-    "ma_rejection_short_v3_ema100", "ma_rejection_short_v3_sma",
+    "ma_rejection_short_v3_sma",
 
     # HTF NOTICEs / superseded held — spec 58
     "htf_support_held",  # superseded by granular staged_p[dwm]h_held
