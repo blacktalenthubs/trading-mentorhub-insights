@@ -304,16 +304,20 @@ short_ok_pb  = str.contains(_short_pb, "," + str.upper(syminfo.ticker) + ",")
 // just below OR above), closes back below → SHORT. Once per touch; re-arm only after price moves
 // ma_rearm% BELOW the MA. Whole watchlist (user 2026-07-18: "short should be users watchlists
 // not limited to anything"). Stop = the poke high (or the MA).
+// SEQUENCE FIX (user, AMD 07-17 review): the arm must come from a PRIOR bar — price was already
+// below, THEN rallied into the MA. Same-bar arm+tag+fire let the 8:30 gap-down collapse bar
+// "reject" a zone it merely fell through (a phantom short at 470). And the fail bar must close
+// RED (close < open) — a green bar pausing under the MA mid-rally is not a rejection.
 ma_reject(float ma, bool eligible) =>
     var bool armed = false
     var bool fired = false
-    if (not na(ma)) and (close < ma * (1.0 - ma_rearm / 100.0))
-        armed := true
-        fired := false
-    touch = (not na(ma)) and (high >= ma * (1.0 - ma_tol / 100.0)) and (close < ma)
+    touch = (not na(ma)) and (high >= ma * (1.0 - ma_tol / 100.0)) and (close < ma) and (close < open)
     fire = eligible and armed and touch and not fired
     if fire
         fired := true
+    if (not na(ma)) and (close < ma * (1.0 - ma_rearm / 100.0))
+        armed := true
+        fired := false
     fire
 mr_e8   = ma_reject(ema8d,   en_ma_short)
 mr_e21  = ma_reject(ema21d,  en_ma_short)
@@ -654,7 +658,7 @@ if enLevels
         // (high within lvlTol — tag or poke), then closed back under: resistance held. Whole watchlist.
         if _hl and not na(_L) and dOpen < _L and high >= _L * (1.0 - lvlTol)
             array.set(mlv_rj_swept, k, true)
-        if _hl and not na(_L) and dOpen < _L and array.get(mlv_rj_swept, k) and close < _L and not array.get(mlv_rj_fired, k)
+        if _hl and not na(_L) and dOpen < _L and array.get(mlv_rj_swept, k) and close < _L and close < open and not array.get(mlv_rj_fired, k)
             array.set(mlv_rj_fired, k, true)
             string _mnr = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kdr = array.get(mlvKdA, k)
@@ -697,7 +701,7 @@ if enLevels
         // REJECTION SHORT (2026-07-18) — same rule as MLV above. Whole watchlist.
         if _whl and not na(_WL) and dOpen < _WL and high >= _WL * (1.0 - lvlTol)
             array.set(wlv_rj_swept, k, true)
-        if _whl and not na(_WL) and dOpen < _WL and array.get(wlv_rj_swept, k) and close < _WL and not array.get(wlv_rj_fired, k)
+        if _whl and not na(_WL) and dOpen < _WL and array.get(wlv_rj_swept, k) and close < _WL and close < open and not array.get(wlv_rj_fired, k)
             array.set(wlv_rj_fired, k, true)
             string _wnr  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkdr = array.get(wlvKdA, k)
