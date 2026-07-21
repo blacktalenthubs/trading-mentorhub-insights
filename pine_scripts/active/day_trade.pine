@@ -647,9 +647,14 @@ if enLevels
     for k = 0 to mlvMon * 4 - 1
         float _L = array.get(mlvPr, k)
         bool _hl = k % 4 < 2 or not lvlHLonly
-        if _hl and not na(_L) and dOpen > _L and low <= _L * (1.0 - lvlMinPen)
+        // RECLAIM = was BELOW the level today (any bar's low >= lvlMinPen under it) and
+        // CLOSED back above it — regardless of where the day opened (user 2026-07-21). A
+        // reclaim is a reclaim: open-above dip-and-reclaim AND open-below run-up-through-and-
+        // close-above are the SAME event. The close (>_L reclaim / <_L reject) is what
+        // divides support from resistance, not the open. Catches SNDK/NBIS from-below reclaims.
+        if _hl and not na(_L) and low <= _L * (1.0 - lvlMinPen)
             array.set(mlv_swept, k, true)
-        if _hl and not na(_L) and dOpen > _L and array.get(mlv_swept, k) and close > _L and not array.get(mlv_fired, k)
+        if _hl and not na(_L) and array.get(mlv_swept, k) and close > _L and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
             string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kd = array.get(mlvKdA, k)
@@ -691,9 +696,10 @@ if enLevels
     for k = 0 to wlvWk * 4 - 1
         float _WL = array.get(wlvPr, k)
         bool _whl = k % 4 < 2 or not lvlHLonly
-        if _whl and not na(_WL) and dOpen > _WL and low <= _WL * (1.0 - lvlMinPen)
+        // RECLAIM = was below & closed back above, open-agnostic (user 2026-07-21) — same rule as MLV.
+        if _whl and not na(_WL) and low <= _WL * (1.0 - lvlMinPen)
             array.set(wlv_swept, k, true)
-        if _whl and not na(_WL) and dOpen > _WL and array.get(wlv_swept, k) and close > _WL and not array.get(wlv_fired, k)
+        if _whl and not na(_WL) and array.get(wlv_swept, k) and close > _WL and not array.get(wlv_fired, k)
             array.set(wlv_fired, k, true)
             string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
