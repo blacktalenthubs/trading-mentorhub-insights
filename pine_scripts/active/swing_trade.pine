@@ -1,10 +1,12 @@
 // @version=5
 //
-// PQHL — Prior TWO Quarters · High / Low / Close. VISUAL + swing alerts. Draws the HIGH, LOW and CLOSE
-// of the last TWO COMPLETED 3-month (quarterly) candles — the prior quarter (PQ, [1]) and the quarter
-// before it (PPQ, [2]). Locked via request.security so they sit at the same price on every chart TF;
-// completed quarters = fixed values (no repaint). The quarterly range is major, slow S/R — the
-// starting block for longer-term (swing) entries. Reclaim of any of the 6 levels fires pq_reclaim.
+// PQHL — Prior Quarter · High / Low / Close. VISUAL + swing alerts. Draws the HIGH, LOW and CLOSE of
+// the ONE last COMPLETED 3-month (quarterly) candle — the prior quarter (PQ, [1]). (User 2026-07-21:
+// prior quarter only — the prior-PRIOR quarter added noise, dropped.) Locked via request.security so
+// the levels sit at the same price on every chart TF; a completed quarter = fixed values (no repaint).
+// The quarterly range is major, slow S/R — the starting block for longer-term (swing) entries. A
+// reclaim of any of the 3 PQ levels fires pq_reclaim. BIND ON 4h — a 4h close above the level is a
+// real reclaim, not a 1h wick.
 //
 indicator("Prior Quarter High/Low", "PQ H/L", overlay = true, max_lines_count = 20, max_labels_count = 20)
 
@@ -12,14 +14,12 @@ colH      = input.color(color.new(color.red, 0),   "Quarter HIGH",  group = "Lin
 colL      = input.color(color.new(color.teal, 0),  "Quarter LOW",   group = "Lines")
 colC      = input.color(color.new(color.gray, 0),  "Quarter CLOSE", group = "Lines")
 showClose = input.bool(true, "Show the CLOSE lines", group = "Lines")
-showPPQ   = input.bool(true, "Show + alert the prior-PRIOR quarter (PPQ, 2 quarters ago) too", group = "Lines")
 lineW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = "Lines")
 showPrice = input.bool(true, "Show price in the label", group = "Lines")
 
-// Last TWO completed quarters' H/L/C — [1] = prior quarter (PQ), [2] = the quarter before it (PPQ).
+// The ONE last completed quarter's H/L/C — [1] = prior quarter (PQ).
 // Locked + no repaint via lookahead_on on the 3M timeframe.
 [pqh,  pql,  pqc]  = request.security(syminfo.tickerid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
-[ppqh, ppql, ppqc] = request.security(syminfo.tickerid, "3M", [high[2], low[2], close[2]], lookahead = barmerge.lookahead_on)
 // Daily 200 EMA + 200 SMA — the institutional dip-buy zone. A DAILY-CLOSE bounce here is a SWING entry
 // (an intraday bounce is a day-trade, already fired by LMR). Emits ma200_bounce.
 [ema200d, sma200d] = request.security(syminfo.tickerid, "D", [ta.ema(close, 200)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
@@ -46,11 +46,6 @@ if barstate.islast
     draw_q(pql, "PQ Low",  colL, false)
     if showClose
         draw_q(pqc, "PQ Close", colC, true)
-    if showPPQ
-        draw_q(ppqh, "PPQ High", colH, false)
-        draw_q(ppql, "PPQ Low",  colL, false)
-        if showClose
-            draw_q(ppqc, "PPQ Close", colC, true)
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
 // SWING ALERTS — fire THE MOMENT a quarterly level is reclaimed / broken, INTRADAY. BIND ON AN
@@ -75,28 +70,17 @@ var bool fC  = false
 var bool fH  = false
 var bool fE2 = false
 var bool fS2 = false
-var bool fpL = false
-var bool fpC = false
-var bool fpH = false
 if newDay
     fL  := false
     fC  := false
     fH  := false
     fE2 := false
     fS2 := false
-    fpL := false
-    fpC := false
-    fpH := false
 rng   = pqh - pql
-rngp  = ppqh - ppql
 // Prior quarter (PQ)
 rc_low   = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql and not fL          // bounce the PQ LOW
 rc_close = not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc and not fC          // reclaim the PQ CLOSE
 rc_high  = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh and not fH          // break the PQ HIGH
-// Prior-prior quarter (PPQ, 2 quarters ago) — same three events
-rc_plow  = showPPQ and not na(ppql) and not na(close[1]) and close > ppql and close[1] <= ppql and not fpL   // bounce the PPQ LOW
-rc_pclose= showPPQ and not na(ppqc) and not na(close[1]) and close > ppqc and close[1] <= ppqc and not fpC   // reclaim the PPQ CLOSE
-rc_phigh = showPPQ and not na(ppqh) and not na(close[1]) and close > ppqh and close[1] <= ppqh and not fpH   // break the PPQ HIGH
 // 200-day MA
 rc_e200  = not na(ema200d) and not na(close[1]) and close > ema200d and close[1] <= ema200d and not fE2   // 200-EMA bounce
 rc_s200  = not na(sma200d) and not na(close[1]) and close > sma200d and close[1] <= sma200d and not fS2   // 200-SMA bounce
@@ -106,20 +90,14 @@ if rc_close
     fC  := true
 if rc_high
     fH  := true
-if rc_plow
-    fpL := true
-if rc_pclose
-    fpC := true
-if rc_phigh
-    fpH := true
 if rc_e200
     fE2 := true
 if rc_s200
     fS2 := true
 
-plotshape(showMarks and (rc_low  or rc_plow),  "Q Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "Q-L")
-plotshape(showMarks and (rc_close or rc_pclose),"Q Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "Q-C")
-plotshape(showMarks and (rc_high or rc_phigh), "Q High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "Q-H")
+plotshape(showMarks and rc_low,   "Q Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "Q-L")
+plotshape(showMarks and rc_close, "Q Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "Q-C")
+plotshape(showMarks and rc_high,  "Q High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "Q-H")
 plotshape(showMarks and (rc_e200 or rc_s200),  "200-MA bounce",   style = shape.triangleup, location = location.belowbar, color = color.new(#7E57C2, 0), size = size.small, text = "200")
 
 // PQ alerts
@@ -129,13 +107,6 @@ if fireAlerts and rc_close
     alert(f_pqpay("pq_reclaim", "PQ Close", close, pqc * 0.985, pqh, pqh + rng * 0.5), alert.freq_once_per_bar_close)
 if fireAlerts and rc_high
     alert(f_pqpay("pq_reclaim", "PQ High",  close, pqh * 0.985, pqh + rng * 0.5, pqh + rng), alert.freq_once_per_bar_close)
-// PPQ alerts (2 quarters ago)
-if fireAlerts and rc_plow
-    alert(f_pqpay("pq_reclaim", "PPQ Low",   close, ppql * 0.985, ppqc, ppqh), alert.freq_once_per_bar_close)
-if fireAlerts and rc_pclose
-    alert(f_pqpay("pq_reclaim", "PPQ Close", close, ppqc * 0.985, ppqh, ppqh + rngp * 0.5), alert.freq_once_per_bar_close)
-if fireAlerts and rc_phigh
-    alert(f_pqpay("pq_reclaim", "PPQ High",  close, ppqh * 0.985, ppqh + rngp * 0.5, ppqh + rngp), alert.freq_once_per_bar_close)
 // 200-MA alerts
 if fireAlerts and rc_e200
     alert(f_pqpay("ma200_bounce", "EMA 200", close, ema200d * 0.985, close + (close - ema200d) * 2, close + (close - ema200d) * 3), alert.freq_once_per_bar_close)

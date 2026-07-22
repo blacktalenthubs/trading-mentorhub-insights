@@ -4,6 +4,8 @@
 //   • EMA 5/20/50/100/200  (daily · flat · SOLID)
 //   • SMA 5/20/50/100/200  (daily · flat · DASHED)  ← EMA vs SMA told apart by style
 //   • Levels PDH/PDL (daily · solid) · PWH/PWL (weekly · dashed) · PMH/PML (monthly · dotted)
+//   • PQH/PQL/PQC — the prior QUARTER (dotted, thicker · the major swing rail). VISUAL only here;
+//     the pq_reclaim ALERT lives in swing_trade.pine bound on 4h.
 //
 // Everything is locked to its settled daily/weekly/monthly value via request.security
 // ([1] + lookahead_on), so every line sits FLAT on any chart TF (5m ↔ 1h ↔ D) and
@@ -46,6 +48,12 @@ pwl_on = input.bool(true, "PWL", inline = "l2", group = gL)
 pmh_on = input.bool(true, "PMH", inline = "l3", group = gL)
 pml_on = input.bool(true, "PML", inline = "l3", group = gL)
 
+// ── Prior QUARTER (the major swing rail — the pq_reclaim alert lives in swing_trade.pine on 4h; here it's VISUAL only) ──
+gQ = "Prior quarter (major S/R · visual)"
+pqh_on = input.bool(true, "PQ High", inline = "q1", group = gQ)
+pql_on = input.bool(true, "PQ Low",  inline = "q1", group = gQ)
+pqc_on = input.bool(true, "PQ Close", inline = "q2", group = gQ)
+
 // ── Declutter / zoom ──
 gZ = "Declutter / zoom"
 bandPct = input.float(8.0, "Only draw lines within this % of price (0 = draw all)", minval = 0.0, step = 0.5, group = gZ)
@@ -56,6 +64,7 @@ supCol  = input.color(#26A69A, "Support color (price above)",    group = gS)
 resCol  = input.color(#EF5350, "Resistance color (price below)", group = gS)
 maW     = input.int(1, "MA line width",    minval = 1, maxval = 4, group = gS)
 lvlW    = input.int(2, "Level line width", minval = 1, maxval = 4, group = gS)
+pqW     = input.int(3, "PQ (quarter) line width", minval = 1, maxval = 5, group = gS)
 lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
 labSize = input.string("small", "Label size", options = ["tiny", "small", "normal", "large"], group = gS)
 _lsz = labSize == "tiny" ? size.tiny : labSize == "normal" ? size.normal : labSize == "large" ? size.large : size.small
@@ -78,6 +87,8 @@ pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
 pmh = request.security(tid, "M", high[1], lookahead = barmerge.lookahead_on)
 pml = request.security(tid, "M", low[1],  lookahead = barmerge.lookahead_on)
+// Prior QUARTER H/L/C — the ONE last completed quarter (matches swing_trade.pine, prior-quarter only)
+[pqh, pql, pqc] = request.security(tid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
 
 // ── Draw ──
 var line[]  _lines  = array.new_line(0)
@@ -86,14 +97,13 @@ var label[] _labels = array.new_label(0)
 // within the proximity band? (bandPct <= 0 => always draw)
 near(float v) => bandPct <= 0.0 or (not na(v) and math.abs(v - close) / close * 100.0 <= bandPct)
 
-// sty: 0 solid · 1 dashed · 2 dotted. isMA => S/R letter + MA width; else name+price + level width.
-f_draw(float v, string nm, bool show, int sty, int loff, bool isMA) =>
+// sty: 0 solid · 1 dashed · 2 dotted. isMA => S/R letter (else name+price). w = line width.
+f_draw(float v, string nm, bool show, int sty, int loff, bool isMA, int w) =>
     if show and not na(v) and near(v)
         sup = close > v
         col = sup ? supCol : resCol
         lst = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
         txt = isMA ? nm + (sup ? " S " : " R ") + str.tostring(v, format.mintick) : nm + "  " + str.tostring(v, format.mintick)
-        w = isMA ? maW : lvlW
         ln = line.new(bar_index - lineLen, v, bar_index + loff, v, color = col, width = w, style = lst)
         lb = label.new(bar_index + loff, v, txt, style = label.style_label_left, color = col, textcolor = color.white, size = _lsz)
         array.push(_lines, ln)
@@ -107,21 +117,25 @@ if barstate.islast
     array.clear(_lines)
     array.clear(_labels)
     // EMA — solid, near the price axis
-    f_draw(ema5,   "EMA 5",   e5,   0, 4, true)
-    f_draw(ema20,  "EMA 20",  e20,  0, 4, true)
-    f_draw(ema50,  "EMA 50",  e50,  0, 4, true)
-    f_draw(ema100, "EMA 100", e100, 0, 4, true)
-    f_draw(ema200, "EMA 200", e200, 0, 4, true)
+    f_draw(ema5,   "EMA 5",   e5,   0, 4, true, maW)
+    f_draw(ema20,  "EMA 20",  e20,  0, 4, true, maW)
+    f_draw(ema50,  "EMA 50",  e50,  0, 4, true, maW)
+    f_draw(ema100, "EMA 100", e100, 0, 4, true, maW)
+    f_draw(ema200, "EMA 200", e200, 0, 4, true, maW)
     // SMA — dashed, stepped out so its label clears the EMA label when they coincide
-    f_draw(sma5,   "SMA 5",   s5,   1, 8, true)
-    f_draw(sma20,  "SMA 20",  s20,  1, 8, true)
-    f_draw(sma50,  "SMA 50",  s50,  1, 8, true)
-    f_draw(sma100, "SMA 100", s100, 1, 8, true)
-    f_draw(sma200, "SMA 200", s200, 1, 8, true)
+    f_draw(sma5,   "SMA 5",   s5,   1, 8, true, maW)
+    f_draw(sma20,  "SMA 20",  s20,  1, 8, true, maW)
+    f_draw(sma50,  "SMA 50",  s50,  1, 8, true, maW)
+    f_draw(sma100, "SMA 100", s100, 1, 8, true, maW)
+    f_draw(sma200, "SMA 200", s200, 1, 8, true, maW)
     // Levels — daily solid · weekly dashed · monthly dotted, stepped further out
-    f_draw(pdh, "PDH", pdh_on, 0, 14, false)
-    f_draw(pdl, "PDL", pdl_on, 0, 18, false)
-    f_draw(pwh, "PWH", pwh_on, 1, 22, false)
-    f_draw(pwl, "PWL", pwl_on, 1, 26, false)
-    f_draw(pmh, "PMH", pmh_on, 2, 30, false)
-    f_draw(pml, "PML", pml_on, 2, 34, false)
+    f_draw(pdh, "PDH", pdh_on, 0, 14, false, lvlW)
+    f_draw(pdl, "PDL", pdl_on, 0, 18, false, lvlW)
+    f_draw(pwh, "PWH", pwh_on, 1, 22, false, lvlW)
+    f_draw(pwl, "PWL", pwl_on, 1, 26, false, lvlW)
+    f_draw(pmh, "PMH", pmh_on, 2, 30, false, lvlW)
+    f_draw(pml, "PML", pml_on, 2, 34, false, lvlW)
+    // Prior QUARTER — dotted + thicker (pqW) so the major swing rail stands out
+    f_draw(pqh, "PQH", pqh_on, 2, 38, false, pqW)
+    f_draw(pql, "PQL", pql_on, 2, 42, false, pqW)
+    f_draw(pqc, "PQC", pqc_on, 2, 46, false, pqW)
