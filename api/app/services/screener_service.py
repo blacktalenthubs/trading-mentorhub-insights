@@ -603,7 +603,11 @@ async def refresh_conviction() -> None:
         cands = await asyncio.to_thread(_gather_conviction)
         await _save_snapshot(cands, kind="conviction", market_open=False, top_n=get_settings().SCREENER_TOP_N)
         logger.info("conviction: snapshot refreshed (%d names)", len(cands))
-        await _autosync_conviction_watchlist()
+        # Auto-push to the admin's Conviction watchlist DISABLED (user 2026-07-22: "why is
+        # conviction data getting pushed to my watchlist? I didn't add them, and I keep getting
+        # alerts on them"). The scan still refreshes the conviction board/snapshot; it no longer
+        # force-adds Strong-Buy names to anyone's watchlist (which was also triggering alerts).
+        # await _autosync_conviction_watchlist()
     except Exception:
         logger.exception("conviction: refresh failed — marking last snapshot stale")
         await _mark_latest_stale("conviction")
