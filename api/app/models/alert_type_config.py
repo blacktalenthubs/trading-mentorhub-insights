@@ -38,11 +38,9 @@ class AlertTypeConfig(Base):
 # (rejection=short). The NOTICE (proximity) family stays removed (too noisy).
 MA_SPLIT_FAMILIES = (
     ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
-    # ma_rejection_short_v3 REVIVED 2026-07-18 (user: "a level above is resistance — a tag of the MA
-    # from below that moves back below is a short; sometimes they don't wick, resistance is
-    # resistance until price STAYS above"). Tag tolerance ma_tol (0.25%); whole watchlist (user:
-    # "short should be users watchlists not limited to anything").
-    ("ma_rejection_short_v3", "MA rejection SHORT", "MA / EMA · Rejection Short"),
+    # ma_rejection_short_v3 REMOVED 2026-07-22 (user: "remove all ema/ma short from settings, not
+    # needed — remove any form of shorts except PDH rejection"). The whole MA/EMA rejection-short
+    # family is retired; the per-MA types are listed in OBSOLETE_ALERT_TYPES so the seed deletes them.
 )
 # #282 (2026-06-17) — narrowed to 8/21/50/200 EMA + 50/200 SMA. Dropped 100 EMA,
 # 100 SMA, and the combined SMA toggle (split into explicit 50/200). All default OFF;
@@ -145,9 +143,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
     # heavy volume. Default OFF — record + watch the count before delivering.
+    # The ONLY two shorts (user 2026-07-22: "for short — only two short conditions: PDH rejection,
+    # PDL break. that's all."). pdh_fail_short + all MA/level rejection shorts retired → OBSOLETE.
     ("staged_pdl_break", "PDL break — lost the prior-day low on volume", "Short", False),
     ("staged_pdh_rejection", "PDH rejection — rejected at the prior-day high on volume", "Short", False),
-    ("pdh_fail_short", "PDH failed break — accepted above PDH then lost it (short the loss, stop = PDH reclaim)", "Short", False),
 
     # 4h reclaim — long-only now (rc_4h_short RETIRED 2026-06-29 → OBSOLETE; the only
     # shorts we keep are the structural PDL break + PDH rejection). Both default OFF.
@@ -177,11 +176,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WLV — Weekly LEVELS · directional reclaim (spec 69, 2026-07-12). THE single weekly
     # alert: H/L/O/C of the last 4 weeks (16 levels), directional support reclaim. weekly_rc
     # + PWL-held folded in → OBSOLETE. The weekly 10w/30w MA stays separate (trend tool).
-    ("weekly_lvl_reclaim", "WLV — weekly-level RECLAIM (High/Low of the last 2 weeks · undercut & reclaimed the level)", "Weekly", False),
+    ("weekly_lvl_reclaim", "Prior-week level — RECLAIM or GAP-and-go above the PRIOR week's High/Low (PWH/PWL)", "Weekly", False),
     # WLV/MLV reject — the bearish mirror (rc.pine, 2026-07-13). Price rallied UP into a weekly/monthly
     # H/L level from below and closed back under it = failed breakout / resistance held → SHORT, stop the
     # poke high. Fired by the same one-toggle level engine as the reclaim/held/break BUYs. day_trade.
-    ("weekly_lvl_reject", "WLV rejection SHORT — day opened BELOW a weekly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
+    # weekly_lvl_reject REMOVED 2026-07-22 (user: shorts except PDH rejection) → OBSOLETE_ALERT_TYPES.
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
@@ -194,8 +193,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # optional reclaim-from-below. Entry = the level, stop = the reclaim low. Fired from rc.pine,
     # once per level per day, day-trade. monthly_rc + pml_held + CML are FOLDED IN (retired →
     # OBSOLETE_ALERT_TYPES); MLV is the only monthly toggle.
-    ("monthly_lvl_reclaim", "MLV — monthly-level RECLAIM (High/Low of the last 2 months · undercut & reclaimed the level)", "Monthly", False),
-    ("monthly_lvl_reject", "MLV rejection SHORT — day opened BELOW a monthly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
+    ("monthly_lvl_reclaim", "Prior-month level — RECLAIM or GAP-and-go above the PRIOR month's High/Low (PMH/PML)", "Monthly", False),
+    # monthly_lvl_reject REMOVED 2026-07-22 (user: shorts except PDH rejection) → OBSOLETE_ALERT_TYPES.
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -345,8 +344,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
-    "monthly_lvl_reclaim": "MLV — the ONE monthly-level alert. Fires a BUY when price reclaims a completed monthly level: any H/L/O/C of the last 6 months (24 levels). Directional — the day must have OPENED ABOVE the level (so it's support), then price wicked below and closed back above it (support held). Optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. monthly_rc / PML-held / CML are folded in here. Pairs with the MLV visual pine (monthly_levels.pine).",
-    "weekly_lvl_reclaim": "WLV — the ONE weekly-level alert. Fires a BUY when price reclaims a completed weekly level: any H/L/O/C of the last 4 weeks (16 levels). Directional — the day OPENED ABOVE the level (support), then wicked below and closed back above (support held); optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. weekly_rc / PWL-held are folded in here. Pairs with the WLV visual pine (weekly_levels.pine).",
+    "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
+    "weekly_lvl_reclaim": "The ONE prior-week level alert. Fires a BUY on the PRIOR week's High or Low (PWH/PWL) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-week visual pine (weekly_levels.pine).",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
@@ -461,15 +460,22 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # (staged_orl_held REVIVED 2026-06-27 — back in _BASE_CATALOG, scoped to staged_orl_symbols.)
     "staged_higher_low_held",
 
-    # SHORT alerts — staged_pdl_break + staged_pdh_rejection REVIVED 2026-06-06
-    # (SPY/QQQ/IWM index shorts, see _BASE_CATALOG). The rest stay retired.
+    # SHORT alerts — ONLY the two structural index shorts kept (user 2026-07-22: "for short — only
+    # two short conditions: PDH rejection, PDL break. that's all."). Everything else retired.
+    "pdh_fail_short",
     "staged_pdh_failed_short",
     "staged_pwh_rejection", "staged_pwh_failed_short", "staged_pwl_break",
     "staged_pmh_rejection", "staged_pmh_failed_short", "staged_pml_break",
+    # WLV/MLV rejection shorts REMOVED 2026-07-22 (user: shorts except PDH rejection)
+    "weekly_lvl_reject", "monthly_lvl_reject",
 
-    # MA SHORT (per-MA) RE-ENABLED 2026-06-09 — now active in _MA_CATALOG, so
-    # NOT obsolete. (The bare prefix ma_rejection_short_v3 stays obsolete above,
-    # same as ma_bounce_long_v3 — real types are per-MA.)
+    # MA/EMA rejection SHORT family REMOVED 2026-07-22 (user: "remove all ema/ma short from
+    # settings, not needed"). All per-MA types retired so the seed deletes them from the catalog.
+    "ma_rejection_short_v3_ema8", "ma_rejection_short_v3_ema21",
+    "ma_rejection_short_v3_ema50", "ma_rejection_short_v3_ema100",
+    "ma_rejection_short_v3_ema200",
+    "ma_rejection_short_v3_sma20", "ma_rejection_short_v3_sma50",
+    "ma_rejection_short_v3_sma100", "ma_rejection_short_v3_sma200",
 
     # MA proximity NOTICEs (long + short, per-MA) — Pine no longer emits
     "ma_proximity_long_v3_ema8", "ma_proximity_long_v3_ema21",
