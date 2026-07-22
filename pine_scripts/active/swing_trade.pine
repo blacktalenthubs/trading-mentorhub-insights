@@ -23,6 +23,11 @@ showPrice = input.bool(true, "Show price in the label", group = "Lines")
 // Daily 200 EMA + 200 SMA — the institutional dip-buy zone. A DAILY-CLOSE bounce here is a SWING entry
 // (an intraday bounce is a day-trade, already fired by LMR). Emits ma200_bounce.
 [ema200d, sma200d] = request.security(syminfo.tickerid, "D", [ta.ema(close, 200)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
+// Gap-and-go references (same as WLV/MLV): today's daily OPEN + the prior-day CLOSE. A stock that
+// OPENS above a PQ level after the prior day closed under it has reclaimed it via the gap (NBIX over
+// the PQ high) — the close-to-close cross misses that, so we add it explicitly below.
+dOpen = request.security(syminfo.tickerid, "D", open,     lookahead = barmerge.lookahead_off)
+pdc   = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
 
 // ── Draw all six quarterly levels (redrawn on the last bar; old ones cleared first) ──────────────
 var line[]  pq_lines  = array.new_line(0)
@@ -77,13 +82,26 @@ if newDay
     fE2 := false
     fS2 := false
 rng   = pqh - pql
-// Prior quarter (PQ)
-rc_low   = not na(pql) and not na(close[1]) and close > pql and close[1] <= pql and not fL          // bounce the PQ LOW
-rc_close = not na(pqc) and not na(close[1]) and close > pqc and close[1] <= pqc and not fC          // reclaim the PQ CLOSE
-rc_high  = not na(pqh) and not na(close[1]) and close > pqh and close[1] <= pqh and not fH          // break the PQ HIGH
+// RECLAIM = open-agnostic + GAP-and-go (user 2026-07-21 · same rule as WLV/MLV). Fire when price
+// CLOSED above the level AND either (a) it traded to/below the level this bar's day — a dip-and-
+// reclaim / retest, tracked by a per-level swept latch that survives across bars — OR (b) the day
+// OPENED above the level after the prior day closed under it (a gap-and-go: NBIX opening slightly
+// above the PQ high and running). Open location no longer matters; the close divides support/resist.
+// Once per level per day (the fired latch). Each call site keeps its OWN `swept` (Pine var-per-call).
+f_reclaim(float L, bool fired) =>
+    var bool swept = false
+    if newDay
+        swept := false
+    if not na(L) and low <= L
+        swept := true
+    bool gap = not na(L) and not na(pdc) and dOpen > L and pdc <= L
+    not na(L) and close > L and (swept or gap) and not fired
+rc_low   = f_reclaim(pql, fL)          // PQ LOW  — bounce / reclaim from below
+rc_close = f_reclaim(pqc, fC)          // PQ CLOSE — reclaim
+rc_high  = f_reclaim(pqh, fH)          // PQ HIGH — break / gap-and-go over the level
 // 200-day MA
-rc_e200  = not na(ema200d) and not na(close[1]) and close > ema200d and close[1] <= ema200d and not fE2   // 200-EMA bounce
-rc_s200  = not na(sma200d) and not na(close[1]) and close > sma200d and close[1] <= sma200d and not fS2   // 200-SMA bounce
+rc_e200  = f_reclaim(ema200d, fE2)     // 200-EMA bounce
+rc_s200  = f_reclaim(sma200d, fS2)     // 200-SMA bounce
 if rc_low
     fL  := true
 if rc_close
