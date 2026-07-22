@@ -55,10 +55,10 @@ vol_gap_min   = input.float(1.5, "  Gap-and-go min volume ratio", minval = 1.0, 
 vol_short_min = input.float(1.5, "  Short min volume ratio", minval = 1.0, step = 0.1, group = gPB)
 // ONE toggle for BOTH weekly + monthly levels (the day-trade level engine). Fires four structures on
 // each H/L: reclaim/held/break = BUY, reject = SHORT. Replaces the separate enWLV/enMLV/*below toggles.
-gLV = "Levels — weekly + monthly H/L (day-trade · one toggle)"
-enLevels  = input.bool(true,  "Level alerts — weekly + monthly H/L: RECLAIM only (undercut & reclaim, BUY)", group = gLV)
-wlvWk     = input.int(2,       "  Weeks to scan", minval = 1, maxval = 4, group = gLV)
-mlvMon    = input.int(2,       "  Months to scan", minval = 1, maxval = 6, group = gLV)
+gLV = "Levels — PRIOR week + PRIOR month H/L (day-trade · one toggle)"
+enLevels  = input.bool(true,  "Level alerts — prior-week + prior-month H/L: RECLAIM or GAP-and-go (BUY)", group = gLV)
+wlvWk     = input.int(1,       "  Weeks to scan (1 = prior week only)", minval = 1, maxval = 4, group = gLV)
+mlvMon    = input.int(1,       "  Months to scan (1 = prior month only)", minval = 1, maxval = 6, group = gLV)
 lvlHLonly = input.bool(true,   "  High & Low only — skip the open/close body levels", group = gLV)
 lvlMinPen = input.float(0.15,  "  Reclaim: min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gLV) / 100.0
 lvlTol    = input.float(0.25,  "  Held / Reject: touch tolerance near the level (%)", minval = 0.0, step = 0.05, group = gLV) / 100.0
@@ -105,7 +105,7 @@ wk_recent = input.int(8, "10w↑/30w↑ signs: recent WEEKS only (0 = all — th
 // the bug: [1]+off double-lags on lower TFs — the monthly level showed May on the
 // 1M chart but April on the 4h chart.)
 [h4p, l4p] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[hDp, lDp] = request.security(syminfo.tickerid, "D",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hDp, lDp, cDp] = request.security(syminfo.tickerid, "D",   [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)  // cDp = prior-day close — the "was below" reference for GAP-and-go (opened above a level the prior day closed under)
 dOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)  // today's open — the directional support gate, SHARED by daily RC + MLV + WLV
 [hWp, lWp] = request.security(syminfo.tickerid, "W",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [hMp, lMp] = request.security(syminfo.tickerid, "M",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -652,13 +652,17 @@ if enLevels
         // reclaim is a reclaim: open-above dip-and-reclaim AND open-below run-up-through-and-
         // close-above are the SAME event. The close (>_L reclaim / <_L reject) is what
         // divides support from resistance, not the open. Catches SNDK/NBIS from-below reclaims.
+        // GAP-and-go (user 2026-07-21): the day OPENED above the level after the prior day
+        // CLOSED at/below it → gapped up through the level from below (AAPL over PMH). No
+        // intraday dip needed — the overnight gap IS the reclaim; close > _L confirms it held.
+        bool _mgap = not na(cDp) and dOpen > _L and cDp <= _L
         if _hl and not na(_L) and low <= _L * (1.0 - lvlMinPen)
             array.set(mlv_swept, k, true)
-        if _hl and not na(_L) and array.get(mlv_swept, k) and close > _L and not array.get(mlv_fired, k)
+        if _hl and not na(_L) and (array.get(mlv_swept, k) or _mgap) and close > _L and not array.get(mlv_fired, k)
             array.set(mlv_fired, k, true)
-            string _mn = str.format("{0,date,MMM}", int(array.get(mlvTmA, k)))
             string _kd = array.get(mlvKdA, k)
-            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, lDd, "MLV · " + _mn + " " + _kd + " " + str.tostring(_L, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+            string _mmode = array.get(mlv_swept, k) ? "RECLAIM (swept below & closed back above)" : "GAP-and-go (opened above the level & held)"
+            alert(rc_pay("monthly_lvl_reclaim", "BUY", "M", _L, lDd, "MLV · prior-month " + _kd + " " + str.tostring(_L, format.mintick) + " — " + _mmode + ", entry at the level, stop the day low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
         // REJECTION SHORT (2026-07-18): day opened BELOW the level (resistance), price rallied into it
         // (high within lvlTol — tag or poke), then closed back under: resistance held. Whole watchlist.
         if _hl and not na(_L) and dOpen < _L and high >= _L * (1.0 - lvlTol)
@@ -696,14 +700,15 @@ if enLevels
     for k = 0 to wlvWk * 4 - 1
         float _WL = array.get(wlvPr, k)
         bool _whl = k % 4 < 2 or not lvlHLonly
-        // RECLAIM = was below & closed back above, open-agnostic (user 2026-07-21) — same rule as MLV.
+        // RECLAIM = was below & closed back above, open-agnostic + GAP-and-go (user 2026-07-21) — same rule as MLV.
+        bool _wgap = not na(cDp) and dOpen > _WL and cDp <= _WL
         if _whl and not na(_WL) and low <= _WL * (1.0 - lvlMinPen)
             array.set(wlv_swept, k, true)
-        if _whl and not na(_WL) and array.get(wlv_swept, k) and close > _WL and not array.get(wlv_fired, k)
+        if _whl and not na(_WL) and (array.get(wlv_swept, k) or _wgap) and close > _WL and not array.get(wlv_fired, k)
             array.set(wlv_fired, k, true)
-            string _wn  = str.format("{0,date,MMM d}", int(array.get(wlvTmA, k)))
             string _wkd = array.get(wlvKdA, k)
-            alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, lDd, "WLV · wk " + _wn + " " + _wkd + " " + str.tostring(_WL, format.mintick) + " — RECLAIM (swept below & closed back above), entry at the level, stop the dip low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+            string _wmode = array.get(wlv_swept, k) ? "RECLAIM (swept below & closed back above)" : "GAP-and-go (opened above the level & held)"
+            alert(rc_pay("weekly_lvl_reclaim", "BUY", "W", _WL, lDd, "WLV · prior-week " + _wkd + " " + str.tostring(_WL, format.mintick) + " — " + _wmode + ", entry at the level, stop the day low " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
         // REJECTION SHORT (2026-07-18) — same rule as MLV above. Whole watchlist.
         if _whl and not na(_WL) and dOpen < _WL and high >= _WL * (1.0 - lvlTol)
             array.set(wlv_rj_swept, k, true)

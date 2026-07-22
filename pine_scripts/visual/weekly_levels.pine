@@ -20,7 +20,7 @@
 indicator("WLV · Weekly Levels (directional)", "WLV", overlay = true, max_lines_count = 30, max_labels_count = 300, max_boxes_count = 8)
 
 gS = "Levels"
-nWk      = input.int(2, "Completed weeks to draw + scan", minval = 1, maxval = 4, group = gS)
+nWk      = input.int(1, "Completed weeks to draw + scan (1 = prior week only)", minval = 1, maxval = 4, group = gS)
 showTag  = input.bool(true, "Week + price tags at the line ends", group = gS)
 showBody = input.bool(true, "Body band — open↔close zone per week", group = gS)
 showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per week (dotted)", group = gS)
@@ -34,8 +34,8 @@ gX = "Signal — directional support reclaim (long only)"
 showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
 minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
 colUp       = input.color(color.lime, "▲ reclaim", group = gX)
-showBelow   = input.bool(true, "△ also mark reclaims from BELOW (opened under the level, closed back above)", group = gX)
-colBelow    = input.color(color.aqua, "△ reclaim-from-below", group = gX)
+showBelow   = input.bool(true, "△ also mark GAP-and-go (opened above the level after the prior day closed under it, held above)", group = gX)
+colBelow    = input.color(color.aqua, "△ gap-and-go", group = gX)
 markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
 _msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
 only1h  = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — RC pine owns the alerts)", group = gX)
@@ -70,31 +70,33 @@ nearOK(float L) =>
     _ok
 
 // ── DIRECTIONAL SUPPORT-RECLAIM SIGNAL ──────────────────────────────────────────
-day_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+day_open   = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+day_pclose = request.security(tid, "D", close[1], lookahead = barmerge.lookahead_on)  // prior-day close — the "was below" reference for GAP-and-go
 
 var bool[] wlvFired = array.new_bool(16, false)
+var bool[] wlvSwept = array.new_bool(16, false)
 newDay = ta.change(time("D")) != 0
 if newDay
     for k = 0 to 15
         array.set(wlvFired, k, false)
+        array.set(wlvSwept, k, false)
 
-if (showReclaim or showBelow) and tfOK and barstate.isconfirmed and not na(day_open)
+// Mirrors day_trade.pine: RECLAIM open-agnostic (dipped >= minPen below, closed back above — sweep
+// latched across bars) OR GAP-and-go (opened above the level after the prior day closed under it).
+if showReclaim and tfOK and barstate.isconfirmed and not na(day_open)
     for k = 0 to nWk * 4 - 1
         int wi = int(k / 4) + 1
         int ty = k % 4
         float L = ty == 0 ? wkH(wi) : ty == 1 ? wkL(wi) : ty == 2 ? wkO(wi) : wkC(wi)
-        bool defend = not na(L) and day_open > L and low <= L and close > L and (L - low) / L >= minPen
-        bool below  = not na(L) and day_open < L and close > L and close[1] <= L
-        bool defOn = defend and showReclaim
-        bool belOn = below and showBelow and not defend
-        if (defOn or belOn) and not array.get(wlvFired, k)
+        if not na(L) and low <= L * (1.0 - minPen)
+            array.set(wlvSwept, k, true)
+        bool swept = array.get(wlvSwept, k)
+        bool gap   = showBelow and not na(L) and not na(day_pclose) and day_open > L and day_pclose <= L
+        if not na(L) and (swept or gap) and close > L and not array.get(wlvFired, k)
             array.set(wlvFired, k, true)
             string wn   = str.format("{0,date,MMM d}", int(wkT(wi)))
             string ty_s = ty == 0 ? "H" : ty == 1 ? "L" : ty == 2 ? "O" : "C"
-            if defOn
-                label.new(bar_index, low, "▲" + wn + " " + ty_s, style = label.style_label_up, color = colUp, textcolor = color.black, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · support reclaim · stop " + str.tostring(low, format.mintick))
-            else
-                label.new(bar_index, low, "△" + wn + " " + ty_s, style = label.style_label_up, color = colBelow, textcolor = color.white, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + " · reclaimed from below · stop " + str.tostring(low, format.mintick))
+            label.new(bar_index, low, (swept ? "▲" : "△") + wn + " " + ty_s, style = label.style_label_up, color = swept ? colUp : colBelow, textcolor = swept ? color.black : color.white, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + (swept ? " · reclaim (swept below & closed above)" : " · gap-and-go (opened above & held)") + " · stop " + str.tostring(low, format.mintick))
 
 // ── Draw the rails/bands/body-lines once, on the last bar ───────────────────────
 var line[]  lns  = array.new_line()

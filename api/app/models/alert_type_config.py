@@ -177,11 +177,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # WLV — Weekly LEVELS · directional reclaim (spec 69, 2026-07-12). THE single weekly
     # alert: H/L/O/C of the last 4 weeks (16 levels), directional support reclaim. weekly_rc
     # + PWL-held folded in → OBSOLETE. The weekly 10w/30w MA stays separate (trend tool).
-    ("weekly_lvl_reclaim", "WLV — weekly-level RECLAIM (High/Low of the last 2 weeks · undercut & reclaimed the level)", "Weekly", False),
+    ("weekly_lvl_reclaim", "Prior-week level — RECLAIM or GAP-and-go above the PRIOR week's High/Low (PWH/PWL)", "Weekly", False),
     # WLV/MLV reject — the bearish mirror (rc.pine, 2026-07-13). Price rallied UP into a weekly/monthly
     # H/L level from below and closed back under it = failed breakout / resistance held → SHORT, stop the
     # poke high. Fired by the same one-toggle level engine as the reclaim/held/break BUYs. day_trade.
-    ("weekly_lvl_reject", "WLV rejection SHORT — day opened BELOW a weekly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
+    ("weekly_lvl_reject", "Prior-week rejection SHORT — rallied into the PRIOR week's H/L from below (0.25% tag) and closed back under: resistance held", "Short", False),
     # 10w/30w weekly-MA support (rc.pine). Now fires INTRADAY once-per-TOUCH (tag & hold
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
@@ -194,8 +194,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # optional reclaim-from-below. Entry = the level, stop = the reclaim low. Fired from rc.pine,
     # once per level per day, day-trade. monthly_rc + pml_held + CML are FOLDED IN (retired →
     # OBSOLETE_ALERT_TYPES); MLV is the only monthly toggle.
-    ("monthly_lvl_reclaim", "MLV — monthly-level RECLAIM (High/Low of the last 2 months · undercut & reclaimed the level)", "Monthly", False),
-    ("monthly_lvl_reject", "MLV rejection SHORT — day opened BELOW a monthly H/L, price rallied into it (0.25% tag) and closed back under: resistance held", "Short", False),
+    ("monthly_lvl_reclaim", "Prior-month level — RECLAIM or GAP-and-go above the PRIOR month's High/Low (PMH/PML)", "Monthly", False),
+    ("monthly_lvl_reject", "Prior-month rejection SHORT — rallied into the PRIOR month's H/L from below (0.25% tag) and closed back under: resistance held", "Short", False),
     # MoBO — monthly BOX breakout + monthly RC-H (rc.pine, 2026-06-28). The long-term
     # "next MU/SNDK off a base" engine: a locked flat multi-month Darvas ceiling clearing
     # (monthly_box), or a break of a prior MONTHLY swing high that held as resistance for
@@ -345,8 +345,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
-    "monthly_lvl_reclaim": "MLV — the ONE monthly-level alert. Fires a BUY when price reclaims a completed monthly level: any H/L/O/C of the last 6 months (24 levels). Directional — the day must have OPENED ABOVE the level (so it's support), then price wicked below and closed back above it (support held). Optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. monthly_rc / PML-held / CML are folded in here. Pairs with the MLV visual pine (monthly_levels.pine).",
-    "weekly_lvl_reclaim": "WLV — the ONE weekly-level alert. Fires a BUY when price reclaims a completed weekly level: any H/L/O/C of the last 4 weeks (16 levels). Directional — the day OPENED ABOVE the level (support), then wicked below and closed back above (support held); optionally also reclaim-from-below. Entry = the level, stop = the reclaim low. Once per level per day, day-trade. weekly_rc / PWL-held are folded in here. Pairs with the WLV visual pine (weekly_levels.pine).",
+    "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
+    "weekly_lvl_reclaim": "The ONE prior-week level alert. Fires a BUY on the PRIOR week's High or Low (PWH/PWL) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-week visual pine (weekly_levels.pine).",
 
     # Swing scanner — REMOVED 2026-06-01. See OBSOLETE_ALERT_TYPES.
 }
