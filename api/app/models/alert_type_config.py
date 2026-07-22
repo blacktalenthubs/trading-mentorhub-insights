@@ -143,8 +143,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Index SHORTs (spec 61, 2026-06-06) — SPY/QQQ/IWM only, via the SPY-short
     # routing whitelist. Trade WITH the breakdown: PDL break / PDH rejection on
     # heavy volume. Default OFF — record + watch the count before delivering.
-    # staged_pdl_break + pdh_fail_short REMOVED 2026-07-22 (user: "remove any form of shorts except
-    # PDH rejection"). PDH rejection is the ONLY short we keep. Both → OBSOLETE_ALERT_TYPES.
+    # The ONLY two shorts (user 2026-07-22: "for short — only two short conditions: PDH rejection,
+    # PDL break. that's all."). pdh_fail_short + all MA/level rejection shorts retired → OBSOLETE.
+    ("staged_pdl_break", "PDL break — lost the prior-day low on volume", "Short", False),
     ("staged_pdh_rejection", "PDH rejection — rejected at the prior-day high on volume", "Short", False),
 
     # 4h reclaim — long-only now (rc_4h_short RETIRED 2026-06-29 → OBSOLETE; the only
@@ -459,9 +460,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # (staged_orl_held REVIVED 2026-06-27 — back in _BASE_CATALOG, scoped to staged_orl_symbols.)
     "staged_higher_low_held",
 
-    # SHORT alerts — ONLY staged_pdh_rejection kept (user 2026-07-22: "remove any form of shorts
-    # except PDH rejection"). staged_pdl_break + all the rest retired.
-    "staged_pdl_break", "pdh_fail_short",
+    # SHORT alerts — ONLY the two structural index shorts kept (user 2026-07-22: "for short — only
+    # two short conditions: PDH rejection, PDL break. that's all."). Everything else retired.
+    "pdh_fail_short",
     "staged_pdh_failed_short",
     "staged_pwh_rejection", "staged_pwh_failed_short", "staged_pwl_break",
     "staged_pmh_rejection", "staged_pmh_failed_short", "staged_pml_break",
