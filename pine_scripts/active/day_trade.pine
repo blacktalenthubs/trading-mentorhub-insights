@@ -45,7 +45,7 @@ enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BU
 // ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified:
 //    core level + volume + rc.pine's uptrend; dropped the VWAP/CVD/8-EMA confluence). ──
 gPB = "PDH break · gap-and-go · index shorts (from levels_day)"
-en_pdh_break  = input.bool(true, "PDH break — closed above the prior-day HIGH on volume + uptrend (BUY)", group = gPB)
+en_pdh_break  = input.bool(true, "PDH break — closed above the prior-day HIGH on volume (BUY · no trend gate, the stop is the judge)", group = gPB)
 en_gap_up     = input.bool(true, "Gap-and-go — opened above PDH and ran on volume (BUY)", group = gPB)
 en_shorts     = input.bool(true, "Index SHORTS — PDL break-down + PDH rejection (SHORT, allowlist only)", group = gPB)
 short_syms_pb = input.string("SPY,QQQ,IWM,BTCUSD,BTCUSDT,BTCUSDC", "  Shorts: allowed tickers (raw TV, comma-sep)", group = gPB)
@@ -154,16 +154,15 @@ near_lvl(float a, float b) => not na(a) and not na(b) and b != 0 and (math.abs(a
 //   TRIGGER  — price was above the MA, dipped to it (the bar's low tags it), and
 //              CLOSED back above on a green bar = the support held.
 //   STOP     — a close below the MA (support lost). Tight on fast MAs, wide on slow.
-//   REGIME   — 8/21/50 fire ONLY in an uptrend (EMA 50>100>200 stacked). The deep
-//              100/200 fire ALWAYS (institutions defend them even in a falling name).
-//   COOLDOWN — re-arm only after price moves clearly ABOVE the MA again, so a "walk"
-//              along the MA fires ONCE per touch, not every bar.
+//   NO TREND GATE (user 2026-07-22) — every MA fires the reclaim regardless of trend; the stop
+//              (a close back below the MA) is the judge. The old 8/21/50 uptrend filter is REMOVED.
+//   RE-ARM   — fires ONCE per touch: re-arm (allow the next fire) only after price clears the MA
+//              by ma_rearm% OR a new day, so a "walk" along the MA doesn't fire every bar.
 gMA = "MA bounce (daily MA, ported)"
-en_ma     = input.bool(true,  "Fire MA reclaim longs — price dipped to a daily MA (EMA + SMA) & closed back above = support held", group = gMA)
-ma_regime = input.bool(false, "8/21/50 require uptrend (50>100>200) — default OFF: the reclaim fires, the stop is the judge (no trend filter)", group = gMA)
+en_ma     = input.bool(true,  "Fire MA reclaim longs — price dipped to/below a daily MA (EMA + SMA) & closed back above = reclaim", group = gMA)
 ma_tol    = input.float(0.25, "Touch tolerance % (low within this of the MA)", minval = 0.0, step = 0.05, group = gMA)
 ma_rearm  = input.float(1.0,  "Re-arm % (price must move this far above the MA to reset)", minval = 0.1, step = 0.1, group = gMA)
-en_ma_short = input.bool(true, "Fire MA rejection SHORTS — price below a daily MA tagged it from below & closed back under", group = gMA)
+en_ma_short = input.bool(false, "Fire MA rejection SHORTS (RETIRED 2026-07-22 — shorts are PDH rejection + PDL break only)", group = gMA)
 ema8d   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
 ema21d  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
 ema50d  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
@@ -171,22 +170,22 @@ ema100d = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahe
 ema200d = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
 // SMA ladder — one bundled security call (keeps the per-script security-call count in budget).
 [sma20d, sma50d, sma100d, sma200d] = request.security(syminfo.tickerid, "D", [ta.sma(close, 20)[1], ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
-ema_stacked = (not na(ema50d)) and (not na(ema100d)) and (not na(ema200d)) and (ema50d > ema100d) and (ema100d > ema200d)
-ma_uptrend  = (not ma_regime) or ema_stacked
 ma_bounce(float ma, bool eligible) =>
-    var bool armed = false
     var bool fired = false
-    if (not na(ma)) and (close > ma * (1.0 + ma_rearm / 100.0))
-        armed := true
+    // NO arm-from-above precondition (user 2026-07-22): fire on the wick-and-reclaim ITSELF — the
+    // low dipped to/below the MA and the close is back above it, whether price came from above
+    // (pullback) or from below (reclaim). Re-arm (allow the next fire) after price clears the MA by
+    // ma_rearm% OR a new day, so it fires ONCE per touch, not every bar.
+    if (not na(ma)) and (close > ma * (1.0 + ma_rearm / 100.0) or ta.change(time("D")) != 0)
         fired := false
     touch = (not na(ma)) and (low <= ma * (1.0 + ma_tol / 100.0)) and (close > ma)
-    fire = eligible and armed and touch and not fired
+    fire = eligible and touch and not fired
     if fire
         fired := true
     fire
-mb_e8   = ma_bounce(ema8d,   en_ma and ma_uptrend)
-mb_e21  = ma_bounce(ema21d,  en_ma and ma_uptrend)
-mb_e50  = ma_bounce(ema50d,  en_ma and ma_uptrend)
+mb_e8   = ma_bounce(ema8d,   en_ma)
+mb_e21  = ma_bounce(ema21d,  en_ma)
+mb_e50  = ma_bounce(ema50d,  en_ma)
 mb_e100 = ma_bounce(ema100d, en_ma)
 mb_e200 = ma_bounce(ema200d, en_ma)
 mb_s20  = ma_bounce(sma20d,  en_ma)
@@ -593,9 +592,9 @@ if rcD_long
 if rcD_hrec
     alert(rc_pay("rc_daily_hrec", "BUY", "D", hDp, lDd, "Daily RC-H · breakout-retest of the prior-day HIGH (PDH) — entry " + str.tostring(hDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
 // ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified) ──
-if en_pdh_break and not na(hDp) and not na(close[1]) and close > hDp and close[1] <= hDp and not na(vol_ratio_pb) and vol_ratio_pb >= vol_break_min and uptrend and not pdhb_fired
+if en_pdh_break and not na(hDp) and not na(close[1]) and close > hDp and close[1] <= hDp and not na(vol_ratio_pb) and vol_ratio_pb >= vol_break_min and not pdhb_fired
     pdhb_fired := true
-    alert(rc_pay("staged_pdh_break", "BUY", "D", close, low, "PDH break — closed above the prior-day HIGH on " + str.tostring(vol_ratio_pb, "#.#") + "x volume, uptrend — stop the break-bar low"), alert.freq_once_per_bar_close)
+    alert(rc_pay("staged_pdh_break", "BUY", "D", close, low, "PDH break — closed above the prior-day HIGH on " + str.tostring(vol_ratio_pb, "#.#") + "x volume — stop the break-bar low"), alert.freq_once_per_bar_close)
 if en_gap_up and gap_armed_pb and not gap_fired_pb and not na(hDp) and close > hDp and close > open and not na(vol_ratio_pb) and vol_ratio_pb >= vol_gap_min
     gap_fired_pb := true
     alert(rc_pay("gap_up_continuation_long", "BUY", "D", close, gap_low_pb, "Gap-and-go — opened above PDH and ran on " + str.tostring(vol_ratio_pb, "#.#") + "x volume — stop the open low"), alert.freq_once_per_bar_close)
