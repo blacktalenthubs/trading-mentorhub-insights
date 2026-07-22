@@ -62,9 +62,9 @@ bandPct = input.float(8.0, "Only draw lines within this % of price (0 = draw all
 gS = "Style"
 supCol  = input.color(#26A69A, "Support color (price above)",    group = gS)
 resCol  = input.color(#EF5350, "Resistance color (price below)", group = gS)
-maW     = input.int(1, "MA line width",    minval = 1, maxval = 4, group = gS)
-lvlW    = input.int(2, "Level line width", minval = 1, maxval = 4, group = gS)
-pqW     = input.int(3, "PQ (quarter) line width", minval = 1, maxval = 5, group = gS)
+maW     = input.int(2, "MA line width",    minval = 1, maxval = 5, group = gS)
+lvlW    = input.int(3, "Level line width", minval = 1, maxval = 5, group = gS)
+pqW     = input.int(4, "PQ (quarter) line width", minval = 1, maxval = 6, group = gS)
 lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
 labSize = input.string("small", "Label size", options = ["tiny", "small", "normal", "large"], group = gS)
 _lsz = labSize == "tiny" ? size.tiny : labSize == "normal" ? size.normal : labSize == "large" ? size.large : size.small
