@@ -9,10 +9,13 @@ they live in `../active/` because that's where the deploy tooling looks).
 
 | File | On the chart | Notes |
 |------|-------------|-------|
-| `ema_levels_flat.pine` | **EMA 5/20/50/100/200 + PDH/PDL · PWH/PWL · PMH/PML** | Flat locked S/R. Green = support (price above) / red = resistance (below). Solid = MA+daily · dashed = weekly · dotted = monthly. |
-| `sma_levels_flat.pine` | **SMA 5/20/50/100/200 + the same 6 levels** | SMA twin of the above. Run one or both. |
-| `monthly_levels.pine` (MLV) | **Prior MONTH H/L/O/C** + ▲ reclaim / △ gap-and-go marks | Visual twin of the monthly alert. Draws the prior month only. |
-| `weekly_levels.pine` (WLV) | **Prior WEEK H/L/O/C** + ▲ reclaim / △ gap-and-go marks | Visual twin of the weekly alert. Draws the prior week only. |
+| **`flat_mas_levels.pine`** ← **the one I load** | **EMA + SMA 5/20/50/100/200 AND PDH/PDL · PWH/PWL · PMH/PML** — all in ONE pine | Nothing to forget to enable. Flat locked S/R: green = support (price above) / red = resistance (below). EMA solid · SMA dashed; daily solid · weekly dashed · monthly dotted. **Proximity band** (default 8%) hides far lines so the chart auto-zooms tight on low TFs (no lock-ratio hack); set 0 to draw all. |
+| `monthly_levels.pine` (MLV) | **Prior MONTH H/L/O/C** + ▲ reclaim / △ gap-and-go marks | OPTIONAL detail — adds the O/C levels + reclaim marks the one-pine doesn't. Draws the prior month only. |
+| `weekly_levels.pine` (WLV) | **Prior WEEK H/L/O/C** + ▲ reclaim / △ gap-and-go marks | OPTIONAL detail — same, for the prior week. |
+
+> Replaced the split `ema_levels_flat` + `sma_levels_flat` (two pines = forgot to enable
+> one → missed entries, and their shared levels doubled up) with the single
+> `flat_mas_levels.pine`.
 
 ## Alert pines — in `../active/` (bound to TV watchlist alerts)
 

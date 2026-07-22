@@ -1,0 +1,127 @@
+// @version=5
+// Flat MAs + Levels — ONE pine, everything I trade on the chart, so there's nothing
+// to forget to enable and no second indicator to load:
+//   • EMA 5/20/50/100/200  (daily · flat · SOLID)
+//   • SMA 5/20/50/100/200  (daily · flat · DASHED)  ← EMA vs SMA told apart by style
+//   • Levels PDH/PDL (daily · solid) · PWH/PWL (weekly · dashed) · PMH/PML (monthly · dotted)
+//
+// Everything is locked to its settled daily/weekly/monthly value via request.security
+// ([1] + lookahead_on), so every line sits FLAT on any chart TF (5m ↔ 1h ↔ D) and
+// never repaints. Color = ROLE: GREEN = support (price above) / RED = resistance (below);
+// flips on a close across. MA labels carry the S/R letter ("EMA 20 S 746.34"); level
+// labels carry name + price ("PDH 748.73").
+//
+// ── ZOOM FIX (the reason the chart used to squash on a 15m) ──
+// A far line (SMA 200 way below, or a monthly level way above) drags TradingView's
+// auto-scale out to reach it, shrinking the candles. The PROXIMITY BAND only draws a
+// line when it's within `bandPct` of price, so distant lines drop off and the chart
+// auto-zooms to the tradeable range — no "lock price to bar ratio" hack needed. A line
+// reappears the moment price comes within range of it. Set bandPct = 0 to draw them all.
+//
+// VISUAL ONLY — no alerts (day_trade owns those).
+indicator("Flat MAs + Levels · EMA·SMA + PD/PW/PM", "MAs+Lvl", overlay = true, max_lines_count = 30, max_labels_count = 30)
+
+// ── EMA (solid) ──
+gE = "EMA — daily, flat (solid)"
+e5   = input.bool(true, "EMA 5",   inline = "e1", group = gE)
+e20  = input.bool(true, "EMA 20",  inline = "e1", group = gE)
+e50  = input.bool(true, "EMA 50",  inline = "e2", group = gE)
+e100 = input.bool(true, "EMA 100", inline = "e2", group = gE)
+e200 = input.bool(true, "EMA 200", inline = "e3", group = gE)
+
+// ── SMA (dashed) ──
+gSm = "SMA — daily, flat (dashed)"
+s5   = input.bool(true, "SMA 5",   inline = "s1", group = gSm)
+s20  = input.bool(true, "SMA 20",  inline = "s1", group = gSm)
+s50  = input.bool(true, "SMA 50",  inline = "s2", group = gSm)
+s100 = input.bool(true, "SMA 100", inline = "s2", group = gSm)
+s200 = input.bool(true, "SMA 200", inline = "s3", group = gSm)
+
+// ── Levels ──
+gL = "Levels — prior period, flat"
+pdh_on = input.bool(true, "PDH", inline = "l1", group = gL)
+pdl_on = input.bool(true, "PDL", inline = "l1", group = gL)
+pwh_on = input.bool(true, "PWH", inline = "l2", group = gL)
+pwl_on = input.bool(true, "PWL", inline = "l2", group = gL)
+pmh_on = input.bool(true, "PMH", inline = "l3", group = gL)
+pml_on = input.bool(true, "PML", inline = "l3", group = gL)
+
+// ── Declutter / zoom ──
+gZ = "Declutter / zoom"
+bandPct = input.float(8.0, "Only draw lines within this % of price (0 = draw all)", minval = 0.0, step = 0.5, group = gZ)
+
+// ── Style ──
+gS = "Style"
+supCol  = input.color(#26A69A, "Support color (price above)",    group = gS)
+resCol  = input.color(#EF5350, "Resistance color (price below)", group = gS)
+maW     = input.int(1, "MA line width",    minval = 1, maxval = 4, group = gS)
+lvlW    = input.int(2, "Level line width", minval = 1, maxval = 4, group = gS)
+lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
+labSize = input.string("small", "Label size", options = ["tiny", "small", "normal", "large"], group = gS)
+_lsz = labSize == "tiny" ? size.tiny : labSize == "normal" ? size.normal : labSize == "large" ? size.large : size.small
+
+// ── Locked daily MAs + prior-period levels (flat + non-repainting on any TF) ──
+tid = syminfo.tickerid
+ema5   = request.security(tid, "D", ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on)
+ema20  = request.security(tid, "D", ta.ema(close, 20)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(tid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(tid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(tid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma5   = request.security(tid, "D", ta.sma(close, 5)[1],   lookahead = barmerge.lookahead_on)
+sma20  = request.security(tid, "D", ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on)
+sma50  = request.security(tid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(tid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(tid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+pdh = request.security(tid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(tid, "D", low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
+pmh = request.security(tid, "M", high[1], lookahead = barmerge.lookahead_on)
+pml = request.security(tid, "M", low[1],  lookahead = barmerge.lookahead_on)
+
+// ── Draw ──
+var line[]  _lines  = array.new_line(0)
+var label[] _labels = array.new_label(0)
+
+// within the proximity band? (bandPct <= 0 => always draw)
+near(float v) => bandPct <= 0.0 or (not na(v) and math.abs(v - close) / close * 100.0 <= bandPct)
+
+// sty: 0 solid · 1 dashed · 2 dotted. isMA => S/R letter + MA width; else name+price + level width.
+f_draw(float v, string nm, bool show, int sty, int loff, bool isMA) =>
+    if show and not na(v) and near(v)
+        sup = close > v
+        col = sup ? supCol : resCol
+        lst = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        txt = isMA ? nm + (sup ? " S " : " R ") + str.tostring(v, format.mintick) : nm + "  " + str.tostring(v, format.mintick)
+        w = isMA ? maW : lvlW
+        ln = line.new(bar_index - lineLen, v, bar_index + loff, v, color = col, width = w, style = lst)
+        lb = label.new(bar_index + loff, v, txt, style = label.style_label_left, color = col, textcolor = color.white, size = _lsz)
+        array.push(_lines, ln)
+        array.push(_labels, lb)
+
+if barstate.islast
+    for x in _lines
+        line.delete(x)
+    for y in _labels
+        label.delete(y)
+    array.clear(_lines)
+    array.clear(_labels)
+    // EMA — solid, near the price axis
+    f_draw(ema5,   "EMA 5",   e5,   0, 4, true)
+    f_draw(ema20,  "EMA 20",  e20,  0, 4, true)
+    f_draw(ema50,  "EMA 50",  e50,  0, 4, true)
+    f_draw(ema100, "EMA 100", e100, 0, 4, true)
+    f_draw(ema200, "EMA 200", e200, 0, 4, true)
+    // SMA — dashed, stepped out so its label clears the EMA label when they coincide
+    f_draw(sma5,   "SMA 5",   s5,   1, 8, true)
+    f_draw(sma20,  "SMA 20",  s20,  1, 8, true)
+    f_draw(sma50,  "SMA 50",  s50,  1, 8, true)
+    f_draw(sma100, "SMA 100", s100, 1, 8, true)
+    f_draw(sma200, "SMA 200", s200, 1, 8, true)
+    // Levels — daily solid · weekly dashed · monthly dotted, stepped further out
+    f_draw(pdh, "PDH", pdh_on, 0, 14, false)
+    f_draw(pdl, "PDL", pdl_on, 0, 18, false)
+    f_draw(pwh, "PWH", pwh_on, 1, 22, false)
+    f_draw(pwl, "PWL", pwl_on, 1, 26, false)
+    f_draw(pmh, "PMH", pmh_on, 2, 30, false)
+    f_draw(pml, "PML", pml_on, 2, 34, false)
