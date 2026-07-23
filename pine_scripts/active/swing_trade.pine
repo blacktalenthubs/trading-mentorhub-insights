@@ -28,6 +28,9 @@ showPrice = input.bool(true, "Show price in the label", group = "Lines")
 // the PQ high) — the close-to-close cross misses that, so we add it explicitly below.
 dOpen = request.security(syminfo.tickerid, "D", open,     lookahead = barmerge.lookahead_off)
 pdc   = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
+// Prior-MONTH low — a swing bottom-bounce, scanned broad on the master watchlist (user 2026-07-22).
+// Emits monthly_low_swing (SWING · master-optin). Reclaim only (wick to/below the PM low & closed above).
+pmlo  = request.security(syminfo.tickerid, "M", low[1],   lookahead = barmerge.lookahead_on)
 
 // ── Draw all six quarterly levels (redrawn on the last bar; old ones cleared first) ──────────────
 var line[]  pq_lines  = array.new_line(0)
@@ -75,12 +78,14 @@ var bool fC  = false
 var bool fH  = false
 var bool fE2 = false
 var bool fS2 = false
+var bool fPM = false
 if newDay
     fL  := false
     fC  := false
     fH  := false
     fE2 := false
     fS2 := false
+    fPM := false
 rng   = pqh - pql
 // RECLAIM = open-agnostic + GAP-and-go (user 2026-07-21 · same rule as WLV/MLV). Fire when price
 // CLOSED above the level AND either (a) it traded to/below the level this bar's day — a dip-and-
@@ -102,6 +107,7 @@ rc_high  = f_reclaim(pqh, fH)          // PQ HIGH — break / gap-and-go over th
 // 200-day MA
 rc_e200  = f_reclaim(ema200d, fE2)     // 200-EMA bounce
 rc_s200  = f_reclaim(sma200d, fS2)     // 200-SMA bounce
+rc_pmlo  = f_reclaim(pmlo, fPM)        // PRIOR-MONTH LOW — swing bottom-bounce (master watchlist)
 if rc_low
     fL  := true
 if rc_close
@@ -112,11 +118,14 @@ if rc_e200
     fE2 := true
 if rc_s200
     fS2 := true
+if rc_pmlo
+    fPM := true
 
 plotshape(showMarks and rc_low,   "Q Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "Q-L")
 plotshape(showMarks and rc_close, "Q Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "Q-C")
 plotshape(showMarks and rc_high,  "Q High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "Q-H")
 plotshape(showMarks and (rc_e200 or rc_s200),  "200-MA bounce",   style = shape.triangleup, location = location.belowbar, color = color.new(#7E57C2, 0), size = size.small, text = "200")
+plotshape(showMarks and rc_pmlo, "Prior-month low reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), size = size.small, text = "PM-L")
 
 // PQ alerts
 if fireAlerts and rc_low
@@ -130,3 +139,7 @@ if fireAlerts and rc_e200
     alert(f_pqpay("ma200_bounce", "EMA 200", close, ema200d * 0.985, close + (close - ema200d) * 2, close + (close - ema200d) * 3), alert.freq_once_per_bar_close)
 if fireAlerts and rc_s200
     alert(f_pqpay("ma200_bounce", "SMA 200", close, sma200d * 0.985, close + (close - sma200d) * 2, close + (close - sma200d) * 3), alert.freq_once_per_bar_close)
+// Prior-MONTH low reclaim — swing bottom-bounce, broadcast to the master watchlist (opt-in). Entry =
+// the level, stop 1.5% under it. reclaim only (wick to/below the PM low & closed back above).
+if fireAlerts and rc_pmlo
+    alert(f_pqpay("monthly_low_swing", "PM Low", pmlo, pmlo * 0.985, pmlo + (close - pmlo), pmlo + (close - pmlo) * 2), alert.freq_once_per_bar_close)
