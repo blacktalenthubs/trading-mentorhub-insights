@@ -422,7 +422,7 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
 # ANY user who OPTED IN — i.e. enabled the type — REGARDLESS of their personal watchlist. The per-user
 # type toggle IS the opt-in. Distinct from SWING_BROADCAST_TYPES: those bypass the toggle but stay
 # watchlist-gated; these are the opposite — broadcast to opted-in users, not watchlist-gated.
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim"})
+MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:

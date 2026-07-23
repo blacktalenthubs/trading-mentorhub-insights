@@ -42,6 +42,7 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
 SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "weekly_30w_held",         # wicked below & reclaimed the 30-week MA — long-hold trend support
     "pq_reclaim",              # prior-quarter Low bounce / Close reclaim / High break
+    "monthly_low_swing",       # prior-MONTH low reclaim — swing bottom-bounce, master universe (2026-07-22)
     "ma200_bounce",            # daily close reclaimed the 200 EMA/SMA
     "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross
     "monthly_box",             # MoBO — monthly flat-base ceiling breakout (user 2026-07-18: breakout → swing)

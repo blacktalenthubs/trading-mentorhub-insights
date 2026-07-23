@@ -135,6 +135,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("pq_reclaim", "PQ reclaim (master universe) — quarterly-level bounce/reclaim/break on the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
     # 200-MA bounce — the OTHER emit of swing_trade.pine (daily-close reclaim of the 200 EMA/SMA).
     ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
+    # Prior-MONTH low reclaim — swing bottom-bounce on the BROAD master watchlist (opt-in), from
+    # swing_trade.pine (2026-07-22). Master-universe like pq_reclaim. Label < 200 chars (#821).
+    ("monthly_low_swing", "Prior-month low reclaim (master universe) — swing bottom-bounce: wicked to/below the prior month's LOW & closed back above, scanned across the BROAD master watchlist; opt in HERE", "Swing", True),
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
     # character_change / base_buy / new_high_breakout / fv_pullback / fv_reclaim RETIRED 2026-07-18
     # (user: "remove — we dont need them") → OBSOLETE below. The swing book is the two-control set:
