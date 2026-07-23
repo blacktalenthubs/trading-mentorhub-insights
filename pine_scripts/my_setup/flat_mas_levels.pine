@@ -6,6 +6,8 @@
 //   • Levels PDH/PDL (daily · solid) · PWH/PWL (weekly · dashed) · PMH/PML (monthly · dotted)
 //   • PQH/PQL/PQC — the prior QUARTER (dotted, thicker · the major swing rail). VISUAL only here;
 //     the pq_reclaim ALERT lives in swing_trade.pine bound on 4h.
+//   • BODY edges — the prior period's OPEN & CLOSE (PDO/PDC · PWO/PWC · PMO/PMC), drawn thinner:
+//     the candle body (open↔close) as flat S/R, alongside the wick H/L. Same role-color + tier style.
 //
 // Everything is locked to its settled daily/weekly/monthly value via request.security
 // ([1] + lookahead_on), so every line sits FLAT on any chart TF (5m ↔ 1h ↔ D) and
@@ -21,7 +23,7 @@
 // reappears the moment price comes within range of it. Set bandPct = 0 to draw them all.
 //
 // VISUAL ONLY — no alerts (day_trade owns those).
-indicator("Flat MAs + Levels · EMA·SMA + PD/PW/PM", "MAs+Lvl", overlay = true, max_lines_count = 30, max_labels_count = 30)
+indicator("Flat MAs + Levels · EMA·SMA + PD/PW/PM", "MAs+Lvl", overlay = true, max_lines_count = 40, max_labels_count = 40)
 
 // ── EMA (solid) ──
 gE = "EMA — daily, flat (solid)"
@@ -48,6 +50,15 @@ pwl_on = input.bool(true, "PWL", inline = "l2", group = gL)
 pmh_on = input.bool(true, "PMH", inline = "l3", group = gL)
 pml_on = input.bool(true, "PML", inline = "l3", group = gL)
 
+// ── Body edges — the prior period's OPEN and CLOSE (the candle body, thinner) ──
+gB = "Body edges — prior open / close"
+pdo_on = input.bool(true, "PD Open",  inline = "b1", group = gB)
+pdc_on = input.bool(true, "PD Close", inline = "b1", group = gB)
+pwo_on = input.bool(true, "PW Open",  inline = "b2", group = gB)
+pwc_on = input.bool(true, "PW Close", inline = "b2", group = gB)
+pmo_on = input.bool(true, "PM Open",  inline = "b3", group = gB)
+pmc_on = input.bool(true, "PM Close", inline = "b3", group = gB)
+
 // ── Prior QUARTER (the major swing rail — the pq_reclaim alert lives in swing_trade.pine on 4h; here it's VISUAL only) ──
 gQ = "Prior quarter (major S/R · visual)"
 pqh_on = input.bool(true, "PQ High", inline = "q1", group = gQ)
@@ -63,6 +74,7 @@ gS = "Style"
 supCol  = input.color(#26A69A, "Support color (price above)",    group = gS)
 resCol  = input.color(#EF5350, "Resistance color (price below)", group = gS)
 maW     = input.int(2, "MA line width",    minval = 1, maxval = 5, group = gS)
+bodyW   = input.int(1, "Body-edge line width (open/close)", minval = 1, maxval = 4, group = gS)
 lvlW    = input.int(3, "Level line width", minval = 1, maxval = 5, group = gS)
 pqW     = input.int(4, "PQ (quarter) line width", minval = 1, maxval = 6, group = gS)
 lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
@@ -89,6 +101,10 @@ pmh = request.security(tid, "M", high[1], lookahead = barmerge.lookahead_on)
 pml = request.security(tid, "M", low[1],  lookahead = barmerge.lookahead_on)
 // Prior QUARTER H/L/C — the ONE last completed quarter (matches swing_trade.pine, prior-quarter only)
 [pqh, pql, pqc] = request.security(tid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+// Prior-period OPEN / CLOSE — the body edges (day / week / month)
+[pdo, pdc] = request.security(tid, "D", [open[1], close[1]], lookahead = barmerge.lookahead_on)
+[pwo, pwc] = request.security(tid, "W", [open[1], close[1]], lookahead = barmerge.lookahead_on)
+[pmo, pmc] = request.security(tid, "M", [open[1], close[1]], lookahead = barmerge.lookahead_on)
 
 // ── Draw ──
 var line[]  _lines  = array.new_line(0)
@@ -135,7 +151,14 @@ if barstate.islast
     f_draw(pwl, "PWL", pwl_on, 1, 26, false, lvlW)
     f_draw(pmh, "PMH", pmh_on, 2, 30, false, lvlW)
     f_draw(pml, "PML", pml_on, 2, 34, false, lvlW)
+    // Body edges — prior open/close, thinner (bodyW), same tier style: daily solid / weekly dashed / monthly dotted
+    f_draw(pdo, "PDO", pdo_on, 0, 38, false, bodyW)
+    f_draw(pdc, "PDC", pdc_on, 0, 42, false, bodyW)
+    f_draw(pwo, "PWO", pwo_on, 1, 46, false, bodyW)
+    f_draw(pwc, "PWC", pwc_on, 1, 50, false, bodyW)
+    f_draw(pmo, "PMO", pmo_on, 2, 54, false, bodyW)
+    f_draw(pmc, "PMC", pmc_on, 2, 58, false, bodyW)
     // Prior QUARTER — dotted + thicker (pqW) so the major swing rail stands out
-    f_draw(pqh, "PQH", pqh_on, 2, 38, false, pqW)
-    f_draw(pql, "PQL", pql_on, 2, 42, false, pqW)
-    f_draw(pqc, "PQC", pqc_on, 2, 46, false, pqW)
+    f_draw(pqh, "PQH", pqh_on, 2, 62, false, pqW)
+    f_draw(pql, "PQL", pql_on, 2, 66, false, pqW)
+    f_draw(pqc, "PQC", pqc_on, 2, 70, false, pqW)
