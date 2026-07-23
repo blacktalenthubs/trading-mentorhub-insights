@@ -78,6 +78,7 @@ bodyW   = input.int(1, "Body-edge line width (open/close)", minval = 1, maxval =
 lvlW    = input.int(3, "Level line width", minval = 1, maxval = 5, group = gS)
 pqW     = input.int(4, "PQ (quarter) line width", minval = 1, maxval = 6, group = gS)
 lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
+tagOff  = input.int(5, "Tag column offset (bars past last bar — all tags align here)", minval = 1, maxval = 60, group = gS)
 labSize = input.string("small", "Label size", options = ["tiny", "small", "normal", "large"], group = gS)
 _lsz = labSize == "tiny" ? size.tiny : labSize == "normal" ? size.normal : labSize == "large" ? size.large : size.small
 
@@ -120,8 +121,11 @@ f_draw(float v, string nm, bool show, int sty, int loff, bool isMA, int w) =>
         col = sup ? supCol : resCol
         lst = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
         txt = isMA ? nm + (sup ? " S " : " R ") + str.tostring(v, format.mintick) : nm + "  " + str.tostring(v, format.mintick)
-        ln = line.new(bar_index - lineLen, v, bar_index + loff, v, color = col, width = w, style = lst)
-        lb = label.new(bar_index + loff, v, txt, style = label.style_label_left, color = col, textcolor = color.white, size = _lsz)
+        // All lines END at the same x (bar_index + tagOff) and all tags sit in that one aligned
+        // column — the loff arg is ignored now (kept for call-site compatibility). Same length,
+        // one tag column. Trade-off: two levels at nearly the same price will overlap their tags.
+        ln = line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = w, style = lst)
+        lb = label.new(bar_index + tagOff, v, txt, style = label.style_label_left, color = col, textcolor = color.white, size = _lsz)
         array.push(_lines, ln)
         array.push(_labels, lb)
 
