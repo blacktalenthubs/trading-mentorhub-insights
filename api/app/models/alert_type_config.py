@@ -74,8 +74,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP. KEPT.
     ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
     # PDH/PDL HELD (2026-07-14, user: "the held is the alert — a break can fade, a hold shows strength").
-    ("pdh_held", "PDH held — broke the prior-day HIGH, retested & held it (strength continuation)", "Daily PDH/PDL", False),
-    ("pdl_held", "PDL held — held above the prior-day LOW as support (dip to it & hold)", "Daily PDH/PDL", False),
+    ("pdh_held", "PDH reclaim / hold — wicked to/below the prior-day HIGH & closed back above (reclaim OR retest-hold)", "Daily PDH/PDL", False),
+    ("pdl_held", "PDL reclaim / hold — wicked to/below the prior-day LOW & closed back above (reclaim OR support-hold)", "Daily PDH/PDL", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -154,8 +154,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # rc_4h_hrec (4h HIGH reclaim) RETIRED 2026-07-12 — chases resistance; only the 4h LOW (rc_4h_long) is kept. → OBSOLETE.
     # Daily RC (from rc.pine) — undercut & reclaim of the prior-DAY low/high (≈ PDL/PDH
     # reclaim, RC-model). All default OFF.
-    ("rc_daily_long", "Daily RC — reclaim of the prior-DAY LOW / PDL (undercut & reclaim)", "Daily RC", False),
-    ("rc_daily_hrec", "Daily RC-H — reclaim of the prior-DAY HIGH / PDH (breakout-retest)", "Daily RC", False),
+    # rc_daily_long / rc_daily_hrec RETIRED 2026-07-22 → merged into pdl_held / pdh_held (one PDL +
+    # one PDH alert, wick-below-and-reclaim, consistent with WLV/MLV/PQ/MA). → OBSOLETE_ALERT_TYPES.
 
     # ORB (2026-07-08) — the 15m family (orb_break/held/retest/exit) is RETIRED
     # (user: "there should be no orb in 15mins" — too noisy even allowlist-gated;
@@ -340,8 +340,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
     "rc_4h_short": "4h RC short: price wicked ABOVE the prior 4h high then closed back below it — failed break / rejection (index-leaning). Stop = the wick high.",
     "reclaim_long": "Index reclaim long (SPY/QQQ/DRAM, 15m): in the morning, price was ABOVE the opening-range high or the prior-day high, dipped ~0.18% under it (shakeout), and RECLAIMED it — WITH room to the next resistance (no buying into a ceiling). ENTRY = the reclaim close · STOP = the dip low · TARGET = take profit INTO the next resistance (sell the whole position there). Long-only — the short mirror has no backtested edge.",
-    "rc_daily_long": "Daily RC: price undercut the prior-DAY low (PDL) then reclaimed it intraday — swept-low bounce on the daily level. Stop = the day's swept low. ≈ PDL reclaim, RC-model. A day-trade/swing heads-up.",
-    "rc_daily_hrec": "Daily RC-H: price dipped below the prior-DAY high (PDH) then closed back above it — broken daily high held as support = breakout-retest continuation. Stop = the day's low. ≈ PDH reclaim, RC-model.",
+    "pdl_held": "The ONE prior-day LOW alert. Price wicked to/below the PDL and closed back above it — a reclaim (undercut & reclaimed) OR a support-hold (dipped to it & held), same event, open-agnostic. Entry = the level, stop below the PDL. Once per touch per day. (Merges the old PDL held + rc_daily_long.)",
+    "pdh_held": "The ONE prior-day HIGH alert. Price wicked to/below the PDH and closed back above it — a reclaim OR a retest-hold after breaking it, same event, open-agnostic. Entry = the level, stop below the PDH. Once per touch per day. (Merges the old PDH held + rc_daily_hrec.)",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
     "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
@@ -404,6 +404,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # rc_4h_hrec RETIRED 2026-07-12 — the 4h HIGH reclaim chases resistance (buys into overhead).
     # Only rc_4h_long (4h LOW = support bounce) kept. Daily/weekly/monthly RC stay (directional-gated).
     "rc_4h_hrec",
+    # rc_daily_long / rc_daily_hrec RETIRED 2026-07-22 — merged into pdl_held / pdh_held (one PDL +
+    # one PDH alert, open-agnostic wick-below-and-reclaim, consistent with WLV/MLV/PQ/MA).
+    "rc_daily_long", "rc_daily_hrec",
     # staged_pdl_held RETIRED 2026-07-12 — daily PDL held, redundant with the directional
     # daily RC (rc_daily_long). Daily twin of the staged_pwl_held retire.
     "staged_pdl_held",

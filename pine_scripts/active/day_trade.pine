@@ -39,9 +39,8 @@ gate_low  = input.bool(false, "RC-low: require daily uptrend OR support confluen
 ema_len   = input.int (20,    "Daily EMA length (trend reference)", minval = 5, group = gF)
 slope_lb  = input.int (3,     "Daily EMA rising lookback (days)", minval = 1, group = gF)
 conf_tol  = input.float(0.5,  "RC-low support tolerance % (to PDL/PWL/PML/10w/30w)", minval = 0.0, step = 0.1, group = gF)
-gDay = "Daily RC — day-trade/swing (= PDH/PDL reclaim)"
-enD_long  = input.bool(true, "Daily · RC — reclaim prior-DAY LOW / PDL (BUY)", group = gDay)
-enD_hrec  = input.bool(true, "Daily · RC-H — reclaim prior-DAY HIGH / PDH (BUY)", group = gDay)
+// Daily PDL/PDH reclaim now lives in the ONE pdl_held / pdh_held alert (wick below & closed back
+// above — held or undercut-reclaim). The old enD_long/enD_hrec (rc_daily) inputs retired 2026-07-22.
 // ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified:
 //    core level + volume + rc.pine's uptrend; dropped the VWAP/CVD/8-EMA confluence). ──
 gPB = "PDH break · gap-and-go · index shorts (from levels_day)"
@@ -389,10 +388,8 @@ l4_at_support = near_lvl(l4p, lDp) or near_lvl(l4p, lWp) or near_lvl(l4p, lMp) o
 gate4_long = (not gate_low)  or uptrend or l4_at_support
 rc4_long = sweep_reclaim(l4p, en4_long and gate4_long, ok4, n4)
 // rc_4h_hrec REMOVED 2026-07-12 (the 4h HIGH chases resistance; only the 4h LOW is kept).
-// Daily RC is now DIRECTIONAL like MLV/WLV: fire only when the day OPENED ABOVE the level
-// (dOpen > level = support), so the PDH reclaim is a defend-the-gap, not a chase.
-rcD_long = sweep_reclaim(lDp, enD_long and dOpen > lDp, okD, nD)
-rcD_hrec = sweep_reclaim(hDp, enD_hrec and dOpen > hDp, okD, nD, true)
+// Daily PDL/PDH RECLAIM is now the ma_bounce wick-and-reclaim (pdl_held / pdh_held below) — open-
+// agnostic, covers held AND undercut-reclaim in ONE alert. rcD_long/rcD_hrec retired 2026-07-22.
 // weekly_rc (rcW_long/rcW_hrec) REMOVED 2026-07-12 — folded into WLV (weekly_lvl_reclaim).
 // Monthly RC / CML / PML alerts REMOVED 2026-07-11 — folded into MLV (monthly_lvl_reclaim).
 // The value computations (hMp/lMp/lMd/cml) stay above — the visual PMH/PML/CML lines use them.
@@ -513,11 +510,7 @@ if orhRej
 // smallest footprint) · shape + TF text. Shape = TF (4h triangle · daily circle),
 // color = side (lime low-reclaim · teal high-reclaim · red short). All size.tiny.
 plotshape(show_tags and tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hl")
-plotshape(show_tags and tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "dl")
-plotshape(show_tags and tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "dh")
 plotshape(show_tags and not tags_text and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
-plotshape(show_tags and not tags_text and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
-plotshape(show_tags and not tags_text and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
 
 // ── Weekly 10w/30w reclaim·hold + weekly-RC signs (visual, from "Weekly Levels").
 // Fire once per weekly event (and not [1]); 10w↑/30w↑ windowed to recent weeks.
@@ -587,10 +580,9 @@ rc_pay(string rule, string dir, string iv, float ent, float stp, string note) =>
 if rc4_long
     alert(rc_pay("rc_4h_long", "BUY", "240", l4p, l4d, "RC · reclaim of the prior 4h low — entry at the level " + str.tostring(l4p, format.mintick) + ", stop " + str.tostring(l4d, format.mintick)), alert.freq_once_per_bar_close)
 // rc_4h_hrec fire REMOVED 2026-07-12 (4h high chases resistance).
-if rcD_long
-    alert(rc_pay("rc_daily_long", "BUY", "D", lDp, lDd, "Daily RC · reclaim of the prior-day LOW (PDL) — entry at the level " + str.tostring(lDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
-if rcD_hrec
-    alert(rc_pay("rc_daily_hrec", "BUY", "D", hDp, lDd, "Daily RC-H · breakout-retest of the prior-day HIGH (PDH) — entry " + str.tostring(hDp, format.mintick) + ", stop " + str.tostring(lDd, format.mintick)), alert.freq_once_per_bar_close)
+// rc_daily_long / rc_daily_hrec RETIRED 2026-07-22 — merged into pdl_held / pdh_held (below), which
+// now use the open-agnostic wick-and-reclaim (ma_bounce) that ALSO covers the undercut-reclaim. One
+// PDL alert + one PDH alert, consistent with WLV/MLV/PQ/MA (user: "held and reclaim covered by one").
 // ── PDH/PDL break + gap-and-go + index shorts (moved from levels_day 2026-07-12, simplified) ──
 if en_pdh_break and not na(hDp) and not na(close[1]) and close > hDp and close[1] <= hDp and not na(vol_ratio_pb) and vol_ratio_pb >= vol_break_min and not pdhb_fired
     pdhb_fired := true
@@ -797,9 +789,9 @@ if mr_s100
 if mr_s200
     alert(ma_pay_s("200S", sma200d), alert.freq_once_per_bar_close)
 if h_pdh
-    alert(rc_pay("pdh_held", "BUY", "D", close, hDp, "PDH held · broke the prior-day HIGH " + str.tostring(hDp, format.mintick) + " and held it on the retest — strength, stop below the PDH"), alert.freq_once_per_bar_close)
+    alert(rc_pay("pdh_held", "BUY", "D", close, hDp, "PDH reclaim/hold · wicked to/below the prior-day HIGH " + str.tostring(hDp, format.mintick) + " and closed back above it (reclaim or retest-hold) — stop below the PDH"), alert.freq_once_per_bar_close)
 if h_pdl
-    alert(rc_pay("pdl_held", "BUY", "D", close, lDp, "PDL held · held above the prior-day LOW " + str.tostring(lDp, format.mintick) + " as support — stop below the PDL"), alert.freq_once_per_bar_close)
+    alert(rc_pay("pdl_held", "BUY", "D", close, lDp, "PDL reclaim/hold · wicked to/below the prior-day LOW " + str.tostring(lDp, format.mintick) + " and closed back above it (reclaim or support-hold) — stop below the PDL"), alert.freq_once_per_bar_close)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // ORB — the 15m ALERT MACHINE (break/held/retest/exit) was REMOVED 2026-07-08
