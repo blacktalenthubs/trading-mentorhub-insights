@@ -31,6 +31,14 @@ pdc   = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.l
 // Prior-MONTH low — a swing bottom-bounce, scanned broad on the master watchlist (user 2026-07-22).
 // Emits monthly_low_swing (SWING · master-optin). Reclaim only (wick to/below the PM low & closed above).
 pmlo  = request.security(syminfo.tickerid, "M", low[1],   lookahead = barmerge.lookahead_on)
+// RC VALIDATION (user 2026-07-24: fold into the swing pine — limited to 2 bound pines). The STRICT
+// undercut-and-reclaim of the prior day/week/month H/L: price traded BELOW the level then CLOSED back
+// above it — NOT a tag-from-above hold, NOT a gap-and-go. Emits daily_rc / weekly_rc / monthly_rc
+// (master-optin, own RC feed panel). Runs on this master-bound pine.
+[pdhi, pdlo] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwhi, pwlo] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+pmhi = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
+lDd  = request.security(syminfo.tickerid, "D", low, lookahead = barmerge.lookahead_off)   // developing day low — the RC stop
 
 // ── Draw all six quarterly levels (redrawn on the last bar; old ones cleared first) ──────────────
 var line[]  pq_lines  = array.new_line(0)
@@ -79,6 +87,12 @@ var bool fH  = false
 var bool fE2 = false
 var bool fS2 = false
 var bool fPM = false
+var bool fRCdl = false
+var bool fRCdh = false
+var bool fRCwl = false
+var bool fRCwh = false
+var bool fRCml = false
+var bool fRCmh = false
 if newDay
     fL  := false
     fC  := false
@@ -86,6 +100,12 @@ if newDay
     fE2 := false
     fS2 := false
     fPM := false
+    fRCdl := false
+    fRCdh := false
+    fRCwl := false
+    fRCwh := false
+    fRCml := false
+    fRCmh := false
 rng   = pqh - pql
 // RECLAIM = open-agnostic + GAP-and-go (user 2026-07-21 · same rule as WLV/MLV). Fire when price
 // CLOSED above the level AND either (a) it traded to/below the level this bar's day — a dip-and-
@@ -101,6 +121,16 @@ f_reclaim(float L, bool fired) =>
         swept := true
     bool gap = not na(L) and not na(pdc) and dOpen > L and pdc <= L
     not na(L) and close > L and (swept or gap) and not fired
+// STRICT undercut-and-reclaim for the RC validation feed: price traded BELOW the level (low < L)
+// this session — swept latch survives across bars — then a bar CLOSES back above. No hold-from-above
+// (low must be strictly below), no gap-and-go. Once per level per day.
+f_rc(float L, bool fired) =>
+    var bool swept = false
+    if newDay
+        swept := false
+    if not na(L) and low < L
+        swept := true
+    not na(L) and swept and close > L and not fired
 rc_low   = f_reclaim(pql, fL)          // PQ LOW  — bounce / reclaim from below
 rc_close = f_reclaim(pqc, fC)          // PQ CLOSE — reclaim
 rc_high  = f_reclaim(pqh, fH)          // PQ HIGH — break / gap-and-go over the level
@@ -108,6 +138,13 @@ rc_high  = f_reclaim(pqh, fH)          // PQ HIGH — break / gap-and-go over th
 rc_e200  = f_reclaim(ema200d, fE2)     // 200-EMA bounce
 rc_s200  = f_reclaim(sma200d, fS2)     // 200-SMA bounce
 rc_pmlo  = f_reclaim(pmlo, fPM)        // PRIOR-MONTH LOW — swing bottom-bounce (master watchlist)
+// RC validation — STRICT undercut & reclaim of the prior day/week/month H/L
+rc_dl = f_rc(pdlo, fRCdl)
+rc_dh = f_rc(pdhi, fRCdh)
+rc_wl = f_rc(pwlo, fRCwl)
+rc_wh = f_rc(pwhi, fRCwh)
+rc_ml = f_rc(pmlo, fRCml)
+rc_mh = f_rc(pmhi, fRCmh)
 if rc_low
     fL  := true
 if rc_close
@@ -120,7 +157,22 @@ if rc_s200
     fS2 := true
 if rc_pmlo
     fPM := true
+if rc_dl
+    fRCdl := true
+if rc_dh
+    fRCdh := true
+if rc_wl
+    fRCwl := true
+if rc_wh
+    fRCwh := true
+if rc_ml
+    fRCml := true
+if rc_mh
+    fRCmh := true
 
+plotshape(showMarks and (rc_dl or rc_dh), "Daily RC",   style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "D-RC")
+plotshape(showMarks and (rc_wl or rc_wh), "Weekly RC",  style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "W-RC")
+plotshape(showMarks and (rc_ml or rc_mh), "Monthly RC", style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "M-RC")
 plotshape(showMarks and rc_low,   "Q Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "Q-L")
 plotshape(showMarks and rc_close, "Q Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "Q-C")
 plotshape(showMarks and rc_high,  "Q High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "Q-H")
@@ -143,3 +195,16 @@ if fireAlerts and rc_s200
 // the level, stop 1.5% under it. reclaim only (wick to/below the PM low & closed back above).
 if fireAlerts and rc_pmlo
     alert(f_pqpay("monthly_low_swing", "PM Low", pmlo, pmlo * 0.985, pmlo + (close - pmlo), pmlo + (close - pmlo) * 2), alert.freq_once_per_bar_close)
+// RC VALIDATION — daily/weekly/monthly STRICT undercut-and-reclaim. Entry = the level, stop = day low.
+if fireAlerts and rc_dl
+    alert(f_pqpay("daily_rc", "PDL", pdlo, lDd, pdlo, pdlo), alert.freq_once_per_bar_close)
+if fireAlerts and rc_dh
+    alert(f_pqpay("daily_rc", "PDH", pdhi, lDd, pdhi, pdhi), alert.freq_once_per_bar_close)
+if fireAlerts and rc_wl
+    alert(f_pqpay("weekly_rc", "PWL", pwlo, lDd, pwlo, pwlo), alert.freq_once_per_bar_close)
+if fireAlerts and rc_wh
+    alert(f_pqpay("weekly_rc", "PWH", pwhi, lDd, pwhi, pwhi), alert.freq_once_per_bar_close)
+if fireAlerts and rc_ml
+    alert(f_pqpay("monthly_rc", "PML", pmlo, lDd, pmlo, pmlo), alert.freq_once_per_bar_close)
+if fireAlerts and rc_mh
+    alert(f_pqpay("monthly_rc", "PMH", pmhi, lDd, pmhi, pmhi), alert.freq_once_per_bar_close)
