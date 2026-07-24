@@ -139,7 +139,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (bind on the daily chart, MASTER watchlist). Delivery = MASTER_OPTIN_TYPES in tv_webhook:
     # broadcast to every user who enabled the toggle, regardless of personal watchlist.
     # Label MUST stay < 200 chars — a longer label aborts the whole startup seed (see #821).
-    ("pq_reclaim", "PQ reclaim (master universe) — quarterly-level bounce/reclaim/break on the BROAD master watchlist; opt in HERE to receive it regardless of your own watchlist (rare, high R:R; level named)", "Swing", True),
+    ("pq_reclaim", "PQ low reclaim (master universe) — undercut the prior-QUARTER LOW then closed back above it (low only, not close/high); bottom-bounce swing, opt in HERE (rare, high R:R)", "Swing", True),
     # 200-MA bounce — the OTHER emit of swing_trade.pine (daily-close reclaim of the 200 EMA/SMA).
     ("ma200_bounce", "200-MA bounce — daily close reclaimed the 200 EMA/SMA (the institutional dip-buy zone; swing bottom)", "Swing", True),
     # Prior-MONTH low reclaim — swing bottom-bounce on the BROAD master watchlist (opt-in), from
