@@ -1562,23 +1562,21 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if _bare_rule in OBSOLETE_ALERT_TYPES:
         logger.info("TV webhook: cut/obsolete type %s — dropped (%s)", alert_type_full, sig.symbol)
         return {"dispatched": False, "reason": "obsolete_type"}
-    if not _is_allowed_alert_type(alert_type_full, enabled_types) and not _idx_gap_exempt and _bare_rule not in SWING_BROADCAST_TYPES:
-        # Known type, just toggled OFF → record it (deduped) for EOD review:
-        # no Telegram, hidden from the live feed, and NOT run through the
-        # twin/level dedup so the routed pipeline's state stays clean.
-        # Unknown type (stale chart, typo) → drop entirely.
-        if _is_allowed_alert_type(alert_type_full, known_types):
-            logger.info(
-                "TV webhook: type %s not routed — recording for review (%s)",
-                alert_type_full, sig.symbol,
-            )
-            return await _persist_unrouted(sig, alert_type_full, session_date)
-        # Unknown type (stale chart, typo, OR a pine emitting a rule mid-migration —
-        # e.g. an un-recreated "rc_4h" alert after the rc_4h_long/short/hrec split).
+    # Delivery enable is PER-USER only (2026-07-24, user: "no gating if enabled").
+    # The global AlertTypeConfig.enabled column is NO LONGER a delivery gate — it
+    # was a second, hidden layer: Settings writes per-user prefs (UserAlertTypePref),
+    # but this gate checked the GLOBAL column, which ships False for opt-in-off types
+    # (e.g. staged_pdl_break) and is never written by Settings. Result: a user who
+    # enabled a default-OFF type in Settings still got it recorded type_not_enabled,
+    # because the global column said disabled first. Now a KNOWN type always flows to
+    # the per-user filter (_filter_users_by_type_pref) below — the SOLE enable
+    # authority — which records type_not_enabled only when NO watcher opted in.
+    # This gate now drops ONLY genuinely UNKNOWN types (stale chart, typo, or a pine
+    # emitting a rule mid-migration — e.g. an un-recreated "rc_4h" alert after the
+    # rc_4h_long/short/hrec split).
+    if not _is_allowed_alert_type(alert_type_full, known_types) and not _idx_gap_exempt and _bare_rule not in SWING_BROADCAST_TYPES:
         # RECORD it unrouted instead of dropping, so a pine/catalog mismatch can never
-        # silently lose alerts — matches the Settings promise ("disabled types still
-        # fire and record silently"). _persist_unrouted dedups per session, so junk
-        # can't flood the panel. (2026-06-22 — was a silent drop, bit the rc_4h split.)
+        # silently lose alerts. _persist_unrouted dedups per session, so junk can't flood.
         logger.info(
             "TV webhook: unknown type %s — recording unrouted for review (%s)",
             alert_type_full, sig.symbol,
