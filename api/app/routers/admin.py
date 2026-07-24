@@ -1085,10 +1085,13 @@ async def add_master_symbol(
     exists = (await db.execute(
         select(WatchlistItem.id).where(WatchlistItem.user_id == mid, func.upper(WatchlistItem.symbol) == sym)
     )).scalar_one_or_none()
-    if exists is None:
+    added = exists is None
+    if added:
         db.add(WatchlistItem(user_id=mid, symbol=sym, group_id=group_id))
         await db.commit()
-    return {"ok": True, "symbol": sym}
+    # added=False means the symbol was already in the master universe (idempotent no-op) — the
+    # frontend surfaces this so an "already there" add doesn't look like a silent failure.
+    return {"ok": True, "symbol": sym, "added": added}
 
 
 @router.delete("/master-watchlist")

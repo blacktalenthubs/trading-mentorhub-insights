@@ -407,10 +407,12 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # 2026-07-11 — ALL monthly sub-alerts folded into MLV (monthly_lvl_reclaim, spec 68).
     # MLV now covers every completed monthly level (H/L/O/C × 6 months incl. month[1]), so the
     # prior-month RC + PML-held are redundant. MLV is the one monthly toggle.
-    "monthly_rc", "pml_held", "staged_pml_held",
+    # monthly_rc / weekly_rc REVIVED 2026-07-23 as the RC-validation types (in _BASE_CATALOG above,
+    # style "rc") — REMOVED from obsolete so the seed no longer deletes them right after inserting.
+    "pml_held", "staged_pml_held",
     # 2026-07-12 — weekly sub-alerts folded into WLV (weekly_lvl_reclaim, spec 69). WLV
-    # covers every completed weekly level (H/L/O/C × 4 weeks), so weekly_rc + PWL-held retire.
-    "weekly_rc", "staged_pwl_held",
+    # covers every completed weekly level (H/L/O/C × 4 weeks), so PWL-held retires.
+    "staged_pwl_held",
     # rc_4h_hrec RETIRED 2026-07-12 — the 4h HIGH reclaim chases resistance (buys into overhead).
     # Only rc_4h_long (4h LOW = support bounce) kept. Daily/weekly/monthly RC stay (directional-gated).
     "rc_4h_hrec",
