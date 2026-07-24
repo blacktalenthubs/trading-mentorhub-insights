@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
+import { toast } from "../components/Toast";
 import {
   Users, Send, RefreshCw, Crown, Search, ChevronDown, ChevronRight,
   Eye, TrendingUp, Activity, Wrench, DollarSign, UserPlus, Download, Plus,
@@ -643,11 +644,23 @@ function MasterWatchlistPanel() {
     const syms = adding.split(/[\s,]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
     if (!syms.length) return;
     setBusy(true);
-    try {
-      for (const sym of syms) await api.post(`/admin/master-watchlist?symbol=${encodeURIComponent(sym)}`);
-      setAdding("");
-      await load();
-    } finally { setBusy(false); }
+    // Per-symbol so ONE bad ticker doesn't silently kill the whole add; surface the real result
+    // (added / already-there / error) — previously any failure threw and looked like "can't add".
+    let added = 0, dup = 0;
+    const errs: string[] = [];
+    for (const sym of syms) {
+      try {
+        const r = await api.post<{ added?: boolean }>(`/admin/master-watchlist?symbol=${encodeURIComponent(sym)}`);
+        if (r?.added === false) dup++; else added++;
+      } catch (e) {
+        errs.push(`${sym}: ${e instanceof Error ? e.message : "failed"}`);
+      }
+    }
+    await load();
+    setBusy(false);
+    if (errs.length) { toast.error(`Couldn't add — ${errs.join(" · ").slice(0, 160)}`); return; }
+    setAdding("");
+    toast.success(added ? `Added ${added}${dup ? ` · ${dup} already in master` : ""}` : `${dup} already in the master universe`);
   };
   const remove = async (s: string) => {
     setBusy(true);
