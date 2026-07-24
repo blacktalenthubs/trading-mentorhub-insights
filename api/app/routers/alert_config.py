@@ -49,11 +49,16 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "mobo_rch",                # MoBO RC-H — prior monthly high that capped price, broken
     "ma_bounce_long_v3_sma200",  # the 200 SMA is swing support, not a day-trade bounce (user 2026-07-18)
 })
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
+# RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
+# Their own Settings group so the user can flip the whole validation panel on/off in one place.
+RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"]
 
 
 def _group_for(alert_type: str, category: str) -> str:
-    """The Settings bucket for a type — exactly two: Day Trade or Swing Trade."""
+    """The Settings bucket for a type — Day Trade, Swing Trade, or RC (validation)."""
+    if alert_type in RC_TYPES:
+        return "RC"
     return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"
 
 
