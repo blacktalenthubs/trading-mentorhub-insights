@@ -77,6 +77,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("pdh_held", "PDH reclaim / hold — wicked to/below the prior-day HIGH & closed back above (reclaim OR retest-hold)", "Daily PDH/PDL", False),
     ("pdl_held", "PDL reclaim / hold — wicked to/below the prior-day LOW & closed back above (reclaim OR support-hold)", "Daily PDH/PDL", False),
 
+    # RC VALIDATION (2026-07-23) — the pure UNDERCUT-and-reclaim of the prior day/week/month H/L
+    # (price traded BELOW the level then closed back above; NOT the tag-from-above hold, NOT gap-and-go).
+    # Own feed panel (style "rc"), master universe (opt-in), default OFF — the user is validating them.
+    ("daily_rc",   "Daily RC (validation, master universe) — undercut & reclaimed the prior-DAY high/low (dipped below, closed back above); opt in HERE", "RC", False),
+    ("weekly_rc",  "Weekly RC (validation, master universe) — undercut & reclaimed the prior-WEEK high/low (dipped below, closed back above); opt in HERE", "RC", False),
+    ("monthly_rc", "Monthly RC (validation, master universe) — undercut & reclaimed the prior-MONTH high/low (dipped below, closed back above); opt in HERE", "RC", False),
+
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
     # staged_pwl_held (weekly PWL held) RETIRED 2026-07-12 → folded into WLV. → OBSOLETE.
@@ -242,9 +249,9 @@ _STYLE_BY_CATEGORY: dict[str, str] = {
 }
 # Checked before the category map (most reliable). (prefix, style).
 _STYLE_BY_PREFIX: list[tuple[str, str]] = [
-    # Reclaims are DAY-TRADE tools — a reclaimed level is an intraday bounce, NOT a hold-for-days
-    # pattern (2026-07-07). Listed FIRST so monthly_rc/weekly_rc win over the broad monthly_/weekly.
-    ("monthly_rc", "day_trade"), ("weekly_rc", "day_trade"), ("staged_pwl", "day_trade"),
+    # RC VALIDATION (2026-07-23) — daily/weekly/monthly UNDERCUT-and-reclaim, their OWN feed panel.
+    # Listed FIRST so daily_rc/weekly_rc/monthly_rc win over the broad monthly_/weekly_/staged_ rows.
+    ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc

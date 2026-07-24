@@ -601,10 +601,11 @@ function AlertTypesSection() {
   // expanded list keeps a small per-signal toggle ("i cant uncheck some" — same day).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const GROUP_ORDER = ["Day Trade", "Swing Trade"];
+  const GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"];
   const GROUP_DESC: Record<string, string> = {
     "Day Trade": "In and out the same session. Reclaims (4h / prior-day), PDH/PDL breaks & holds, weekly + monthly levels, MA/EMA bounces, gap-and-go, index shorts.",
     "Swing Trade": "Levels that create the potential to hold for multiple days into weeks: 30-week MA reclaim · prior-quarter (PQ) reclaim · 200-MA bounce (daily close + SMA-200) · 5/20 EMA cross · monthly box breakouts (MoBO).",
+    "RC": "Validation channel — the pure UNDERCUT-and-reclaim of the prior day/week/month high/low (price dipped below a level, then closed back above). Runs on the master universe (opt-in). Off by default while being validated; shows in the RC feed tab.",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {

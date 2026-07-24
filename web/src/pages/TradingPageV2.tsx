@@ -33,9 +33,8 @@ import {
   useAddChartLevel,
   useUpdateChartLevel,
   useDeleteChartLevel,
-  useMarketReports,
 } from "../api/hooks";
-import { PremarketPanel, type PmSignal } from "../components/PremarketPanel";
+// PremarketPanel removed 2026-07-23 — the Premarket feed tab was replaced by the RC (undercut-and-reclaim) validation tab.
 import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -382,7 +381,6 @@ function SignalFeedTab({
   alerts,
   alertsError,
   onSelectSymbol,
-  signalDate = "",
   assetFilter = "all",
   onAssetFilterChange,
 }: {
@@ -439,15 +437,11 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"premarket" | "day" | "swing">("day");
+  const [view, setView] = useState<"rc" | "day" | "swing">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
-  const { data: pmReport } = useMarketReports(signalDate || undefined);
-  const pmSignals = useMemo<PmSignal[]>(() => {
-    try { return (JSON.parse(pmReport?.premarket_signals?.body ?? "{}").signals ?? []) as PmSignal[]; }
-    catch { return []; }
-  }, [pmReport]);
+  // Premarket signals removed 2026-07-23 (Premarket tab → RC validation tab).
 
   // Type hide-list — view-only. Set of alert_type strings to exclude from
   // the feed. Lets the user temporarily mute noisy types (e.g. historical
@@ -517,8 +511,12 @@ function SignalFeedTab({
   // at some point). SWING = held multiple days, as long as the thesis holds (swing + long-term
   // styles). Premarket is its own isolated channel.
   const dayAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade");
-  const swingAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") !== "day_trade");
-  const feedAlerts = view === "premarket" ? [] : view === "day" ? dayAlerts : swingAlerts;
+  const rcAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "rc");
+  const swingAlerts = feedAllRaw.filter((a) => {
+    const s = (a as { style?: string }).style ?? "day_trade";
+    return s !== "day_trade" && s !== "rc";
+  });
+  const feedAlerts = view === "rc" ? rcAlerts : view === "day" ? dayAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -624,18 +622,18 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["premarket", "Premarket"], ["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
+          {([["rc", "RC"], ["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
-              title={id === "premarket"
-                ? "Premarket signals — an isolated channel (Focus names at a key level before the open). Separate from your RTH alerts."
+              title={id === "rc"
+                ? "RC validation — undercut-and-reclaim of the prior day/week/month levels (price dipped BELOW a level then closed back above). A validation channel on the master universe; opt in per type in Settings."
                 : id === "day"
                 ? "Day trades — you must SELL the same day at some point (out by the close). Intraday reclaims, ORB, PDL held, gap-and-go."
                 : "Swing trades — HOLD multiple days as long as the thesis holds. 5/20 cross, RSI-30 buy, 200-EMA hold, weekly/monthly levels, base setups."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{id === "premarket" ? pmSignals.length : id === "day" ? dayAlerts.length : swingAlerts.length}</span>
+              {label} <span className="opacity-70 font-normal">{id === "rc" ? rcAlerts.length : id === "day" ? dayAlerts.length : swingAlerts.length}</span>
             </button>
           ))}
         </div>
@@ -669,13 +667,13 @@ function SignalFeedTab({
       </div>
 
       {/* Subtle meaning of the selected book — what "day" vs "swing" actually asks of you. */}
-      {view !== "premarket" && (
-        <div className="px-3 pb-1 -mt-0.5 text-[10px] text-text-faint shrink-0">
-          {view === "day"
-            ? "Day trade — sell it the same session at some point (out by the close)."
-            : "Swing — hold multiple days, as long as the thesis stays good."}
-        </div>
-      )}
+      <div className="px-3 pb-1 -mt-0.5 text-[10px] text-text-faint shrink-0">
+        {view === "day"
+          ? "Day trade — sell it the same session at some point (out by the close)."
+          : view === "rc"
+          ? "RC validation — undercut & reclaim of the prior day/week/month levels (master universe). Being validated; opt in per type in Settings."
+          : "Swing — hold multiple days, as long as the thesis stays good."}
+      </div>
 
       {/* Row 2 — Search (primary) + one Filters popover (asset · grade · types) */}
       <div className="px-3 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
@@ -829,9 +827,7 @@ function SignalFeedTab({
         </div>
       )}
 
-      {view === "premarket" ? (
-        <PremarketPanel signals={pmSignals} onSelectSymbol={onSelectSymbol} />
-      ) : alerts === undefined ? (
+      {alerts === undefined ? (
         // Still loading the initial fetch — show skeleton cards rather than
         // an empty "No signals" message that flashes for 200-500ms.
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2" aria-busy="true">
