@@ -355,6 +355,13 @@ const NOT_ROUTED_LABELS: Record<string, string> = {
   not_focus: "not in Focus",
   type_not_enabled: "type off",
   spy_market_gate: "SPY gate",
+  unknown_type: "unknown type",
+  grade_below_min: "grade too low",
+  short_symbol_filter: "short allowlist",
+  short_allowlist: "short allowlist",
+  ma_symbol_filter: "MA allowlist",
+  orl_symbol_filter: "ORL allowlist",
+  htf_sr_symbol_filter: "HTF allowlist",
 };
 function notRoutedLabel(reason?: string | null): string | null {
   if (!reason) return null;
@@ -894,7 +901,7 @@ function SignalFeedTab({
                   title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
                   className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
                 >
-                  NOT SENT
+                  NOT SENT · {nrLabel}
                 </span>
               )}
               <div className="ml-auto flex items-center gap-2 shrink-0">
