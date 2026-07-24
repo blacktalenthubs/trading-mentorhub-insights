@@ -779,11 +779,18 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
     "gap_zone", "weekly_stage", "rc_4h",
 })
 
+# RC VALIDATION types (daily/weekly/monthly undercut-and-reclaim) are FULLY isolated from the
+# entry pipeline (user 2026-07-24: "we don't want whatever is happening in day or swing to affect
+# this RC signal"). They must neither be collapsed/deduped BY a day/swing alert nor suppress one —
+# clean, standalone data for validation. So they're exempt from BOTH the same-bar collapser and the
+# entry dedup below. The pine already fires each RC level once per day, so there's no self-spam.
+_RC_VALIDATION_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
+
 
 def _is_collapse_exempt(alert_type_full: str) -> bool:
     base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — all stay collapse-exempt.
-    return base in _COLLAPSE_EXEMPT_BASE or base.startswith("rc_4h")
+    return base in _COLLAPSE_EXEMPT_BASE or base in _RC_VALIDATION_TYPES or base.startswith("rc_4h")
 
 
 def _check_same_bar_collapse(
@@ -853,7 +860,10 @@ def _record_same_bar_fire(symbol: str, alert_type_full: str) -> None:
 # PRICE-LEVEL types — always fire, but SEED the price anchor (so a same-price
 # day-trade twin folds into them as confluence rather than stacking a 2nd card).
 _PRICE_LEVEL_TYPES: frozenset[str] = frozenset({
-    "weekly_rc", "monthly_rc", "cml_held", "cml_reclaim", "pml_held",
+    # weekly_rc / monthly_rc REMOVED here 2026-07-24 — they're now the RC-VALIDATION types, fully
+    # isolated (see _RC_VALIDATION_TYPES). Keeping them here would seed the shared anchor and let an
+    # RC fire suppress a later day/swing entry, which the user explicitly does NOT want.
+    "cml_held", "cml_reclaim", "pml_held",
     "staged_pwl_held", "staged_pml_held",
     "weekly_10w_held", "weekly_10w_reclaim", "weekly_30w_held", "weekly_30w_reclaim",
     "monthly_box", "mobo_rch",
@@ -899,7 +909,8 @@ def _is_entry_dedupable(alert_type_full: str) -> bool:
     base = _dedup_base(alert_type_full)
     if base.startswith("ma_bounce_long_v3"):
         return True
-    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT
+    # RC validation types are fully isolated — never dedupable, never seed the anchor.
+    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES
 
 
 def _seeds_anchor(alert_type_full: str) -> bool:
@@ -925,6 +936,8 @@ def _check_entry_time_dedup(
     base = _dedup_base(alert_type_full)
     if base in _MOMENTUM_EXEMPT:
         return None  # momentum: always fire, never merged (different signal axis)
+    if base in _RC_VALIDATION_TYPES:
+        return None  # RC validation: fully isolated from day/swing dedup — clean standalone data
     is_level = _is_price_level(alert_type_full)
     if not (is_level or _is_entry_dedupable(alert_type_full)):
         return None  # safety — unknown/exempt type
