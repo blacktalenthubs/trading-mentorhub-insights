@@ -81,8 +81,6 @@ f_pqpay(string rule, string tag, float e, float s, float t1, float t2) =>
 // it triggers on the 1h bar that breaks the level, i.e. intraday, not at the daily close.
 newDay = ta.change(time("D")) != 0
 var bool fL  = false
-var bool fC  = false
-var bool fH  = false
 var bool fE2 = false
 var bool fS2 = false
 var bool fPM = false
@@ -91,8 +89,6 @@ var bool fRCwl = false
 var bool fRCml = false
 if newDay
     fL  := false
-    fC  := false
-    fH  := false
     fE2 := false
     fS2 := false
     fPM := false
@@ -124,9 +120,7 @@ f_rc(float L, bool fired) =>
     if not na(L) and low < L
         swept := true
     not na(L) and swept and close > L and not fired
-rc_low   = f_reclaim(pql, fL)          // PQ LOW  — bounce / reclaim from below
-rc_close = f_reclaim(pqc, fC)          // PQ CLOSE — reclaim
-rc_high  = f_reclaim(pqh, fH)          // PQ HIGH — break / gap-and-go over the level
+rc_low   = f_reclaim(pql, fL)          // PQ LOW ONLY (user 2026-07-24: "pq should be strictly reclaim of prior pq low, no high/body")
 // 200-day MA
 rc_e200  = f_reclaim(ema200d, fE2)     // 200-EMA bounce
 rc_s200  = f_reclaim(sma200d, fS2)     // 200-SMA bounce
@@ -137,10 +131,6 @@ rc_wl = f_rc(pwlo, fRCwl)
 rc_ml = f_rc(pmlo, fRCml)
 if rc_low
     fL  := true
-if rc_close
-    fC  := true
-if rc_high
-    fH  := true
 if rc_e200
     fE2 := true
 if rc_s200
@@ -158,18 +148,12 @@ plotshape(showMarks and rc_dl, "Daily RC (low)",   style = shape.triangleup, loc
 plotshape(showMarks and rc_wl, "Weekly RC (low)",  style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "W-RC")
 plotshape(showMarks and rc_ml, "Monthly RC (low)", style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0), size = size.tiny, text = "M-RC")
 plotshape(showMarks and rc_low,   "Q Low bounce",    style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.small, text = "Q-L")
-plotshape(showMarks and rc_close, "Q Close reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.small, text = "Q-C")
-plotshape(showMarks and rc_high,  "Q High break",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "Q-H")
 plotshape(showMarks and (rc_e200 or rc_s200),  "200-MA bounce",   style = shape.triangleup, location = location.belowbar, color = color.new(#7E57C2, 0), size = size.small, text = "200")
 plotshape(showMarks and rc_pmlo, "Prior-month low reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), size = size.small, text = "PM-L")
 
-// PQ alerts
+// PQ alert — prior-quarter LOW reclaim ONLY (no high/close)
 if fireAlerts and rc_low
     alert(f_pqpay("pq_reclaim", "PQ Low",   close, pql * 0.985, pqc, pqh), alert.freq_once_per_bar_close)
-if fireAlerts and rc_close
-    alert(f_pqpay("pq_reclaim", "PQ Close", close, pqc * 0.985, pqh, pqh + rng * 0.5), alert.freq_once_per_bar_close)
-if fireAlerts and rc_high
-    alert(f_pqpay("pq_reclaim", "PQ High",  close, pqh * 0.985, pqh + rng * 0.5, pqh + rng), alert.freq_once_per_bar_close)
 // 200-MA alerts
 if fireAlerts and rc_e200
     alert(f_pqpay("ma200_bounce", "EMA 200", close, ema200d * 0.985, close + (close - ema200d) * 2, close + (close - ema200d) * 3), alert.freq_once_per_bar_close)
