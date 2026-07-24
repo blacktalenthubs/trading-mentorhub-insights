@@ -80,9 +80,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # RC VALIDATION (2026-07-23) — the pure UNDERCUT-and-reclaim of the prior day/week/month H/L
     # (price traded BELOW the level then closed back above; NOT the tag-from-above hold, NOT gap-and-go).
     # Own feed panel (style "rc"), master universe (opt-in), default OFF — the user is validating them.
-    ("daily_rc",   "Daily RC (validation, master universe) — undercut & reclaimed the prior-DAY high/low (dipped below, closed back above); opt in HERE", "RC", False),
-    ("weekly_rc",  "Weekly RC (validation, master universe) — undercut & reclaimed the prior-WEEK high/low (dipped below, closed back above); opt in HERE", "RC", False),
-    ("monthly_rc", "Monthly RC (validation, master universe) — undercut & reclaimed the prior-MONTH high/low (dipped below, closed back above); opt in HERE", "RC", False),
+    ("daily_rc",   "Daily low reclaim (validation, master universe) — undercut the prior-DAY LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
+    ("weekly_rc",  "Weekly low reclaim (validation, master universe) — undercut the prior-WEEK LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
+    ("monthly_rc", "Monthly low reclaim (validation, master universe) — undercut the prior-MONTH LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
