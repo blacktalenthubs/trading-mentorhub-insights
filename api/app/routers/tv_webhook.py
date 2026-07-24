@@ -1848,7 +1848,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             suppressed_reason=f"confluence_collapsed:{same_bar['prior_type']}",
             anchor_type=same_bar['prior_type'],
         )
-    _record_same_bar_fire(sig.symbol, alert_type_full)
+    # NOTE (2026-07-24): the same-bar + entry-time anchors are SEEDED POST-DELIVERY
+    # (after the commit, guarded by `pairs`), NOT here. Seeding before the gates let a
+    # GATED first-fire become a phantom anchor that suppressed every later setup on the
+    # symbol -> 0 delivered ("not 1 NVDA alert got to me, all suppressed"). The CHECKS
+    # stay here (they suppress followers against a REAL delivered anchor); only the
+    # RECORD moves down.
 
     # Spec 67 — entry + time dedup. A day-trade / MA re-fire on the same symbol
     # within 30 min, or at a worse (higher-for-long) entry than already alerted
@@ -1871,10 +1876,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             sig, alert_type_full, session_date,
             suppressed_reason=f"{dd['reason']}:{dd['anchor']}",
         )
-    _record_entry_time_fire(
-        sig.symbol, direction, getattr(sig, "entry", None),
-        alert_type_full, session_date,
-    )
+    # (entry-time anchor SEEDED post-delivery -- see the NOTE above and the seed block
+    # after db.commit(). A gated first-fire must never become the anchor.)
 
     # Morning-window gate — the 4h high break chases by the afternoon. Fire only in
     # the first ~3h of RTH (≤ 12:30 ET, equities); mute after, so users don't chase
@@ -2143,6 +2146,20 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             persisted += 1
 
         await db.commit()
+
+    # Seed the dedup + same-bar anchors ONLY now that the alert actually delivered
+    # (`pairs` = >=1 routed, in-focus, non-suppressed recipient). Seeding before the
+    # gates (the old position) let a GATED first-fire become a phantom anchor that
+    # suppressed every later setup on the symbol -> 0 delivered (user 2026-07-24:
+    # "not 1 NVDA alert got to me, all suppressed"). Now a gated first-fire never
+    # anchors; the next DELIVERABLE setup becomes the anchor and the followers dedup
+    # against something the user actually received.
+    if pairs:
+        _record_same_bar_fire(sig.symbol, alert_type_full)
+        _record_entry_time_fire(
+            sig.symbol, direction, getattr(sig, "entry", None),
+            alert_type_full, session_date,
+        )
 
     # 6. Per-user Telegram + email delivery via notify_user (mirrors
     # monitor.py:857). Each user with telegram_enabled + telegram_chat_id
