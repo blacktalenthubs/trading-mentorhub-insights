@@ -1,0 +1,94 @@
+// @version=5
+//
+// RC Validation — daily / weekly / monthly UNDERCUT-AND-RECLAIM (spec, 2026-07-23).
+// A dedicated validation feed: fires ONLY the pure undercut-and-reclaim of the prior
+// day / week / month HIGH or LOW — price traded BELOW the level (low < level) THIS
+// session and then CLOSED a bar back above it. This is STRICTER than the day-trade
+// pdl_held / weekly_lvl_reclaim / monthly_lvl_reclaim (which also fire the tag-from-
+// above HOLD and the gap-and-go). Here: NO held, NO gap — only a genuine undercut &
+// reclaim. Once per level per day. Long only.
+//
+// Emits: daily_rc · weekly_rc · monthly_rc (level named in ma_tag). Routed to the
+// master universe (MASTER_OPTIN) — BIND THIS TO THE MASTER WATCHLIST (15m suggested).
+// All levels locked via request.security ([1] + lookahead_on) → same price on any TF.
+//
+indicator("RC Validation · daily/weekly/monthly reclaim", "RC-val", overlay = true, max_labels_count = 100)
+
+fireAlerts = input.bool(true, "Fire daily/weekly/monthly RC alerts (undercut & reclaim)", group = "RC")
+showMarks  = input.bool(true, "Show ▲ RC marks", group = "RC")
+minPen     = input.float(0.0, "Min undercut below the level (%) — 0 = any dip below", minval = 0.0, step = 0.05, group = "RC") / 100.0
+
+tid = syminfo.tickerid
+[pdhi, pdlo] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwhi, pwlo] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmhi, pmlo] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+lDd = request.security(tid, "D", low, lookahead = barmerge.lookahead_off)   // developing day low — the stop
+
+f_pay(string rule, string tag, float e, float s) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(e, format.mintick) + '","stop":"' + str.tostring(s, format.mintick) + '","target_1":"' + str.tostring(e, format.mintick) + '","target_2":"' + str.tostring(e, format.mintick) + '","rule":"' + rule + '","direction":"BUY","ma_tag":"' + tag + '"}'
+
+newDay = ta.change(time("D")) != 0
+
+// STRICT undercut-and-reclaim: price traded BELOW the level (low < level*(1-minPen)) this
+// session — the swept latch survives across bars — then a bar CLOSES back above it. No
+// tag-from-above hold (low must be strictly below), no gap-and-go (must have gone below).
+f_rc(float L, bool fired) =>
+    var bool swept = false
+    if newDay
+        swept := false
+    if not na(L) and low < L * (1.0 - minPen)
+        swept := true
+    not na(L) and swept and close > L and not fired
+
+var bool f_dl = false
+var bool f_dh = false
+var bool f_wl = false
+var bool f_wh = false
+var bool f_ml = false
+var bool f_mh = false
+if newDay
+    f_dl := false
+    f_dh := false
+    f_wl := false
+    f_wh := false
+    f_ml := false
+    f_mh := false
+
+rc_dl = f_rc(pdlo, f_dl)
+rc_dh = f_rc(pdhi, f_dh)
+rc_wl = f_rc(pwlo, f_wl)
+rc_wh = f_rc(pwhi, f_wh)
+rc_ml = f_rc(pmlo, f_ml)
+rc_mh = f_rc(pmhi, f_mh)
+if rc_dl
+    f_dl := true
+if rc_dh
+    f_dh := true
+if rc_wl
+    f_wl := true
+if rc_wh
+    f_wh := true
+if rc_ml
+    f_ml := true
+if rc_mh
+    f_mh := true
+
+plotshape(showMarks and (rc_dl or rc_dh), "Daily RC",   style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),  size = size.tiny, text = "D-RC")
+plotshape(showMarks and (rc_wl or rc_wh), "Weekly RC",  style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0),  size = size.tiny, text = "W-RC")
+plotshape(showMarks and (rc_ml or rc_mh), "Monthly RC", style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),  size = size.tiny, text = "M-RC")
+
+// DAILY RC
+if fireAlerts and rc_dl
+    alert(f_pay("daily_rc", "PDL", pdlo, lDd), alert.freq_once_per_bar_close)
+if fireAlerts and rc_dh
+    alert(f_pay("daily_rc", "PDH", pdhi, lDd), alert.freq_once_per_bar_close)
+// WEEKLY RC
+if fireAlerts and rc_wl
+    alert(f_pay("weekly_rc", "PWL", pwlo, lDd), alert.freq_once_per_bar_close)
+if fireAlerts and rc_wh
+    alert(f_pay("weekly_rc", "PWH", pwhi, lDd), alert.freq_once_per_bar_close)
+// MONTHLY RC
+if fireAlerts and rc_ml
+    alert(f_pay("monthly_rc", "PML", pmlo, lDd), alert.freq_once_per_bar_close)
+if fireAlerts and rc_mh
+    alert(f_pay("monthly_rc", "PMH", pmhi, lDd), alert.freq_once_per_bar_close)
