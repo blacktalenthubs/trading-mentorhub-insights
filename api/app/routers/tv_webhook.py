@@ -2384,6 +2384,12 @@ async def _filter_users_by_market_gate(db, users, sig, alert_type_full: str):
     everyone: shorts, crypto, the always-flow bypass (monthly_rc / rsi_oversold /
     200-bounce), and any user with the gate OFF. So one user's gate never affects
     another's feed. Fail-open: missing SPY data ⇒ no one is gated."""
+    # SPY regime gate DISABLED (2026-07-24, user: "i dont care about spy gate, send me
+    # all"). Delivery is NEVER suppressed by SPY's 8/21 position or a user's
+    # market_gate_enabled flag — the whole gate is a no-op. Consistent with the standing
+    # "no trend gate on day trades — the stop is the judge" stance. The opt-in logic below
+    # is intact but unreachable; delete this early return to revive the gate.
+    return users
     if not users:
         return users
     # Only DAY-TRADE LONG equity entries are gateable.
