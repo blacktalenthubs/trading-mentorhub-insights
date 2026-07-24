@@ -777,6 +777,10 @@ _same_bar_fires: dict[str, list[tuple[str, datetime]]] = {}  # symbol → [(type
 # pipeline and gets confluence_collapsed into a nearby entry → invisible.
 _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
     "gap_zone", "weekly_stage", "rc_4h",
+    # PDL/PDH reclaim -- KEY structural levels the user must ALWAYS see (2026-07-24:
+    # "pdl reclaim and pdh reclaim should never be deduped, these are key levels").
+    # Never fold a daily-level reclaim into a same-bar MA/EMA bounce.
+    "pdl_held", "pdh_held",
 })
 
 # RC VALIDATION types (daily/weekly/monthly undercut-and-reclaim) are FULLY isolated from the
@@ -872,6 +876,12 @@ _PRICE_LEVEL_TYPES: frozenset[str] = frozenset({
 _MOMENTUM_EXEMPT: frozenset[str] = frozenset({
     "rsi_oversold", "rsi_70", "swing_rsi_30", "ema_5_20_cross",
 })
+# NEVER-DEDUP levels -- the daily PDL/PDH reclaims are KEY structural levels the user
+# must always be aware of (2026-07-24). Exempt from the cooldown/chase/confluence
+# entry-time gates AND the same-bar collapser (see _COLLAPSE_EXEMPT_BASE). Unlike
+# momentum they STILL seed the anchor, so a same-PRICE MA/day twin folds UNDER the
+# level (confluence) instead of stacking a second card -- the level stays primary.
+_NEVER_DEDUP_LEVELS: frozenset[str] = frozenset({"pdl_held", "pdh_held"})
 
 # (symbol, direction) -> {"session": str, "best": float, "last": datetime}
 _entry_dedup_state: dict[tuple[str, str], dict] = {}
@@ -936,6 +946,8 @@ def _check_entry_time_dedup(
     base = _dedup_base(alert_type_full)
     if base in _MOMENTUM_EXEMPT:
         return None  # momentum: always fire, never merged (different signal axis)
+    if base in _NEVER_DEDUP_LEVELS:
+        return None  # PDL/PDH reclaim -- key structural level, always fire (user 2026-07-24)
     if base in _RC_VALIDATION_TYPES:
         return None  # RC validation: fully isolated from day/swing dedup — clean standalone data
     is_level = _is_price_level(alert_type_full)
