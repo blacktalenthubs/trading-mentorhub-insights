@@ -52,7 +52,7 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
 # RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
 # Their own Settings group so the user can flip the whole validation panel on/off in one place.
 RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
-FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
+FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn"})
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC", "4H"]
 
 
