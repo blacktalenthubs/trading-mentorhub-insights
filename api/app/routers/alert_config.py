@@ -52,13 +52,16 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
 # RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
 # Their own Settings group so the user can flip the whole validation panel on/off in one place.
 RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"]
+FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC", "4H"]
 
 
 def _group_for(alert_type: str, category: str) -> str:
     """The Settings bucket for a type — Day Trade, Swing Trade, or RC (validation)."""
     if alert_type in RC_TYPES:
         return "RC"
+    if alert_type in FOURH_TYPES:
+        return "4H"
     return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"
 
 

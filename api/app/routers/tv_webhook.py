@@ -422,7 +422,7 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
 # ANY user who OPTED IN — i.e. enabled the type — REGARDLESS of their personal watchlist. The per-user
 # type toggle IS the opt-in. Distinct from SWING_BROADCAST_TYPES: those bypass the toggle but stay
 # watchlist-gated; these are the opposite — broadcast to opted-in users, not watchlist-gated.
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc"})
+MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc", "fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -789,12 +789,15 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
 # clean, standalone data for validation. So they're exempt from BOTH the same-bar collapser and the
 # entry dedup below. The pine already fires each RC level once per day, so there's no self-spam.
 _RC_VALIDATION_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
+# 4H day-trade method — same isolation as RC validation (collapse-exempt + entry-dedup None) so every
+# 15m-close reaction is captured for analysis (2026-07-25). MASTER-optin; bind the pine on 15m.
+_FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
 
 
 def _is_collapse_exempt(alert_type_full: str) -> bool:
     base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — all stay collapse-exempt.
-    return base in _COLLAPSE_EXEMPT_BASE or base in _RC_VALIDATION_TYPES or base.startswith("rc_4h")
+    return base in _COLLAPSE_EXEMPT_BASE or base in _RC_VALIDATION_TYPES or base in _FOURH_TYPES or base.startswith("rc_4h")
 
 
 def _check_same_bar_collapse(
@@ -920,7 +923,7 @@ def _is_entry_dedupable(alert_type_full: str) -> bool:
     if base.startswith("ma_bounce_long_v3"):
         return True
     # RC validation types are fully isolated — never dedupable, never seed the anchor.
-    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES
+    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES and base not in _FOURH_TYPES
 
 
 def _seeds_anchor(alert_type_full: str) -> bool:
@@ -948,7 +951,7 @@ def _check_entry_time_dedup(
         return None  # momentum: always fire, never merged (different signal axis)
     if base in _NEVER_DEDUP_LEVELS:
         return None  # PDL/PDH reclaim -- key structural level, always fire (user 2026-07-24)
-    if base in _RC_VALIDATION_TYPES:
+    if base in _RC_VALIDATION_TYPES or base in _FOURH_TYPES:
         return None  # RC validation: fully isolated from day/swing dedup — clean standalone data
     is_level = _is_price_level(alert_type_full)
     if not (is_level or _is_entry_dedupable(alert_type_full)):
