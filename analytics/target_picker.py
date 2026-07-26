@@ -115,3 +115,41 @@ def pick_target(
         return {"value": tgt, "kind": "rsi", "label": f"RSI {int(tgt)}", "wall_size": 0}
 
     return {"value": None, "kind": "eod", "label": "EOD", "wall_size": 0}
+
+def pick_targets(
+    entry,
+    candidates,
+    direction: str = "BUY",
+    stop=None,
+    n: int = 2,
+) -> list:
+    """Pick up to `n` STRUCTURAL targets (a ladder) in the trade direction, nearest-first.
+
+    Each item is {"value", "label", "kind"}. Real levels come first (kind "level",
+    labeled with their structure e.g. "50 EMA" / "PWH" / "round 66k"); distinct walls
+    only (a 2nd level within ~1% of the 1st is folded, not repeated). If fewer than `n`
+    levels exist in that direction (blue sky), remaining slots fill with a measured move
+    off risk (kind "measured", labeled "1R"/"2R"). Empty list if entry is invalid.
+    """
+    if entry is None or entry <= 0:
+        return []
+    is_long = direction in ("BUY", "LONG")
+    norm = _normalize(candidates)
+    if is_long:
+        side = sorted([(l, p) for (l, p) in norm if p > entry * (1.0 + SKIP_PCT)], key=lambda x: x[1])
+    else:
+        side = sorted([(l, p) for (l, p) in norm if p < entry * (1.0 - SKIP_PCT)], key=lambda x: -x[1])
+    out: list = []
+    for lbl, p in side:
+        if any(o["value"] and abs(p - o["value"]) / o["value"] <= WALL_PCT for o in out):
+            continue  # same wall as an already-picked level
+        out.append({"value": round(p, 2), "label": lbl or "level", "kind": "level"})
+        if len(out) >= n:
+            break
+    if len(out) < n and stop is not None and stop > 0 and stop != entry:
+        risk = abs(entry - stop)
+        for i in range(len(out), n):
+            mult = i + 1
+            v = entry + mult * risk if is_long else entry - mult * risk
+            out.append({"value": round(v, 2), "label": f"{mult}R measured", "kind": "measured"})
+    return out[:n]
