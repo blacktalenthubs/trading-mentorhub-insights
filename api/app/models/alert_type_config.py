@@ -83,6 +83,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("daily_rc",   "Daily low reclaim (validation, master universe) — undercut the prior-DAY LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
     ("weekly_rc",  "Weekly low reclaim (validation, master universe) — undercut the prior-WEEK LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
     ("monthly_rc", "Monthly low reclaim (validation, master universe) — undercut the prior-MONTH LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
+    # 4H day-trade method (2026-07-25) — reactions to the last two 4h candles' H/L/C, 15m-close confirmed,
+    # MASTER-optin like RC (bind the pine on a 15m chart). fourh_reclaim/reject = wick+close-back reversal;
+    # fourh_breakup/breakdn = one close through. Isolated from dedup (see _FOURH_TYPES) for clean analysis.
+    ("fourh_reclaim", "4H reclaim (long) — a 15m candle wicked below one of the last two 4h candles' H/L/C & closed back above (support held). Bind the pine on 15m; opt in HERE.", "4H", False),
+    ("fourh_reject",  "4H rejection (short) — a 15m candle wicked above a prior 4h level & closed back below (resistance held). Bind on 15m; opt in HERE.", "4H", False),
+    ("fourh_breakup", "4H break-up (long) — a 15m candle closed up through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
+    ("fourh_breakdn", "4H break-down (short) — a 15m candle closed down through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -252,6 +259,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # RC VALIDATION (2026-07-23) — daily/weekly/monthly UNDERCUT-and-reclaim, their OWN feed panel.
     # Listed FIRST so daily_rc/weekly_rc/monthly_rc win over the broad monthly_/weekly_/staged_ rows.
     ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
+    ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
@@ -354,6 +362,10 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "pdh_held": "The ONE prior-day HIGH alert. Price wicked to/below the PDH and closed back above it — a reclaim OR a retest-hold after breaking it, same event, open-agnostic. Entry = the level, stop below the PDH. Once per touch per day. (Merges the old PDH held + rc_daily_hrec.)",
     "weekly_rc": "Weekly RC: price undercut the prior-WEEK high or low then reclaimed it intraday — the broken weekly level held (RC-H = breakout-retest continuation above the prior-week high; RC = undercut & reclaim of the prior-week low). A SWING heads-up. Stop = the week's swept low. Rare — eyeball the weekly.",
     "monthly_rc": "Monthly RC: price undercut the prior-MONTH high or low then reclaimed it intraday — the broken monthly level held (RC-H = breakout-retest continuation above the prior-month high, the MU play; RC = undercut & reclaim of the prior-month low). A POSITION heads-up. Stop = the month's swept low. Very rare — a major level reclaim, eyeball the monthly.",
+    "fourh_reclaim": "4H reclaim: a 15m candle undercut one of the last two 4h candles' levels and closed back above — support held, momentum flips up. Entry = the 15m close, stop = the swept wick. Bind the pine on 15m.",
+    "fourh_reject": "4H rejection: a 15m candle poked above a prior 4h level and closed back below — resistance held, momentum flips down. Entry = the close, stop = the swept wick.",
+    "fourh_breakup": "4H break-up: a 15m candle closed up through a prior 4h level — continuation. Entry = the close, stop back below the level.",
+    "fourh_breakdn": "4H break-down: a 15m candle closed down through a prior 4h level — continuation. Entry = the close, stop back above the level.",
     "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
     "weekly_lvl_reclaim": "The ONE prior-week level alert. Fires a BUY on the PRIOR week's High or Low (PWH/PWL) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-week visual pine (weekly_levels.pine).",
 
