@@ -259,7 +259,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # RC VALIDATION (2026-07-23) — daily/weekly/monthly UNDERCUT-and-reclaim, their OWN feed panel.
     # Listed FIRST so daily_rc/weekly_rc/monthly_rc win over the broad monthly_/weekly_/staged_ rows.
     ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
-    ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
+    ("fourh_reclaim", "fourh"), ("fourh_reject", "fourh"), ("fourh_breakup", "fourh"), ("fourh_breakdn", "fourh"),
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
