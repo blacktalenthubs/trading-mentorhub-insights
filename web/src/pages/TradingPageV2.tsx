@@ -444,7 +444,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"rc" | "day" | "swing">("day");
+  const [view, setView] = useState<"rc" | "day" | "swing" | "fourh">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -519,11 +519,12 @@ function SignalFeedTab({
   // styles). Premarket is its own isolated channel.
   const dayAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade");
   const rcAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "rc");
+  const fourhAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "fourh");
   const swingAlerts = feedAllRaw.filter((a) => {
     const s = (a as { style?: string }).style ?? "day_trade";
-    return s !== "day_trade" && s !== "rc";
+    return s !== "day_trade" && s !== "rc" && s !== "fourh";
   });
-  const feedAlerts = view === "rc" ? rcAlerts : view === "day" ? dayAlerts : swingAlerts;
+  const feedAlerts = view === "rc" ? rcAlerts : view === "day" ? dayAlerts : view === "fourh" ? fourhAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -629,7 +630,7 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["rc", "RC"], ["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
+          {([["rc", "RC"], ["day", "Day"], ["swing", "Swing"], ["fourh", "4H"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
@@ -637,10 +638,12 @@ function SignalFeedTab({
                 ? "RC validation — undercut-and-reclaim of the prior day/week/month levels (price dipped BELOW a level then closed back above). A validation channel on the master universe; opt in per type in Settings."
                 : id === "day"
                 ? "Day trades — you must SELL the same day at some point (out by the close). Intraday reclaims, ORB, PDL held, gap-and-go."
+                : id === "fourh"
+                ? "4H method — reactions to the last two 4h candles' High/Low (reclaim / rejection / break), confirmed on the 15m close. Opt in per type in Settings."
                 : "Swing trades — HOLD multiple days as long as the thesis holds. 5/20 cross, RSI-30 buy, 200-EMA hold, weekly/monthly levels, base setups."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{id === "rc" ? rcAlerts.length : id === "day" ? dayAlerts.length : swingAlerts.length}</span>
+              {label} <span className="opacity-70 font-normal">{id === "rc" ? rcAlerts.length : id === "day" ? dayAlerts.length : id === "fourh" ? fourhAlerts.length : swingAlerts.length}</span>
             </button>
           ))}
         </div>
@@ -679,6 +682,8 @@ function SignalFeedTab({
           ? "Day trade — sell it the same session at some point (out by the close)."
           : view === "rc"
           ? "RC validation — undercut & reclaim of the prior day/week/month levels (master universe). Being validated; opt in per type in Settings."
+          : view === "fourh"
+          ? "4H — reactions to the last two 4h candles' High/Low, confirmed on the 15m close. Being validated; opt in per type in Settings."
           : "Swing — hold multiple days, as long as the thesis stays good."}
       </div>
 
