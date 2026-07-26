@@ -923,7 +923,7 @@ def _is_entry_dedupable(alert_type_full: str) -> bool:
     if base.startswith("ma_bounce_long_v3"):
         return True
     # RC validation types are fully isolated — never dedupable, never seed the anchor.
-    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES and base not in _FOURH_TYPES
+    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES
 
 
 def _seeds_anchor(alert_type_full: str) -> bool:
@@ -951,8 +951,10 @@ def _check_entry_time_dedup(
         return None  # momentum: always fire, never merged (different signal axis)
     if base in _NEVER_DEDUP_LEVELS:
         return None  # PDL/PDH reclaim -- key structural level, always fire (user 2026-07-24)
-    if base in _RC_VALIDATION_TYPES or base in _FOURH_TYPES:
+    if base in _RC_VALIDATION_TYPES:
         return None  # RC validation: fully isolated from day/swing dedup — clean standalone data
+    # fourh_* now go THROUGH entry-time dedup (2026-07-26, user: "not deduped so flooding") —
+    # confluence-merge same price + 30min cooldown + chase gate stops the same-level repeats.
     is_level = _is_price_level(alert_type_full)
     if not (is_level or _is_entry_dedupable(alert_type_full)):
         return None  # safety — unknown/exempt type
@@ -2461,25 +2463,12 @@ async def _filter_users_by_short_allowlist(db, users, sig, alert_type_full: str)
     behaviour). Longs/notices are unaffected here — the SPY gate handles longs; this is
     shorts only. Applies to ALL short types incl. rc_4h (unlike the global short_symbols
     restrictor, which exempts rc_4h). One user's allowlist never affects another's feed."""
-    if not users:
-        return users
-    if (sig.direction or "").upper() not in ("SHORT", "SELL"):
-        return users
-    from app.models.user import User as _User
-    sym = (sig.symbol or "").upper()
-    ids = [u.id for u in users]
-    rows = (await db.execute(
-        select(_User.id, _User.short_symbols).where(_User.id.in_(ids))
-    )).all()
-    dropped: set[int] = set()
-    for uid, allow in rows:
-        al = {s.strip().upper() for s in (allow or "").split(",") if s.strip()}
-        if al and sym not in al:
-            dropped.add(uid)
-    if dropped:
-        logger.info("TV webhook: short-allowlist dropped %d user(s) for %s %s",
-                    len(dropped), alert_type_full, sym)
-    return [u for u in users if u.id not in dropped]
+    # 2026-07-26 (user: "fire short for all items on my watchlists, no exceptions"):
+    # the per-user short_symbols allowlist is DISABLED — a legacy clamp from the SPY/QQQ-only
+    # short era. Enable a short type → it fires for every watched/opted-in symbol, with no
+    # per-symbol short gate. Mirrors the market-gate no-op (#851). To re-restrict shorts,
+    # restore the short_symbols check that lived here (see git history).
+    return users
 
 
 # ── ORB per-user allowlist ────────────────────────────────────────────────────
