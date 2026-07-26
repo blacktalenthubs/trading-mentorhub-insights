@@ -957,20 +957,33 @@ function SignalFeedTab({
 
             {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
             {a.entry != null ? (
-              <div className="mt-2 grid grid-cols-3 gap-px rounded-md overflow-hidden bg-surface-3">
-                <div className="bg-surface-1 px-2 py-1.5">
-                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Entry</div>
-                  <div className="font-mono text-[12px] font-bold text-accent">{fmtPrice(a.entry)}</div>
+              <>
+                <div className="mt-2 grid grid-cols-3 gap-px rounded-md overflow-hidden bg-surface-3">
+                  <div className="bg-surface-1 px-2 py-1.5">
+                    <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Entry</div>
+                    <div className="font-mono text-[12px] font-bold text-accent">{fmtPrice(a.entry)}</div>
+                  </div>
+                  <div className="bg-surface-1 px-2 py-1.5">
+                    <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Target</div>
+                    <div className="font-mono text-[12px] font-bold text-bullish-text">{fmtPrice(a.target_1)}</div>
+                  </div>
+                  <div className="bg-surface-1 px-2 py-1.5">
+                    <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Stop</div>
+                    <div className="font-mono text-[12px] font-bold text-bearish-text">{fmtPrice(a.stop)}</div>
+                  </div>
                 </div>
-                <div className="bg-surface-1 px-2 py-1.5">
-                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Target</div>
-                  <div className="font-mono text-[12px] font-bold text-bullish-text">{fmtPrice(a.target_1)}</div>
-                </div>
-                <div className="bg-surface-1 px-2 py-1.5">
-                  <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Stop</div>
-                  <div className="font-mono text-[12px] font-bold text-bearish-text">{fmtPrice(a.stop)}</div>
-                </div>
-              </div>
+                {/* invalidation kill-line — parsed from the pine note ("invalid on a 15m close
+                    above/below X"). Only 4h alerts emit it, so it self-scopes. Close-based, not a
+                    wick touch: a poke that closes back does NOT invalidate. */}
+                {(() => {
+                  const m = a.message?.match(/invalid on a 15m close (above|below) ([\d.,]+)/i);
+                  return m ? (
+                    <p className="mt-1 font-mono text-[10px] text-text-faint">
+                      ⛔ Invalid on 15m close {m[1]} {m[2]}
+                    </p>
+                  ) : null;
+                })()}
+              </>
             ) : (
               a.message && (
                 <p className="mt-2 text-[11px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
