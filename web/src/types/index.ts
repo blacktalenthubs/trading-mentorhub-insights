@@ -71,6 +71,8 @@ export interface Alert {
   stop: number | null;
   target_1: number | null;
   target_2: number | null;
+  target_1_label?: string | null;
+  target_2_label?: string | null;
   confidence: string;
   score: number;
   confluence_score: number;

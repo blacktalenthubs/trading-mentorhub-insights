@@ -50,6 +50,8 @@ class Alert(Base):
     stop: Mapped[Optional[float]] = mapped_column(Float)
     target_1: Mapped[Optional[float]] = mapped_column(Float)
     target_2: Mapped[Optional[float]] = mapped_column(Float)
+    target_1_label: Mapped[Optional[str]] = mapped_column(String(50))
+    target_2_label: Mapped[Optional[str]] = mapped_column(String(50))
     confidence: Mapped[Optional[str]] = mapped_column(String(10))
     message: Mapped[Optional[str]] = mapped_column(Text)
     narrative: Mapped[Optional[str]] = mapped_column(Text)

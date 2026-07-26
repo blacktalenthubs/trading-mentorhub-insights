@@ -1046,6 +1046,8 @@ class TVWebhookPayload(BaseModel):
     stop: Optional[str] = None
     target_1: Optional[str] = None
     target_2: Optional[str] = None
+    target_1_label: Optional[str] = None
+    target_2_label: Optional[str] = None
     fired_at: Optional[str] = None
     # Staged indicator extras — drive Telegram formatting for TV-native alerts
     stage: Optional[str] = None
@@ -1958,15 +1960,26 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # level in that direction (blue sky / gap-and-go), so a target is never nulled.
     from analytics.exit_plan import trade_style as _trade_style
     if _trade_style(alert_type_full) == "Day" and _entry_for_confluence and _nearby_levels:
-        from analytics.target_picker import pick_target
+        from analytics.target_picker import pick_targets
         _cands = [(lvl.get("label"), lvl.get("value")) for lvl in _nearby_levels
                   if isinstance(lvl, dict) and lvl.get("value") is not None]
-        _picked = pick_target(
+        # Structural LADDER: T1 = nearest level/EMA in the trade direction, T2 = the next
+        # distinct wall up (PWH/PMH/round come in via nearby_levels too); blue-sky slots
+        # fill with a measured move off risk, labeled honestly. Each carries its label.
+        try:
+            _stopf = float(sig.stop) if sig.stop not in (None, "", 0) else None
+        except (TypeError, ValueError):
+            _stopf = None
+        _ladder = pick_targets(
             float(_entry_for_confluence), _cands,
-            direction=sig.direction or "BUY", rsi=getattr(sig, "_tv_rsi", None),
+            direction=sig.direction or "BUY", stop=_stopf, n=2,
         )
-        if _picked and _picked.get("kind") == "level" and _picked.get("value"):
-            sig.target_1 = _picked["value"]
+        if _ladder:
+            sig.target_1 = _ladder[0]["value"]
+            sig.target_1_label = _ladder[0]["label"]
+            if len(_ladder) > 1:
+                sig.target_2 = _ladder[1]["value"]
+                sig.target_2_label = _ladder[1]["label"]
 
     pairs: list[tuple[Any, Alert]] = []
 
@@ -2146,6 +2159,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 stop=_exit["stop"],
                 target_1=sig.target_1,
                 target_2=sig.target_2,
+                target_1_label=getattr(sig, "target_1_label", None),
+                target_2_label=getattr(sig, "target_2_label", None),
                 entry_guidance=_exit["exit"],
                 trade_type=_exit["style"],
                 confidence=sig.confidence,
@@ -2328,6 +2343,8 @@ async def _persist_unrouted(
                 stop=sig.stop,
                 target_1=sig.target_1,
                 target_2=sig.target_2,
+                target_1_label=getattr(sig, "target_1_label", None),
+                target_2_label=getattr(sig, "target_2_label", None),
                 confidence=sig.confidence,
                 message=sig.message,
                 session_date=session_date,

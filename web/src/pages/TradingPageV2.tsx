@@ -966,12 +966,18 @@ function SignalFeedTab({
                   <div className="bg-surface-1 px-2 py-1.5">
                     <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Target</div>
                     <div className="font-mono text-[12px] font-bold text-bullish-text">{fmtPrice(a.target_1)}</div>
+                    {a.target_1_label && <div className="font-mono text-[7px] text-text-faint leading-tight truncate">{a.target_1_label}</div>}
                   </div>
                   <div className="bg-surface-1 px-2 py-1.5">
                     <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Stop</div>
                     <div className="font-mono text-[12px] font-bold text-bearish-text">{fmtPrice(a.stop)}</div>
                   </div>
                 </div>
+                {a.target_2 != null && (
+                  <p className="mt-1 font-mono text-[10px] text-text-faint">
+                    → T2 {fmtPrice(a.target_2)}{a.target_2_label ? ` · ${a.target_2_label}` : ""}
+                  </p>
+                )}
                 {/* invalidation kill-line — parsed from the pine note ("invalid on a 15m close
                     above/below X"). Only 4h alerts emit it, so it self-scopes. Close-based, not a
                     wick touch: a poke that closes back does NOT invalidate. */}
