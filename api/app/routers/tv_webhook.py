@@ -796,7 +796,7 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
 _RC_VALIDATION_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
 # 4H day-trade method — same isolation as RC validation (collapse-exempt + entry-dedup None) so every
 # 15m-close reaction is captured for analysis (2026-07-25). MASTER-optin; bind the pine on 15m.
-_FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
+_FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn"})
 
 
 def _is_collapse_exempt(alert_type_full: str) -> bool:

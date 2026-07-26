@@ -182,10 +182,10 @@ plotshape(enMk and isBuE, "50E Break up",   style = shape.triangleup,   location
 plotshape(enMk and isRjE, "50E Rejection",  style = shape.arrowdown,    location = location.abovebar, color = colDn, size = size.tiny)
 plotshape(enMk and isBdE, "50E Break down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
 if enAl and isRcE
-    alert(fh_pay("fourh_reclaim", "BUY",   close, low,  "50 EMA reclaim of "     + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+    alert(fh_pay("fourh_ema_reclaim", "BUY",   close, low,  "50 EMA reclaim of "     + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isRjE
-    alert(fh_pay("fourh_reject",  "SHORT", close, high, "50 EMA rejection at "   + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+    alert(fh_pay("fourh_ema_reject",  "SHORT", close, high, "50 EMA rejection at "   + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isBuE
-    alert(fh_pay("fourh_breakup", "BUY",   close, low,  "50 EMA break-up thru "  + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+    alert(fh_pay("fourh_ema_breakup", "BUY",   close, low,  "50 EMA break-up thru "  + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isBdE
-    alert(fh_pay("fourh_breakdn", "SHORT", close, high, "50 EMA break-down thru " + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+    alert(fh_pay("fourh_ema_breakdn", "SHORT", close, high, "50 EMA break-down thru " + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
