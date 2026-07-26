@@ -422,7 +422,12 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
 # ANY user who OPTED IN — i.e. enabled the type — REGARDLESS of their personal watchlist. The per-user
 # type toggle IS the opt-in. Distinct from SWING_BROADCAST_TYPES: those bypass the toggle but stay
 # watchlist-gated; these are the opposite — broadcast to opted-in users, not watchlist-gated.
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc", "fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
+# fourh_* REMOVED from MASTER_OPTIN 2026-07-26 — the user deleted SOL from their watchlist
+# but still got SOL fourh shorts, because MASTER_OPTIN delivers by type-enable regardless of
+# watchlist. Watchlist-gate them like normal types (user's standing rule: "if it's not on my
+# watchlist, no alert"). They now route via _users_watching + per-user type pref — BTC/ETH stay
+# (watched + enabled), SOL drops (not watched). The Pine still fires on the master watchlist.
+MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc"})
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
