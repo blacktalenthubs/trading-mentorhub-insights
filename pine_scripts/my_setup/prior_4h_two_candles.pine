@@ -1,0 +1,166 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// 4H Trade Levels — the last TWO completed 4h candles' HIGH & LOW (decision points).
+// ─────────────────────────────────────────────────────────────────────────────
+// The 4h day-trade method: draw ONLY the High & Low of the most-recent completed 4h
+// candle (4H-1, solid) and the one before it (4H-2, dashed) — 4 clean lines, so the
+// decision is obvious. Locked/non-repainting (240 + lookahead_on); the pair advances only
+// when a new block completes (8h crypto · daily session equity). Reactions fire on the
+// CONFIRMED close (bind on 15m → the 15m close is the
+// trigger; the levels stay 4h):
+//   ▲ RECLAIM   — wicked below a level, closed back above (support held → long)
+//   ▼ REJECTION — wicked above a level, closed back below (resistance held → short)
+//   ▲ BREAK-UP / ▼ BREAK-DN — one close THROUGH a level (continuation)
+// Alerts emit the platform JSON (fourh_* types) — bind on a 15m chart with the webhook.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v1", overlay = true, max_lines_count = 8, max_labels_count = 20)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+show1   = input.bool(true, "4H-1 — last completed 4h candle (solid)")
+show2   = input.bool(true, "4H-2 — the 4h candle before it (dashed)")
+colHi   = input.color(#EF5350, "High", inline = "c")
+colLo   = input.color(#26A69A, "Low",  inline = "c")
+wLine   = input.int(2,  "Line thickness", minval = 1, maxval = 6)
+lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff  = input.int(4,  "Tag offset (bars past last bar)", minval = 1, maxval = 60)
+gE      = "EMAs (bias + auto S/R — reference only, not signal levels)"
+emaTF   = input.timeframe("D", "EMA timeframe (D = daily)", group = gE, tooltip = "The daily 50 EMA is the trend filter (price above = long lean). The auto-bracket draws the nearest EMA ABOVE (overhead) + BELOW (support) from 5/20/50/100/200, updating as price moves. Both are context only — signals still fire on the 4h H/L.")
+show50  = input.bool(true, "Show the 50 EMA (bias filter)", group = gE)
+colEMA  = input.color(#EAB308, "50 EMA color", group = gE)
+enBracket = input.bool(true, "Auto EMA bracket — nearest above/below (5/20/50/100/200)", group = gE)
+colBrkUp  = input.color(#FB8C00, "Overhead EMA (nearest above)", group = gE, inline = "brk")
+colBrkDn  = input.color(#42A5F5, "Support EMA (nearest below)", group = gE, inline = "brk")
+lvlMode = input.string("Auto (by symbol type)", "Level mode", options = ["Auto (by symbol type)", "Crypto — 8h block", "Equity — freeze per session"], tooltip = "Both LOCK the last two completed 4h candles as a PAIR and advance only when a new pair completes (no one-at-a-time sliding). EQUITY (stock/fund/ADR): the prior session's two 4h, held all day (like PDH/PDL). CRYPTO (24/7): the last completed 8h block's two 4h, advancing every 8h (00:00/08:00/16:00 UTC). Auto picks by symbol type.")
+
+// ── the last two 4h candles — LOCKED as a pair, advance per block ─────────────
+// Both modes LOCK the last two completed 4h candles as a PAIR and advance only when a
+// NEW pair (block) completes — never sliding one candle at a time. Only the block differs:
+//   • EQUITY (stock/fund/ADR): block = the daily SESSION → freeze the prior session's two
+//     4h, held all day, advance at the session open (exactly like PDH/PDL; Sat keeps the
+//     Fri-session ref and flips at Monday's open).
+//   • CRYPTO (24/7): block = 8h (2 of the 6 daily 4h candles) → freeze the last completed
+//     8h block's two 4h, advance every 8h (00:00 / 08:00 / 16:00 UTC).
+// Detection gotcha: syminfo.type is "spot"/"crypto" for crypto (Coinbase reports "spot",
+// the "crypto" flag is in typespecs which Pine can't read) — so detect EQUITY explicitly.
+isEquityType = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
+isEquityMode = lvlMode == "Equity — freeze per session" or (lvlMode == "Auto (by symbol type)" and isEquityType)
+blockTf  = isEquityMode ? "D" : "480"
+newBlock = ta.change(time(blockTf)) != 0
+[pH1, pL1, pH2, pL2] = request.security(syminfo.tickerid, "240", [high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_on)  // the two 4h completed at the block boundary
+[e5, e20, e50, e100, e200] = request.security(syminfo.tickerid, emaTF, [ta.ema(close, 5)[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1]], lookahead = barmerge.lookahead_on)  // settled daily EMAs (flat)
+// auto-bracket: nearest EMA ABOVE price (overhead) + nearest BELOW (support), from the set
+_ev = array.from(e5, e20, e50, e100, e200)
+_en = array.from("5", "20", "50", "100", "200")
+float brkUpV = na
+float brkDnV = na
+string brkUpN = ""
+string brkDnN = ""
+for _i = 0 to 4
+    _v = array.get(_ev, _i)
+    if not na(_v)
+        if _v > close and (na(brkUpV) or _v < brkUpV)
+            brkUpV := _v
+            brkUpN := array.get(_en, _i)
+        if _v < close and (na(brkDnV) or _v > brkDnV)
+            brkDnV := _v
+            brkDnN := array.get(_en, _i)
+var float h1 = na
+var float l1 = na
+var float h2 = na
+var float l2 = na
+if na(h1) or newBlock
+    h1 := pH1
+    l1 := pL1
+    h2 := pH2
+    l2 := pL2
+
+// ── draw (redrawn on the last bar; old lines cleared first) ───────────────────
+var line[]  _lines  = array.new_line()
+var label[] _labels = array.new_label()
+f_draw(float v, string nm, color col, int styl, bool use) =>
+    if use and not na(v)
+        lst = styl == 2 ? line.style_dotted : styl == 1 ? line.style_dashed : line.style_solid
+        array.push(_lines,  line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = wLine, style = lst))
+        array.push(_labels, label.new(bar_index + tagOff, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.small))
+
+if barstate.islast
+    for x in _lines
+        line.delete(x)
+    for y in _labels
+        label.delete(y)
+    array.clear(_lines)
+    array.clear(_labels)
+    f_draw(h1, "4H-1 H", colHi, 0, show1)   // last 4h candle — solid
+    f_draw(l1, "4H-1 L", colLo, 0, show1)
+    f_draw(h2, "4H-2 H", colHi, 1, show2)   // prior 4h candle — dashed
+    f_draw(l2, "4H-2 L", colLo, 1, show2)
+    f_draw(e50, "50 EMA", colEMA, 2, show50)                     // daily 50 EMA — dotted bias filter
+    f_draw(brkUpV, brkUpN + " EMA", colBrkUp, 0, enBracket)      // nearest EMA above — overhead resistance
+    f_draw(brkDnV, brkDnN + " EMA", colBrkDn, 0, enBracket)      // nearest EMA below — support
+
+// ── the FOUR reactions + ALERTS (bind on 15m) ─────────────────────────────────
+// The CLOSE decides which: reclaim/reject (wick+close-back) vs break (close through),
+// mutually exclusive by the close[1] side. ONE close = the trigger. Only H & L levels.
+gW    = "Reactions + alerts (bind on 15m)"
+enMk  = input.bool(true, "Show reaction arrows", group = gW)
+enAl  = input.bool(true, "Fire reaction alerts (on the 15m close)", group = gW)
+colUp = input.color(color.new(#26A69A, 0), "Bullish ▲", group = gW, inline = "wr")
+colDn = input.color(color.new(#EF5350, 0), "Bearish ▼", group = gW, inline = "wr")
+
+rc_below(float L) => not na(L) and close[1] > L and low  < L and close > L   // reclaim  (held support)
+rj_above(float L) => not na(L) and close[1] < L and high > L and close < L   // rejection(held resistance)
+bu_thru (float L) => not na(L) and close[1] <= L and close > L               // break up (closed through)
+bd_thru (float L) => not na(L) and close[1] >= L and close < L               // break dn (closed through)
+
+// return the H/L level that flipped (for the marker + the structural-stop message), else na
+f_pick(bool a1, bool a2, bool a3, bool a4) => a1 ? h1 : a2 ? l1 : a3 ? h2 : a4 ? l2 : na
+rcLvl = f_pick(show1 and rc_below(h1), show1 and rc_below(l1), show2 and rc_below(h2), show2 and rc_below(l2))
+rjLvl = f_pick(show1 and rj_above(h1), show1 and rj_above(l1), show2 and rj_above(h2), show2 and rj_above(l2))
+buLvl = f_pick(show1 and bu_thru(h1),  show1 and bu_thru(l1),  show2 and bu_thru(h2),  show2 and bu_thru(l2))
+bdLvl = f_pick(show1 and bd_thru(h1),  show1 and bd_thru(l1),  show2 and bd_thru(h2),  show2 and bd_thru(l2))
+
+conf = barstate.isconfirmed
+// Don't react on the bar a level JUST rolled (crypto 4h close / equity session open):
+// close[1] is from the OLD level regime, so a "cross" against the NEW level is an
+// artifact (fired a false reject at SOL's 74.99 the instant that level formed). Wait 1 bar.
+lvlStable = h1 == h1[1] and l1 == l1[1] and h2 == h2[1] and l2 == l2[1]
+isRc = conf and lvlStable and not na(rcLvl)
+isRj = conf and lvlStable and not na(rjLvl)
+isBu = conf and lvlStable and not na(buLvl)
+isBd = conf and lvlStable and not na(bdLvl)
+
+plotshape(enMk and isRc, "Reclaim",    style = shape.arrowup,      location = location.belowbar, color = colUp, size = size.small)
+plotshape(enMk and isBu, "Break up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(enMk and isRj, "Rejection",  style = shape.arrowdown,    location = location.abovebar, color = colDn, size = size.small)
+plotshape(enMk and isBd, "Break down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+
+// ── ALERTS — platform JSON on the 15m close. reclaim/break-up = BUY, reject/break-dn
+// = SHORT. STOP = the trigger bar's OPPOSITE extreme (long → bar LOW, short → bar HIGH) —
+// the swept wick on a reclaim/reject, the breakout bar's far side on a break (real
+// structural distance, no fake-tight R). INVALIDATION = a 15m CLOSE back through the LEVEL
+// (a wick that pokes and closes back does NOT invalidate — only a close does); stated in
+// the note so the kill-line is explicit on the card.
+// nearby_levels = the FULL S/R stack (4h H/L + the 5/20/50/100/200 EMAs) as a
+// "kind|value|label,..." CSV — the backend Day-target picker reads it and sets T1 = the
+// NEXT level/EMA in the trade direction (long → nearest above; short → nearest below).
+f_nl() =>
+    s = ""
+    s := na(h1)   ? s : s + "4h|"  + str.tostring(h1,   format.mintick) + "|4H-1 H,"
+    s := na(l1)   ? s : s + "4h|"  + str.tostring(l1,   format.mintick) + "|4H-1 L,"
+    s := na(h2)   ? s : s + "4h|"  + str.tostring(h2,   format.mintick) + "|4H-2 H,"
+    s := na(l2)   ? s : s + "4h|"  + str.tostring(l2,   format.mintick) + "|4H-2 L,"
+    s := na(e5)   ? s : s + "ema|" + str.tostring(e5,   format.mintick) + "|5 EMA,"
+    s := na(e20)  ? s : s + "ema|" + str.tostring(e20,  format.mintick) + "|20 EMA,"
+    s := na(e50)  ? s : s + "ema|" + str.tostring(e50,  format.mintick) + "|50 EMA,"
+    s := na(e100) ? s : s + "ema|" + str.tostring(e100, format.mintick) + "|100 EMA,"
+    s := na(e200) ? s : s + "ema|" + str.tostring(e200, format.mintick) + "|200 EMA"
+    s
+fh_pay(string rule, string dir, float ent, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(ent, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl() + '"}'
+if enAl and isRc
+    alert(fh_pay("fourh_reclaim", "BUY",   close, low,  "4H reclaim of "      + str.tostring(rcLvl, format.mintick) + " · invalid on a 15m close below " + str.tostring(rcLvl, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isRj
+    alert(fh_pay("fourh_reject",  "SHORT", close, high, "4H rejection at "    + str.tostring(rjLvl, format.mintick) + " · invalid on a 15m close above " + str.tostring(rjLvl, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isBu
+    alert(fh_pay("fourh_breakup", "BUY",   close, low,  "4H break-up thru "   + str.tostring(buLvl, format.mintick) + " · invalid on a 15m close below " + str.tostring(buLvl, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isBd
+    alert(fh_pay("fourh_breakdn", "SHORT", close, high, "4H break-down thru " + str.tostring(bdLvl, format.mintick) + " · invalid on a 15m close above " + str.tostring(bdLvl, format.mintick)), alert.freq_once_per_bar_close)
