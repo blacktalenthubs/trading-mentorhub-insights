@@ -2823,6 +2823,14 @@ async def _route_alert(sig) -> tuple[bool, Optional[str]]:
     if rule_full.startswith("tv_rc_4h"):
         return True, None
 
+    # 4h day-trade shorts (fourh_reject / fourh_breakdn) — first-class on ANY symbol
+    # (crypto + stocks). The 4h system is MASTER_OPTIN ("enable the type = deliver it"),
+    # so it is NOT subject to the SPY-only structural index whitelist below. Without this
+    # a crypto fourh SHORT was dropped here with no DB row even though the Pine fired it
+    # and TV reported "delivered" (2026-07-26, user: "fire short for all items, no exceptions").
+    if rule_full.startswith("tv_fourh"):
+        return True, None
+
     # Structural shorts (PDL break / PDH rejection …) stay INDEX-only for now.
     if (sig.symbol or "").upper() not in INDEX_SHORT_ALLOWLIST:
         return False, None
