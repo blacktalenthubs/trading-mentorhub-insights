@@ -104,6 +104,7 @@ if barstate.islast
 gW    = "Reactions + alerts (bind on 15m)"
 enMk  = input.bool(true, "Show reaction arrows", group = gW)
 enAl  = input.bool(true, "Fire reaction alerts (on the 15m close)", group = gW)
+enE50 = input.bool(true, "Also fire the SAME 4 reactions on the 50 EMA", group = gW, tooltip = "Treats the daily 50 EMA as a dynamic S/R level: reclaim (wick below + close back above = long), rejection (short), break-up/down (close through). Folds into the fourh_* types, tagged \"50 EMA\" in the note.")
 colUp = input.color(color.new(#26A69A, 0), "Bullish ▲", group = gW, inline = "wr")
 colDn = input.color(color.new(#EF5350, 0), "Bearish ▼", group = gW, inline = "wr")
 
@@ -164,3 +165,26 @@ if enAl and isBu
     alert(fh_pay("fourh_breakup", "BUY",   close, low,  "4H break-up thru "   + str.tostring(buLvl, format.mintick) + " · invalid on a 15m close below " + str.tostring(buLvl, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isBd
     alert(fh_pay("fourh_breakdn", "SHORT", close, high, "4H break-down thru " + str.tostring(bdLvl, format.mintick) + " · invalid on a 15m close above " + str.tostring(bdLvl, format.mintick)), alert.freq_once_per_bar_close)
+
+// ── 50 EMA reactions — SAME 4-reaction pattern on the daily 50 EMA as a DYNAMIC S/R level.
+// Folds into the fourh_* types, tagged "50 EMA" in the note (user 2026-07-26). The EMA moves,
+// so gate on e50Stable (skip the daily-roll bar, mirror of lvlStable) instead of lvlStable.
+// Same stops (long → bar low, short → bar high) + same close-based invalidation at the EMA.
+e50Stable = e50 == e50[1]
+e50ok = enE50 and conf and e50Stable and not na(e50)
+isRcE = e50ok and rc_below(e50)
+isRjE = e50ok and rj_above(e50)
+isBuE = e50ok and bu_thru(e50)
+isBdE = e50ok and bd_thru(e50)
+plotshape(enMk and isRcE, "50E Reclaim",    style = shape.arrowup,      location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(enMk and isBuE, "50E Break up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
+plotshape(enMk and isRjE, "50E Rejection",  style = shape.arrowdown,    location = location.abovebar, color = colDn, size = size.tiny)
+plotshape(enMk and isBdE, "50E Break down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
+if enAl and isRcE
+    alert(fh_pay("fourh_reclaim", "BUY",   close, low,  "50 EMA reclaim of "     + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isRjE
+    alert(fh_pay("fourh_reject",  "SHORT", close, high, "50 EMA rejection at "   + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isBuE
+    alert(fh_pay("fourh_breakup", "BUY",   close, low,  "50 EMA break-up thru "  + str.tostring(e50, format.mintick) + " · invalid on a 15m close below " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and isBdE
+    alert(fh_pay("fourh_breakdn", "SHORT", close, high, "50 EMA break-down thru " + str.tostring(e50, format.mintick) + " · invalid on a 15m close above " + str.tostring(e50, format.mintick)), alert.freq_once_per_bar_close)
