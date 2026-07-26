@@ -31,6 +31,8 @@ class AlertResponse(BaseModel):
     stop: Optional[float] = None
     target_1: Optional[float] = None
     target_2: Optional[float] = None
+    target_1_label: Optional[str] = None
+    target_2_label: Optional[str] = None
     # Sub-spec A/L — single-target kind + day/swing tag.
     target_kind: Optional[str] = None        # level | rsi | eod
     trade_type: Optional[str] = None         # day | swing
@@ -85,6 +87,8 @@ class AlertResponse(BaseModel):
             stop=alert.stop,
             target_1=alert.target_1,
             target_2=alert.target_2,
+            target_1_label=getattr(alert, "target_1_label", None),
+            target_2_label=getattr(alert, "target_2_label", None),
             target_kind=getattr(alert, "target_kind", None),
             trade_type=getattr(alert, "trade_type", None),
             swing_eligible=bool(getattr(alert, "swing_eligible", 0)) if getattr(alert, "swing_eligible", None) is not None else None,
