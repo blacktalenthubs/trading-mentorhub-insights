@@ -30,6 +30,7 @@ colEMA  = input.color(#EAB308, "50 EMA color", group = gE)
 enBracket = input.bool(true, "Auto EMA bracket — nearest above/below (5/20/50/100/200)", group = gE)
 colBrkUp  = input.color(#FB8C00, "Overhead EMA (nearest above)", group = gE, inline = "brk")
 colBrkDn  = input.color(#42A5F5, "Support EMA (nearest below)", group = gE, inline = "brk")
+maxBrkPct = input.float(2.5, "Max EMA bracket DRAW distance (%)", group = gE, minval = 0.5, maxval = 20, tooltip = "Only DRAW the nearest above/below EMA when it's within this % of price — a far 100/200 EMA otherwise stretches TV's auto-scale and compresses the chart. It still counts as a TARGET regardless of whether it's drawn.")
 lvlMode = input.string("Auto (by symbol type)", "Level mode", options = ["Auto (by symbol type)", "Crypto — 8h block", "Equity — freeze per session"], tooltip = "Both LOCK the last two completed 4h candles as a PAIR and advance only when a new pair completes (no one-at-a-time sliding). EQUITY (stock/fund/ADR): the prior session's two 4h, held all day (like PDH/PDL). CRYPTO (24/7): the last completed 8h block's two 4h, advancing every 8h (00:00/08:00/16:00 UTC). Auto picks by symbol type.")
 
 // ── the last two 4h candles — LOCKED as a pair, advance per block ─────────────
@@ -95,8 +96,8 @@ if barstate.islast
     f_draw(h2, "4H-2 H", colHi, 1, show2)   // prior 4h candle — dashed
     f_draw(l2, "4H-2 L", colLo, 1, show2)
     f_draw(e50, "50 EMA", colEMA, 2, show50)                     // daily 50 EMA — dotted bias filter
-    f_draw(brkUpV, brkUpN + " EMA", colBrkUp, 0, enBracket)      // nearest EMA above — overhead resistance
-    f_draw(brkDnV, brkDnN + " EMA", colBrkDn, 0, enBracket)      // nearest EMA below — support
+    f_draw(brkUpV, brkUpN + " EMA", colBrkUp, 0, enBracket and not na(brkUpV) and math.abs(brkUpV - close) / close <= maxBrkPct / 100)   // nearest EMA above — drawn only if near (no scale stretch)
+    f_draw(brkDnV, brkDnN + " EMA", colBrkDn, 0, enBracket and not na(brkDnV) and math.abs(brkDnV - close) / close <= maxBrkPct / 100)   // nearest EMA below — drawn only if near
 
 // ── the FOUR reactions + ALERTS (bind on 15m) ─────────────────────────────────
 // The CLOSE decides which: reclaim/reject (wick+close-back) vs break (close through),
