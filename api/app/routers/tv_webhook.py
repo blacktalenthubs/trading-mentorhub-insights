@@ -894,6 +894,15 @@ _NEVER_DEDUP_LEVELS: frozenset[str] = frozenset({"pdl_held", "pdh_held"})
 # (symbol, direction) -> {"session": str, "best": float, "last": datetime}
 _entry_dedup_state: dict[tuple[str, str], dict] = {}
 
+# DIRECTIONAL LEG LOCK (fourh only, 2026-07-27) — symbol -> {"session","dir","level","flip_at"}.
+# ONE entry per directional leg: the first reaction OPENS a leg → fires; every SAME-direction
+# reaction after it is the leg's TARGETS being hit → mute (dedup_same_leg); the leg ENDS on the
+# first OPPOSITE reaction (a flip), which fires the new leg's entry — even below the prior entry
+# (the 737 bounce after a short from 743). A flip inside V2_FOURH_FLIP_COOLDOWN_MIN of the last
+# flip is whipsaw → mute (dedup_flip_cooldown). Net on a trend-then-bounce day: one short + one
+# long, not short/long/short/long. Reverses the #865 "continuations always fire" for fourh.
+_active_dir: dict[str, dict] = {}
+
 # ── Day-boundary wipe ──────────────────────────────────────────────────────────
 # _entry_dedup_state (+ the confluence tracker) is PROCESS-GLOBAL in-memory, and the
 # webhook process runs for DAYS without restarting. The per-key soft reset only clears a
@@ -908,6 +917,7 @@ def _wipe_dedup_state_on_new_day(session_date: str) -> None:
     if _dedup_state_day != session_date:
         _entry_dedup_state.clear()
         _recent_confluence_fires.clear()
+        _active_dir.clear()
         _dedup_state_day = session_date
         logger.info("TV dedup: new session %s — cleared in-memory dedup/confluence anchor state", session_date)
 
@@ -965,6 +975,25 @@ def _check_entry_time_dedup(
         return None  # safety — unknown/exempt type
     if entry is None or entry <= 0:
         return None  # no price to dedup on → let it through
+    # DIRECTIONAL LEG LOCK — fourh only (see _active_dir). One entry per leg: same-direction
+    # reaction = the leg's targets being hit → mute; opposite direction = a new leg → fire,
+    # unless it's a whipsaw flip inside the flip-cooldown. Handles fourh ENTIRELY (returns
+    # before the generic confluence/cooldown/chase gates). Toggle: V2_FOURH_DIR_LOCK=false.
+    if base in _FOURH_TYPES and os.environ.get("V2_FOURH_DIR_LOCK", "true").lower() not in ("0", "false", "no"):
+        ap = _active_dir.get(symbol)
+        if ap and ap.get("session") == session_date:
+            _cur_long = (direction or "").upper() in ("BUY", "LONG")
+            _act_long = (ap.get("dir") or "").upper() in ("BUY", "LONG")
+            if _cur_long == _act_long:
+                return {"reason": "dedup_same_leg", "anchor": ap.get("level", 0.0)}
+            try:
+                _flip_cd = float(_envf("V2_FOURH_FLIP_COOLDOWN_MIN", 30))
+            except Exception:
+                _flip_cd = 30.0
+            _fa = ap.get("flip_at")
+            if _fa is not None and datetime.utcnow() - _fa < timedelta(minutes=_flip_cd):
+                return {"reason": "dedup_flip_cooldown", "anchor": ap.get("level", 0.0)}
+        return None  # first leg of the session, or a valid flip → fire
     key = (symbol, (direction or "").upper())
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
@@ -1025,6 +1054,18 @@ def _record_entry_time_fire(
         st.setdefault("levels", []).append(p)
         st["best"] = min(st["best"], p) if is_long else max(st["best"], p)
         st["last"] = now
+    # DIRECTIONAL LEG LOCK — a kept fourh fire opens/flips the active leg. Stamp flip_at only
+    # when the direction actually changes (or it's a new session) so the flip-cooldown measures
+    # time since the last DIRECTION CHANGE. (Same-direction fires are muted upstream, so a kept
+    # fourh fire is effectively always a first-leg or a flip.)
+    if _dedup_base(alert_type_full) in _FOURH_TYPES:
+        _d = (direction or "").upper()
+        _prev = _active_dir.get(symbol)
+        _same_session = _prev is not None and _prev.get("session") == session_date
+        _prev_long = _same_session and (_prev.get("dir") or "").upper() in ("BUY", "LONG")
+        _flipped = (not _same_session) or (is_long != _prev_long)
+        _active_dir[symbol] = {"session": session_date, "dir": _d, "level": p,
+                               "flip_at": now if _flipped else _prev.get("flip_at", now)}
 
 
 # ---------------------------------------------------------------------------
