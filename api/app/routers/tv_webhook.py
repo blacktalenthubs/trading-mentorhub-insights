@@ -1512,6 +1512,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         enabled_types: Optional[set[str]] = {at for at, en in _cfg_rows if en}
         known_types: Optional[set[str]] = {at for at, _ in _cfg_rows}
         _rc = {k: v for k, v in _rc_rows}
+        fourh_only = (_rc.get("fourh_only", "false") or "false").strip().lower() in ("1", "true", "yes", "on")
         spy_trend_exempt = _parse_exempt_syms(_rc.get("spy_trend_exempt")) or SPY_TREND_EXEMPT_DEFAULT
         # SPY-PDL gate OFF by default (2026-06-17) — alerts flow ungated; the
         # VOLUME GRADE is the conviction filter now. Gate code + predicates kept for
@@ -1563,6 +1564,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         spy_trend_gate_on = False      # read failed → don't gate (fail-open)
         rc_4h_short_symbols = RC4H_SHORT_DEFAULT  # read failed → keep the short tight
         short_symbols = SHORT_SYMS_DEFAULT        # read failed → shorts only SPY,QQQ
+        fourh_only = False                        # read failed → don't gate (fail-open)
         ma_alert_symbols = MA_SYMS_DEFAULT        # read failed → MA only the clean names
         rc_symbols = RC_SYMS_DEFAULT              # read failed → RC only the default set
         gap_always_symbols = GAP_ALWAYS_DEFAULT   # read failed → keep SPY,QQQ
@@ -1586,6 +1588,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if _bare_rule in OBSOLETE_ALERT_TYPES:
         logger.info("TV webhook: cut/obsolete type %s — dropped (%s)", alert_type_full, sig.symbol)
         return {"dispatched": False, "reason": "obsolete_type"}
+
+    # 4H-ONLY FOCUS MODE (RegimeConfig fourh_only=true): drop every NON-fourh alert here, BEFORE
+    # the same-bar collapse + entry-dedup — so the shared (symbol,direction) dedup anchor is only
+    # ever seeded by 4h alerts and RC/Day/Swing fires can't affect the 4h feed. Recorded unrouted
+    # (visible in Not-routed), not silently dropped. One switch, reversible (set fourh_only=false).
+    if fourh_only and _bare_rule not in _FOURH_TYPES:
+        logger.info("TV webhook: 4H-only mode — %s dropped (%s)", alert_type_full, sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="fourh_only_mode")
     # Delivery enable is PER-USER only (2026-07-24, user: "no gating if enabled").
     # The global AlertTypeConfig.enabled column is NO LONGER a delivery gate — it
     # was a second, hidden layer: Settings writes per-user prefs (UserAlertTypePref),
