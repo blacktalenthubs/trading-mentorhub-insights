@@ -1751,13 +1751,12 @@ export function useAlertSession(date: string) {
 export function useAlertsForDate(date: string) {
   return useQuery({
     queryKey: ["alerts-date", date],
-    queryFn: () => api.get<Alert[]>(`/alerts/history?days=90`),
+    // Server-side date filter. Was /history?days=90 + a client-side session_date filter,
+    // which broke for older dates under high alert volume — flood days pushed them out of
+    // the newest-N window and the picker loaded empty. Returns ALL rows for the date
+    // (delivered + suppressed) so the Muted / Not-routed tabs stay populated.
+    queryFn: () => api.get<Alert[]>(`/alerts/for-date/${date}`),
     enabled: !!date,
-    // Return ALL alerts for the date — the live Signals feed (TradingPageV2) shares
-    // this hook and needs the suppressed rows for its Muted / Not-routed tabs. The
-    // delivered-only filter for the EOD report belongs in EODReportPage, NOT here
-    // (#227 wrongly filtered here and emptied the live feed's Muted/Not-routed tabs).
-    select: (data) => data.filter((a) => a.session_date === date),
   });
 }
 
