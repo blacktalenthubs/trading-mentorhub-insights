@@ -1009,7 +1009,22 @@ def _check_entry_time_dedup(
             _prev = _level_dedup_state.get((symbol, (direction or "").upper(), lvl))
             if _prev is not None and _prev.get("session") == session_date and datetime.utcnow() - _prev["at"] < timedelta(minutes=_lcd):
                 return {"reason": "dedup_level_2h", "anchor": lvl}
-            return None  # first fire at this (level, direction) in the 2h window → fire
+            # CHASE — a same-direction reaction at a DIFFERENT level that's NOT a better entry than
+            # the session anchor is the same leg continuing (price just moving on), not a new trade:
+            # a sequential SHORT lower / LONG higher = the move playing out until the anchor level
+            # breaches (user 2026-07-27: "why fire sequential short? did the first level breach?").
+            # A short re-fires only HIGHER (a retest after the level is reclaimed), a long only LOWER.
+            _st = _entry_dedup_state.get((symbol, (direction or "").upper()))
+            if _st is not None and _st.get("session") == session_date:
+                try:
+                    _cb = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
+                except Exception:
+                    _cb = 0.003
+                _is_long = (direction or "").upper() in ("BUY", "LONG")
+                _better = entry < _st["best"] * (1.0 - _cb) if _is_long else entry > _st["best"] * (1.0 + _cb)
+                if not _better:
+                    return {"reason": "dedup_chase", "anchor": _st["best"]}
+            return None  # fresh level AND a better entry (or the session's first fire) → fire
         # no parseable level (a stale binding that doesn't send `note`) → fall through to the
         # generic entry-price gates below so fourh still gets SOME dedup, not a free-fire.
     key = (symbol, (direction or "").upper())
