@@ -973,10 +973,14 @@ def _check_entry_time_dedup(
         band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
     except Exception:
         band = 0.003
-    # CONFLUENCE MERGE — same price as any already-alerted level (any type) → one card
-    for lvl in st.get("levels", []):
-        if lvl > 0 and abs(entry - lvl) / lvl <= band:
-            return {"reason": "dedup_confluence", "anchor": lvl}
+    # CONFLUENCE MERGE — same price as any already-alerted level (any type) → one card.
+    # SKIPPED for fourh_* (user 2026-07-27): it's price-based + ALL-SESSION, so a fresh 4h
+    # reaction gets absorbed by a nearby same-direction alert from hours ago (e.g. a 12:45
+    # reclaim @64991 merged into an 08:30 breakup @65168). fourh uses cooldown-only.
+    if base not in _FOURH_TYPES:
+        for lvl in st.get("levels", []):
+            if lvl > 0 and abs(entry - lvl) / lvl <= band:
+                return {"reason": "dedup_confluence", "anchor": lvl}
     # LEVEL exemption REMOVED 2026-07-18 (user, NVDA 07-17 review: SMA-100 bounce fired at
     # 199.24, then the weekly reclaim fired at 200.63 ten minutes later — a WORSE entry on
     # the same move). Levels now pass the same cooldown + chase gates as MA/day-trade:
@@ -990,12 +994,15 @@ def _check_entry_time_dedup(
     now = datetime.utcnow()
     if now - st["last"] < timedelta(minutes=cooldown_min):
         return {"reason": "dedup_cooldown", "anchor": st["best"]}
-    if is_long:
-        new_level = entry < st["best"] * (1.0 - band)
-    else:
-        new_level = entry > st["best"] * (1.0 + band)
-    if not new_level:
-        return {"reason": "dedup_chase", "anchor": st["best"]}
+    # CHASE — non-fourh only. fourh_* (user 2026-07-27): after the 30-min cooldown a distinct
+    # reaction fires even at a nearby/higher price, so continuation breaks + reclaims aren't chased.
+    if base not in _FOURH_TYPES:
+        if is_long:
+            new_level = entry < st["best"] * (1.0 - band)
+        else:
+            new_level = entry > st["best"] * (1.0 + band)
+        if not new_level:
+            return {"reason": "dedup_chase", "anchor": st["best"]}
     return None
 
 
