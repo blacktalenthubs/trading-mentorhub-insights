@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -894,14 +895,14 @@ _NEVER_DEDUP_LEVELS: frozenset[str] = frozenset({"pdl_held", "pdh_held"})
 # (symbol, direction) -> {"session": str, "best": float, "last": datetime}
 _entry_dedup_state: dict[tuple[str, str], dict] = {}
 
-# DIRECTIONAL LEG LOCK (fourh only, 2026-07-27) — symbol -> {"session","dir","level","flip_at"}.
-# ONE entry per directional leg: the first reaction OPENS a leg → fires; every SAME-direction
-# reaction after it is the leg's TARGETS being hit → mute (dedup_same_leg); the leg ENDS on the
-# first OPPOSITE reaction (a flip), which fires the new leg's entry — even below the prior entry
-# (the 737 bounce after a short from 743). A flip inside V2_FOURH_FLIP_COOLDOWN_MIN of the last
-# flip is whipsaw → mute (dedup_flip_cooldown). Net on a trend-then-bounce day: one short + one
-# long, not short/long/short/long. Reverses the #865 "continuations always fire" for fourh.
-_active_dir: dict[str, dict] = {}
+# LEVEL-KEYED dedup for fourh (user 2026-07-27, option A) — key on the 4H LEVEL parsed from the
+# alert note, NOT the entry price: chop at a level prints entries across a wide band (NBIS 182→188
+# all reacting to 186.41), so a price band misses them; the level is the invariant. ONE alert per
+# (symbol, direction, level) per V2_FOURH_LEVEL_COOLDOWN_MIN (120) — a long AND a short can each
+# fire once per 2h at a level; subsequents are SUPPRESSED (dedup_level_2h) but still PERSISTED for
+# later review. Levels are frozen per session, so an exact float key is stable.
+# key = (symbol, DIRECTION, level) -> {"session": str, "at": datetime}
+_level_dedup_state: dict[tuple[str, str, float], dict] = {}
 
 # ── Day-boundary wipe ──────────────────────────────────────────────────────────
 # _entry_dedup_state (+ the confluence tracker) is PROCESS-GLOBAL in-memory, and the
@@ -917,7 +918,7 @@ def _wipe_dedup_state_on_new_day(session_date: str) -> None:
     if _dedup_state_day != session_date:
         _entry_dedup_state.clear()
         _recent_confluence_fires.clear()
-        _active_dir.clear()
+        _level_dedup_state.clear()
         _dedup_state_day = session_date
         logger.info("TV dedup: new session %s — cleared in-memory dedup/confluence anchor state", session_date)
 
@@ -947,9 +948,27 @@ def _seeds_anchor(alert_type_full: str) -> bool:
     return _is_price_level(alert_type_full) or _is_entry_dedupable(alert_type_full)
 
 
+_FOURH_LEVEL_RE = re.compile(r"(?:thru|at|of)\s+(-?[0-9]+(?:\.[0-9]+)?)")
+
+
+def _parse_fourh_level(note: Optional[str]) -> Optional[float]:
+    """The 4H level a reaction fired at, parsed from the pine note ('break-down thru 737.30',
+    'reject at 742.16', 'reclaim of 737.30'). This — not the entry close — is the fourh dedup key:
+    the level is frozen per session while the entry drifts across the chop."""
+    if not note:
+        return None
+    m = _FOURH_LEVEL_RE.search(note)
+    if not m:
+        return None
+    try:
+        return round(float(m.group(1)), 4)
+    except Exception:
+        return None
+
+
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
-    alert_type_full: str, session_date: str,
+    alert_type_full: str, session_date: str, note: Optional[str] = None,
 ) -> Optional[dict]:
     """Suppression info, or None to fire. Three drop reasons:
       • `dedup_confluence` — SAME price as a level already alerted this session
@@ -975,25 +994,24 @@ def _check_entry_time_dedup(
         return None  # safety — unknown/exempt type
     if entry is None or entry <= 0:
         return None  # no price to dedup on → let it through
-    # DIRECTIONAL LEG LOCK — fourh only (see _active_dir). One entry per leg: same-direction
-    # reaction = the leg's targets being hit → mute; opposite direction = a new leg → fire,
-    # unless it's a whipsaw flip inside the flip-cooldown. Handles fourh ENTIRELY (returns
-    # before the generic confluence/cooldown/chase gates). Toggle: V2_FOURH_DIR_LOCK=false.
-    if base in _FOURH_TYPES and os.environ.get("V2_FOURH_DIR_LOCK", "true").lower() not in ("0", "false", "no"):
-        ap = _active_dir.get(symbol)
-        if ap and ap.get("session") == session_date:
-            _cur_long = (direction or "").upper() in ("BUY", "LONG")
-            _act_long = (ap.get("dir") or "").upper() in ("BUY", "LONG")
-            if _cur_long == _act_long:
-                return {"reason": "dedup_same_leg", "anchor": ap.get("level", 0.0)}
+    # LEVEL-KEYED dedup — fourh only (option A). ONE alert per (symbol, direction, LEVEL) per 2h.
+    # The level comes from the note (frozen per session); a repeat reaction at the SAME level+dir
+    # inside the window is chop → suppressed (dedup_level_2h) but still persisted for review. A long
+    # and a short at a level are separate keys (each fires once/2h). Handles fourh ENTIRELY —
+    # returns before the generic price-band gates. Toggle V2_FOURH_LEVEL_DEDUP=false.
+    if base in _FOURH_TYPES and os.environ.get("V2_FOURH_LEVEL_DEDUP", "true").lower() not in ("0", "false", "no"):
+        lvl = _parse_fourh_level(note)
+        if lvl is not None:
             try:
-                _flip_cd = float(_envf("V2_FOURH_FLIP_COOLDOWN_MIN", 30))
+                _lcd = float(_envf("V2_FOURH_LEVEL_COOLDOWN_MIN", 120))
             except Exception:
-                _flip_cd = 30.0
-            _fa = ap.get("flip_at")
-            if _fa is not None and datetime.utcnow() - _fa < timedelta(minutes=_flip_cd):
-                return {"reason": "dedup_flip_cooldown", "anchor": ap.get("level", 0.0)}
-        return None  # first leg of the session, or a valid flip → fire
+                _lcd = 120.0
+            _prev = _level_dedup_state.get((symbol, (direction or "").upper(), lvl))
+            if _prev is not None and _prev.get("session") == session_date and datetime.utcnow() - _prev["at"] < timedelta(minutes=_lcd):
+                return {"reason": "dedup_level_2h", "anchor": lvl}
+            return None  # first fire at this (level, direction) in the 2h window → fire
+        # no parseable level (a stale binding that doesn't send `note`) → fall through to the
+        # generic entry-price gates below so fourh still gets SOME dedup, not a free-fire.
     key = (symbol, (direction or "").upper())
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
@@ -1037,7 +1055,7 @@ def _check_entry_time_dedup(
 
 def _record_entry_time_fire(
     symbol: str, direction: str, entry: Optional[float],
-    alert_type_full: str, session_date: str,
+    alert_type_full: str, session_date: str, note: Optional[str] = None,
 ) -> None:
     """Record a KEPT fire — append the price to the session's level set, ratchet the
     anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
@@ -1054,18 +1072,12 @@ def _record_entry_time_fire(
         st.setdefault("levels", []).append(p)
         st["best"] = min(st["best"], p) if is_long else max(st["best"], p)
         st["last"] = now
-    # DIRECTIONAL LEG LOCK — a kept fourh fire opens/flips the active leg. Stamp flip_at only
-    # when the direction actually changes (or it's a new session) so the flip-cooldown measures
-    # time since the last DIRECTION CHANGE. (Same-direction fires are muted upstream, so a kept
-    # fourh fire is effectively always a first-leg or a flip.)
+    # LEVEL-KEYED dedup — stamp this kept fourh fire's (level, direction) time so the next reaction
+    # at the SAME level+dir within 2h is suppressed (see _check_entry_time_dedup).
     if _dedup_base(alert_type_full) in _FOURH_TYPES:
-        _d = (direction or "").upper()
-        _prev = _active_dir.get(symbol)
-        _same_session = _prev is not None and _prev.get("session") == session_date
-        _prev_long = _same_session and (_prev.get("dir") or "").upper() in ("BUY", "LONG")
-        _flipped = (not _same_session) or (is_long != _prev_long)
-        _active_dir[symbol] = {"session": session_date, "dir": _d, "level": p,
-                               "flip_at": now if _flipped else _prev.get("flip_at", now)}
+        _lvl = _parse_fourh_level(note)
+        if _lvl is not None:
+            _level_dedup_state[(symbol, (direction or "").upper(), _lvl)] = {"session": session_date, "at": now}
 
 
 # ---------------------------------------------------------------------------
@@ -1137,6 +1149,9 @@ class TVWebhookPayload(BaseModel):
     # overhead MA/EMA and PDH/PDL IS the resistance a bounce trades into) and the
     # confluence check. Absent on older pine snapshots → picker skips, fallback targets.
     nearby_levels: Optional[str] = None
+    # 2026-07-27: the pine's human note ("4H break-down thru 737.30 · invalid on ..."). Captured so
+    # the LEVEL-keyed fourh dedup can parse which 4H level the reaction fired at (see _parse_fourh_level).
+    note: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1946,7 +1961,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # anchor entry they lost to (for the feed's "+N collapsed" + offline tuning).
     dd = _check_entry_time_dedup(
         sig.symbol, direction, getattr(sig, "entry", None),
-        alert_type_full, session_date,
+        alert_type_full, session_date, getattr(sig, "note", None),
     )
     if dd:
         logger.info(
@@ -2253,7 +2268,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         _record_same_bar_fire(sig.symbol, alert_type_full)
         _record_entry_time_fire(
             sig.symbol, direction, getattr(sig, "entry", None),
-            alert_type_full, session_date,
+            alert_type_full, session_date, getattr(sig, "note", None),
         )
 
     # 6. Per-user Telegram + email delivery via notify_user (mirrors
