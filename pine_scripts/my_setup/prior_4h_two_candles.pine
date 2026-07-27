@@ -175,7 +175,10 @@ conf = barstate.isconfirmed
 // Don't react on the bar a level JUST rolled (crypto 4h close / equity session open):
 // close[1] is from the OLD level regime, so a "cross" against the NEW level is an
 // artifact (fired a false reject at SOL's 74.99 the instant that level formed). Wait 1 bar.
-lvlStable = h1 == h1[1] and l1 == l1[1] and h2 == h2[1] and l2 == l2[1]
+// EQUITY session-open fix (2026-07-27): a na→value SETTLE (levels populating at the open, ~15m
+// into RTH) is the session's FIRST real levels, not a false cross — exempt it (na(h1[1])) so
+// equity fires on the first bar AFTER the levels populate, not two bars in.
+lvlStable = (na(h1[1]) or h1 == h1[1]) and (na(l1[1]) or l1 == l1[1]) and (na(h2[1]) or h2 == h2[1]) and (na(l2[1]) or l2 == l2[1])
 isRc = conf and lvlStable and not na(rcLvl)
 isRj = conf and lvlStable and not na(rjLvl)
 isBu = conf and lvlStable and not na(buLvl)
