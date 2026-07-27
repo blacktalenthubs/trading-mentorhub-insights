@@ -161,6 +161,32 @@ async def alerts_history(
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 
 
+@router.get("/for-date/{session_date}", response_model=List[AlertResponse])
+async def alerts_for_date(
+    session_date: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """All alerts (delivered + suppressed) for ONE session date, filtered SERVER-SIDE.
+
+    Fixes the historical date picker + Muted/Not-routed tabs breaking under high alert
+    volume: the old path fetched /history?days=90 then filtered client-side, so flood
+    days (~80k rows) pushed older dates out of the newest-N window and they'd load empty.
+    Filtering by session_date here means a picked date always returns its own rows.
+    Capped at 3000/day (plenty for review even on a heavy day)."""
+    grade_clause = _grade_filter_clause(user)
+    scope_uid = await _history_user_id(user, db)
+    q = select(Alert).where(
+        Alert.user_id == scope_uid,
+        Alert.session_date == session_date,
+        _exclude_obsolete_clause(),
+    )
+    if grade_clause is not None:
+        q = q.where(grade_clause)
+    result = await db.execute(q.order_by(Alert.created_at.desc()).limit(3000))
+    return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
+
+
 @router.get("/session-summary", response_model=SessionSummaryResponse)
 async def session_summary(
     user: User = Depends(get_current_user),
