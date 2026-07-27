@@ -13,7 +13,7 @@
 //   ▲ BREAK-UP / ▼ BREAK-DN — one close THROUGH a level (continuation)
 // Alerts emit the platform JSON (fourh_* types) — bind on a 15m chart with the webhook.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v1", overlay = true, max_lines_count = 12, max_labels_count = 24)
+indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v5", overlay = true, max_lines_count = 12, max_labels_count = 24)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 show1   = input.bool(true, "4H-1 — last completed 4h candle (solid)")
@@ -50,10 +50,10 @@ isEquityMode = lvlMode == "Equity — freeze per session" or (lvlMode == "Auto (
 blockTf  = isEquityMode ? "D" : "480"
 newBlock = ta.change(time(blockTf)) != 0
 [pH1, pL1, pH2, pL2] = request.security(syminfo.tickerid, "240", [high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_on)  // the two 4h completed at the block boundary
-[e5, e20, e50, e100, e200] = request.security(syminfo.tickerid, emaTF, [ta.ema(close, 5)[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1]], lookahead = barmerge.lookahead_on)  // settled daily EMAs (flat)
+[e5, e20, e50, e100, e200, sm50, sm100, sm200] = request.security(syminfo.tickerid, emaTF, [ta.ema(close, 5)[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1], ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)  // settled daily EMAs + SMAs (flat)
 // auto-bracket: nearest EMA ABOVE price (overhead) + nearest BELOW (support), from the set
-_ev = array.from(e5, e20, e50, e100, e200)
-_en = array.from("5", "20", "50", "100", "200")
+_ev = array.from(e5, e20, e50, e100, e200, sm50, sm100, sm200)
+_en = array.from("5 EMA", "20 EMA", "50 EMA", "100 EMA", "200 EMA", "50 SMA", "100 SMA", "200 SMA")
 float brkUpV = na
 float brkDnV = na
 string brkUpN = ""
@@ -144,8 +144,8 @@ if barstate.islast
     f_draw(h2, "4H-2 H", colHi, 1, show2)   // prior 4h candle — dashed
     f_draw(l2, "4H-2 L", colLo, 1, show2)
     f_draw(e50, "50 EMA", colEMA, 2, show50)                     // daily 50 EMA — dotted bias filter
-    f_draw(brkUpV, brkUpN + " EMA", colBrkUp, 0, enBracket and not na(brkUpV) and math.abs(brkUpV - close) / close <= maxBrkPct / 100)   // nearest EMA above — drawn only if near (no scale stretch)
-    f_draw(brkDnV, brkDnN + " EMA", colBrkDn, 0, enBracket and not na(brkDnV) and math.abs(brkDnV - close) / close <= maxBrkPct / 100)   // nearest EMA below — drawn only if near
+    f_draw(brkUpV, brkUpN, colBrkUp, 0, enBracket and not na(brkUpV) and math.abs(brkUpV - close) / close <= maxBrkPct / 100)   // nearest MA (EMA/SMA) above — drawn only if near
+    f_draw(brkDnV, brkDnN, colBrkDn, 0, enBracket and not na(brkDnV) and math.abs(brkDnV - close) / close <= maxBrkPct / 100)   // nearest MA (EMA/SMA) below — drawn only if near
     f_draw(nextHi, "Next 4H ↑", colHi, 2, enSwing and not na(nextHi))   // nearest overhead 4h swing high — dotted
     f_draw(nextLo, "Next 4H ↓", colLo, 2, enSwing and not na(nextLo))   // nearest underfoot 4h swing low — dotted
 
@@ -206,6 +206,9 @@ f_nl() =>
     s := na(e50)  ? s : s + "ema|" + str.tostring(e50,  format.mintick) + "|50 EMA,"
     s := na(e100) ? s : s + "ema|" + str.tostring(e100, format.mintick) + "|100 EMA,"
     s := na(e200) ? s : s + "ema|" + str.tostring(e200, format.mintick) + "|200 EMA,"
+    s := na(sm50)  ? s : s + "sma|" + str.tostring(sm50,  format.mintick) + "|50 SMA,"
+    s := na(sm100) ? s : s + "sma|" + str.tostring(sm100, format.mintick) + "|100 SMA,"
+    s := na(sm200) ? s : s + "sma|" + str.tostring(sm200, format.mintick) + "|200 SMA,"
     s := na(nextHi) ? s : s + "swing|" + str.tostring(nextHi, format.mintick) + "|Next 4H↑,"
     s := na(nextLo) ? s : s + "swing|" + str.tostring(nextLo, format.mintick) + "|Next 4H↓"
     s
