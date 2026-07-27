@@ -31,7 +31,8 @@ enBracket = input.bool(true, "Auto EMA bracket — nearest above/below (5/20/50/
 colBrkUp  = input.color(#FB8C00, "Overhead EMA (nearest above)", group = gE, inline = "brk")
 colBrkDn  = input.color(#42A5F5, "Support EMA (nearest below)", group = gE, inline = "brk")
 maxBrkPct = input.float(2.5, "Max EMA bracket DRAW distance (%)", group = gE, minval = 0.5, maxval = 20, tooltip = "Only DRAW the nearest above/below EMA when it's within this % of price — a far 100/200 EMA otherwise stretches TV's auto-scale and compresses the chart. It still counts as a TARGET regardless of whether it's drawn.")
-enSwing = input.bool(true, "Auto next 4H (nearest candle outside the boundary)", group = gE, tooltip = "Marks the nearest completed 4h CANDLE high strictly ABOVE the mapped boundary + nearest candle low strictly BELOW it — the next 4h candle outside the two we track. Feeds the target ladder once price clears 4H-1/4H-2.")
+enSwing = input.bool(true, "Auto next 4H swing (overhead + underfoot)", group = gE, tooltip = "Scans back through 4h SWING highs/lows (pivots) and marks the nearest ABOVE price (next overhead resistance) + nearest BELOW (next support). Feeds the target ladder — once price clears the two mapped candles, T1/T2 become the next real 4h swing instead of a measured move.")
+pvLen   = input.int(2, "4H swing strength (bars each side)", group = gE, minval = 1, maxval = 10, tooltip = "How many 4h bars must be lower/higher on each side for a pivot to count as a swing. Higher = only the major swings.")
 lvlMode = input.string("Auto (by symbol type)", "Level mode", options = ["Auto (by symbol type)", "Crypto — 8h block", "Equity — freeze per session"], tooltip = "Both LOCK the last two completed 4h candles as a PAIR and advance only when a new pair completes (no one-at-a-time sliding). EQUITY (stock/fund/ADR): the prior session's two 4h, held all day (like PDH/PDL). CRYPTO (24/7): the last completed 8h block's two 4h, advancing every 8h (00:00/08:00/16:00 UTC). Auto picks by symbol type.")
 
 // ── the last two 4h candles — LOCKED as a pair, advance per block ─────────────
@@ -67,27 +68,28 @@ for _i = 0 to 4
             brkDnV := _v
             brkDnN := array.get(_en, _i)
 
-// ── nearest overhead + underfoot 4h CANDLE (option B — candle-based, not pivots) ──
-// Accumulate every completed 4h candle's high & low; nearest candle high strictly ABOVE the mapped
-// boundary = next overhead, nearest candle low strictly BELOW = next support. Non-repainting
-// (high[1]/low[1] = the just-completed candle). Fed into nearby_levels once price clears 4H-1/4H-2.
-[fhCandHi, fhCandLo] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// ── nearest overhead + underfoot 4h SWING (the "next level" beyond the two mapped candles) ──
+// 4h pivot highs/lows scanned from history (accumulated in arrays); the nearest pivot high ABOVE
+// close = next overhead resistance, nearest pivot low BELOW = next support. Only SWING pivots
+// count (a mid-trend candle high isn't resistance). Non-repainting (lookahead_off — confirmed
+// pivots only). Fed into nearby_levels so the target ladder uses them once price clears 4H-1/4H-2.
+[fhPvtHi, fhPvtLo] = request.security(syminfo.tickerid, "240", [ta.pivothigh(pvLen, pvLen), ta.pivotlow(pvLen, pvLen)], lookahead = barmerge.lookahead_off)
 var float[] pvHiArr = array.new_float()
 var float[] pvLoArr = array.new_float()
-if not na(fhCandHi)
+if not na(fhPvtHi)
     _pushH = array.size(pvHiArr) == 0
     if not _pushH
-        _pushH := array.get(pvHiArr, array.size(pvHiArr) - 1) != fhCandHi
+        _pushH := array.get(pvHiArr, array.size(pvHiArr) - 1) != fhPvtHi
     if _pushH
-        array.push(pvHiArr, fhCandHi)
+        array.push(pvHiArr, fhPvtHi)
         if array.size(pvHiArr) > 80
             array.shift(pvHiArr)
-if not na(fhCandLo)
+if not na(fhPvtLo)
     _pushL = array.size(pvLoArr) == 0
     if not _pushL
-        _pushL := array.get(pvLoArr, array.size(pvLoArr) - 1) != fhCandLo
+        _pushL := array.get(pvLoArr, array.size(pvLoArr) - 1) != fhPvtLo
     if _pushL
-        array.push(pvLoArr, fhCandLo)
+        array.push(pvLoArr, fhPvtLo)
         if array.size(pvLoArr) > 80
             array.shift(pvLoArr)
 var float h1 = na
