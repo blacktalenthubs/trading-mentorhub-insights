@@ -96,6 +96,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("fourh_ema_reject",  "50 EMA rejection (short) — a 15m candle poked above the daily 50 EMA & closed back below (dynamic resistance held). Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_ema_breakup", "50 EMA break-up (long) — a 15m candle closed up through the daily 50 EMA. Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_ema_breakdn", "50 EMA break-down (short) — a 15m candle closed down through the daily 50 EMA. Bind on 15m; opt in HERE.", "4H", False),
+    # The ONE moving-average worth its own alert (user 2026-07-28): the daily 200 SMA/EMA is a structural
+    # line institutions defend, and a RECLAIM is the same quality pattern as the 4H reclaim. Long-only,
+    # reclaim-only (no reject/break/short). Folds into _FOURH_TYPES so #874's one/day + cooldown apply.
+    ("fourh_ma200_reclaim", "200 SMA/EMA reclaim (long) — a 15m candle wicked below the daily 200 SMA/EMA & closed back above (structural support held). Long-only, reclaim-only. Bind on 15m; opt in HERE.", "4H", False),
 
     # Gap-and-Go (equity, 2026-07-27) — the session opened ABOVE the prior high and is holding.
     # Long-only momentum, watchlist-gated. Stop = the morning low. Bind gap_and_go.pine on 15m.
@@ -271,6 +275,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
     ("fourh_reclaim", "fourh"), ("fourh_reject", "fourh"), ("fourh_breakup", "fourh"), ("fourh_breakdn", "fourh"),
     ("fourh_ema", "fourh"),   # 50 EMA reaction variants → same 4H feed panel
+    ("fourh_ma200", "fourh"), # 200 SMA/EMA reclaim → same 4H feed panel
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
@@ -382,6 +387,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "fourh_ema_reject": "50 EMA rejection: a 15m candle poked above the daily 50 EMA and closed back below — dynamic resistance held. Entry = the close, stop = the swept wick.",
     "fourh_ema_breakup": "50 EMA break-up: a 15m candle closed up through the daily 50 EMA — continuation. Entry = the close, stop back below the EMA.",
     "fourh_ema_breakdn": "50 EMA break-down: a 15m candle closed down through the daily 50 EMA — continuation. Entry = the close, stop back above the EMA.",
+    "fourh_ma200_reclaim": "200 reclaim: a 15m candle undercut the daily 200 SMA/EMA and closed back above — the structural line institutions defend held, momentum flips up. Long-only. Entry = the 15m close, stop = the swept wick.",
     "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
     "weekly_lvl_reclaim": "The ONE prior-week level alert. Fires a BUY on the PRIOR week's High or Low (PWH/PWL) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-week visual pine (weekly_levels.pine).",
 
