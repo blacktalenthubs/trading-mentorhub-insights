@@ -1309,6 +1309,31 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Failed to register Premarket Gaps cron")
 
+        # SPY support/resistance monitor (user 2026-07-28) — every 30 min during RTH, write a
+        # spy_levels market_report + push once on a fresh support/resistance touch. SPY_LEVELS_ENABLED=0 disables.
+        if os.environ.get("SPY_LEVELS_ENABLED", "true").lower() not in ("0", "false", "no"):
+            try:
+                from apscheduler.triggers.cron import CronTrigger as _CT_SPY
+                import pytz as _pytz_spy
+                _et_spy = _pytz_spy.timezone("America/New_York")
+
+                def _spy_levels_refresh():
+                    try:
+                        from analytics.spy_levels_monitor import refresh_spy_levels
+                        body = refresh_spy_levels(sync_session_factory)
+                        logger.info("SPY levels refresh: %s", body.get("status") if isinstance(body, dict) else body)
+                    except Exception:
+                        logger.exception("SPY levels refresh failed")
+
+                scheduler.add_job(
+                    _spy_levels_refresh,
+                    _CT_SPY(day_of_week="mon-fri", hour="9-16", minute="0,30", timezone=_et_spy),
+                    id="spy_levels_refresh", misfire_grace_time=300, replace_existing=True,
+                )
+                logger.info("Registered SPY levels cron: every 30m, 9:30-16:00 ET Mon-Fri")
+            except Exception:
+                logger.exception("Failed to register SPY levels cron")
+
         # scheduler already started at the top of this block (start-early so a
         # late registration failure can't kill all scheduled jobs).
         logger.info("Background monitor jobs registered (3-min poll + EOD/premarket/weekly jobs)")
