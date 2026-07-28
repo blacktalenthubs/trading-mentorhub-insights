@@ -1636,7 +1636,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # the same-bar collapse + entry-dedup — so the shared (symbol,direction) dedup anchor is only
     # ever seeded by 4h alerts and RC/Day/Swing fires can't affect the 4h feed. Recorded unrouted
     # (visible in Not-routed), not silently dropped. One switch, reversible (set fourh_only=false).
-    if fourh_only and _bare_rule not in _FOURH_TYPES:
+    # EXEMPT: gap_and_go — the user runs it ALONGSIDE the 4h focus (2026-07-27), so it survives here.
+    if fourh_only and _bare_rule not in _FOURH_TYPES and _bare_rule != "gap_and_go":
         logger.info("TV webhook: 4H-only mode — %s dropped (%s)", alert_type_full, sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="fourh_only_mode")
     # Delivery enable is PER-USER only (2026-07-24, user: "no gating if enabled").
