@@ -662,6 +662,7 @@ async def market_report_latest(
         "trend_setups": await _latest_report(db, "trend_setups", date),
         "swing_setups": await _latest_report(db, "swing_setups", date),
         "premarket_signals": await _latest_report(db, "premarket_signals", date),
+        "spy_levels": await _latest_report(db, "spy_levels", date),
         "session_date": date,
     }
 
