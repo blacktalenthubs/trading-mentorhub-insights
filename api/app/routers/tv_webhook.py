@@ -994,39 +994,10 @@ def _check_entry_time_dedup(
         return None  # safety — unknown/exempt type
     if entry is None or entry <= 0:
         return None  # no price to dedup on → let it through
-    # LEVEL-KEYED dedup — fourh only (option A). ONE alert per (symbol, direction, LEVEL) per 2h.
-    # The level comes from the note (frozen per session); a repeat reaction at the SAME level+dir
-    # inside the window is chop → suppressed (dedup_level_2h) but still persisted for review. A long
-    # and a short at a level are separate keys (each fires once/2h). Handles fourh ENTIRELY —
-    # returns before the generic price-band gates. Toggle V2_FOURH_LEVEL_DEDUP=false.
-    if base in _FOURH_TYPES and os.environ.get("V2_FOURH_LEVEL_DEDUP", "true").lower() not in ("0", "false", "no"):
-        lvl = _parse_fourh_level(note)
-        if lvl is not None:
-            try:
-                _lcd = float(_envf("V2_FOURH_LEVEL_COOLDOWN_MIN", 120))
-            except Exception:
-                _lcd = 120.0
-            _prev = _level_dedup_state.get((symbol, (direction or "").upper(), lvl))
-            if _prev is not None and _prev.get("session") == session_date and datetime.utcnow() - _prev["at"] < timedelta(minutes=_lcd):
-                return {"reason": "dedup_level_2h", "anchor": lvl}
-            # CHASE — a same-direction reaction at a DIFFERENT level that's NOT a better entry than
-            # the session anchor is the same leg continuing (price just moving on), not a new trade:
-            # a sequential SHORT lower / LONG higher = the move playing out until the anchor level
-            # breaches (user 2026-07-27: "why fire sequential short? did the first level breach?").
-            # A short re-fires only HIGHER (a retest after the level is reclaimed), a long only LOWER.
-            _st = _entry_dedup_state.get((symbol, (direction or "").upper()))
-            if _st is not None and _st.get("session") == session_date:
-                try:
-                    _cb = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
-                except Exception:
-                    _cb = 0.003
-                _is_long = (direction or "").upper() in ("BUY", "LONG")
-                _better = entry < _st["best"] * (1.0 - _cb) if _is_long else entry > _st["best"] * (1.0 + _cb)
-                if not _better:
-                    return {"reason": "dedup_chase", "anchor": _st["best"]}
-            return None  # fresh level AND a better entry (or the session's first fire) → fire
-        # no parseable level (a stale binding that doesn't send `note`) → fall through to the
-        # generic entry-price gates below so fourh still gets SOME dedup, not a free-fire.
+    # fourh uses the SAME proven entry-based dedup as day/swing (user 2026-07-27, "the day/swing
+    # dedup is solid"): confluence-merge + 2h cooldown + chase, keyed on ENTRY PRICE — which every
+    # alert always sends. No note-parsing / level-keying (that depended on a `note` the stale alert
+    # snapshots don't send, which is what broke it). Robust; no rebind dependency.
     key = (symbol, (direction or "").upper())
     st = _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
@@ -1036,35 +1007,35 @@ def _check_entry_time_dedup(
     except Exception:
         band = 0.003
     # CONFLUENCE MERGE — same price as any already-alerted level (any type) → one card.
-    # SKIPPED for fourh_* (user 2026-07-27): it's price-based + ALL-SESSION, so a fresh 4h
-    # reaction gets absorbed by a nearby same-direction alert from hours ago (e.g. a 12:45
-    # reclaim @64991 merged into an 08:30 breakup @65168). fourh uses cooldown-only.
-    if base not in _FOURH_TYPES:
-        for lvl in st.get("levels", []):
-            if lvl > 0 and abs(entry - lvl) / lvl <= band:
-                return {"reason": "dedup_confluence", "anchor": lvl}
+    # fourh_* INCLUDED again (2026-07-27): entry-based, same as day/swing — a same-price repeat
+    # folds into the first card at that price.
+    for lvl in st.get("levels", []):
+        if lvl > 0 and abs(entry - lvl) / lvl <= band:
+            return {"reason": "dedup_confluence", "anchor": lvl}
     # LEVEL exemption REMOVED 2026-07-18 (user, NVDA 07-17 review: SMA-100 bounce fired at
     # 199.24, then the weekly reclaim fired at 200.63 ten minutes later — a WORSE entry on
     # the same move). Levels now pass the same cooldown + chase gates as MA/day-trade:
     # only a same-price merge or a genuinely LOWER entry (for longs) fires.
     # DAY-TRADE / MA — the two gates
     is_long = (direction or "").upper() in ("BUY", "LONG")
+    # fourh uses a 2h cooldown (a 4H structure takes ~half a candle to resolve — re-arm sooner and
+    # you fire mid-move); other types keep 30 min. V2_FOURH_COOLDOWN_MIN tunes it.
     try:
-        cooldown_min = float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
+        cooldown_min = float(_envf("V2_FOURH_COOLDOWN_MIN", 120)) if base in _FOURH_TYPES else float(_envf("V2_ENTRY_DEDUP_COOLDOWN_MIN", 30))
     except Exception:
-        cooldown_min = 30.0
+        cooldown_min = 120.0 if base in _FOURH_TYPES else 30.0
     now = datetime.utcnow()
     if now - st["last"] < timedelta(minutes=cooldown_min):
         return {"reason": "dedup_cooldown", "anchor": st["best"]}
-    # CHASE — non-fourh only. fourh_* (user 2026-07-27): after the 30-min cooldown a distinct
-    # reaction fires even at a nearby/higher price, so continuation breaks + reclaims aren't chased.
-    if base not in _FOURH_TYPES:
-        if is_long:
-            new_level = entry < st["best"] * (1.0 - band)
-        else:
-            new_level = entry > st["best"] * (1.0 + band)
-        if not new_level:
-            return {"reason": "dedup_chase", "anchor": st["best"]}
+    # CHASE — fourh_* INCLUDED again (2026-07-27): a same-direction reaction that isn't a BETTER
+    # entry than the anchor is the leg continuing (sequential short lower / long higher) → drop; a
+    # short re-fires only HIGHER (retest after the level breaches), a long only LOWER.
+    if is_long:
+        new_level = entry < st["best"] * (1.0 - band)
+    else:
+        new_level = entry > st["best"] * (1.0 + band)
+    if not new_level:
+        return {"reason": "dedup_chase", "anchor": st["best"]}
     return None
 
 
@@ -1087,12 +1058,6 @@ def _record_entry_time_fire(
         st.setdefault("levels", []).append(p)
         st["best"] = min(st["best"], p) if is_long else max(st["best"], p)
         st["last"] = now
-    # LEVEL-KEYED dedup — stamp this kept fourh fire's (level, direction) time so the next reaction
-    # at the SAME level+dir within 2h is suppressed (see _check_entry_time_dedup).
-    if _dedup_base(alert_type_full) in _FOURH_TYPES:
-        _lvl = _parse_fourh_level(note)
-        if _lvl is not None:
-            _level_dedup_state[(symbol, (direction or "").upper(), _lvl)] = {"session": session_date, "at": now}
 
 
 # ---------------------------------------------------------------------------
