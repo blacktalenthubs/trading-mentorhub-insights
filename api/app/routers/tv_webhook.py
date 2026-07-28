@@ -969,6 +969,7 @@ def _parse_fourh_level(note: Optional[str]) -> Optional[float]:
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str, note: Optional[str] = None,
+    db_state: Optional[dict] = None,
 ) -> Optional[dict]:
     """Suppression info, or None to fire. Three drop reasons:
       • `dedup_confluence` — SAME price as a level already alerted this session
@@ -999,7 +1000,9 @@ def _check_entry_time_dedup(
     # alert always sends. No note-parsing / level-keying (that depended on a `note` the stale alert
     # snapshots don't send, which is what broke it). Robust; no rebind dependency.
     key = (symbol, (direction or "").upper())
-    st = _entry_dedup_state.get(key)
+    # fourh sources its anchor from the DB (restart-proof — see _db_dedup_state); other types keep
+    # the in-memory dict. db_state is None when there's no prior delivered fourh alert = first fire.
+    st = db_state if base in _FOURH_TYPES else _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
         return None  # first fire this session → the card at this price
     try:
@@ -1058,6 +1061,37 @@ def _record_entry_time_fire(
         st.setdefault("levels", []).append(p)
         st["best"] = min(st["best"], p) if is_long else max(st["best"], p)
         st["last"] = now
+
+
+async def _db_dedup_state(symbol: str, direction: str, session_date: str):
+    """Rebuild the entry-dedup anchor from PERSISTED (delivered) fourh alerts so it SURVIVES process
+    restarts. The in-memory _entry_dedup_state dict is wiped on every deploy/restart, which let
+    same-level shorts re-fire hours apart (user 2026-07-28: "not a single ETH dedup" — dedup worked
+    within an uptime window, leaked across every restart). Returns {session,best,last,levels} over
+    today's DELIVERED same-symbol+direction fourh alerts, or None (→ first fire). created_at is naive
+    UTC in the DB, matching datetime.utcnow(). On any DB error, returns None (falls back to firing)."""
+    from app.database import async_session_factory
+    from sqlalchemy import text as _t
+    d = (direction or "").upper()
+    dirs = ["SHORT", "SELL"] if d in ("SHORT", "SELL") else ["BUY", "LONG"]
+    is_long = d in ("BUY", "LONG")
+    try:
+        async with async_session_factory() as _db:
+            rows = (await _db.execute(_t(
+                "SELECT entry, created_at FROM alerts "
+                "WHERE symbol = :sym AND upper(direction) IN (:d1, :d2) "
+                "AND alert_type LIKE 'tv_fourh%' AND suppressed_reason IS NULL "
+                "AND session_date = :sess AND entry IS NOT NULL "
+                "AND created_at > (now() at time zone 'utc') - interval '6 hours'"
+            ), {"sym": symbol, "d1": dirs[0], "d2": dirs[1], "sess": session_date})).all()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("db dedup state query failed (%s) — in-memory fallback", e)
+        return None
+    entries = [float(r[0]) for r in rows if r[0] is not None]
+    if not entries:
+        return None
+    return {"session": session_date, "best": (min(entries) if is_long else max(entries)),
+            "last": max(r[1] for r in rows), "levels": entries}
 
 
 # ---------------------------------------------------------------------------
@@ -1940,9 +1974,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # collapsed count is accurate regardless of delivery; the kept fire updates
     # the anchor even if it's later gated. Suppressed rows keep the reason + the
     # anchor entry they lost to (for the feed's "+N collapsed" + offline tuning).
+    # fourh: pull the dedup anchor from the DB (survives restarts) instead of the in-memory dict.
+    _dd_base = _dedup_base(alert_type_full)
+    _db_dd_state = await _db_dedup_state(sig.symbol, direction, session_date) if _dd_base in _FOURH_TYPES else None
     dd = _check_entry_time_dedup(
         sig.symbol, direction, getattr(sig, "entry", None),
-        alert_type_full, session_date, getattr(sig, "note", None),
+        alert_type_full, session_date, getattr(sig, "note", None), _db_dd_state,
     )
     if dd:
         logger.info(
