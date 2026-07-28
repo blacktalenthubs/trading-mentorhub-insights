@@ -1005,6 +1005,11 @@ def _check_entry_time_dedup(
     st = db_state if base in _FOURH_TYPES else _entry_dedup_state.get(key)
     if not st or st.get("session") != session_date:
         return None  # first fire this session → the card at this price
+    # SHORT = ONE per symbol per day (user 2026-07-28): a short is a heads-up on weakness — one is
+    # enough, no matter the cooldown/chase. st exists here = a prior short already delivered today →
+    # drop. LONGS fall through to the standard confluence + 2h cooldown + chase (each valid setup).
+    if base in _FOURH_TYPES and (direction or "").upper() in ("SHORT", "SELL"):
+        return {"reason": "dedup_short_daily", "anchor": st.get("best", 0.0)}
     try:
         band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
     except Exception:
@@ -1081,8 +1086,7 @@ async def _db_dedup_state(symbol: str, direction: str, session_date: str):
                 "SELECT entry, created_at FROM alerts "
                 "WHERE symbol = :sym AND upper(direction) IN (:d1, :d2) "
                 "AND alert_type LIKE 'tv_fourh%' AND suppressed_reason IS NULL "
-                "AND session_date = :sess AND entry IS NOT NULL "
-                "AND created_at > (now() at time zone 'utc') - interval '6 hours'"
+                "AND session_date = :sess AND entry IS NOT NULL"
             ), {"sym": symbol, "d1": dirs[0], "d2": dirs[1], "sess": session_date})).all()
     except Exception as e:  # noqa: BLE001
         logger.warning("db dedup state query failed (%s) — in-memory fallback", e)
