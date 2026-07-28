@@ -97,6 +97,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("fourh_ema_breakup", "50 EMA break-up (long) — a 15m candle closed up through the daily 50 EMA. Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_ema_breakdn", "50 EMA break-down (short) — a 15m candle closed down through the daily 50 EMA. Bind on 15m; opt in HERE.", "4H", False),
 
+    # Gap-and-Go (equity, 2026-07-27) — the session opened ABOVE the prior high and is holding.
+    # Long-only momentum, watchlist-gated. Stop = the morning low. Bind gap_and_go.pine on 15m.
+    ("gap_and_go", "Gap-and-Go (long, equity) — the session opened ABOVE the prior high (PDH) and is holding above it (momentum). Stop = the morning low. Bind the pine on 15m; opt in HERE.", "Day", False),
+
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
     # staged_pwl_held (weekly PWL held) RETIRED 2026-07-12 → folded into WLV. → OBSOLETE.
@@ -267,6 +271,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
     ("fourh_reclaim", "fourh"), ("fourh_reject", "fourh"), ("fourh_breakup", "fourh"), ("fourh_breakdn", "fourh"),
     ("fourh_ema", "fourh"),   # 50 EMA reaction variants → same 4H feed panel
+    ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
