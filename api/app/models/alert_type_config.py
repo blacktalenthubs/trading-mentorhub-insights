@@ -154,6 +154,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
     ("rsi_oversold", "RSI oversold buy zone — daily RSI in 30-35 (reclaim/hold, never below 30)", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
+    # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
+    # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
+    ("swing_sma50_reclaim", "50 SMA reclaim (long) — a daily candle wicked below the 50 SMA & closed back above (held structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
+    ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
     # bottom-bounce & breakout swing. The level is named in the alert. From prior_quarter_hl.pine
