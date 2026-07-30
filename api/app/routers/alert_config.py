@@ -43,7 +43,6 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "weekly_30w_held",         # wicked below & reclaimed the 30-week MA — long-hold trend support
     "pq_reclaim",              # prior-quarter Low bounce / Close reclaim / High break
     "monthly_low_swing",       # prior-MONTH low reclaim — swing bottom-bounce, master universe (2026-07-22)
-    "ma200_bounce",            # daily close reclaimed the 200 EMA/SMA
     "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross
     "monthly_box",             # MoBO — monthly flat-base ceiling breakout (user 2026-07-18: breakout → swing)
     "mobo_rch",                # MoBO RC-H — prior monthly high that capped price, broken
@@ -56,7 +55,7 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
 # RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
 # Their own Settings group so the user can flip the whole validation panel on/off in one place.
 RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
-FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn"})
+FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"]
 
 
