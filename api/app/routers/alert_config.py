@@ -57,15 +57,17 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
 # Their own Settings group so the user can flip the whole validation panel on/off in one place.
 RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
 FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn"})
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC", "4H"]
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"]
 
 
 def _group_for(alert_type: str, category: str) -> str:
-    """The Settings bucket for a type — Day Trade, Swing Trade, or RC (validation)."""
+    """The Settings bucket for a type — Day Trade, Swing Trade, or RC (validation).
+    4H reactions ARE the day-trade system (user 2026-07-30: "the 4h is the day"), so they
+    live in the Day Trade control now, not a separate 4H bucket. Swing is its own control."""
     if alert_type in RC_TYPES:
         return "RC"
     if alert_type in FOURH_TYPES:
-        return "4H"
+        return "Day Trade"
     return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"
 
 
