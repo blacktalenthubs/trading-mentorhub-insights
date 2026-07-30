@@ -48,6 +48,10 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "monthly_box",             # MoBO — monthly flat-base ceiling breakout (user 2026-07-18: breakout → swing)
     "mobo_rch",                # MoBO RC-H — prior monthly high that capped price, broken
     "ma_bounce_long_v3_sma200",  # the 200 SMA is swing support, not a day-trade bounce (user 2026-07-18)
+    # swing_reclaim.pine long-hold entries (2026-07-30) — the validated HOLD-200/RSI-30 setup.
+    "swing_sma50_reclaim",     # daily 50 SMA wick+hold reclaim
+    "swing_sma200_reclaim",    # daily 200 SMA structural reclaim
+    "swing_rsi_30",            # RSI(14) reclaims 30 — the oversold turn (was mis-bucketed to Day Trade)
 })
 # RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
 # Their own Settings group so the user can flip the whole validation panel on/off in one place.
