@@ -11,7 +11,7 @@
 //   • FV basis reclaim (33-SMA of OHLC4, weekly — the key value)  -> swing_fv_reclaim
 //   • Smart Money zone reclaim (golden pocket of the weekly swing)-> swing_smz_reclaim
 // LONG only. Stop = the swept bar low. (user 2026-07-30 · +FV/SMZ 2026-08-02)
-indicator("Swing Reclaim — SMA/RSI/FV/SMZ", overlay = true, max_lines_count = 20, max_labels_count = 20)
+indicator("Swing Reclaim — SMA/RSI/FV/SMZ", overlay = true, max_lines_count = 20, max_labels_count = 20, max_boxes_count = 4)
 
 gM   = "Entries"
 en50 = input.bool(true, "50 SMA reclaim (wick + hold)", group = gM)
@@ -29,7 +29,7 @@ len200 = input.int(200, "Slow SMA length", group = gP, minval = 2)
 lbAbove= input.int(10,  "Reclaim lookback — bars price must have HELD ABOVE recently", group = gP, minval = 1, maxval = 60, tooltip = "The MA's role must be SUPPORT: price must have closed ABOVE it within this many recent bars. A sustained-below cross-up is a BREAKUP (resistance broken), NOT a reclaim — it won't fire.")
 rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
 rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
-showMA = input.bool(true, "Plot the SMAs", group = gP)
+showSMA = input.bool(true, "Draw the SMA lines (50/100/200)", group = gP)
 
 gL       = "Flat / lock to timeframe"
 flatMode = input.bool(true, "FLAT — lock the SMAs to a fixed timeframe", group = gL, tooltip = "ON = the 50/200 SMA (and RSI) use the LOCK timeframe's value, drawn FLAT — so you can bind this pine INTRADAY (e.g. 15m) and still trade reclaims of the DAILY 50/200 SMA. OFF = the current chart-TF sloping SMA (bind on Daily).")
@@ -54,6 +54,7 @@ conf   = barstate.isconfirmed
 gFV     = "Fair Value basis (33-SMA OHLC4)"
 fvLen   = input.int(33, "FV SMA length", group = gFV, minval = 2)
 fvTf    = input.timeframe("W", "FV timeframe", group = gFV)
+showFV  = input.bool(true, "Draw the FV line", group = gFV)
 fvBasis = request.security(tid, fvTf, ta.sma(ohlc4, fvLen)[1], lookahead = barmerge.lookahead_on)
 
 // ── Smart Money zones — golden pocket of the recent WEEKLY swing (AUTO: highest high & lowest low
@@ -66,6 +67,10 @@ smzLb   = input.int(40, "Recent swing window (bars)", group = gSMZ, minval = 5, 
 fInsT   = input.float(0.618, "Institutional top",             group = gSMZ, step = 0.001)
 fInsB   = input.float(0.786, "Institutional bottom / SM top", group = gSMZ, step = 0.001)
 fSmB    = input.float(0.85,  "Smart Money bottom",            group = gSMZ, step = 0.001)
+showSMZ = input.bool(true, "Draw the SMZ edge lines", group = gSMZ)
+showZone= input.bool(true, "Shade the SMZ zone boxes", group = gSMZ)
+colInst = input.color(color.new(color.blue,   85), "Institutional zone fill", group = gSMZ)
+colSm   = input.color(color.new(color.purple, 72), "Smart Money zone fill",   group = gSMZ)
 smzHi   = request.security(tid, smzTf, ta.highest(high, smzLb)[1], lookahead = barmerge.lookahead_on)
 smzLo   = request.security(tid, smzTf, ta.lowest(low,  smzLb)[1], lookahead = barmerge.lookahead_on)
 smzRng  = smzHi - smzLo
@@ -116,23 +121,33 @@ f_sr(float ma, string nm, bool show) =>
         col = sup ? supCol : resCol
         array.push(_lns, line.new(bar_index - lineLen, ma, bar_index + 6, ma, color = col, width = lineW))
         array.push(_lbs, label.new(bar_index + 6, ma, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
-if barstate.islast and showMA and flatMode
+if barstate.islast and flatMode
     for _l in _lns
         line.delete(_l)
     for _b in _lbs
         label.delete(_b)
     array.clear(_lns)
     array.clear(_lbs)
-    f_sr(sma50,  "50 SMA",  en50)
-    f_sr(sma100, "100 SMA", en100)
-    f_sr(sma200, "200 SMA", en200)
-    f_sr(fvBasis, "FV 33",  enFV)
-    f_sr(instTop, "Inst top", enSMZ)
-    f_sr(instBot, "Inst bot / SM top", enSMZ)
-    f_sr(smzBot,  "SM bot",  enSMZ)
+    f_sr(sma50,  "50 SMA",  en50  and showSMA)
+    f_sr(sma100, "100 SMA", en100 and showSMA)
+    f_sr(sma200, "200 SMA", en200 and showSMA)
+    f_sr(fvBasis, "FV 33",  enFV  and showFV)
+    f_sr(instTop, "Inst top", enSMZ and showSMZ)
+    f_sr(instBot, "Inst bot / SM top", enSMZ and showSMZ)
+    f_sr(smzBot,  "SM bot",  enSMZ and showSMZ)
+
+// ── Smart Money zone boxes — the shaded Institutional (blue) + Smart Money (purple) bands
+// between the golden-pocket edges, like the GP Auto pine. Right-anchored, redrawn each bar.
+var box _iBox = na
+var box _sBox = na
+if barstate.islast and enSMZ and showZone and not na(instTop) and not na(smzBot) and instTop > smzBot
+    box.delete(_iBox)
+    box.delete(_sBox)
+    _iBox := box.new(bar_index - lineLen, math.max(instTop, instBot), bar_index + 6, math.min(instTop, instBot), border_color = color.new(color.blue, 50), bgcolor = colInst)
+    _sBox := box.new(bar_index - lineLen, math.max(instBot, smzBot),  bar_index + 6, math.min(instBot, smzBot),  border_color = color.new(color.purple, 50), bgcolor = colSm)
 // sloping fallback (flat mode OFF) — normal plotted MA
-plot(showMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
-plot(showMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
+plot(showSMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
+plot(showSMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
 plotshape(rc50,  "50 SMA reclaim",  style = shape.triangleup, location = location.belowbar, color = color.new(#3B82F6, 0),    size = size.tiny)
 plotshape(rc100, "100 SMA reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#8B5CF6, 0),    size = size.tiny)
 plotshape(rc200, "200 SMA reclaim", style = shape.arrowup,    location = location.belowbar, color = color.new(color.teal, 0),  size = size.small)
