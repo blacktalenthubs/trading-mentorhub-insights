@@ -1,0 +1,84 @@
+//@version=5
+// =============================================================================
+// PROXIMITY LEVELS — SMAs always on · context levels appear ONLY when price is near
+// =============================================================================
+// The declutter tool: your 20/50/100/200 SMAs are always drawn (the decision core),
+// but every CONTEXT level (prior week / month / quarter H/L/C + the weekly Fair-Value
+// basis) is computed silently and its line only APPEARS when price comes within a
+// proximity band (default ±1.5%) — then vanishes when price leaves. So the chart stays
+// clean, but you never miss "price is at PWH / PMH / FV / PQ" the way SNDK's PWH reject
+// slipped by. No alerts — purely visual, zero added noise. Bind on the DAILY chart.
+indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40)
+
+// ── proximity band ───────────────────────────────────────────────────────────
+gN      = "Proximity"
+nearPct = input.float(1.5, "Show a context level within ± % of price", group = gN, minval = 0.1, maxval = 10, step = 0.1) / 100.0
+
+// ── SMAs — ALWAYS on (your decision core) ──────────────────────────────────────
+gS    = "SMAs (always on)"
+en20  = input.bool(true, "20 SMA",  group = gS, inline = "a")
+en50  = input.bool(true, "50 SMA",  group = gS, inline = "a")
+en100 = input.bool(true, "100 SMA", group = gS, inline = "b")
+en200 = input.bool(true, "200 SMA", group = gS, inline = "b")
+
+// ── context levels — appear ONLY when price is near ────────────────────────────
+gC   = "Context levels (appear when price is near)"
+enPW = input.bool(true, "Weekly — PWH / PWL",         group = gC)
+enPM = input.bool(true, "Monthly — PMH / PML",        group = gC)
+enPQ = input.bool(true, "Quarter — PQH / PQL / PQC",  group = gC)
+enFV = input.bool(true, "Fair Value (33-SMA OHLC4, weekly)", group = gC)
+
+// ── style ──────────────────────────────────────────────────────────────────────
+gV     = "Style"
+supCol = input.color(#26A69A, "Context — support (price above)",    group = gV)
+resCol = input.color(#EF5350, "Context — resistance (price below)", group = gV)
+c20    = input.color(color.new(#9CA3AF, 0), "20 SMA",  group = gV, inline = "s1")
+c50    = input.color(color.new(#3B82F6, 0), "50 SMA",  group = gV, inline = "s1")
+c100   = input.color(color.new(#F59E0B, 0), "100 SMA", group = gV, inline = "s2")
+c200   = input.color(color.new(#14B8A6, 0), "200 SMA", group = gV, inline = "s2")
+wLine  = input.int(2,  "Context line width", group = gV, minval = 1, maxval = 5)
+lineLen= input.int(80, "Context line length (bars back)", group = gV, minval = 10, maxval = 500)
+
+// ── always-on SMAs (chart TF — bind on the daily) ──────────────────────────────
+plot(en20  ? ta.sma(close, 20)  : na, "20 SMA",  color = c20,  linewidth = 1)
+plot(en50  ? ta.sma(close, 50)  : na, "50 SMA",  color = c50,  linewidth = 1)
+plot(en100 ? ta.sma(close, 100) : na, "100 SMA", color = c100, linewidth = 1)
+plot(en200 ? ta.sma(close, 200) : na, "200 SMA", color = c200, linewidth = 2)
+
+// ── context levels — settled ([1], non-repainting) higher-TF values ────────────
+tid = syminfo.tickerid
+f_sec(string tf, float expr) => request.security(tid, tf, expr, lookahead = barmerge.lookahead_on)
+pwh = f_sec("W",  high[1])
+pwl = f_sec("W",  low[1])
+pmh = f_sec("M",  high[1])
+pml = f_sec("M",  low[1])
+pqh = f_sec("3M", high[1])
+pql = f_sec("3M", low[1])
+pqc = f_sec("3M", close[1])
+fv  = f_sec("W",  ta.sma(ohlc4, 33)[1])
+
+// ── proximity-gated draw: a context line renders ONLY when price is within the band
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+f_ctx(float lvl, string nm, bool show) =>
+    if show and not na(lvl) and lvl > 0 and math.abs(close - lvl) / close <= nearPct
+        sup = close > lvl
+        col = sup ? supCol : resCol
+        array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = wLine, style = line.style_dashed))
+        array.push(_lb, label.new(bar_index + 8, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    f_ctx(pwh, "PWH", enPW)
+    f_ctx(pwl, "PWL", enPW)
+    f_ctx(pmh, "PMH", enPM)
+    f_ctx(pml, "PML", enPM)
+    f_ctx(pqh, "PQH", enPQ)
+    f_ctx(pql, "PQL", enPQ)
+    f_ctx(pqc, "PQC", enPQ)
+    f_ctx(fv,  "FV 33", enFV)
