@@ -1,19 +1,22 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS — SMAs always on · context levels appear ONLY when price is near
+// PROXIMITY LEVELS — SMAs always on · nearest context level above & below always shown
 // =============================================================================
 // The declutter tool. EVERYTHING is a FLAT horizontal line (green = SUPPORT / price above,
 // red = RESISTANCE / price below), labeled. Your 20/50/100/200 SMAs (daily-locked, flat)
-// are always drawn — the decision core. Every CONTEXT level (prior week / month / quarter
-// H/L/C + the weekly Fair-Value basis) is computed silently and its flat line only APPEARS
-// when price comes within a proximity band (default ±1.5%), then vanishes when price leaves.
-// Clean chart, but you never miss "price is at PWH / PMH / FV / PQ" (the SNDK PWH reject).
+// are always drawn — the decision core.
+//
+// For the CONTEXT levels (prior week / month / quarter H/L/C + the weekly Fair-Value basis),
+// two rules — so you always know the bracket price is trading in, yet the chart stays clean:
+//   1. ALWAYS show the NEAREST context level ABOVE price and the NEAREST BELOW (the bracket) —
+//      even if far (a 20% gap-down still shows PML above / PQ-Low below, the RDDT case).
+//   2. ALSO show any context level within a proximity band (default ±1.5%) — catches clusters.
 // No alerts — purely visual. Bind on the DAILY chart.
 indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40)
 
-// ── proximity band ───────────────────────────────────────────────────────────
+// ── proximity band (extra clusters near price) ─────────────────────────────────
 gN      = "Proximity"
-nearPct = input.float(1.5, "Show a context level within ± % of price", group = gN, minval = 0.1, maxval = 10, step = 0.1) / 100.0
+nearPct = input.float(1.5, "Also show context levels within ± % of price", group = gN, minval = 0.1, maxval = 10, step = 0.1) / 100.0
 
 // ── SMAs — ALWAYS on (your decision core), drawn FLAT ──────────────────────────
 gS    = "SMAs (always on)"
@@ -23,8 +26,8 @@ en100 = input.bool(true, "100 SMA", group = gS, inline = "b")
 en200 = input.bool(true, "200 SMA", group = gS, inline = "b")
 smaTf = input.timeframe("D", "SMA lock timeframe (flat)", group = gS, tooltip = "The SMAs use this timeframe's value, drawn FLAT — so bind on the daily (or intraday) and still see the DAILY 20/50/100/200.")
 
-// ── context levels — appear ONLY when price is near ────────────────────────────
-gC   = "Context levels (appear when price is near)"
+// ── context levels — nearest above & below always shown; more within the band ──
+gC   = "Context levels (nearest above & below always show)"
 enPW = input.bool(true, "Weekly — PWH / PWL",         group = gC)
 enPM = input.bool(true, "Monthly — PMH / PML",        group = gC)
 enPQ = input.bool(true, "Quarter — PQH / PQL / PQC",  group = gC)
@@ -53,16 +56,20 @@ pql = f_sec("3M", low[1])
 pqc = f_sec("3M", close[1])
 fv  = f_sec("W",  ta.sma(ohlc4, 33)[1])
 
-// ── ONE flat-line renderer — green/red by role, labeled. `nearGate` = only when price is near
-var line[]  _ln = array.new_line()
-var label[] _lb = array.new_label()
-f_line(float lvl, string nm, bool show, bool nearGate) =>
-    ok = show and not na(lvl) and lvl > 0 and (not nearGate or math.abs(close - lvl) / close <= nearPct)
-    if ok
-        sup = close > lvl
-        col = sup ? supCol : resCol
-        array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = wLine))
-        array.push(_lb, label.new(bar_index + 8, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+// ── flat-line drawing + context-candidate collection ───────────────────────────
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _cv = array.new_float()
+var string[] _cn = array.new_string()
+f_draw(float lvl, string nm) =>
+    sup = close > lvl
+    col = sup ? supCol : resCol
+    array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = wLine))
+    array.push(_lb, label.new(bar_index + 8, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+f_cand(float v, string nm, bool show) =>
+    if show and not na(v) and v > 0
+        array.push(_cv, v)
+        array.push(_cn, nm)
 
 if barstate.islast
     for _l in _ln
@@ -71,17 +78,41 @@ if barstate.islast
         label.delete(_b)
     array.clear(_ln)
     array.clear(_lb)
-    // SMAs — ALWAYS (nearGate = false)
-    f_line(sma20,  "20 SMA",  en20,  false)
-    f_line(sma50,  "50 SMA",  en50,  false)
-    f_line(sma100, "100 SMA", en100, false)
-    f_line(sma200, "200 SMA", en200, false)
-    // context — only when price is near (nearGate = true)
-    f_line(pwh, "PWH", enPW, true)
-    f_line(pwl, "PWL", enPW, true)
-    f_line(pmh, "PMH", enPM, true)
-    f_line(pml, "PML", enPM, true)
-    f_line(pqh, "PQH", enPQ, true)
-    f_line(pql, "PQL", enPQ, true)
-    f_line(pqc, "PQC", enPQ, true)
-    f_line(fv,  "FV 33", enFV, true)
+    array.clear(_cv)
+    array.clear(_cn)
+    // SMAs — ALWAYS
+    if en20  and not na(sma20)  and sma20  > 0
+        f_draw(sma20,  "20 SMA")
+    if en50  and not na(sma50)  and sma50  > 0
+        f_draw(sma50,  "50 SMA")
+    if en100 and not na(sma100) and sma100 > 0
+        f_draw(sma100, "100 SMA")
+    if en200 and not na(sma200) and sma200 > 0
+        f_draw(sma200, "200 SMA")
+    // collect enabled context candidates
+    f_cand(pwh, "PWH", enPW)
+    f_cand(pwl, "PWL", enPW)
+    f_cand(pmh, "PMH", enPM)
+    f_cand(pml, "PML", enPM)
+    f_cand(pqh, "PQH", enPQ)
+    f_cand(pql, "PQL", enPQ)
+    f_cand(pqc, "PQC", enPQ)
+    f_cand(fv,  "FV 33", enFV)
+    // nearest context ABOVE & BELOW price (the always-show bracket)
+    naV = 1.0e18
+    nbV = -1.0
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            if v > close and v < naV
+                naV := v
+            if v < close and v > nbV
+                nbV := v
+    // draw context: the immediate bracket, plus anything within the band
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            near = math.abs(close - v) / close <= nearPct
+            bracket = v == naV or v == nbV
+            if near or bracket
+                f_draw(v, array.get(_cn, _i))
