@@ -11,8 +11,10 @@
 //   1. ALWAYS show the NEAREST context level ABOVE price and the NEAREST BELOW (the bracket) —
 //      even if far (a 20% gap-down still shows PML above / PQ-Low below, the RDDT case).
 //   2. ALSO show any context level within a proximity band (default ±1.5%) — catches clusters.
+// The Smart Money zone (golden pocket of the weekly swing) shows its shaded band + edges ONLY
+// when price is INSIDE it or within the band — hidden when price is far away, same idea.
 // No alerts — purely visual. Bind on the DAILY chart.
-indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40)
+indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 4)
 
 // ── proximity band (extra clusters near price) ─────────────────────────────────
 gN      = "Proximity"
@@ -32,6 +34,16 @@ enPW = input.bool(true, "Weekly — PWH / PWL",         group = gC)
 enPM = input.bool(true, "Monthly — PMH / PML",        group = gC)
 enPQ = input.bool(true, "Quarter — PQH / PQL / PQC",  group = gC)
 enFV = input.bool(true, "Fair Value (33-SMA OHLC4, weekly)", group = gC)
+
+// ── Smart Money zone — shows only when price is inside/near the zone ────────────
+gZ    = "Smart Money zone (shows when price is inside/near)"
+enSMZ = input.bool(true, "Smart Money zone (golden pocket, weekly)", group = gZ)
+smzLb = input.int(40, "Recent swing window (weekly bars)", group = gZ, minval = 5, maxval = 500)
+fInsT = input.float(0.618, "Institutional top",             group = gZ, step = 0.001)
+fInsB = input.float(0.786, "Institutional bottom / SM top", group = gZ, step = 0.001)
+fSmB  = input.float(0.85,  "Smart Money bottom",            group = gZ, step = 0.001)
+colInst = input.color(color.new(color.blue,   85), "Institutional fill", group = gZ)
+colSm   = input.color(color.new(color.purple, 72), "Smart Money fill",   group = gZ)
 
 // ── style ──────────────────────────────────────────────────────────────────────
 gV     = "Style"
@@ -55,12 +67,21 @@ pqh = f_sec("3M", high[1])
 pql = f_sec("3M", low[1])
 pqc = f_sec("3M", close[1])
 fv  = f_sec("W",  ta.sma(ohlc4, 33)[1])
+// Smart Money zone edges — golden pocket of the recent weekly swing (GP-Auto formula)
+smzHi   = f_sec("W", ta.highest(high, smzLb)[1])
+smzLo   = f_sec("W", ta.lowest(low,  smzLb)[1])
+smzRng  = smzHi - smzLo
+instTop = smzHi - fInsT * smzRng
+instBot = smzHi - fInsB * smzRng
+smzBot  = smzHi - fSmB  * smzRng
 
 // ── flat-line drawing + context-candidate collection ───────────────────────────
 var line[]   _ln = array.new_line()
 var label[]  _lb = array.new_label()
 var float[]  _cv = array.new_float()
 var string[] _cn = array.new_string()
+var box _iBox = na
+var box _sBox = na
 f_draw(float lvl, string nm) =>
     sup = close > lvl
     col = sup ? supCol : resCol
@@ -116,3 +137,14 @@ if barstate.islast
             bracket = v == naV or v == nbV
             if near or bracket
                 f_draw(v, array.get(_cn, _i))
+    // Smart Money zone — shaded band + edges, ONLY when price is inside it or within the band
+    box.delete(_iBox)
+    box.delete(_sBox)
+    smzOk = enSMZ and not na(instTop) and not na(smzBot) and instTop > smzBot
+    smzNear = smzOk and close >= smzBot * (1 - nearPct) and close <= instTop * (1 + nearPct)
+    if smzNear
+        _iBox := box.new(bar_index - lineLen, math.max(instTop, instBot), bar_index + 8, math.min(instTop, instBot), border_color = color.new(color.blue, 55), bgcolor = colInst)
+        _sBox := box.new(bar_index - lineLen, math.max(instBot, smzBot),  bar_index + 8, math.min(instBot, smzBot),  border_color = color.new(color.purple, 55), bgcolor = colSm)
+        f_draw(instTop, "Inst top")
+        f_draw(instBot, "Inst bot / SM top")
+        f_draw(smzBot,  "SM bot")
