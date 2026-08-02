@@ -1,0 +1,110 @@
+//@version=5
+// =============================================================================
+// SWING RECLAIM ENTRIES — 50 SMA + 200 SMA + RSI-30 (long only, SMA only)
+// =============================================================================
+// The validated long-hold / accumulation entry (HOLD-200 + RSI-30 backtest, 2026-07-29).
+// Bind on DAILY for your whole watchlist. Fires when a name RECLAIMS a structural level —
+// closes back above it after dipping below (a genuine defend/recovery, not a trend bar):
+//   • 50 SMA reclaim  (wick below + close back above = held)      -> swing_sma50_reclaim
+//   • 200 SMA reclaim (structural support recovered / defended)   -> swing_sma200_reclaim
+//   • RSI(14) reclaims 30 (oversold turn from a washout)          -> swing_rsi30_reclaim
+// LONG only. SMA only (no EMA). Stop = the swept bar low. (user 2026-07-30)
+indicator("Swing Reclaim — 50/200 SMA + RSI-30", overlay = true)
+
+gM   = "Entries"
+en50 = input.bool(true, "50 SMA reclaim (wick + hold)", group = gM)
+en100= input.bool(true, "100 SMA reclaim (wick + hold)", group = gM)
+en200= input.bool(true, "200 SMA reclaim", group = gM)
+enR  = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
+enAl = input.bool(true, "Fire alerts (on bar close)", group = gM)
+
+gP     = "Params"
+len50  = input.int(50,  "Fast SMA length", group = gP, minval = 2)
+len100 = input.int(100, "Mid SMA length", group = gP, minval = 2)
+len200 = input.int(200, "Slow SMA length", group = gP, minval = 2)
+lbAbove= input.int(10,  "Reclaim lookback — bars price must have HELD ABOVE recently", group = gP, minval = 1, maxval = 60, tooltip = "The MA's role must be SUPPORT: price must have closed ABOVE it within this many recent bars. A sustained-below cross-up is a BREAKUP (resistance broken), NOT a reclaim — it won't fire.")
+rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
+rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
+showMA = input.bool(true, "Plot the SMAs", group = gP)
+
+gL       = "Flat / lock to timeframe"
+flatMode = input.bool(true, "FLAT — lock the SMAs to a fixed timeframe", group = gL, tooltip = "ON = the 50/200 SMA (and RSI) use the LOCK timeframe's value, drawn FLAT — so you can bind this pine INTRADAY (e.g. 15m) and still trade reclaims of the DAILY 50/200 SMA. OFF = the current chart-TF sloping SMA (bind on Daily).")
+lockTf   = input.timeframe("D", "Lock timeframe", group = gL)
+
+// FLAT = the lock-TF (daily) SMA — settled ([1], non-repainting), flat within the period,
+// steps at the roll. RSI in flat mode is the DEVELOPING lock-TF RSI (no [1]) so it can reclaim
+// 30 intraday. REGULAR = the chart-TF sloping values.
+tid       = syminfo.tickerid
+flat50    = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
+flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = barmerge.lookahead_on)
+flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
+sma50  = flatMode ? flat50  : ta.sma(close, len50)
+sma100 = flatMode ? flat100 : ta.sma(close, len100)
+sma200 = flatMode ? flat200 : ta.sma(close, len200)
+rsi    = flatMode ? flatRsi : ta.rsi(close, rsiLen)
+conf   = barstate.isconfirmed
+
+// The MA's role must be SUPPORT before a reclaim counts — price must have CLOSED ABOVE it within
+// the recent lookback (so it owned the level, then lost it briefly, then recovered). If price has
+// been BELOW the MA the whole window (MA = overhead resistance), a close-up-through it is a BREAKUP,
+// NOT a reclaim — and a breakup is a different, un-enabled setup (user 2026-08-02: AMD/AVGO/VRT).
+f_wasAbove(float L, int n) =>
+    _r = false
+    for _i = 1 to n
+        _r := _r or (not na(L[_i]) and close[_i] > L[_i])
+    _r
+
+// RECLAIM = close back above the level, with the MA acting as support:
+//   • wick-and-hold  — intrabar dip below, closed back above, prior close was still above (never lost it), OR
+//   • brief recovery — closed below for a bar or two BUT held above within the recent lookback.
+// A sustained-below cross-up (breakup of resistance) fails f_wasAbove and does NOT fire.
+f_reclaim(float L) => not na(L) and not na(L[1]) and close > L and ((low < L and close[1] >= L[1]) or (close[1] < L[1] and f_wasAbove(L, lbAbove)))
+
+rc50  = en50  and conf and f_reclaim(sma50)
+rc100 = en100 and conf and f_reclaim(sma100)
+rc200 = en200 and conf and f_reclaim(sma200)
+rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
+
+// ── Flat S/R lines — GREEN = SUPPORT (price above), RED = RESISTANCE (price below);
+// role flips when price closes across. Drawn as a horizontal ray per SMA (flat mode only).
+supCol  = input.color(#26A69A, "Support color (price above)",    group = gL)
+resCol  = input.color(#EF5350, "Resistance color (price below)", group = gL)
+lineW   = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
+lineLen = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
+var line[]  _lns = array.new_line(0)
+var label[] _lbs = array.new_label(0)
+f_sr(float ma, string nm, bool show) =>
+    if show and not na(ma)
+        sup = close > ma
+        col = sup ? supCol : resCol
+        array.push(_lns, line.new(bar_index - lineLen, ma, bar_index + 6, ma, color = col, width = lineW))
+        array.push(_lbs, label.new(bar_index + 6, ma, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+if barstate.islast and showMA and flatMode
+    for _l in _lns
+        line.delete(_l)
+    for _b in _lbs
+        label.delete(_b)
+    array.clear(_lns)
+    array.clear(_lbs)
+    f_sr(sma50,  "50 SMA",  en50)
+    f_sr(sma100, "100 SMA", en100)
+    f_sr(sma200, "200 SMA", en200)
+// sloping fallback (flat mode OFF) — normal plotted MA
+plot(showMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
+plot(showMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
+plotshape(rc50,  "50 SMA reclaim",  style = shape.triangleup, location = location.belowbar, color = color.new(#3B82F6, 0),    size = size.tiny)
+plotshape(rc100, "100 SMA reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#8B5CF6, 0),    size = size.tiny)
+plotshape(rc200, "200 SMA reclaim", style = shape.arrowup,    location = location.belowbar, color = color.new(color.teal, 0),  size = size.small)
+plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
+
+f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
+
+if enAl and rc50
+    alert(f_pay("swing_sma50_reclaim",  "50 SMA reclaim at "  + str.tostring(sma50,  format.mintick) + " · wick below + close back above (held). Stop = the swept low; invalid on a close below "  + str.tostring(sma50,  format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rc100
+    alert(f_pay("swing_sma100_reclaim", "100 SMA reclaim at " + str.tostring(sma100, format.mintick) + " · wick below + close back above (held). Stop = the swept low; invalid on a close below " + str.tostring(sma100, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rc200
+    alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered. Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rcR
+    alert(f_pay("swing_rsi_30",  "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
