@@ -936,55 +936,89 @@ async def lifespan(app: FastAPI):
                     logger.exception("CANDLE PING %s: broadcast exception", label)
                 return sent
 
-            # 60-min RTH candle pings (switched from 65-min 2026-05-19): 6 per session.
-            # Matches TradingView's "1h" bar boundaries for US equities — opens at
-            # 09:30 ET, so 60-min bars close at 10:30, 11:30, 12:30, 13:30, 14:30, 15:30.
-            # The 16:00 market close itself signals the final 30-min partial bar.
-            # 15:30 ping tagged "FINAL 30 MIN remaining" (mirrors the prior
-            # 14:55 "FINAL HOUR starting" anchor).
+            # 2h RTH equity candle pings (2026-08-02, user: "in-app + Telegram, 4/session — revived").
+            # US RTH opens 09:30 ET, so 2h bars close at 11:30, 13:30, 15:30, and the 4th (15:30-16:00
+            # stub) at the 16:00 session close = 4 pings. Delivered THREE ways: Telegram broadcast,
+            # APNs push (in-app, mobile), and a market_reports row (in-app history). Gated on a NEW
+            # env var (default ON) so a stale Railway CANDLE_65=false override can't keep it dark.
             # Tuple: (idx, hour, minute, is_final)
-            _CANDLE_60_SCHEDULE = [
-                (1, 10, 30, False),
-                (2, 11, 30, False),
-                (3, 12, 30, False),
-                (4, 13, 30, False),
-                (5, 14, 30, False),
-                (6, 15, 30, True),  # final 30 min remaining
+            _CANDLE_2H_SCHEDULE = [
+                (1, 11, 30, False),
+                (2, 13, 30, False),
+                (3, 15, 30, False),
+                (4, 16, 0,  True),   # 4th 2h bar — session close (16:00 ET)
             ]
 
+            def _broadcast_push(title: str, body: str, label: str) -> int:
+                sent = 0
+                try:
+                    from app.services.push_service import send_push_sync
+                    from sqlalchemy import text
+                    with sync_session_factory() as db:
+                        rows = db.execute(text(
+                            "SELECT apns_token FROM users WHERE apns_enabled = true "
+                            "AND apns_token IS NOT NULL AND apns_token <> ''"
+                        )).fetchall()
+                    tokens = [r[0] for r in rows]
+                    logger.info("CANDLE PING %s: %d apns tokens", label, len(tokens))
+                    if tokens:
+                        sent = send_push_sync(tokens, title, body, data={"type": "candle_ping"})
+                    logger.info("CANDLE PING %s: push sent=%d", label, sent)
+                except Exception:
+                    logger.exception("CANDLE PING %s: push exception", label)
+                return sent
+
+            def _write_candle_report(body: str, label: str) -> None:
+                try:
+                    from sqlalchemy import text
+                    from datetime import datetime as _dt
+                    _sd = _dt.now(_pytz.timezone("America/New_York")).strftime("%Y-%m-%d")
+                    with sync_session_factory() as db:
+                        db.execute(text(
+                            "INSERT INTO market_reports (kind, session_date, body, created_at) "
+                            "VALUES ('candle_ping', :sd, :body, now())"
+                        ), {"sd": _sd, "body": body})
+                        db.commit()
+                except Exception:
+                    logger.exception("CANDLE PING %s: market_report write failed", label)
+
             def _notify_candle_close(idx: int, hour: int, minute: int, is_final: bool) -> None:
-                if not is_market_hours():
-                    logger.info("CANDLE PING SKIP: 60-min #%d outside market hours", idx)
+                # The 16:00 ping fires AT the close, when is_market_hours() is already False — so guard
+                # only the intraday bars; always let the final (session-close) ping through.
+                if not is_final and not is_market_hours():
+                    logger.info("CANDLE PING SKIP: 2h #%d outside market hours", idx)
                     return
                 if is_final:
+                    title = "2h candle 4 closed — session close"
                     body = (
-                        f"<b>60-min candle 6 closed — FINAL 30 MIN remaining</b>\n"
-                        f"Time: {hour:02d}:{minute:02d} ET → 16:00 ET market close\n"
-                        f"Last hourly close in session."
+                        "<b>2h candle 4 of 4 closed — session close (16:00 ET)</b>\n"
+                        "Final 2h bar of the day. Review your charts + mark tomorrow's levels."
                     )
                 else:
+                    title = f"2h candle {idx} closed"
                     body = (
-                        f"<b>60-min candle {idx} closed</b>\n"
+                        f"<b>2h candle {idx} of 4 closed</b>\n"
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
-                _broadcast_telegram(body, f"60min#{idx}")
+                _broadcast_telegram(body, f"2h#{idx}")
+                _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}")
+                _write_candle_report(body, f"2h#{idx}")
 
-            # Env var kept as CANDLE_65_NOTIFICATIONS_ENABLED for Railway
-            # backward compat — renaming would silently disable any
-            # explicit-false override that's currently set.
-            if CANDLE_65_NOTIFICATIONS_ENABLED:
+            _candle2h_on = os.getenv("CANDLE_2H_NOTIFICATIONS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+            logger.info("Candle 2h equity pings enabled: %s", _candle2h_on)
+            if _candle2h_on:
                 _et_tz = _pytz.timezone("America/New_York")
-                for idx, hour, minute, is_final in _CANDLE_60_SCHEDULE:
+                for idx, hour, minute, is_final in _CANDLE_2H_SCHEDULE:
                     scheduler.add_job(
                         _notify_candle_close,
                         CronTrigger(day_of_week="mon-fri", hour=hour, minute=minute, timezone=_et_tz),
                         args=[idx, hour, minute, is_final],
-                        id=f"candle_60_close_{idx}",
-                        misfire_grace_time=30,
+                        id=f"candle_2h_close_{idx}",
+                        misfire_grace_time=60,
                         replace_existing=True,
                     )
-                logger.info("Registered 6 cron jobs for 60-min candle ping schedule")
+                logger.info("Registered 4 cron jobs for 2h equity candle pings")
 
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
