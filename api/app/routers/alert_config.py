@@ -39,32 +39,25 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
 # into weeks — 30-week MA reclaim, prior-quarter (PQ) reclaim, 200-MA bounce,
 # and the 5/20 EMA cross. EVERY other type is Day Trade. (Feed panels still use
 # style_for(); this mapping only drives the Settings buckets + bulk toggles.)
+# TWO buckets only (user 2026-08-02): Day + Swing. Swing = the SMA 50/100/200 reclaims,
+# swing_rsi_30, the 5/20 cross, and the weekly/monthly LOW reclaims (moved in from the old RC tab).
 SWING_TRADE_TYPES: frozenset[str] = frozenset({
-    "weekly_30w_held",         # wicked below & reclaimed the 30-week MA — long-hold trend support
-    "pq_reclaim",              # prior-quarter Low bounce / Close reclaim / High break
-    "monthly_low_swing",       # prior-MONTH low reclaim — swing bottom-bounce, master universe (2026-07-22)
     "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross
-    "monthly_box",             # MoBO — monthly flat-base ceiling breakout (user 2026-07-18: breakout → swing)
-    "mobo_rch",                # MoBO RC-H — prior monthly high that capped price, broken
-    "ma_bounce_long_v3_sma200",  # the 200 SMA is swing support, not a day-trade bounce (user 2026-07-18)
-    # swing_reclaim.pine long-hold entries (2026-07-30) — the validated HOLD-200/RSI-30 setup.
+    "swing_rsi_30",            # RSI(14) reclaims 30 — the oversold turn
     "swing_sma50_reclaim",     # daily 50 SMA wick+hold reclaim
+    "swing_sma100_reclaim",    # daily 100 SMA wick+hold reclaim (2026-08-02)
     "swing_sma200_reclaim",    # daily 200 SMA structural reclaim
-    "swing_rsi_30",            # RSI(14) reclaims 30 — the oversold turn (was mis-bucketed to Day Trade)
+    "weekly_rc",               # prior-WEEK low undercut+reclaim — swing bottom-bounce (moved from RC 2026-08-02)
+    "monthly_rc",              # prior-MONTH low undercut+reclaim — swing bottom-bounce (moved from RC 2026-08-02)
 })
-# RC validation (2026-07-23) — the pure undercut-and-reclaim of prior day/week/month levels.
-# Their own Settings group so the user can flip the whole validation panel on/off in one place.
-RC_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
+# RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc moved into Swing.
 FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "RC"]
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
 
 
 def _group_for(alert_type: str, category: str) -> str:
-    """The Settings bucket for a type — Day Trade, Swing Trade, or RC (validation).
-    4H reactions ARE the day-trade system (user 2026-07-30: "the 4h is the day"), so they
-    live in the Day Trade control now, not a separate 4H bucket. Swing is its own control."""
-    if alert_type in RC_TYPES:
-        return "RC"
+    """The Settings bucket for a type — exactly two: Day Trade or Swing Trade (user 2026-08-02).
+    4H reactions + gap_and_go ARE the day-trade system; everything in SWING_TRADE_TYPES is Swing."""
     if alert_type in FOURH_TYPES:
         return "Day Trade"
     return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"

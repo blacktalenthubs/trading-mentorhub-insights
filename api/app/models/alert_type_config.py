@@ -37,7 +37,8 @@ class AlertTypeConfig(Base):
 # An MA is dual-role: support from above (bounce=long) / resistance from below
 # (rejection=short). The NOTICE (proximity) family stays removed (too noisy).
 MA_SPLIT_FAMILIES = (
-    ("ma_bounce_long_v3", "MA bounce long", "MA / EMA · Bounce Long"),
+    # ma_bounce_long_v3 REMOVED 2026-08-02 (user: "all that ma/sma bounce remove — 4h covers it").
+    # The whole MA-bounce LONG family retired; per-MA types listed in OBSOLETE_ALERT_TYPES.
     # ma_rejection_short_v3 REMOVED 2026-07-22 (user: "remove all ema/ma short from settings, not
     # needed — remove any form of shorts except PDH rejection"). The whole MA/EMA rejection-short
     # family is retired; the per-MA types are listed in OBSOLETE_ALERT_TYPES so the seed deletes them.
@@ -70,18 +71,15 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Prior-HIGH held CUT 2026-06-23 — "high held as support" = buying resistance;
     # RC pine owns the high reclaims (rc_*_hrec, uptrend-gated). → OBSOLETE_ALERT_TYPES.
-    # PDH breakout on volume (#291) — close above PDH + volume_ratio>=2 + rising VWAP. KEPT.
-    ("staged_pdh_break", "PDH break on volume", "Daily PDH/PDL", False),
-    # PDH/PDL HELD (2026-07-14, user: "the held is the alert — a break can fade, a hold shows strength").
-    ("pdh_held", "PDH reclaim / hold — wicked to/below the prior-day HIGH & closed back above (reclaim OR retest-hold)", "Daily PDH/PDL", False),
-    ("pdl_held", "PDL reclaim / hold — wicked to/below the prior-day LOW & closed back above (reclaim OR support-hold)", "Daily PDH/PDL", False),
+    # staged_pdh_break / pdh_held / pdl_held REMOVED 2026-08-02 (user: "pdl held etc remove — 4h
+    # covers it all"). The 4H reclaim/reject/breakup/breakdn subsumes the daily PDH/PDL reclaims.
+    # → OBSOLETE_ALERT_TYPES.
 
-    # RC VALIDATION (2026-07-23) — the pure UNDERCUT-and-reclaim of the prior day/week/month H/L
-    # (price traded BELOW the level then closed back above; NOT the tag-from-above hold, NOT gap-and-go).
-    # Own feed panel (style "rc"), master universe (opt-in), default OFF — the user is validating them.
-    ("daily_rc",   "Daily low reclaim (validation, master universe) — undercut the prior-DAY LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
-    ("weekly_rc",  "Weekly low reclaim (validation, master universe) — undercut the prior-WEEK LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
-    ("monthly_rc", "Monthly low reclaim (validation, master universe) — undercut the prior-MONTH LOW then closed back above it (the candle's low, not the body/high); opt in HERE", "RC", False),
+    # RC — undercut-and-reclaim of the prior week/month LOW (price traded BELOW the level then closed
+    # back above the candle low). daily_rc RETIRED 2026-08-02 (redundant with 4H). weekly_rc / monthly_rc
+    # MOVED to Swing (2026-08-02, user: "weekly and monthly rc to swing; tabs day + swing only").
+    ("weekly_rc",  "Weekly low reclaim — undercut the prior-WEEK LOW then closed back above it (the candle's low, not the body/high); swing bottom-bounce", "Swing", False),
+    ("monthly_rc", "Monthly low reclaim — undercut the prior-MONTH LOW then closed back above it (the candle's low, not the body/high); swing bottom-bounce", "Swing", False),
     # 4H day-trade method (2026-07-25) — reactions to the last two 4h candles' H/L/C, 15m-close confirmed,
     # MASTER-optin like RC (bind the pine on a 15m chart). fourh_reclaim/reject = wick+close-back reversal;
     # fourh_breakup/breakdn = one close through. Isolated from dedup (see _FOURH_TYPES) for clean analysis.
@@ -123,9 +121,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Spec 61 (2026-06-04) — PDH/PWH BREAK DROPPED. A break into PDH after a
     # rally from below is buying resistance/exhaustion. The trusted PDH entry
-    # is staged_pdh_held (retest of PDH as support). staged_pdh/pwh_break live
-    # in OBSOLETE_ALERT_TYPES. Gap-up (open ABOVE PDH) KEPT — separate, valid.
-    ("gap_up_continuation_long","Gap-and-go — opened above PDH, ran (stop = open low)", "Gap-and-go", False),
+    # is staged_pdh_held (retest of PDH as support). staged_pdh/pwh_break live in OBSOLETE_ALERT_TYPES.
+    # gap_up_continuation_long REMOVED 2026-08-02 — the DUPLICATE gap-and-go; the canonical one is
+    # gap_and_go (pine-backed, above). → OBSOLETE_ALERT_TYPES.
 
     # Gap S/R — unfilled gaps as support/resistance (2026-06-15). day_open decides
     # the role. Replaces the old gap_zone info-notice. Default OFF — land in Muted.
@@ -150,6 +148,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
     ("swing_sma50_reclaim", "50 SMA reclaim (long) — a daily candle wicked below the 50 SMA & closed back above (held structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
+    ("swing_sma100_reclaim", "100 SMA reclaim (long) — a daily candle wicked below the 100 SMA & closed back above (held mid structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
@@ -157,11 +156,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (bind on the daily chart, MASTER watchlist). Delivery = MASTER_OPTIN_TYPES in tv_webhook:
     # broadcast to every user who enabled the toggle, regardless of personal watchlist.
     # Label MUST stay < 200 chars — a longer label aborts the whole startup seed (see #821).
-    ("pq_reclaim", "PQ low reclaim (master universe) — undercut the prior-QUARTER LOW then closed back above it (low only, not close/high); bottom-bounce swing, opt in HERE (rare, high R:R)", "Swing", True),
-    # 200-MA bounce — the OTHER emit of swing_trade.pine (daily-close reclaim of the 200 EMA/SMA).
-    # Prior-MONTH low reclaim — swing bottom-bounce on the BROAD master watchlist (opt-in), from
-    # swing_trade.pine (2026-07-22). Master-universe like pq_reclaim. Label < 200 chars (#821).
-    ("monthly_low_swing", "Prior-month low reclaim (master universe) — swing bottom-bounce: wicked to/below the prior month's LOW & closed back above, scanned across the BROAD master watchlist; opt in HERE", "Swing", True),
+    # pq_reclaim + monthly_low_swing REMOVED 2026-08-02 (user: "retire pq, monthly low swing").
+    # The weekly_rc / monthly_rc low-reclaims (above, now Swing) cover the level-reclaim swings;
+    # the 33-SMA fair-value reclaim (swing_fv_reclaim) is coming to replace the trend-hold. → OBSOLETE.
     # monthly_ma_reclaim ("monthly m8") RETIRED 2026-07-14 (user: "mostly false and bad") → OBSOLETE below.
     # character_change / base_buy / new_high_breakout / fv_pullback / fv_reclaim RETIRED 2026-07-18
     # (user: "remove — we dont need them") → OBSOLETE below. The swing book is the two-control set:
@@ -208,7 +205,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # the locked weekly MA, re-arm on leave) — not once per week (#2026-06-29). The
     # _reclaim variants RETIRED → OBSOLETE; the single _held touch covers tag-and-hold +
     # a shallow undercut-reclaim. Both default OFF.
-    ("weekly_30w_held", "30w MA — tagged & held the 30-week MA intraday (LONG-TERM support)", "Weekly trend", False),
+    # weekly_30w_held REMOVED 2026-08-02 (user: "all these held alerts don't work well — remove").
+    # Long-term bucket retired; two buckets only (Day + Swing). → OBSOLETE_ALERT_TYPES.
     # MLV — Monthly LEVELS · directional reclaim (spec 68, 2026-07-11). THE single monthly
     # alert: EVERY completed monthly level — H/L/O/C of the last 6 months (24 levels). BUY when
     # the day opened ABOVE the level and price wicked below & reclaimed it (support held);
@@ -222,8 +220,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # months (mobo_rch, the high-side complement to monthly_rc, catches stair-step leaders
     # the box can't see). Monthly LEVEL, daily/intraday TRIGGER (price crossing it). Both
     # BUY, gate-exempt (position), default OFF.
-    ("monthly_box", "MoBO box breakout — cleared the locked flat multi-month base ceiling (position)", "Monthly trend", False),
-    ("mobo_rch", "MoBO RC-H — broke a prior MONTHLY high that held as resistance for months (position)", "Monthly trend", False),
+    # monthly_box + mobo_rch REMOVED 2026-08-02 (user: "never seen anything from them for a week —
+    # don't think they work"). Long-term bucket retired. → OBSOLETE_ALERT_TYPES.
     # weekly_ma_held/reclaim/wick_reclaim CUT 2026-06-23 — NOT in the agreed set and
     # NOT wired (no pine emits them). → OBSOLETE. (Re-wire into rc.pine later if wanted.)
     # weekly_rc2 REMOVED 2026-06-13 — too complicated, some fires didn't hold up.
@@ -262,8 +260,10 @@ _STYLE_BY_CATEGORY: dict[str, str] = {
 _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # RC VALIDATION (2026-07-23) — daily/weekly/monthly UNDERCUT-and-reclaim, their OWN feed panel.
     # Listed FIRST so daily_rc/weekly_rc/monthly_rc win over the broad monthly_/weekly_/staged_ rows.
-    ("daily_rc", "rc"), ("weekly_rc", "rc"), ("monthly_rc", "rc"), ("staged_pwl", "day_trade"),
-    ("fourh_reclaim", "fourh"), ("fourh_reject", "fourh"), ("fourh_breakup", "fourh"), ("fourh_breakdn", "fourh"),
+    # 2026-08-02 — two feeds only (Day + Swing). weekly_rc/monthly_rc = SWING bottom-bounces;
+    # the 4H method IS the day trade, so fourh_* → day_trade feed (no separate RC / 4H tab).
+    ("weekly_rc", "swing"), ("monthly_rc", "swing"), ("staged_pwl", "day_trade"),
+    ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
@@ -395,6 +395,15 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-08-02 — Settings cleanup to TWO buckets (Day + Swing). Day = 4H RC + gap_and_go;
+    # Swing = SMA 50/100/200 reclaim + swing_rsi_30 + ema_5_20_cross + weekly_rc/monthly_rc.
+    # Removed: the daily PDH/PDL reclaims (4H covers them), the whole MA-bounce family, the dup gap,
+    # daily_rc, pq/monthly_low_swing, and the retired Long-term "held" set (weekly_30w/monthly_box/mobo_rch).
+    "staged_pdh_break", "pdh_held", "pdl_held", "gap_up_continuation_long", "daily_rc",
+    "pq_reclaim", "monthly_low_swing", "weekly_30w_held", "monthly_box", "mobo_rch",
+    "ma_bounce_long_v3_ema8", "ma_bounce_long_v3_ema21", "ma_bounce_long_v3_ema50",
+    "ma_bounce_long_v3_ema100", "ma_bounce_long_v3_ema200",
+    "ma_bounce_long_v3_sma20", "ma_bounce_long_v3_sma50", "ma_bounce_long_v3_sma100", "ma_bounce_long_v3_sma200",
     # 2026-07-30 — Settings cleanup (user): Day = 4H RC (reclaim/reject/breakup/breakdn) + gap_and_go
     # ONLY. No EMA reactions, no separate PDH/PDL/staged/pullback alerts (confluence is TAGGED on the
     # 4H levels). 200-reclaim dedup -> kept swing_sma200_reclaim. rc_4h_long -> fourh_reclaim.
