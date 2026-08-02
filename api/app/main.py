@@ -905,20 +905,20 @@ async def lifespan(app: FastAPI):
             # back to legacy TELEGRAM_CHAT_ID broadcast if DB query yields
             # nothing. Logs aggressively so Railway logs show exactly
             # what's happening at each step.
-            def _broadcast_telegram(body: str, label: str) -> int:
-                logger.info("CANDLE PING FIRE: %s — broadcasting to users", label)
+            def _broadcast_telegram(body: str, label: str, pref: str) -> int:
+                logger.info("CANDLE PING FIRE: %s — broadcasting to %s opt-ins", label, pref)
                 sent = 0
                 tried = 0
                 try:
                     from sqlalchemy import text
-                    # OPT-IN (2026-08-02): only users who enabled the 'candle_ping' toggle in Settings.
+                    # OPT-IN (2026-08-02): only users who enabled THIS pref (equity/crypto) in Settings.
                     with sync_session_factory() as db:
                         rows = db.execute(text(
                             "SELECT u.telegram_chat_id FROM users u "
                             "JOIN user_alert_type_prefs p ON p.user_id = u.id "
-                            "WHERE p.alert_type = 'candle_ping' AND p.enabled = true "
+                            "WHERE p.alert_type = :pref AND p.enabled = true "
                             "AND u.telegram_chat_id IS NOT NULL AND u.telegram_chat_id != ''"
-                        )).fetchall()
+                        ), {"pref": pref}).fetchall()
                     chat_ids = [r[0] for r in rows]
                     logger.info("CANDLE PING %s: %d opted-in users with chat_id", label, len(chat_ids))
                     for cid in chat_ids:
@@ -946,7 +946,7 @@ async def lifespan(app: FastAPI):
                 (4, 16, 0,  True),   # 4th 2h bar — session close (16:00 ET)
             ]
 
-            def _broadcast_push(title: str, body: str, label: str) -> int:
+            def _broadcast_push(title: str, body: str, label: str, pref: str) -> int:
                 sent = 0
                 try:
                     from app.services.push_service import send_push_sync
@@ -955,9 +955,9 @@ async def lifespan(app: FastAPI):
                         rows = db.execute(text(
                             "SELECT u.apns_token FROM users u "
                             "JOIN user_alert_type_prefs p ON p.user_id = u.id "
-                            "WHERE p.alert_type = 'candle_ping' AND p.enabled = true "
+                            "WHERE p.alert_type = :pref AND p.enabled = true "
                             "AND u.apns_enabled = true AND u.apns_token IS NOT NULL AND u.apns_token <> ''"
-                        )).fetchall()
+                        ), {"pref": pref}).fetchall()
                     tokens = [r[0] for r in rows]
                     logger.info("CANDLE PING %s: %d opted-in apns tokens", label, len(tokens))
                     if tokens:
@@ -1000,8 +1000,8 @@ async def lifespan(app: FastAPI):
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
-                _broadcast_telegram(body, f"2h#{idx}")
-                _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}")
+                _broadcast_telegram(body, f"2h#{idx}", "candle_ping_equity")
+                _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}", "candle_ping_equity")
                 _write_candle_report(body, f"2h#{idx}")
 
             _candle2h_on = os.getenv("CANDLE_2H_NOTIFICATIONS_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -1028,8 +1028,8 @@ async def lifespan(app: FastAPI):
                     f"<b>2h crypto candle closed — {hour:02d}:00 UTC</b>\n"
                     f"Check your charts (BTC/ETH/etc.)."
                 )
-                _broadcast_telegram(body, f"crypto2h#{hour:02d}")
-                _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"crypto2h#{hour:02d}")
+                _broadcast_telegram(body, f"crypto2h#{hour:02d}", "candle_ping_crypto")
+                _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"crypto2h#{hour:02d}", "candle_ping_crypto")
                 _write_candle_report(body, f"crypto2h#{hour:02d}")
 
             _crypto2h_on = os.getenv("CANDLE_2H_CRYPTO_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
@@ -1051,39 +1051,8 @@ async def lifespan(app: FastAPI):
             # No "final candle" framing since crypto trades continuously.
             # Plus a startup fire on every Railway redeploy as a sanity check
             # that the pipeline is healthy.
-            _ETH_4H_SCHEDULE = [
-                (1, 0),
-                (2, 4),
-                (3, 8),
-                (4, 12),
-                (5, 16),
-                (6, 20),
-            ]
-
-            def _notify_eth_candle_close(idx: int, hour_utc: int) -> None:
-                _broadcast_telegram(
-                    f"<b>ETH 4h candle {idx}/6 closed</b>\n"
-                    f"Time: {hour_utc:02d}:00 UTC\n"
-                    f"Check the chart.",
-                    f"ETH4h#{idx}",
-                )
-
-            if ETH_CANDLE_NOTIFICATIONS_ENABLED:
-                # 6 cron jobs at real 4h UTC candle close boundaries.
-                # Validated against actual Coinbase ETH-USD candle closes
-                # via 5-min cron alignment test (PR #66) — fires within
-                # 1-2s of the real bar close.
-                _utc_tz = _pytz.timezone("UTC")
-                for idx, hour_utc in _ETH_4H_SCHEDULE:
-                    scheduler.add_job(
-                        _notify_eth_candle_close,
-                        CronTrigger(hour=hour_utc, minute=0, timezone=_utc_tz),
-                        args=[idx, hour_utc],
-                        id=f"eth_4h_close_{idx}",
-                        misfire_grace_time=30,
-                        replace_existing=True,
-                    )
-                logger.info("Registered ETH 4h candle pings (6 UTC cron jobs)")
+            # ETH 4h candle pings REMOVED 2026-08-02 — superseded by the crypto 2h opt-in schedule above
+            # (candle_ping_crypto). The old ETH_CANDLE_NOTIFICATIONS_ENABLED gate is now unused.
         except Exception:
             logger.exception("Failed to register candle-close notification jobs")
 
