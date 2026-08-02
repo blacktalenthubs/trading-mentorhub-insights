@@ -13,13 +13,11 @@
 //   ▲ BREAK-UP / ▼ BREAK-DN — one close THROUGH a level (continuation)
 // Alerts emit the platform JSON (fourh_* types) — bind on a 15m chart with the webhook.
 //
-// PROXIMITY MAP (2026-08-02, optional): the same day-trade map as proximity_levels.pine, layered
-// on this chart — 20/50/100/200 SMA + 50/100/200 EMA (daily, flat) always on; PWH/PWL/PMH/PML/
-// PQH/PQL/PQC + FV-33 as the nearest-neighbor bracket (+within band); the weekly Smart Money zone
-// when price is in/near it; stacked levels merge into named ·×N confluence lines; the day's open
-// tags each level's role (support/resistance). Visual only — the fourh_* alert logic is untouched.
+// DAY OPEN (2026-08-02): the session open is marked, and of the FOUR 4h levels the nearest one
+// BELOW the open is tagged today's SUPPORT (opened above it) and the nearest ABOVE is today's
+// RESISTANCE (opened below it) — the open sets each 4h level's role for the day. Visual only.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v5", overlay = true, max_lines_count = 60, max_labels_count = 60, max_boxes_count = 4)
+indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v5", overlay = true, max_lines_count = 20, max_labels_count = 32)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 show1   = input.bool(true, "4H-1 — last completed 4h candle (solid)")
@@ -134,6 +132,33 @@ if na(h1) or newBlock
     h2 := pH2
     l2 := pL2
 
+// ── day open — of the four 4h levels, the nearest BELOW the open = today's support (opened above),
+// the nearest ABOVE = today's resistance (opened below). Sets each 4h level's role for the session.
+gDO      = "Day open (role of the 4h levels)"
+enOpen   = input.bool(true, "Mark the open + tag the 4h level it opened above/below", group = gDO)
+colOpen  = input.color(color.new(#EAB308, 0), "Open line", group = gDO)
+dayOpen  = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_on)
+oSupV = -1.0
+oResV = 1.0e18
+if enOpen and not na(dayOpen)
+    if not na(h1) and h1 < dayOpen and h1 > oSupV
+        oSupV := h1
+    if not na(l1) and l1 < dayOpen and l1 > oSupV
+        oSupV := l1
+    if not na(h2) and h2 < dayOpen and h2 > oSupV
+        oSupV := h2
+    if not na(l2) and l2 < dayOpen and l2 > oSupV
+        oSupV := l2
+    if not na(h1) and h1 > dayOpen and h1 < oResV
+        oResV := h1
+    if not na(l1) and l1 > dayOpen and l1 < oResV
+        oResV := l1
+    if not na(h2) and h2 > dayOpen and h2 < oResV
+        oResV := h2
+    if not na(l2) and l2 > dayOpen and l2 < oResV
+        oResV := l2
+f_orole(float v) => enOpen and not na(v) ? (v == oSupV ? "  ⊙ opened ABOVE (day support)" : v == oResV ? "  ⊙ opened BELOW (day resist)" : "") : ""
+
 // HTF confluence: assign each HTF level to its NEAREST of the four mapped 4h levels (1=h1 2=l1
 // 3=h2 4=l2), then ONLY that level gets the tag — so a single PDH can't tag two nearby 4h highs
 // (user 2026-07-27). Within confPct% of the nearest, else no tag.
@@ -216,6 +241,7 @@ if barstate.islast
         if array.get(_sh4, _i) and not na(_vi) and not array.get(_used, _i)
             _nm  = array.get(_n4, _i)
             _sty = array.get(_s4, _i)   // anchor is the lowest index in the group; _s4 is [0,0,1,1] so this is already the solid-wins style
+            _role = f_orole(_vi)        // day-open role of THIS level (support/resist), if any
             // guard: Pine auto-reverses the step when from > to, so `_i + 1 to 3` at _i==3 would
             // run _j=4 (out of bounds). Only scan for later coincident levels when one exists.
             if _i < 3
@@ -225,13 +251,20 @@ if barstate.islast
                     if _coincide
                         array.set(_used, _j, true)
                         _nm  := _nm + "  +  " + array.get(_n4, _j)
+                        _role := _role == "" ? f_orole(_vj) : _role   // a merged member can carry the day-open role
             array.set(_used, _i, true)
-            f_draw(_vi, _nm, array.get(_c4, _i), _sty, true)
+            f_draw(_vi, _nm + _role, array.get(_c4, _i), _sty, true)
     f_draw(e50, "50 EMA", colEMA, 2, show50)                     // daily 50 EMA — dotted bias filter
     f_draw(brkUpV, brkUpN, colBrkUp, 0, enBracket and not na(brkUpV) and math.abs(brkUpV - close) / close <= maxBrkPct / 100)   // nearest MA (EMA/SMA) above — drawn only if near
     f_draw(brkDnV, brkDnN, colBrkDn, 0, enBracket and not na(brkDnV) and math.abs(brkDnV - close) / close <= maxBrkPct / 100)   // nearest MA (EMA/SMA) below — drawn only if near
     f_draw(nextHi, "Next 4H ↑", colHi, 2, enSwing and not na(nextHi))   // nearest overhead 4h swing high — dotted
     f_draw(nextLo, "Next 4H ↓", colLo, 2, enSwing and not na(nextLo))   // nearest underfoot 4h swing low — dotted
+    // the day's OPEN — dotted neutral line (its role tags ride on the 4h levels above)
+    if enOpen and not na(dayOpen)
+        array.push(_lines, line.new(bar_index - lineLen, dayOpen, bar_index + tagOff, dayOpen, color = colOpen, width = 1, style = line.style_dotted))
+        _olx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
+        _ols = lblSide == "Left" ? label.style_label_right : label.style_label_left
+        array.push(_labels, label.new(_olx, dayOpen, "Open  " + str.tostring(dayOpen, format.mintick), style = _ols, color = color.new(colOpen, 15), textcolor = color.black, size = size.small))
     f_draw(todays4hH, "Today 4H High", colTC, 1, enTClose and not na(todays4hH))   // today's 4h high = intraday RESISTANCE (dashed, visual only)
     f_draw(todays4hL, "Today 4H Low",  colTC, 1, enTClose and not na(todays4hL))   // today's 4h low  = intraday SUPPORT    (dashed, visual only)
     f_draw(todays4hC, "Today 4H Close", color.new(colTC, 55), 2, enTClose and not na(todays4hC))   // today's last completed 4h CLOSE — subtle dotted (visual only)
@@ -314,148 +347,3 @@ if enAl and isBd
 // 50 EMA reactions + 200 SMA/EMA reclaim REMOVED 2026-07-30 — Day Trade = the 4H level RC only
 // (reclaim/reject/breakup/breakdn + gap_and_go). No EMA alerts. The 200-reclaim moved to the swing
 // book (swing_reclaim.pine · swing_sma200_reclaim). The 50/200 MAs stay VISUAL via the flat-MA pines.
-
-// =============================================================================
-// PROXIMITY MAP (daily context) — visual only, isolated from the 4H alert logic above
-// =============================================================================
-// Green = SUPPORT (price above) / red = RESISTANCE (price below), all FLAT horizontal lines.
-// Reuses the daily MAs (sm50/100/200, e50/100/200) + HTF levels (pdh..pql) already computed above;
-// adds 20 SMA, PQ close, FV-33 (weekly), and the weekly Smart Money zone. NOTE: this overlaps the
-// pine's own "50 EMA" + "Auto EMA bracket" — turn those two off if you want the map to be the only MAs.
-gPX       = "Proximity map (daily context)"
-enProx    = input.bool(true,  "Show the daily-proximity map (MAs + context + confluence + day-open)", group = gPX)
-pxNear    = input.float(1.5,  "Context: also show within ± % of price", group = gPX, minval = 0.1, maxval = 10, step = 0.1) / 100.0
-pxConf    = input.float(0.4,  "Confluence: merge levels within ± %", group = gPX, minval = 0.05, maxval = 3, step = 0.05) / 100.0
-pxSup     = input.color(#26A69A, "Support (price above)",    group = gPX, inline = "pxc")
-pxRes     = input.color(#EF5350, "Resistance (price below)", group = gPX, inline = "pxc")
-enPxSMZ   = input.bool(true,  "Smart Money zone (weekly — shows when price is in/near)", group = gPX)
-pxSmzLb   = input.int(40,     "SMZ recent swing window (weekly bars)", group = gPX, minval = 5, maxval = 500)
-enPxOpen  = input.bool(true,  "Mark day open + tag day support/resistance", group = gPX)
-pxOpenCol = input.color(color.new(#EAB308, 0), "Open line", group = gPX)
-
-px_sma20 = request.security(syminfo.tickerid, emaTF, ta.sma(close, 20)[1], lookahead = barmerge.lookahead_on)
-px_pqc   = request.security(rthTid, "3M", close[1], lookahead = barmerge.lookahead_on)
-px_fv    = request.security(syminfo.tickerid, "W", ta.sma(ohlc4, 33)[1], lookahead = barmerge.lookahead_on)
-px_smzHi = request.security(syminfo.tickerid, "W", ta.highest(high, pxSmzLb)[1], lookahead = barmerge.lookahead_on)
-px_smzLo = request.security(syminfo.tickerid, "W", ta.lowest(low,  pxSmzLb)[1], lookahead = barmerge.lookahead_on)
-px_rng   = px_smzHi - px_smzLo
-px_iT    = px_smzHi - 0.618 * px_rng
-px_iB    = px_smzHi - 0.786 * px_rng
-px_sB    = px_smzHi - 0.85  * px_rng
-px_open  = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_on)
-
-var line[]   px_ln = array.new_line()
-var label[]  px_lb = array.new_label()
-var float[]  px_cv = array.new_float()
-var string[] px_cn = array.new_string()
-var float[]  px_dv = array.new_float()
-var string[] px_dn = array.new_string()
-var box px_iBox = na
-var box px_sBox = na
-px_draw(float v, string nm, int w) =>
-    sup = close > v
-    col = sup ? pxSup : pxRes
-    array.push(px_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = w))
-    array.push(px_lb, label.new(bar_index + tagOff, v, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(v, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
-px_cand(float v, string nm) =>
-    if not na(v) and v > 0
-        array.push(px_cv, v)
-        array.push(px_cn, nm)
-px_add(float v, string nm) =>
-    if not na(v) and v > 0
-        array.push(px_dv, v)
-        array.push(px_dn, nm)
-
-if enProx and barstate.islast
-    for _pl in px_ln
-        line.delete(_pl)
-    for _pb in px_lb
-        label.delete(_pb)
-    array.clear(px_ln)
-    array.clear(px_lb)
-    array.clear(px_cv)
-    array.clear(px_cn)
-    array.clear(px_dv)
-    array.clear(px_dn)
-    // MAs — always
-    px_add(px_sma20, "20 SMA")
-    px_add(sm50,  "50 SMA")
-    px_add(sm100, "100 SMA")
-    px_add(sm200, "200 SMA")
-    px_add(e50,   "50 EMA")
-    px_add(e100,  "100 EMA")
-    px_add(e200,  "200 EMA")
-    // context candidates
-    px_cand(pdh, "PDH")
-    px_cand(pdl, "PDL")
-    px_cand(pwh, "PWH")
-    px_cand(pwl, "PWL")
-    px_cand(pmh, "PMH")
-    px_cand(pml, "PML")
-    px_cand(pqh, "PQH")
-    px_cand(pql, "PQL")
-    px_cand(px_pqc, "PQC")
-    px_cand(px_fv,  "FV 33")
-    // nearest context ABOVE & BELOW (always-show bracket)
-    px_naV = 1.0e18
-    px_nbV = -1.0
-    if array.size(px_cv) > 0
-        for _pi = 0 to array.size(px_cv) - 1
-            _pv = array.get(px_cv, _pi)
-            if _pv > close and _pv < px_naV
-                px_naV := _pv
-            if _pv < close and _pv > px_nbV
-                px_nbV := _pv
-    if array.size(px_cv) > 0
-        for _pi = 0 to array.size(px_cv) - 1
-            _pv = array.get(px_cv, _pi)
-            if math.abs(close - _pv) / close <= pxNear or _pv == px_naV or _pv == px_nbV
-                px_add(_pv, array.get(px_cn, _pi))
-    // Smart Money zone — shaded band + edges, only when price is inside/near
-    box.delete(px_iBox)
-    box.delete(px_sBox)
-    px_smzOk = enPxSMZ and not na(px_iT) and not na(px_sB) and px_iT > px_sB
-    px_smzNear = px_smzOk and close >= px_sB * (1 - pxNear) and close <= px_iT * (1 + pxNear)
-    if px_smzNear
-        px_iBox := box.new(bar_index - lineLen, math.max(px_iT, px_iB), bar_index + tagOff, math.min(px_iT, px_iB), border_color = color.new(color.blue, 55), bgcolor = color.new(color.blue, 88))
-        px_sBox := box.new(bar_index - lineLen, math.max(px_iB, px_sB), bar_index + tagOff, math.min(px_iB, px_sB), border_color = color.new(color.purple, 55), bgcolor = color.new(color.purple, 80))
-        px_add(px_iT, "Inst top")
-        px_add(px_iB, "Inst bot")
-        px_add(px_sB, "SM bot")
-    // day-open bracket — nearest drawn level below open (day support) / above (day resist)
-    px_oS = -1.0
-    px_oR = 1.0e18
-    if enPxOpen and not na(px_open) and array.size(px_dv) > 0
-        for _pi = 0 to array.size(px_dv) - 1
-            _pv = array.get(px_dv, _pi)
-            if _pv < px_open and _pv > px_oS
-                px_oS := _pv
-            if _pv > px_open and _pv < px_oR
-                px_oR := _pv
-    if enPxOpen and not na(px_open)
-        array.push(px_ln, line.new(bar_index - lineLen, px_open, bar_index + tagOff, px_open, color = pxOpenCol, width = 1, style = line.style_dotted))
-        array.push(px_lb, label.new(bar_index + tagOff, px_open, "Open " + str.tostring(px_open, format.mintick), style = label.style_label_left, color = color.new(pxOpenCol, 15), textcolor = color.black, size = size.small))
-    // CONFLUENCE — merge levels within pxConf into one thicker line, label lists members + day-open tag
-    if array.size(px_dv) > 0
-        px_used = array.new_bool(array.size(px_dv), false)
-        for _pi = 0 to array.size(px_dv) - 1
-            if not array.get(px_used, _pi)
-                _pvi = array.get(px_dv, _pi)
-                _pnm = array.get(px_dn, _pi)
-                _psum = _pvi
-                _pcnt = 1
-                _pOS = _pvi == px_oS
-                _pOR = _pvi == px_oR
-                array.set(px_used, _pi, true)
-                if _pi < array.size(px_dv) - 1
-                    for _pj = _pi + 1 to array.size(px_dv) - 1
-                        if not array.get(px_used, _pj) and math.abs(array.get(px_dv, _pj) - _pvi) / _pvi <= pxConf
-                            _pnm  := _pnm + " + " + array.get(px_dn, _pj)
-                            _psum := _psum + array.get(px_dv, _pj)
-                            _pcnt := _pcnt + 1
-                            _pOS := _pOS or array.get(px_dv, _pj) == px_oS
-                            _pOR := _pOR or array.get(px_dv, _pj) == px_oR
-                            array.set(px_used, _pj, true)
-                _pbase = _pcnt > 1 ? _pnm + "  ·×" + str.tostring(_pcnt) : _pnm
-                _ptag  = _pOS ? "  ⊙ opened ABOVE (day support)" : _pOR ? "  ⊙ opened BELOW (day resist)" : ""
-                px_draw(_psum / _pcnt, _pbase + _ptag, _pOS or _pOR or _pcnt > 1 ? wLine + 2 : wLine)
