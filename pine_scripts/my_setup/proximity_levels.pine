@@ -15,6 +15,8 @@
 // when price is INSIDE it or within the band — hidden when price is far away, same idea.
 // CONFLUENCE: any levels stacked within ±0.4% (tunable) merge into ONE thicker line whose label
 // lists all members + a ·×N count (e.g. "50 SMA + 50 EMA ·×2") — so a wall reads at a glance.
+// DAY OPEN: the open is marked (dotted line) and the level it opened ABOVE (today's support) /
+// opened BELOW (today's resistance) is tagged — the open sets each level's role for the session.
 // No alerts — purely visual. Bind on the DAILY chart.
 indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 4)
 
@@ -61,6 +63,11 @@ resCol = input.color(#EF5350, "Resistance (price below)", group = gV)
 wLine  = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
 lineLen= input.int(80, "Line length (bars back)", group = gV, minval = 10, maxval = 500)
 
+// ── day open — mark it + tag the level it opened above (day support) / below (day resistance)
+gO      = "Day open"
+enOpen  = input.bool(true, "Mark the day's open + tag the levels it bracketed", group = gO, tooltip = "Where price OPENED sets each level's role for the day: the nearest level BELOW the open = today's SUPPORT (opened above it), the nearest ABOVE = today's RESISTANCE (opened below it).")
+openCol = input.color(color.new(#EAB308, 0), "Open line", group = gO)
+
 // ── values (settled [1], non-repainting) ───────────────────────────────────────
 tid = syminfo.tickerid
 f_sec(string tf, float expr) => request.security(tid, tf, expr, lookahead = barmerge.lookahead_on)
@@ -86,6 +93,7 @@ smzRng  = smzHi - smzLo
 instTop = smzHi - fInsT * smzRng
 instBot = smzHi - fInsB * smzRng
 smzBot  = smzHi - fSmB  * smzRng
+dayOpen = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
 
 // ── collection + flat-line drawing (with confluence clustering) ─────────────────
 var line[]   _ln = array.new_line()
@@ -165,6 +173,20 @@ if barstate.islast
         f_add(instTop, "Inst top", true)
         f_add(instBot, "Inst bot", true)
         f_add(smzBot,  "SM bot",   true)
+    // day-open bracket — the drawn level nearest BELOW the open (day support) & nearest ABOVE (day resist)
+    oSupV = -1.0
+    oResV = 1.0e18
+    if enOpen and not na(dayOpen) and array.size(_dv) > 0
+        for _i = 0 to array.size(_dv) - 1
+            v = array.get(_dv, _i)
+            if v < dayOpen and v > oSupV
+                oSupV := v
+            if v > dayOpen and v < oResV
+                oResV := v
+    // the day's open itself — a dotted neutral line
+    if enOpen and not na(dayOpen)
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + 8, dayOpen, color = openCol, width = 1, style = line.style_dotted))
+        array.push(_lb, label.new(bar_index + 8, dayOpen, "Open " + str.tostring(dayOpen, format.mintick), style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
     // ── CONFLUENCE — group levels within confPct into ONE thicker line, label lists all members
     if array.size(_dv) > 0
         _used = array.new_bool(array.size(_dv), false)
@@ -174,6 +196,8 @@ if barstate.islast
                 nm   = array.get(_dn, _i)
                 sumv = vi
                 cnt  = 1
+                isOS = vi == oSupV
+                isOR = vi == oResV
                 array.set(_used, _i, true)
                 if _i < array.size(_dv) - 1
                     for _j = _i + 1 to array.size(_dv) - 1
@@ -181,5 +205,9 @@ if barstate.islast
                             nm   := nm + " + " + array.get(_dn, _j)
                             sumv := sumv + array.get(_dv, _j)
                             cnt  := cnt + 1
+                            isOS := isOS or array.get(_dv, _j) == oSupV
+                            isOR := isOR or array.get(_dv, _j) == oResV
                             array.set(_used, _j, true)
-                f_draw(sumv / cnt, cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm, cnt > 1 ? wLine + 2 : wLine)
+                base = cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm
+                tag  = isOS ? "  ⊙ opened ABOVE (day support)" : isOR ? "  ⊙ opened BELOW (day resist)" : ""
+                f_draw(sumv / cnt, base + tag, isOS or isOR or cnt > 1 ? wLine + 2 : wLine)
