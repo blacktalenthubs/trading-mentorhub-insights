@@ -75,11 +75,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # covers it all"). The 4H reclaim/reject/breakup/breakdn subsumes the daily PDH/PDL reclaims.
     # → OBSOLETE_ALERT_TYPES.
 
-    # RC — undercut-and-reclaim of the prior week/month LOW (price traded BELOW the level then closed
-    # back above the candle low). daily_rc RETIRED 2026-08-02 (redundant with 4H). weekly_rc / monthly_rc
-    # MOVED to Swing (2026-08-02, user: "weekly and monthly rc to swing; tabs day + swing only").
-    ("weekly_rc",  "Weekly low reclaim — undercut the prior-WEEK LOW then closed back above it (the candle's low, not the body/high); swing bottom-bounce", "Swing", False),
-    ("monthly_rc", "Monthly low reclaim — undercut the prior-MONTH LOW then closed back above it (the candle's low, not the body/high); swing bottom-bounce", "Swing", False),
+    # RC RETIRED 2026-08-02 (user: "replace the rc with reclaims of smart money zone — no need for
+    # weekly rc and monthly rc"). daily/weekly/monthly_rc all → OBSOLETE. The level-reclaim swings are
+    # now the SMA reclaims + the FV basis + the Smart Money zones (all in swing_reclaim.pine).
     # 4H day-trade method (2026-07-25) — reactions to the last two 4h candles' H/L/C, 15m-close confirmed,
     # MASTER-optin like RC (bind the pine on a 15m chart). fourh_reclaim/reject = wick+close-back reversal;
     # fourh_breakup/breakdn = one close through. Isolated from dedup (see _FOURH_TYPES) for clean analysis.
@@ -150,6 +148,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_sma50_reclaim", "50 SMA reclaim (long) — a daily candle wicked below the 50 SMA & closed back above (held structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_sma100_reclaim", "100 SMA reclaim (long) — a daily candle wicked below the 100 SMA & closed back above (held mid structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
+    # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
+    ("swing_fv_reclaim", "Fair Value reclaim (long) — closed back above the 33-SMA-OHLC4 weekly Fair-Value basis after dipping below (value support held). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
+    ("swing_smz_reclaim", "Smart Money zone reclaim (long) — reclaimed a golden-pocket edge of the recent weekly swing (Institutional / Smart-Money zone held as support). Level named in the alert. Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
     # bottom-bounce & breakout swing. The level is named in the alert. From prior_quarter_hl.pine
@@ -262,7 +263,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # Listed FIRST so daily_rc/weekly_rc/monthly_rc win over the broad monthly_/weekly_/staged_ rows.
     # 2026-08-02 — two feeds only (Day + Swing). weekly_rc/monthly_rc = SWING bottom-bounces;
     # the 4H method IS the day trade, so fourh_* → day_trade feed (no separate RC / 4H tab).
-    ("weekly_rc", "swing"), ("monthly_rc", "swing"), ("staged_pwl", "day_trade"),
+    ("staged_pwl", "day_trade"),   # weekly_rc/monthly_rc retired 2026-08-02 (→ Smart Money zones)
     ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
@@ -358,6 +359,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
     "swing_rsi_30": "Daily RSI crossed back ABOVE 30 from below (was oversold yesterday, reclaimed 30 today) on an upper-half close — the bottom-fishing 'turn is in' confirmation. Higher conviction near the 200 SMA/EMA. A longer-hold reversal entry on washed-out quality/mega caps. Manage by RSI: T1 ~RSI 45-50, T2 RSI 70; STOP = a close back under 30. Pairs with rsi_oversold (the watch) — this is the trigger.",
+    "swing_fv_reclaim": "Price closed back ABOVE the Fair-Value basis (33-SMA of weekly OHLC4) after dipping below — the key value level held as support (the reclaim is the best FV signal: continuation / stay-in-trend). Same reclaim + role-guard as the SMAs; STOP = the swept low, invalid on a close back below the basis.",
+    "swing_smz_reclaim": "Price reclaimed a Smart-Money zone edge — a golden-pocket fib line (0.618 / 0.786 / 0.85) of the recent weekly swing that was acting as SUPPORT: price wicked below it and closed back above (the discount zone held). The alert names which edge (Institutional / Smart-Money). STOP = the swept low; invalid on a close back below the zone.",
     "rsi_oversold": "Daily RSI closed in the 30-35 buy zone — reclaimed 30 from below or dipped/holding in 30-35 from above. NEVER fires below 30 (the falling knife — RSI 29 is not a buy; wait for the turn/hold). A SWING entry (hold days), best on washed-out quality/mega caps that mean-revert. Manage by RSI: T1 = RSI 50, T2 = RSI 70; STOP = a daily close back under RSI 30 (exactly where Steve Burns stopped out of NFLX, -2.75%, Fri 06-12). Fired at the daily close, once per entry (rare).",
     "rc_4h_long": "4h RC long: price wicked BELOW the prior 4h low then closed back above it — swept-low bounce / reversal long. Stop = the wick low. A heads-up — eyeball the 4h, not every one is an entry.",
     "rc_4h_hrec": "4h RC-H: price dipped below the prior 4h HIGH then closed back above it — the broken high held as support = breakout-retest continuation long. Stop = the retest low.",
@@ -395,8 +398,11 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-08-02b — RC retired (user: "replace the rc with reclaims of smart money zone"). weekly_rc +
+    # monthly_rc removed; replaced by swing_fv_reclaim + swing_smz_reclaim (the golden-pocket zones).
+    "weekly_rc", "monthly_rc",
     # 2026-08-02 — Settings cleanup to TWO buckets (Day + Swing). Day = 4H RC + gap_and_go;
-    # Swing = SMA 50/100/200 reclaim + swing_rsi_30 + ema_5_20_cross + weekly_rc/monthly_rc.
+    # Swing = SMA 50/100/200 reclaim + swing_rsi_30 + ema_5_20_cross + FV + Smart Money zones.
     # Removed: the daily PDH/PDL reclaims (4H covers them), the whole MA-bounce family, the dup gap,
     # daily_rc, pq/monthly_low_swing, and the retired Long-term "held" set (weekly_30w/monthly_box/mobo_rch).
     "staged_pdh_break", "pdh_held", "pdl_held", "gap_up_continuation_long", "daily_rc",
