@@ -47,10 +47,11 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "swing_sma50_reclaim",     # daily 50 SMA wick+hold reclaim
     "swing_sma100_reclaim",    # daily 100 SMA wick+hold reclaim (2026-08-02)
     "swing_sma200_reclaim",    # daily 200 SMA structural reclaim
-    "weekly_rc",               # prior-WEEK low undercut+reclaim — swing bottom-bounce (moved from RC 2026-08-02)
-    "monthly_rc",              # prior-MONTH low undercut+reclaim — swing bottom-bounce (moved from RC 2026-08-02)
+    "swing_fv_reclaim",        # 33-SMA OHLC4 weekly Fair-Value basis reclaim (2026-08-02)
+    "swing_smz_reclaim",       # Smart Money zone (golden pocket) edge reclaim (2026-08-02)
 })
-# RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc moved into Swing.
+# RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc replaced by the FV basis +
+# Smart Money zone reclaims (user: "replace the rc with reclaims of smart money zone").
 FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
 
