@@ -3,8 +3,8 @@
 // PROXIMITY LEVELS — SMAs always on · nearest context level above & below always shown
 // =============================================================================
 // The declutter tool. EVERYTHING is a FLAT horizontal line (green = SUPPORT / price above,
-// red = RESISTANCE / price below), labeled. Your 20/50/100/200 SMAs (daily-locked, flat)
-// are always drawn — the decision core.
+// red = RESISTANCE / price below), labeled. Your 20/50/100/200 SMAs + 50/100/200 EMAs
+// (daily-locked, flat) are always drawn — the decision core.
 //
 // For the CONTEXT levels (prior week / month / quarter H/L/C + the weekly Fair-Value basis),
 // two rules — so you always know the bracket price is trading in, yet the chart stays clean:
@@ -26,7 +26,13 @@ en20  = input.bool(true, "20 SMA",  group = gS, inline = "a")
 en50  = input.bool(true, "50 SMA",  group = gS, inline = "a")
 en100 = input.bool(true, "100 SMA", group = gS, inline = "b")
 en200 = input.bool(true, "200 SMA", group = gS, inline = "b")
-smaTf = input.timeframe("D", "SMA lock timeframe (flat)", group = gS, tooltip = "The SMAs use this timeframe's value, drawn FLAT — so bind on the daily (or intraday) and still see the DAILY 20/50/100/200.")
+smaTf = input.timeframe("D", "SMA/EMA lock timeframe (flat)", group = gS, tooltip = "The SMAs/EMAs use this timeframe's value, drawn FLAT — so bind on the daily (or intraday) and still see the DAILY MAs.")
+
+// ── EMAs — always on, drawn FLAT (50/100/200) ──────────────────────────────────
+gE     = "EMAs (always on)"
+en50e  = input.bool(true, "50 EMA",  group = gE, inline = "e")
+en100e = input.bool(true, "100 EMA", group = gE, inline = "e")
+en200e = input.bool(true, "200 EMA", group = gE, inline = "e")
 
 // ── context levels — nearest above & below always shown; more within the band ──
 gC   = "Context levels (nearest above & below always show)"
@@ -59,6 +65,9 @@ sma20  = f_sec(smaTf, ta.sma(close, 20)[1])
 sma50  = f_sec(smaTf, ta.sma(close, 50)[1])
 sma100 = f_sec(smaTf, ta.sma(close, 100)[1])
 sma200 = f_sec(smaTf, ta.sma(close, 200)[1])
+ema50  = f_sec(smaTf, ta.ema(close, 50)[1])
+ema100 = f_sec(smaTf, ta.ema(close, 100)[1])
+ema200 = f_sec(smaTf, ta.ema(close, 200)[1])
 pwh = f_sec("W",  high[1])
 pwl = f_sec("W",  low[1])
 pmh = f_sec("M",  high[1])
@@ -110,6 +119,12 @@ if barstate.islast
         f_draw(sma100, "100 SMA")
     if en200 and not na(sma200) and sma200 > 0
         f_draw(sma200, "200 SMA")
+    if en50e  and not na(ema50)  and ema50  > 0
+        f_draw(ema50,  "50 EMA")
+    if en100e and not na(ema100) and ema100 > 0
+        f_draw(ema100, "100 EMA")
+    if en200e and not na(ema200) and ema200 > 0
+        f_draw(ema200, "200 EMA")
     // collect enabled context candidates
     f_cand(pwh, "PWH", enPW)
     f_cand(pwl, "PWL", enPW)
