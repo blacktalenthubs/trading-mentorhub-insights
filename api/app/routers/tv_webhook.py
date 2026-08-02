@@ -1010,10 +1010,11 @@ def _check_entry_time_dedup(
     # after passing the SAME confluence + 2h cooldown + chase gates below (so it's a distinct, higher
     # setup, not same-move noise). st["levels"] = today's DELIVERED shorts; cap the count at N.
     if base in _FOURH_TYPES and (direction or "").upper() in ("SHORT", "SELL"):
-        try:
-            max_shorts = int(float(_envf("V2_FOURH_MAX_SHORTS_PER_DAY", 2)))
-        except Exception:
-            max_shorts = 2
+        # Only SPY (index allowlist) may get a 2nd short/day; every OTHER name is capped at 1
+        # (user 2026-08-02: "only spy should get more than 1 short"). Before this, the cap of 2
+        # applied to every symbol, so AVGO/PYPL/SNDK etc. each got 2 shorts on 07-31.
+        _multi = frozenset(s.strip().upper() for s in _envf("V2_MULTI_SHORT_SYMS", "SPY").split(",") if s.strip())
+        max_shorts = 2 if (symbol or "").upper() in _multi else 1
         if len(st.get("levels", [])) >= max_shorts:
             return {"reason": "dedup_short_cap", "anchor": st.get("best", 0.0)}
         # else fall through to confluence + cooldown + chase — the 2nd short must clear all three
