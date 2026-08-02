@@ -1,21 +1,25 @@
 //@version=5
 // =============================================================================
-// SWING RECLAIM ENTRIES — 50 SMA + 200 SMA + RSI-30 (long only, SMA only)
+// SWING RECLAIM ENTRIES — SMA 50/100/200 + RSI-30 + FV basis + Smart Money zones
 // =============================================================================
-// The validated long-hold / accumulation entry (HOLD-200 + RSI-30 backtest, 2026-07-29).
-// Bind on DAILY for your whole watchlist. Fires when a name RECLAIMS a structural level —
-// closes back above it after dipping below (a genuine defend/recovery, not a trend bar):
-//   • 50 SMA reclaim  (wick below + close back above = held)      -> swing_sma50_reclaim
-//   • 200 SMA reclaim (structural support recovered / defended)   -> swing_sma200_reclaim
-//   • RSI(14) reclaims 30 (oversold turn from a washout)          -> swing_rsi30_reclaim
-// LONG only. SMA only (no EMA). Stop = the swept bar low. (user 2026-07-30)
-indicator("Swing Reclaim — 50/200 SMA + RSI-30", overlay = true)
+// The validated long-hold / accumulation entries. Bind on DAILY for your whole watchlist.
+// EVERY entry is the SAME pattern: a structural line that was acting as SUPPORT (price held
+// above it) gets wicked below and RECLAIMED (closed back above) — role-guarded, so a
+// from-BELOW breakup of resistance does NOT fire. Stop = the swept low (lose the line = out):
+//   • 50 / 100 / 200 SMA reclaim                                  -> swing_sma{50,100,200}_reclaim
+//   • RSI(14) reclaims 30 (oversold turn from a washout)          -> swing_rsi_30
+//   • FV basis reclaim (33-SMA of OHLC4, weekly — the key value)  -> swing_fv_reclaim
+//   • Smart Money zone reclaim (golden pocket of the weekly swing)-> swing_smz_reclaim
+// LONG only. Stop = the swept bar low. (user 2026-07-30 · +FV/SMZ 2026-08-02)
+indicator("Swing Reclaim — SMA/RSI/FV/SMZ", overlay = true, max_lines_count = 20, max_labels_count = 20)
 
 gM   = "Entries"
 en50 = input.bool(true, "50 SMA reclaim (wick + hold)", group = gM)
 en100= input.bool(true, "100 SMA reclaim (wick + hold)", group = gM)
 en200= input.bool(true, "200 SMA reclaim", group = gM)
 enR  = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
+enFV = input.bool(true, "FV basis reclaim (33-SMA of OHLC4)", group = gM)
+enSMZ= input.bool(true, "Smart Money zone reclaim (golden pocket)", group = gM)
 enAl = input.bool(true, "Fire alerts (on bar close)", group = gM)
 
 gP     = "Params"
@@ -45,6 +49,30 @@ sma200 = flatMode ? flat200 : ta.sma(close, len200)
 rsi    = flatMode ? flatRsi : ta.rsi(close, rsiLen)
 conf   = barstate.isconfirmed
 
+// ── Fair Value basis — 33-SMA of OHLC4, locked to the WEEKLY (the key swing entry level). A close
+// back above the basis after dipping below = reclaim (same mechanic + role-guard as the SMAs).
+gFV     = "Fair Value basis (33-SMA OHLC4)"
+fvLen   = input.int(33, "FV SMA length", group = gFV, minval = 2)
+fvTf    = input.timeframe("W", "FV timeframe", group = gFV)
+fvBasis = request.security(tid, fvTf, ta.sma(ohlc4, fvLen)[1], lookahead = barmerge.lookahead_on)
+
+// ── Smart Money zones — golden pocket of the recent WEEKLY swing (AUTO: highest high & lowest low
+// over the window → fib retracement DOWN from the high, the discount-buy zone). The zone must be
+// acting as SUPPORT (price held above it) before a reclaim counts — same role-guard as the SMAs;
+// stop = the swept low (lose the zone = out). 4 edges — the middle 0.786 is shared → 3 prices.
+gSMZ    = "Smart Money zones (golden pocket)"
+smzTf   = input.timeframe("W", "Zone timeframe", group = gSMZ)
+smzLb   = input.int(40, "Recent swing window (bars)", group = gSMZ, minval = 5, maxval = 500, tooltip = "The zones fib the highest high & lowest low over this many WEEKLY bars — an AUTO swing leg (won't match a hand-drawn leg). Tune until the zones line up with your read.")
+fInsT   = input.float(0.618, "Institutional top",             group = gSMZ, step = 0.001)
+fInsB   = input.float(0.786, "Institutional bottom / SM top", group = gSMZ, step = 0.001)
+fSmB    = input.float(0.85,  "Smart Money bottom",            group = gSMZ, step = 0.001)
+smzHi   = request.security(tid, smzTf, ta.highest(high, smzLb)[1], lookahead = barmerge.lookahead_on)
+smzLo   = request.security(tid, smzTf, ta.lowest(low,  smzLb)[1], lookahead = barmerge.lookahead_on)
+smzRng  = smzHi - smzLo
+instTop = smzHi - fInsT * smzRng
+instBot = smzHi - fInsB * smzRng
+smzBot  = smzHi - fSmB  * smzRng
+
 // The MA's role must be SUPPORT before a reclaim counts — price must have CLOSED ABOVE it within
 // the recent lookback (so it owned the level, then lost it briefly, then recovered). If price has
 // been BELOW the MA the whole window (MA = overhead resistance), a close-up-through it is a BREAKUP,
@@ -65,6 +93,14 @@ rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
 rc200 = en200 and conf and f_reclaim(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
+rcFV  = enFV  and conf and f_reclaim(fvBasis)
+// Smart Money zone reclaims — same reclaim + role-guard on each golden-pocket edge.
+rcInsT = enSMZ and conf and f_reclaim(instTop)
+rcInsB = enSMZ and conf and f_reclaim(instBot)
+rcSmB  = enSMZ and conf and f_reclaim(smzBot)
+rcSMZ  = rcInsT or rcInsB or rcSmB
+smzLvl = rcInsT ? instTop : rcInsB ? instBot : rcSmB ? smzBot : na
+smzNm  = rcInsT ? "Institutional top" : rcInsB ? "Institutional bottom (SM top)" : rcSmB ? "Smart Money bottom" : ""
 
 // ── Flat S/R lines — GREEN = SUPPORT (price above), RED = RESISTANCE (price below);
 // role flips when price closes across. Drawn as a horizontal ray per SMA (flat mode only).
@@ -90,6 +126,10 @@ if barstate.islast and showMA and flatMode
     f_sr(sma50,  "50 SMA",  en50)
     f_sr(sma100, "100 SMA", en100)
     f_sr(sma200, "200 SMA", en200)
+    f_sr(fvBasis, "FV 33",  enFV)
+    f_sr(instTop, "Inst top", enSMZ)
+    f_sr(instBot, "Inst bot / SM top", enSMZ)
+    f_sr(smzBot,  "SM bot",  enSMZ)
 // sloping fallback (flat mode OFF) — normal plotted MA
 plot(showMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
 plot(showMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
@@ -97,6 +137,8 @@ plotshape(rc50,  "50 SMA reclaim",  style = shape.triangleup, location = locatio
 plotshape(rc100, "100 SMA reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#8B5CF6, 0),    size = size.tiny)
 plotshape(rc200, "200 SMA reclaim", style = shape.arrowup,    location = location.belowbar, color = color.new(color.teal, 0),  size = size.small)
 plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
+plotshape(rcFV,  "FV basis reclaim", style = shape.diamond,   location = location.belowbar, color = color.new(#F59E0B, 0),    size = size.tiny)
+plotshape(rcSMZ, "Smart Money zone reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#A855F7, 0), size = size.small)
 
 f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
 
@@ -108,3 +150,7 @@ if enAl and rc200
     alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered. Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rcR
     alert(f_pay("swing_rsi_30",  "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
+if enAl and rcFV
+    alert(f_pay("swing_fv_reclaim", "Fair Value (33-SMA OHLC4) reclaim at " + str.tostring(fvBasis, format.mintick) + " · closed back above the basis (weekly value support held). Stop = the swept low; invalid on a close below " + str.tostring(fvBasis, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rcSMZ
+    alert(f_pay("swing_smz_reclaim", "Smart Money zone reclaim — " + smzNm + " at " + str.tostring(smzLvl, format.mintick) + " · the golden-pocket edge held as support (price reclaimed it). Stop = the swept low; invalid on a close below " + str.tostring(smzLvl, format.mintick)), alert.freq_once_per_bar_close)
