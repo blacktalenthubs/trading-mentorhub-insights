@@ -13,12 +13,15 @@
 //   2. ALSO show any context level within a proximity band (default ±1.5%) — catches clusters.
 // The Smart Money zone (golden pocket of the weekly swing) shows its shaded band + edges ONLY
 // when price is INSIDE it or within the band — hidden when price is far away, same idea.
+// CONFLUENCE: any levels stacked within ±0.4% (tunable) merge into ONE thicker line whose label
+// lists all members + a ·×N count (e.g. "50 SMA + 50 EMA ·×2") — so a wall reads at a glance.
 // No alerts — purely visual. Bind on the DAILY chart.
 indicator("Proximity Levels", "Prox Levels", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 4)
 
 // ── proximity band (extra clusters near price) ─────────────────────────────────
 gN      = "Proximity"
 nearPct = input.float(1.5, "Also show context levels within ± % of price", group = gN, minval = 0.1, maxval = 10, step = 0.1) / 100.0
+confPct = input.float(0.4, "Confluence — merge levels within ± % into one", group = gN, minval = 0.05, maxval = 3, step = 0.05) / 100.0
 
 // ── SMAs — ALWAYS on (your decision core), drawn FLAT ──────────────────────────
 gS    = "SMAs (always on)"
@@ -84,22 +87,28 @@ instTop = smzHi - fInsT * smzRng
 instBot = smzHi - fInsB * smzRng
 smzBot  = smzHi - fSmB  * smzRng
 
-// ── flat-line drawing + context-candidate collection ───────────────────────────
+// ── collection + flat-line drawing (with confluence clustering) ─────────────────
 var line[]   _ln = array.new_line()
 var label[]  _lb = array.new_label()
-var float[]  _cv = array.new_float()
+var float[]  _cv = array.new_float()   // context candidates (for the nearest-above/below bracket)
 var string[] _cn = array.new_string()
+var float[]  _dv = array.new_float()   // EVERYTHING that will be drawn (SMAs/EMAs/context/SMZ edges)
+var string[] _dn = array.new_string()
 var box _iBox = na
 var box _sBox = na
-f_draw(float lvl, string nm) =>
+f_draw(float lvl, string nm, int w) =>
     sup = close > lvl
     col = sup ? supCol : resCol
-    array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = wLine))
+    array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = w))
     array.push(_lb, label.new(bar_index + 8, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
 f_cand(float v, string nm, bool show) =>
     if show and not na(v) and v > 0
         array.push(_cv, v)
         array.push(_cn, nm)
+f_add(float v, string nm, bool show) =>
+    if show and not na(v) and v > 0
+        array.push(_dv, v)
+        array.push(_dn, nm)
 
 if barstate.islast
     for _l in _ln
@@ -110,22 +119,17 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_cv)
     array.clear(_cn)
-    // SMAs — ALWAYS
-    if en20  and not na(sma20)  and sma20  > 0
-        f_draw(sma20,  "20 SMA")
-    if en50  and not na(sma50)  and sma50  > 0
-        f_draw(sma50,  "50 SMA")
-    if en100 and not na(sma100) and sma100 > 0
-        f_draw(sma100, "100 SMA")
-    if en200 and not na(sma200) and sma200 > 0
-        f_draw(sma200, "200 SMA")
-    if en50e  and not na(ema50)  and ema50  > 0
-        f_draw(ema50,  "50 EMA")
-    if en100e and not na(ema100) and ema100 > 0
-        f_draw(ema100, "100 EMA")
-    if en200e and not na(ema200) and ema200 > 0
-        f_draw(ema200, "200 EMA")
-    // collect enabled context candidates
+    array.clear(_dv)
+    array.clear(_dn)
+    // SMAs + EMAs — always in the draw set
+    f_add(sma20,  "20 SMA",  en20)
+    f_add(sma50,  "50 SMA",  en50)
+    f_add(sma100, "100 SMA", en100)
+    f_add(sma200, "200 SMA", en200)
+    f_add(ema50,  "50 EMA",  en50e)
+    f_add(ema100, "100 EMA", en100e)
+    f_add(ema200, "200 EMA", en200e)
+    // context candidates (for bracket calc)
     f_cand(pwh, "PWH", enPW)
     f_cand(pwl, "PWL", enPW)
     f_cand(pmh, "PMH", enPM)
@@ -144,15 +148,13 @@ if barstate.islast
                 naV := v
             if v < close and v > nbV
                 nbV := v
-    // draw context: the immediate bracket, plus anything within the band
+    // add qualifying context (immediate bracket, or within the band) to the draw set
     if array.size(_cv) > 0
         for _i = 0 to array.size(_cv) - 1
             v = array.get(_cv, _i)
-            near = math.abs(close - v) / close <= nearPct
-            bracket = v == naV or v == nbV
-            if near or bracket
-                f_draw(v, array.get(_cn, _i))
-    // Smart Money zone — shaded band + edges, ONLY when price is inside it or within the band
+            if math.abs(close - v) / close <= nearPct or v == naV or v == nbV
+                f_add(v, array.get(_cn, _i), true)
+    // Smart Money zone — shaded band + edges, ONLY when price is inside/near it
     box.delete(_iBox)
     box.delete(_sBox)
     smzOk = enSMZ and not na(instTop) and not na(smzBot) and instTop > smzBot
@@ -160,6 +162,24 @@ if barstate.islast
     if smzNear
         _iBox := box.new(bar_index - lineLen, math.max(instTop, instBot), bar_index + 8, math.min(instTop, instBot), border_color = color.new(color.blue, 55), bgcolor = colInst)
         _sBox := box.new(bar_index - lineLen, math.max(instBot, smzBot),  bar_index + 8, math.min(instBot, smzBot),  border_color = color.new(color.purple, 55), bgcolor = colSm)
-        f_draw(instTop, "Inst top")
-        f_draw(instBot, "Inst bot / SM top")
-        f_draw(smzBot,  "SM bot")
+        f_add(instTop, "Inst top", true)
+        f_add(instBot, "Inst bot", true)
+        f_add(smzBot,  "SM bot",   true)
+    // ── CONFLUENCE — group levels within confPct into ONE thicker line, label lists all members
+    if array.size(_dv) > 0
+        _used = array.new_bool(array.size(_dv), false)
+        for _i = 0 to array.size(_dv) - 1
+            if not array.get(_used, _i)
+                vi   = array.get(_dv, _i)
+                nm   = array.get(_dn, _i)
+                sumv = vi
+                cnt  = 1
+                array.set(_used, _i, true)
+                if _i < array.size(_dv) - 1
+                    for _j = _i + 1 to array.size(_dv) - 1
+                        if not array.get(_used, _j) and math.abs(array.get(_dv, _j) - vi) / vi <= confPct
+                            nm   := nm + " + " + array.get(_dn, _j)
+                            sumv := sumv + array.get(_dv, _j)
+                            cnt  := cnt + 1
+                            array.set(_used, _j, true)
+                f_draw(sumv / cnt, cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm, cnt > 1 ? wLine + 2 : wLine)
