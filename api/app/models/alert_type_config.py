@@ -67,6 +67,11 @@ _MA_TOGGLES = (
 # default_enabled only applies on FIRST insert — `enabled` is never
 # overwritten by seeding, so user toggles persist across deploys.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
+    # Candle-close pings (2026-08-02) — a scheduled heads-up (NOT a trade signal) to review charts at
+    # each 2h candle close. Per-user opt-in via this toggle; delivered in-app (APNs push) + Telegram.
+    # Equity = 4/session (11:30/13:30/15:30/16:00 ET); crypto = 12/day (every 2h UTC, weekends too).
+    ("candle_ping", "Candle-close pings — heads-up to review charts at each 2h candle close (in-app + Telegram)", "Candle pings", False),
+
     # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
 
     # Prior-HIGH held CUT 2026-06-23 — "high held as support" = buying resistance;
