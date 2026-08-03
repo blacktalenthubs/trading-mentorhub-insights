@@ -1,0 +1,118 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// 4H Levels · 3 Days — every completed 4h candle's HIGH & LOW over the last N trading days.
+// ─────────────────────────────────────────────────────────────────────────────
+// A CONTEXT map, not a signal tool. Where prior_4h_two_candles.pine draws only the last TWO 4h
+// candles (the decision pair) + a single "Next 4H", THIS pine lays down the WHOLE recent 4h grid:
+// the H & L of each completed 4h candle from today back through the last N sessions (default 3 →
+// today + yesterday + 2 & 3 days ago). So you can see, at a glance, every level price is working
+// between — the "map each day's 4h levels" view.
+//
+// Every level is a FLAT horizontal line, colored by ROLE vs the current price:
+//   green = SUPPORT (below price) · red = RESISTANCE (above price).
+// Coincident levels (consecutive 4h candles often share a near-equal H/L) MERGE into one line so
+// the chart stays readable. Each label tags its age (today / D-1 / D-2 …) and H or L. Visual only,
+// NO alerts. Bind on any intraday chart (15m is typical); the levels are 4h regardless of the TF.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("4H Levels · 3 Days (H/L)", "4hr-3d", overlay = true, max_lines_count = 100, max_labels_count = 100)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+nDays    = input.int(3, "Days of 4h levels to map (blocks back)", minval = 1, maxval = 10, tooltip = "How many trading blocks back to draw. Equity = sessions, crypto = 8h blocks. 3 = today + yesterday + 2 & 3 days ago.")
+colHi    = input.color(#EF5350, "Resistance (above price)", inline = "c")
+colLo    = input.color(#26A69A, "Support (below price)",   inline = "c")
+wLine    = input.int(2,  "Line thickness", minval = 1, maxval = 6)
+lineLen  = input.int(90, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff   = input.int(8,  "Label offset (bars right)", minval = 0, maxval = 50)
+lblSide  = input.string("Right", "Label side", options = ["Left", "Right"])
+mergePct = input.float(0.12, "Merge levels within (%)", minval = 0, maxval = 1, tooltip = "Two 4h levels within this % of each other draw as ONE line with a ·×N count, so near-equal highs/lows don't stack unreadable. 0 = never merge.")
+showLbl  = input.bool(true, "Show labels")
+dimOld   = input.bool(true, "Fade older days", tooltip = "Draw older days' lines more transparent so today/yesterday stand out.")
+
+// ── block clock: one tick per session (equity) / 8h block (crypto) — the age unit ────────────
+// syminfo.type is "spot" for Coinbase crypto (the crypto flag lives in typespecs, unexposed) — so
+// detect EQUITY explicitly (stock/fund/dr); everything else = crypto/8h. Matches prior_4h pine.
+isEquityType = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
+blockTf  = isEquityType ? "D" : "480"
+newBlock = ta.change(time(blockTf)) != 0
+var int blockIdx = 0
+if newBlock
+    blockIdx := blockIdx + 1
+
+// ── the last completed 4h candle H/L (settled [1] + lookahead → non-repainting) ──────────────
+[h4, l4] = request.security(syminfo.tickerid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ── forward-accumulate each DISTINCT completed 4h H/L + the block it formed in ────────────────
+// Forward accumulation (push settled values) avoids the backward high[i] history-buffer limit.
+var float[] aH = array.new_float()
+var float[] aL = array.new_float()
+var int[]   aB = array.new_int()
+if not na(h4) and not na(l4)
+    _push = array.size(aH) == 0
+    if not _push                       // nest the guard — Pine and/or don't short-circuit
+        _push := array.get(aH, array.size(aH) - 1) != h4 or array.get(aL, array.size(aL) - 1) != l4
+    if _push
+        array.push(aH, h4)
+        array.push(aL, l4)
+        array.push(aB, blockIdx)
+        if array.size(aH) > 220         // ~plenty for many days across crypto (6 4h/day) + equity
+            array.shift(aH)
+            array.shift(aL)
+            array.shift(aB)
+
+// ── draw (rebuilt on the last bar; old lines cleared first) ──────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+
+f_draw(float v, string nm, int age) =>
+    if not na(v)
+        _role = v >= close ? colHi : colLo
+        _fade = dimOld ? math.min(70, age * 22) : 0     // today = solid, each older day +22% transparent
+        _col  = color.new(_role, _fade)
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = wLine))
+        if showLbl
+            _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
+            _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
+            array.push(_lb, label.new(_lx, v, nm + "  " + str.tostring(v, format.mintick), style = _ls, color = color.new(_role, 82), textcolor = _role, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    // 1) gather every in-window level (H and L of each 4h candle within nDays blocks) + its age
+    vArr = array.new_float()
+    nArr = array.new_string()
+    gArr = array.new_int()             // age (blocks back) per gathered level, for the fade
+    if array.size(aH) > 0
+        for _i = 0 to array.size(aH) - 1
+            _b   = array.get(aB, _i)
+            _age = blockIdx - _b
+            if _age <= nDays
+                _tag = _age == 0 ? "today" : "D-" + str.tostring(_age)
+                array.push(vArr, array.get(aH, _i))
+                array.push(nArr, "4H H · " + _tag)
+                array.push(gArr, _age)
+                array.push(vArr, array.get(aL, _i))
+                array.push(nArr, "4H L · " + _tag)
+                array.push(gArr, _age)
+    // 2) merge coincident levels within mergePct into ONE line (·×N count), draw the rest
+    _used = array.new_bool(array.size(vArr), false)
+    if array.size(vArr) > 0
+        for _i = 0 to array.size(vArr) - 1
+            if not array.get(_used, _i)
+                _v   = array.get(vArr, _i)
+                _nm  = array.get(nArr, _i)
+                _age = array.get(gArr, _i)
+                _cnt = 1
+                // guard: Pine auto-reverses when from > to, so only scan for coincident when one exists
+                if _i < array.size(vArr) - 1
+                    for _j = _i + 1 to array.size(vArr) - 1
+                        _vj = array.get(vArr, _j)
+                        if not array.get(_used, _j) and mergePct > 0 and math.abs(_vj - _v) / _v * 100.0 <= mergePct
+                            array.set(_used, _j, true)
+                            _cnt := _cnt + 1
+                            _age := math.min(_age, array.get(gArr, _j))   // freshest member drives the fade
+                array.set(_used, _i, true)
+                f_draw(_v, _cnt > 1 ? _nm + "  ·×" + str.tostring(_cnt) : _nm, _age)
