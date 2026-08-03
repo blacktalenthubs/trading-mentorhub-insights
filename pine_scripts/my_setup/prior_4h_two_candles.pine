@@ -184,7 +184,10 @@ var label[] _labels = array.new_label()
 f_draw(float v, string nm, color col, int styl, bool use) =>
     if use and not na(v)
         lst = styl == 2 ? line.style_dotted : styl == 1 ? line.style_dashed : line.style_solid
-        array.push(_lines,  line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = wLine, style = lst))
+        // extend LEFT so the level spans the full chart on ANY timeframe (a fixed bar-count segment is
+        // too short on 5m/1m — the line stopped mid-chart instead of reaching the candles). Right end
+        // stays at bar_index + tagOff so the label sits just past the last bar.
+        array.push(_lines,  line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = wLine, style = lst, extend = extend.left))
         _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
         _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
         array.push(_labels, label.new(_lx, v, nm + "  " + str.tostring(v, format.mintick), style = _ls, color = color.new(col, 80), textcolor = col, size = size.small))
@@ -270,7 +273,7 @@ if barstate.islast
                 f_draw(_v, _dnm, _dcol, 2, true)        // dotted context line
     // the day's OPEN — dotted neutral line (its role tags ride on the 4h levels above)
     if enOpen and not na(dayOpen)
-        array.push(_lines, line.new(bar_index - lineLen, dayOpen, bar_index + tagOff, dayOpen, color = colOpen, width = 1, style = line.style_dotted))
+        array.push(_lines, line.new(bar_index - lineLen, dayOpen, bar_index + tagOff, dayOpen, color = colOpen, width = 1, style = line.style_dotted, extend = extend.left))
         _olx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
         _ols = lblSide == "Left" ? label.style_label_right : label.style_label_left
         array.push(_labels, label.new(_olx, dayOpen, "Open  " + str.tostring(dayOpen, format.mintick), style = _ols, color = color.new(colOpen, 15), textcolor = color.black, size = size.small))
