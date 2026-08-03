@@ -86,6 +86,10 @@ pqh = f_sec("3M", high[1])
 pql = f_sec("3M", low[1])
 pqc = f_sec("3M", close[1])
 fv  = f_sec("W",  ta.sma(ohlc4, 33)[1])
+// prior-day H/L — RTH-accurate (regular-session ticker so extended-hours prints don't leak)
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+pdh = request.security(rthTid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(rthTid, "D", low[1],  lookahead = barmerge.lookahead_on)
 // Smart Money zone edges — golden pocket of the recent weekly swing (GP-Auto formula)
 smzHi   = f_sec("W", ta.highest(high, smzLb)[1])
 smzLo   = f_sec("W", ta.lowest(low,  smzLb)[1])
@@ -183,10 +187,12 @@ if barstate.islast
                 oSupV := v
             if v > dayOpen and v < oResV
                 oResV := v
-    // the day's open itself — a dotted neutral line
+    // the day's open — a dotted neutral line. Its label also flags the open vs YESTERDAY's range:
+    // opened ABOVE PDH = strong (gap over the range), BELOW PDL = weak (gap under it), else neutral.
     if enOpen and not na(dayOpen)
+        _openCtx = not na(pdh) and dayOpen > pdh ? "  · above PDH ▲ (strong)" : not na(pdl) and dayOpen < pdl ? "  · below PDL ▼ (weak)" : (not na(pdh) and not na(pdl) ? "  · inside PDH–PDL" : "")
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + 8, dayOpen, color = openCol, width = 1, style = line.style_dotted))
-        array.push(_lb, label.new(bar_index + 8, dayOpen, "Open " + str.tostring(dayOpen, format.mintick), style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
+        array.push(_lb, label.new(bar_index + 8, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _openCtx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
     // ── CONFLUENCE — group levels within confPct into ONE thicker line, label lists all members
     if array.size(_dv) > 0
         _used = array.new_bool(array.size(_dv), false)
