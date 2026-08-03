@@ -1,0 +1,96 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PDH / PDL · 5 Days — the DAILY High & Low of each of the last N sessions. Clean & standalone.
+// ─────────────────────────────────────────────────────────────────────────────
+// A bare backtest/pattern tool: no 4h, no alerts, no EMAs — just the prior-day highs & lows for
+// the last N days (default 5) as FLAT horizontal lines, tagged D-1 … D-5. RTH-accurate (regular
+// session, so extended-hours prints don't leak the daily H/L). Optionally colored by ROLE vs the
+// current price (green = support below · red = resistance above), faded by age, with coincident
+// levels merged. Bind on any timeframe; the levels are always the daily H/L.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("PDH/PDL · 5 Days", "pdh-pdl-5d", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+nDays     = input.int(5, "Prior days (PDH/PDL)", minval = 1, maxval = 5)
+inclToday = input.bool(false, "Include today's developing H/L", tooltip = "Also draw the CURRENT session's high & low so far (tagged 'today'). Off = prior days only (D-1..D-N).")
+roleCol   = input.bool(true, "Color by role vs price", tooltip = "On: a level BELOW price draws green (support), ABOVE draws red (resistance). Off: PDH always red, PDL always green.")
+colHi     = input.color(#EF5350, "High / resistance", inline = "c")
+colLo     = input.color(#26A69A, "Low / support",    inline = "c")
+wLine     = input.int(2, "Line thickness", minval = 1, maxval = 6)
+lineLen   = input.int(80, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff    = input.int(8, "Label offset (bars right)", minval = 0, maxval = 50)
+lblSide   = input.string("Right", "Label side", options = ["Left", "Right"])
+mergePct  = input.float(0.1, "Merge levels within (%)", minval = 0, maxval = 1, tooltip = "Two levels within this % of each other draw as ONE line with a ·×N count. 0 = never merge.")
+showLbl   = input.bool(true, "Show labels")
+fadeOld   = input.bool(true, "Fade older days")
+
+// ── RTH-accurate daily H/L for today + the last 5 sessions (settled offsets, non-repainting) ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[dh0, dl0, dh1, dl1, dh2, dl2, dh3, dl3, dh4, dl4, dh5, dl5] = request.security(rthTid, "D", [high, low, high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5]], lookahead = barmerge.lookahead_on)
+
+// ── draw (rebuilt on the last bar) ────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+
+f_draw(float v, string nm, int age, bool isHigh, bool conf) =>
+    if not na(v)
+        _base = roleCol ? (v >= close ? colHi : colLo) : (isHigh ? colHi : colLo)
+        _fade = fadeOld ? math.min(65, age * 16) : 0        // today/D-1 solid, each older day fainter
+        _col  = color.new(_base, _fade)
+        _w    = conf ? wLine + 1 : wLine
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w))
+        if showLbl
+            _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
+            _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
+            array.push(_lb, label.new(_lx, v, nm + "  " + str.tostring(v, format.mintick), style = _ls, color = color.new(_base, 82), textcolor = _base, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    // gather each in-window daily H/L with a compact tag + age (0 = today, 1 = D-1 …)
+    _hs = array.from(dh0, dh1, dh2, dh3, dh4, dh5)
+    _ls = array.from(dl0, dl1, dl2, dl3, dl4, dl5)
+    _V  = array.new_float()
+    _T  = array.new_string()
+    _G  = array.new_int()
+    _IH = array.new_bool()             // is-high flag per gathered level (for role-off coloring)
+    _start = inclToday ? 0 : 1
+    for _a = _start to nDays
+        _lab = _a == 0 ? "today" : "D-" + str.tostring(_a)
+        _hv  = array.get(_hs, _a)
+        _lv  = array.get(_ls, _a)
+        if not na(_hv)
+            array.push(_V, _hv)
+            array.push(_T, "PDH " + _lab)
+            array.push(_G, _a)
+            array.push(_IH, true)
+        if not na(_lv)
+            array.push(_V, _lv)
+            array.push(_T, "PDL " + _lab)
+            array.push(_G, _a)
+            array.push(_IH, false)
+    // merge coincident levels within mergePct into ONE thicker line, note the members
+    _U = array.new_bool(array.size(_V), false)
+    if array.size(_V) > 0
+        for _i = 0 to array.size(_V) - 1
+            if not array.get(_U, _i)
+                _v    = array.get(_V, _i)
+                _lbl  = array.get(_T, _i)
+                _age  = array.get(_G, _i)
+                _high = array.get(_IH, _i)
+                _cnt  = 1
+                if _i < array.size(_V) - 1
+                    for _j = _i + 1 to array.size(_V) - 1
+                        _vj = array.get(_V, _j)
+                        if not array.get(_U, _j) and mergePct > 0 and math.abs(_vj - _v) / _v * 100.0 <= mergePct
+                            array.set(_U, _j, true)
+                            _lbl := _lbl + " + " + array.get(_T, _j)
+                            _cnt := _cnt + 1
+                            _age := math.min(_age, array.get(_G, _j))
+                array.set(_U, _i, true)
+                _nm = _cnt > 1 ? "CONF ×" + str.tostring(_cnt) + " · " + _lbl : _lbl
+                f_draw(_v, _nm, _age, _high, _cnt > 1)
