@@ -1047,6 +1047,40 @@ async def lifespan(app: FastAPI):
                     )
                 logger.info("Registered 12 cron jobs for 2h crypto candle pings (24/7 UTC)")
 
+            # ── Hourly LEVELS agent (user 2026-08-02) — AI read of WHERE price sits vs its MA/EMA stack
+            # + the 4H levels. SPY during RTH (verifies Mon), BTC 24/7 (so it can be tested this weekend).
+            # Opt-in via the 'levels_hourly' toggle (only the founder is enabled for now). Telegram + push.
+            def _push_levels(symbol: str, is_crypto: bool, label: str, mkt_guard: bool) -> None:
+                if mkt_guard and not is_market_hours():
+                    return
+                try:
+                    from analytics.spy_levels_agent import compute_levels, narrate
+                    from datetime import datetime as _dtl
+                    lv = compute_levels(symbol, is_crypto)
+                    if not lv:
+                        logger.info("LEVELS %s: no data", symbol)
+                        return
+                    _tl = _dtl.now(_pytz.timezone("America/New_York")).strftime("%H:%M ET")
+                    lv["session_time"] = _tl
+                    read = narrate(lv, symbol=label)
+                    body = f"<b>📊 {label} levels · {_tl}</b>\n{read}"
+                    _broadcast_telegram(body, f"levels:{label}", "levels_hourly")
+                    _broadcast_push(f"{label} levels · {_tl}", read, f"levels:{label}", "levels_hourly")
+                except Exception:
+                    logger.exception("LEVELS push failed for %s", symbol)
+
+            _et_lvl = _pytz.timezone("America/New_York")
+            for _lh, _lm in [(10, 30), (11, 30), (12, 30), (13, 30), (14, 30), (15, 30)]:
+                scheduler.add_job(
+                    _push_levels, CronTrigger(day_of_week="mon-fri", hour=_lh, minute=_lm, timezone=_et_lvl),
+                    args=["SPY", False, "SPY", True], id=f"levels_spy_{_lh}{_lm}", misfire_grace_time=90, replace_existing=True)
+            _utc_lvl = _pytz.utc
+            for _lhh in range(0, 24):
+                scheduler.add_job(
+                    _push_levels, CronTrigger(hour=_lhh, minute=0, timezone=_utc_lvl),
+                    args=["BTC-USD", True, "BTC", False], id=f"levels_btc_{_lhh:02d}", misfire_grace_time=90, replace_existing=True)
+            logger.info("Registered levels-agent jobs: SPY 6/session (RTH) + BTC 24/day (24/7 UTC)")
+
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
             # Plus a startup fire on every Railway redeploy as a sanity check

@@ -72,6 +72,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # so a user can pick equity-only, crypto-only, or both.
     ("candle_ping_equity", "Candle pings · Equity — heads-up at each 2h stock candle close (4/session: 11:30/13:30/15:30/16:00 ET)", "Candle pings", False),
     ("candle_ping_crypto", "Candle pings · Crypto — heads-up at each 2h crypto candle close (12/day, every 2h UTC incl. weekends)", "Candle pings", False),
+    # Hourly LEVELS agent (2026-08-02) — AI read of where SPY/BTC sits vs its MA/EMA stack + 4H levels.
+    ("levels_hourly", "Levels agent (hourly) — AI read of where SPY (RTH) & BTC (24/7) sit vs the MA/EMA stack + 4H levels", "Candle pings", False),
 
     # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
 
