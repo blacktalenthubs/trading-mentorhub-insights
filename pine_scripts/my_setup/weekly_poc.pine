@@ -17,12 +17,16 @@ indicator("Volume Profile · POC", "POC", overlay = true, max_lines_count = 6, m
 
 barsBack = input.int(52, "Bars Back (per current timeframe)", minval = 10, maxval = 1000, tooltip = "Bars of THIS chart's TF in the profile. On the WEEKLY: 26 = ~6mo (tightest, nearest price), 52 = ~1yr (recent battleground — DEFAULT), 150 = THT's default (all-time POC, usually far out).")
 rows     = input.int(35,  "Rows (= THT 'Columns')", minval = 10, maxval = 300, tooltip = "Price buckets — set equal to THT's 'Columns' (default 35) so the POC lands in the same bucket.")
+showVol  = input.bool(true,  "Show the POC's volume on the label (e.g. '1.2B · 18%')")
 showVA   = input.bool(false, "Also draw the Value Area (VAH / VAL)")
 vaPct    = input.float(70, "Value Area %", minval = 50, maxval = 95) / 100.0
 pocCol   = input.color(#EF5350, "POC color")
 vaCol    = input.color(color.new(#FF9800, 40), "Value Area color")
 wLine    = input.int(2,  "POC line width", minval = 1, maxval = 5)
 lineLen  = input.int(150, "Line length (bars back)", minval = 10, maxval = 1000)
+
+// compact volume formatter (1_234_000_000 → "1.23B", 457_000_000 → "457M")
+f_vol(float v) => v >= 1e9 ? str.tostring(v / 1e9, "#.##") + "B" : v >= 1e6 ? str.tostring(v / 1e6, "#.#") + "M" : v >= 1e3 ? str.tostring(v / 1e3, "#") + "K" : str.tostring(v, "#")
 
 var line  pocLn = na
 var label pocLb = na
@@ -60,10 +64,12 @@ if barstate.islast
                 pocV := array.get(vp, r)
                 pocR := r
         poc = ll + (pocR + 0.5) * step
+        _ptot  = array.sum(vp)
+        _pvtxt = showVol and _ptot > 0 ? "  ·  " + f_vol(pocV) + " · " + str.tostring(pocV / _ptot * 100, "#") + "%" : ""
         line.delete(pocLn)
         label.delete(pocLb)
         pocLn := line.new(bar_index - lineLen, poc, bar_index + 6, poc, color = pocCol, width = wLine)
-        pocLb := label.new(bar_index + 6, poc, "POC  " + str.tostring(poc, format.mintick), style = label.style_label_left, color = color.new(pocCol, 20), textcolor = color.white, size = size.small)
+        pocLb := label.new(bar_index + 6, poc, "POC  " + str.tostring(poc, format.mintick) + _pvtxt, style = label.style_label_left, color = color.new(pocCol, 20), textcolor = color.white, size = size.small)
         // Value Area — expand out from the POC (toward the fatter neighbor) to vaPct of volume
         line.delete(vahLn)
         line.delete(valLn)
