@@ -28,22 +28,36 @@ lineLen  = input.int(150, "Line length (bars back)", minval = 10, maxval = 1000)
 // compact volume formatter (1_234_000_000 → "1.23B", 457_000_000 → "457M")
 f_vol(float v) => v >= 1e9 ? str.tostring(v / 1e9, "#.##") + "B" : v >= 1e6 ? str.tostring(v / 1e6, "#.#") + "M" : v >= 1e3 ? str.tostring(v / 1e3, "#") + "K" : str.tostring(v, "#")
 
+// ACCUMULATE forward — push each CONFIRMED bar's H/L/volume, keep the last `barsBack`. This avoids
+// the deep backward `high[i]` history-buffer limit that was undercounting volume on long windows.
+var float[] Hs = array.new_float()
+var float[] Ls = array.new_float()
+var float[] Vs = array.new_float()
+if barstate.isconfirmed
+    array.push(Hs, high)
+    array.push(Ls, low)
+    array.push(Vs, volume)
+    if array.size(Hs) > barsBack
+        array.shift(Hs)
+        array.shift(Ls)
+        array.shift(Vs)
+
 var line  pocLn = na
 var label pocLb = na
 var line  vahLn = na
 var line  valLn = na
 
-if barstate.islast
-    hh = ta.highest(high, barsBack)
-    ll = ta.lowest(low, barsBack)
-    if not na(hh) and not na(ll) and hh > ll
+if barstate.islast and array.size(Hs) >= 2
+    hh = array.max(Hs)
+    ll = array.min(Ls)
+    if hh > ll
         step = (hh - ll) / rows
         vp = array.new_float(rows, 0.0)
         // spread each bar's volume uniformly across the rows its high–low spans
-        for i = 0 to barsBack - 1
-            bh = high[i]
-            bl = low[i]
-            bv = volume[i]
+        for i = 0 to array.size(Hs) - 1
+            bh = array.get(Hs, i)
+            bl = array.get(Ls, i)
+            bv = array.get(Vs, i)
             if not na(bv) and bv > 0 and not na(bh) and not na(bl)
                 rng = bh - bl
                 if rng > 0
