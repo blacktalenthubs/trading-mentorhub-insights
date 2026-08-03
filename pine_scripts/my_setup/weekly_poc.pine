@@ -1,71 +1,57 @@
 //@version=5
 // =============================================================================
-// WEEKLY VOLUME PROFILE — POC (Point of Control), locked to the WEEKLY chart
+// VOLUME PROFILE · POC — mirrors THT "Volume Pro" (bars-back model)
 // =============================================================================
-// A single flat horizontal line at the POC — the price level where the most volume
-// has traded over the recent weeks (the strongest S/R, THT's fat volume bar). Computed
-// from WEEKLY bars regardless of the chart TF: each completed week's H/L/volume is
-// accumulated, then a volume-at-price histogram is built over the last N weeks and the
-// fattest row = the POC. Bind it on the DAILY (or any TF) and you still see the WEEKLY POC,
-// so you can line it up against Peter/THT's weekly volume-profile POC. Optional Value Area.
+// A single flat line at the POC (Point of Control) — the price bucket where the most volume
+// has traded over the last N bars of the CURRENT chart timeframe (THT's "Bars Back" model).
+// BIND ON THE WEEKLY CHART for a weekly POC.
 //
-// NOTE ON MATCHING THT: this spreads each WEEK's volume uniformly across that week's H–L
-// (the standard bar-approximation). THT may distribute over finer (daily/intraday) bars, so
-// the POC will be CLOSE but not always tick-identical — bump `Rows` up for finer resolution.
-indicator("Weekly Volume Profile · POC", "POC (W)", overlay = true, max_lines_count = 8, max_labels_count = 8)
+// THE WINDOW IS EVERYTHING. A POC is only as useful as its lookback:
+//   • RECENT window (~26–52 bars, DEFAULT) → the CURRENT battleground's fair value, near price →
+//     ACTIONABLE as a trade level. This is what you usually want.
+//   • LONG window (150+ bars) → the ALL-TIME volume wall, which is often FAR from price (e.g. NVDA's
+//     ~50 accumulation while price is 200) → context only, not a trade level. Set 150 to MATCH THT's
+//     default (which lands on that far-out all-time POC — by design, not a bug in either tool).
+// Volume is spread uniformly across each bar's high–low (the standard profile method).
+indicator("Volume Profile · POC", "POC", overlay = true, max_lines_count = 6, max_labels_count = 6)
 
-lbWeeks = input.int(26,  "Weeks in the profile", minval = 4, maxval = 260, tooltip = "How many completed weekly bars the profile is built from. ~26 = 6 months, 52 = 1 year. Match THT's visible range.")
-rows    = input.int(100, "Rows (price resolution)", minval = 20, maxval = 300, tooltip = "Number of price buckets. Higher = finer POC, but heavier to compute.")
-showVA  = input.bool(false, "Also draw the Value Area (VAH / VAL)")
-vaPct   = input.float(70, "Value Area %", minval = 50, maxval = 95) / 100.0
-pocCol  = input.color(#FF9800, "POC color")
-vaCol   = input.color(color.new(#FF9800, 60), "Value Area color")
-wLine   = input.int(2,  "POC line width", minval = 1, maxval = 5)
-lineLen = input.int(120, "Line length (bars back)", minval = 10, maxval = 1000)
-
-// ── accumulate each COMPLETED weekly bar's H / L / volume ──────────────────────
-tid = syminfo.tickerid
-[wH, wL, wV] = request.security(tid, "W", [high[1], low[1], volume[1]], lookahead = barmerge.lookahead_on)
-newWk = ta.change(time("W")) != 0
-var float[] Hs = array.new_float()
-var float[] Ls = array.new_float()
-var float[] Vs = array.new_float()
-if newWk and not na(wH) and not na(wL) and not na(wV)
-    array.push(Hs, wH)
-    array.push(Ls, wL)
-    array.push(Vs, wV)
-    if array.size(Hs) > lbWeeks
-        array.shift(Hs)
-        array.shift(Ls)
-        array.shift(Vs)
+barsBack = input.int(52, "Bars Back (per current timeframe)", minval = 10, maxval = 1000, tooltip = "Bars of THIS chart's TF in the profile. On the WEEKLY: 26 = ~6mo (tightest, nearest price), 52 = ~1yr (recent battleground — DEFAULT), 150 = THT's default (all-time POC, usually far out).")
+rows     = input.int(35,  "Rows (= THT 'Columns')", minval = 10, maxval = 300, tooltip = "Price buckets — set equal to THT's 'Columns' (default 35) so the POC lands in the same bucket.")
+showVA   = input.bool(false, "Also draw the Value Area (VAH / VAL)")
+vaPct    = input.float(70, "Value Area %", minval = 50, maxval = 95) / 100.0
+pocCol   = input.color(#EF5350, "POC color")
+vaCol    = input.color(color.new(#FF9800, 40), "Value Area color")
+wLine    = input.int(2,  "POC line width", minval = 1, maxval = 5)
+lineLen  = input.int(150, "Line length (bars back)", minval = 10, maxval = 1000)
 
 var line  pocLn = na
 var label pocLb = na
 var line  vahLn = na
 var line  valLn = na
 
-if barstate.islast and array.size(Hs) >= 2
-    hh = array.max(Hs)
-    ll = array.min(Ls)
-    if hh > ll
+if barstate.islast
+    hh = ta.highest(high, barsBack)
+    ll = ta.lowest(low, barsBack)
+    if not na(hh) and not na(ll) and hh > ll
         step = (hh - ll) / rows
         vp = array.new_float(rows, 0.0)
-        // distribute each week's volume across the rows its H–L spans (uniform)
-        for i = 0 to array.size(Hs) - 1
-            bh = array.get(Hs, i)
-            bl = array.get(Ls, i)
-            bv = array.get(Vs, i)
-            rng = bh - bl
-            if bv > 0 and rng > 0
-                for r = 0 to rows - 1
-                    rlo = ll + r * step
-                    rhi = rlo + step
-                    ov = math.min(bh, rhi) - math.max(bl, rlo)
-                    if ov > 0
-                        array.set(vp, r, array.get(vp, r) + bv * ov / rng)
-            else if bv > 0
-                _r = int(math.max(0, math.min(rows - 1, math.floor((bl - ll) / step))))
-                array.set(vp, _r, array.get(vp, _r) + bv)
+        // spread each bar's volume uniformly across the rows its high–low spans
+        for i = 0 to barsBack - 1
+            bh = high[i]
+            bl = low[i]
+            bv = volume[i]
+            if not na(bv) and bv > 0 and not na(bh) and not na(bl)
+                rng = bh - bl
+                if rng > 0
+                    for r = 0 to rows - 1
+                        rlo = ll + r * step
+                        rhi = rlo + step
+                        ov = math.min(bh, rhi) - math.max(bl, rlo)
+                        if ov > 0
+                            array.set(vp, r, array.get(vp, r) + bv * ov / rng)
+                else
+                    _r = int(math.max(0, math.min(rows - 1, math.floor((bl - ll) / step))))
+                    array.set(vp, _r, array.get(vp, _r) + bv)
         // POC = the fattest row
         pocR = 0
         pocV = array.get(vp, 0)
@@ -77,7 +63,7 @@ if barstate.islast and array.size(Hs) >= 2
         line.delete(pocLn)
         label.delete(pocLb)
         pocLn := line.new(bar_index - lineLen, poc, bar_index + 6, poc, color = pocCol, width = wLine)
-        pocLb := label.new(bar_index + 6, poc, "POC W  " + str.tostring(poc, format.mintick), style = label.style_label_left, color = color.new(pocCol, 20), textcolor = color.white, size = size.small)
+        pocLb := label.new(bar_index + 6, poc, "POC  " + str.tostring(poc, format.mintick), style = label.style_label_left, color = color.new(pocCol, 20), textcolor = color.white, size = size.small)
         // Value Area — expand out from the POC (toward the fatter neighbor) to vaPct of volume
         line.delete(vahLn)
         line.delete(valLn)
