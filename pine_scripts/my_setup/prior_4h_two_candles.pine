@@ -187,25 +187,25 @@ f_conf(int idx) =>
         s := f_which(pql) == idx ? s + " · PQL" : s
     s
 
-// Next 4H = nearest 4h SWING strictly OUTSIDE the two-candle boundary — above the TOP of the
-// mapped highs / below the BOTTOM of the mapped lows. A swing INSIDE the mapped range (e.g.
-// between 4H-2 H and 4H-1 H) is NOT the "next" one. If price already ran past the boundary,
-// keep the level beyond price too (max/min with close).
-boundHi = not na(h1) and not na(h2) ? math.max(h1, h2) : close
-boundLo = not na(l1) and not na(l2) ? math.min(l1, l2) : close
-refHi = math.max(boundHi, close)
-refLo = math.min(boundLo, close)
+// Next 4H = nearest COMPLETED-4h level on each side of the CURRENT PRICE, drawn from the rolling
+// multi-day set (pvHiArr/pvLoArr, ~40 days back). Anchored to `close`, NOT the two-candle boundary,
+// so when price runs OUTSIDE the mapped pair the search walks back through prior days' 4h until it
+// brackets price — each day's 4h levels are in play (user 2026-08-03). The four already-drawn levels
+// (h1/l1/h2/l2, within 0.05%) are skipped so "Next 4H" is always a NEW level beyond the mapped pair;
+// when price is inside the pair this still points to the next levels above/below it (unchanged).
 float nextHi = na
 float nextLo = na
 if enSwing and array.size(pvHiArr) > 0
     for _j = 0 to array.size(pvHiArr) - 1
         _pv = array.get(pvHiArr, _j)
-        if _pv > refHi and (na(nextHi) or _pv < nextHi)
+        _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
+        if _pv > close and not _mp and (na(nextHi) or _pv < nextHi)
             nextHi := _pv
 if enSwing and array.size(pvLoArr) > 0
     for _k = 0 to array.size(pvLoArr) - 1
         _pv = array.get(pvLoArr, _k)
-        if _pv < refLo and (na(nextLo) or _pv > nextLo)
+        _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
+        if _pv < close and not _mp and (na(nextLo) or _pv > nextLo)
             nextLo := _pv
 
 // ── draw (redrawn on the last bar; old lines cleared first) ───────────────────
