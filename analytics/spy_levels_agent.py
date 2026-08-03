@@ -10,7 +10,8 @@ from __future__ import annotations
 
 # levels dict shape (all optional; missing keys are skipped):
 #   price, ema8, ema20, ema50, ema100, ema200, sma50, sma100, sma200,
-#   h4_1_high, h4_1_low, h4_2_high, h4_2_low, pdh, pdl, session_time
+#   h4_1_high, h4_1_low, h4_2_high, h4_2_low, pdh, pdl,
+#   pwh, pwl (prior week), pmh, pml (prior month), pqh, pql (prior quarter), session_time
 def _col(df, name):
     """Case-insensitive column accessor (Alpaca lowercases, yfinance capitalizes)."""
     for c in (name, name.capitalize(), name.upper(), name.lower()):
@@ -51,6 +52,19 @@ def compute_levels(symbol: str, is_crypto: bool = False) -> dict | None:
                     lv[k] = float(c.rolling(win).mean().iloc[-1])
         if h is not None and l is not None and len(daily) >= 2:
             lv["pdh"], lv["pdl"] = float(h.iloc[-2]), float(l.iloc[-2])
+        # prior WEEK / MONTH / QUARTER high & low (the last COMPLETED period → iloc[-2], since
+        # iloc[-1] is the current developing one). Matches the pine's PWH/PWL/PMH/PML/PQH/PQL.
+        if h is not None and l is not None and len(daily) >= 40:
+            try:
+                import pandas as _pd
+                _df = _pd.DataFrame({"h": list(h.values), "l": list(l.values)}, index=_pd.DatetimeIndex(daily.index))
+                for _rule, _hk, _lk in (("W", "pwh", "pwl"), ("M", "pmh", "pml"), ("Q", "pqh", "pql")):
+                    _agg = _df.resample(_rule).agg({"h": "max", "l": "min"}).dropna()
+                    if len(_agg) >= 2:
+                        lv[_hk] = float(_agg["h"].iloc[-2])
+                        lv[_lk] = float(_agg["l"].iloc[-2])
+            except Exception:
+                pass
     # ── intraday → last two COMPLETED 4H candles' H/L ──────────────────────────
     intr = None
     try:
@@ -104,6 +118,9 @@ def _levels_block(lv: dict) -> str:
         ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
         ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
         ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
+        ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
+        ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
+        ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
     ]
     rows = []
     for name, val in items:
@@ -119,20 +136,28 @@ def build_prompt(lv: dict, symbol: str = "SPY") -> str:
     t = lv.get("session_time", "")
     return (
         f"{symbol} is at ${_fmt(price)}{(' at ' + t) if t else ''}.\n"
-        f"Its moving averages and 4H levels, each marked as support (below price) or resistance (above):\n"
+        f"These are the ONLY structural levels — daily/weekly/monthly/quarterly H/L, the 4H candle levels, "
+        f"and the MA stack — each marked support (below price) or resistance (above):\n"
         f"{_levels_block(lv)}\n\n"
         "Reply in EXACTLY 3 short lines — no preamble, no bold, no extra words:\n"
-        "Line 1 — bias in ≤7 words (e.g. 'Above 8/20/50 EMA — bullish stack' or 'Below all MAs — no long').\n"
-        "Line 2 — 'Support <price> (<name>) · Resistance <price> (<name>)' using the NEAREST below/above.\n"
-        "Line 3 — 'Action:' then ONE concrete trigger: long on a reclaim of the resistance, short on a loss "
-        "of the support, or stand aside if it's chop in the middle. Name the exact level to act on."
+        "Line 1 — bias in ≤8 words, referencing the structure (e.g. 'Above PDH + all EMAs — bullish, blue sky' "
+        "or 'Rejected at PWH, below 50 EMA — weak').\n"
+        "Line 2 — 'Support <price> (<name>) · Resistance <price> (<name>)' using the NEAREST level below and "
+        "above from the list. If nothing is above, write 'Resistance: blue sky above <highest named level>'.\n"
+        "Line 3 — 'Action:' ONE concrete trigger naming an EXACT level from the list: long on a reclaim of the "
+        "nearest resistance, short on a loss of the nearest support, or stand aside if mid-range. In blue sky, "
+        "say hold/trail — do NOT invent a target.\n"
+        "HARD RULE: every price you write MUST be one of the levels above. Never invent a number that isn't in "
+        "the list."
     )
 
 
 SYSTEM = (
-    "You are a terse trade-desk. Output is a 3-line action card, not prose. Every line earns its place: "
-    "bias, the bracketing support/resistance, and ONE concrete action trigger. No hedging, no fluff, "
-    "no restating the inputs. Probabilistic, never a guarantee."
+    "You are a terse trade-desk reading a symbol against its KEY STRUCTURE — the prior day/week/month/quarter "
+    "highs & lows, the last two 4H candle H/L, and the MA stack. Output is a 3-line action card, not prose: "
+    "bias, the bracketing support/resistance, ONE concrete action trigger. EVERY price you cite MUST be one of "
+    "the named levels you were given — NEVER invent a number, and always name the level (PDL, PWH, 50 SMA, "
+    "4H-1 low, …) next to its price. No hedging, no fluff, no restating inputs. Probabilistic, never a guarantee."
 )
 
 
@@ -158,20 +183,38 @@ def narrate(lv: dict, symbol: str = "SPY", model: str | None = None) -> str:
 
 
 def fallback(lv: dict, symbol: str = "SPY") -> str:
-    """Deterministic structured read if the AI is unavailable — still useful."""
+    """Deterministic structured read if the AI is unavailable — NAMED levels only, still useful."""
     price = lv.get("price")
     if price is None:
         return f"{symbol} levels unavailable."
-    emas = [("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
-            ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200"))]
-    above = [n for n, v in emas if v is not None and price > v]
-    below = [n for n, v in emas if v is not None and price < v]
-    sup = max((v for _n, v in [("4H-1 low", lv.get("h4_1_low")), ("4H-2 low", lv.get("h4_2_low")),
-              ("PDL", lv.get("pdl"))] + emas if v is not None and v < price), default=None)
-    res = min((v for _n, v in [("4H-1 high", lv.get("h4_1_high")), ("4H-2 high", lv.get("h4_2_high")),
-              ("PDH", lv.get("pdh"))] + emas if v is not None and v > price), default=None)
-    bias = "bullish stack" if len(above) >= 4 else "bearish — no long" if len(below) >= 4 else "mixed / chop"
+    named = [
+        ("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
+        ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200")),
+        ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
+        ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
+        ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
+        ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
+        ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
+        ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
+        ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
+    ]
+    belows = [(n, v) for n, v in named if v is not None and v < price]
+    aboves = [(n, v) for n, v in named if v is not None and v > price]
+    sup = max(belows, key=lambda x: x[1], default=None)   # nearest below
+    res = min(aboves, key=lambda x: x[1], default=None)   # nearest above
+    emas = [lv.get(k) for k in ("ema8", "ema20", "ema50", "ema100", "ema200")]
+    above_ct = sum(1 for v in emas if v is not None and price > v)
+    bias = "bullish stack" if above_ct >= 4 else "bearish — no long" if above_ct <= 1 else "mixed / chop"
     l1 = f"{symbol} ${price:.2f} — {bias}"
-    l2 = f"Support {sup:.2f} · Resistance {res:.2f}" if (sup and res) else (f"Support {sup:.2f}" if sup else (f"Resistance {res:.2f}" if res else ""))
-    l3 = f"Action: long on reclaim of {res:.2f}, short on loss of {sup:.2f}" if (sup and res) else ""
-    return "\n".join(x for x in (l1, l2, l3) if x)
+    _sup = f"Support {sup[1]:.2f} ({sup[0]})" if sup else "Support: none below"
+    _res = f"Resistance {res[1]:.2f} ({res[0]})" if res else "Resistance: blue sky"
+    l2 = f"{_sup} · {_res}"
+    if sup and res:
+        l3 = f"Action: long on reclaim of {res[0]} {res[1]:.2f}; short on loss of {sup[0]} {sup[1]:.2f}"
+    elif sup:
+        l3 = f"Action: hold above {sup[0]} {sup[1]:.2f} — blue sky above, trail"
+    elif res:
+        l3 = f"Action: stand aside below {res[0]} {res[1]:.2f}"
+    else:
+        l3 = "Action: stand aside — no level bracket"
+    return "\n".join((l1, l2, l3))
