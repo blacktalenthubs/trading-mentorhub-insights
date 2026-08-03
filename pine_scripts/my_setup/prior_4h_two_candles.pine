@@ -43,7 +43,8 @@ enBracket = input.bool(true, "Auto EMA bracket — nearest above/below (8/20/50/
 colBrkUp  = input.color(#FB8C00, "Overhead EMA (nearest above)", group = gE, inline = "brk")
 colBrkDn  = input.color(#42A5F5, "Support EMA (nearest below)", group = gE, inline = "brk")
 maxBrkPct = input.float(2.5, "Max EMA bracket DRAW distance (%)", group = gE, minval = 0.5, maxval = 20, tooltip = "Only DRAW the nearest above/below EMA when it's within this % of price — a far 100/200 EMA otherwise stretches TV's auto-scale and compresses the chart. It still counts as a TARGET regardless of whether it's drawn.")
-enSwing = input.bool(true, "Auto next 4H level (overhead + underfoot)", group = gE, tooltip = "Scans back through the recent COMPLETED 4h candle highs/lows and marks the nearest ABOVE price (next overhead resistance) + nearest BELOW (next support), beyond the two tracked candles. Feeds the target ladder — once price clears the two mapped candles, T1/T2 become the next real 4h level.")
+enSwing = input.bool(true, "Auto next 4H level (overhead + underfoot)", group = gE, tooltip = "Marks the nearest COMPLETED-4h high ABOVE price (next overhead resistance) + nearest 4h low BELOW price (next support), beyond the two mapped candles. It persists while the level holds/reclaims and advances only when price CLOSES through it. Feeds the target ladder once price clears the mapped pair.")
+maxNextPct = input.float(20, "Max Next-4H DRAW distance (%)", group = gE, minval = 1, maxval = 100, tooltip = "Only DRAW / pick the Next 4H up/down level when the nearest recent 4h high/low is within this % of price. A far, stale 4h level (e.g. an old pre-run candle) otherwise stretches TV's auto-scale and compresses the chart. Widen for very volatile names.")
 lvlMode = input.string("Auto (by symbol type)", "Level mode", options = ["Auto (by symbol type)", "Crypto — 8h block", "Equity — freeze per session"], tooltip = "Both LOCK the last two completed 4h candles as a PAIR and advance only when a new pair completes (no one-at-a-time sliding). EQUITY (stock/fund/ADR): the prior session's two 4h, held all day (like PDH/PDL). CRYPTO (24/7): the last completed 8h block's two 4h, advancing every 8h (00:00/08:00/16:00 UTC). Auto picks by symbol type.")
 
 // ── the last two 4h candles — LOCKED as a pair, advance per block ─────────────
@@ -187,33 +188,29 @@ f_conf(int idx) =>
         s := f_which(pql) == idx ? s + " · PQL" : s
     s
 
-// Next 4H = nearest COMPLETED-4h level on each side of price, from the rolling multi-day set
-// (pvHiArr/pvLoArr, ~40 days back). LATCHED (user 2026-08-03): once found, a level STAYS drawn and
-// does NOT slide as price drifts — it only advances when a confirmed 15m close BREACHES it (close
-// above the overhead / close below the support). A wick that pokes through and closes back (reject /
-// reclaim = held) is NOT a breach → the level is kept. Re-seat also when empty (first bars / after a
-// breach leaves nothing on that side). The four already-drawn mapped levels (h1/l1/h2/l2, within
-// 0.05%) are skipped so "Next 4H" is always a NEW level beyond the mapped pair.
-var float nextHi = na
-var float nextLo = na
-// OVERHEAD (resistance): re-seat to the nearest 4h high ABOVE price when empty or a close breached it.
-if enSwing and barstate.isconfirmed and array.size(pvHiArr) > 0 and (na(nextHi) or close > nextHi)
-    float _nh = na
+// Next 4H = nearest COMPLETED-4h level on each side of price (nextHi above, nextLo below), from the
+// rolling multi-day set (pvHiArr/pvLoArr). Two rules keep it correct AND persistent (user 2026-08-03):
+//  1. NEAREST to price → this IS "persist unless breached": while price holds/reclaims a level it stays
+//     the nearest on that side; it only advances when a CLOSE moves through it (then the next one takes
+//     over). No latch — a latch froze SNDK at an old $28/$2350 pre-run candle that never re-seated.
+//  2. WITHIN maxNextPct of price → a far, stale 4h level is never picked, so it can't stretch TV's
+//     auto-scale and compress the chart (same guard as the EMA bracket's maxBrkPct).
+// The four already-drawn mapped levels (h1/l1/h2/l2, within 0.05%) are skipped so "Next 4H" is always
+// a NEW level beyond the mapped pair (e.g. SNDK → 4h low two days back below, next 4h high above).
+float nextHi = na
+float nextLo = na
+if enSwing and array.size(pvHiArr) > 0
     for _j = 0 to array.size(pvHiArr) - 1
         _pv = array.get(pvHiArr, _j)
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv > close and not _mp and (na(_nh) or _pv < _nh)
-            _nh := _pv
-    nextHi := _nh
-// UNDERFOOT (support): re-seat to the nearest 4h low BELOW price when empty or a close breached it.
-if enSwing and barstate.isconfirmed and array.size(pvLoArr) > 0 and (na(nextLo) or close < nextLo)
-    float _nl = na
+        if _pv > close and (_pv - close) / close * 100.0 <= maxNextPct and not _mp and (na(nextHi) or _pv < nextHi)
+            nextHi := _pv
+if enSwing and array.size(pvLoArr) > 0
     for _k = 0 to array.size(pvLoArr) - 1
         _pv = array.get(pvLoArr, _k)
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv < close and not _mp and (na(_nl) or _pv > _nl)
-            _nl := _pv
-    nextLo := _nl
+        if _pv < close and (close - _pv) / close * 100.0 <= maxNextPct and not _mp and (na(nextLo) or _pv > nextLo)
+            nextLo := _pv
 
 // ── draw (redrawn on the last bar; old lines cleared first) ───────────────────
 var line[]  _lines  = array.new_line()
