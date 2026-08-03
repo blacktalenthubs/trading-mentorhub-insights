@@ -69,7 +69,7 @@ f_draw(float v, string nm, int age, bool conf) =>
         _fade = dimOld ? math.min(70, (age - 1) * 22) : 0   // D-1 = solid, each older day +22% transparent
         _col  = color.new(_role, _fade)
         _w    = conf ? wLine + 1 : wLine                    // confluence draws one step thicker
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w))
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w, extend = extend.left))
         if showLbl
             _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
             _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
