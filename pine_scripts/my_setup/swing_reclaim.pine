@@ -10,7 +10,8 @@
 //   • RSI(14) reclaims 30 (oversold turn from a washout)          -> swing_rsi_30
 //   • FV basis reclaim (33-SMA of OHLC4, weekly — the key value)  -> swing_fv_reclaim
 //   • Smart Money zone reclaim (golden pocket of the weekly swing)-> swing_smz_reclaim
-// LONG only. Stop = the swept bar low. (user 2026-07-30 · +FV/SMZ 2026-08-02)
+//   • 5/20 EMA bullish cross (Steve Burns — daily trend flip up)  -> ema_5_20_cross
+// LONG only. Stop = the swept bar low. (user 2026-07-30 · +FV/SMZ 2026-08-02 · +5/20 cross 2026-08-03)
 indicator("Swing Reclaim — SMA/RSI/FV/SMZ", overlay = true, max_lines_count = 20, max_labels_count = 20, max_boxes_count = 4)
 
 gM   = "Entries"
@@ -20,6 +21,7 @@ en200= input.bool(true, "200 SMA reclaim", group = gM)
 enR  = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
 enFV = input.bool(true, "FV basis reclaim (33-SMA of OHLC4)", group = gM)
 enSMZ= input.bool(true, "Smart Money zone reclaim (golden pocket)", group = gM)
+en520= input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
 enAl = input.bool(true, "Fire alerts (on bar close)", group = gM)
 
 gP     = "Params"
@@ -29,6 +31,8 @@ len200 = input.int(200, "Slow SMA length", group = gP, minval = 2)
 lbAbove= input.int(10,  "Reclaim lookback — bars price must have HELD ABOVE recently", group = gP, minval = 1, maxval = 60, tooltip = "The MA's role must be SUPPORT: price must have closed ABOVE it within this many recent bars. A sustained-below cross-up is a BREAKUP (resistance broken), NOT a reclaim — it won't fire.")
 rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
 rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
+emaFast= input.int(5,   "5/20 cross — fast EMA", group = gP, minval = 2)
+emaSlow= input.int(20,  "5/20 cross — slow EMA", group = gP, minval = 3)
 showSMA = input.bool(true, "Draw the SMA lines (50/100/200)", group = gP)
 
 gL       = "Flat / lock to timeframe"
@@ -47,6 +51,10 @@ sma50  = flatMode ? flat50  : ta.sma(close, len50)
 sma100 = flatMode ? flat100 : ta.sma(close, len100)
 sma200 = flatMode ? flat200 : ta.sma(close, len200)
 rsi    = flatMode ? flatRsi : ta.rsi(close, rsiLen)
+// 5/20 EMA cross (Burns) — DEVELOPING lock-TF EMAs (like the RSI, no [1]) so the daily cross can fire
+// intraday on the bound TF's close; chart-TF EMAs when flat mode is OFF (bind on Daily).
+emaFastV = flatMode ? request.security(tid, lockTf, ta.ema(close, emaFast), lookahead = barmerge.lookahead_off) : ta.ema(close, emaFast)
+emaSlowV = flatMode ? request.security(tid, lockTf, ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off) : ta.ema(close, emaSlow)
 conf   = barstate.isconfirmed
 
 // ── Fair Value basis — 33-SMA of OHLC4, locked to the WEEKLY (the key swing entry level). A close
@@ -98,6 +106,7 @@ rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
 rc200 = en200 and conf and f_reclaim(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
+rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)   // 5 EMA crosses UP through 20 EMA (Burns)
 rcFV  = enFV  and conf and f_reclaim(fvBasis)
 // Smart Money zone reclaims — same reclaim + role-guard on each golden-pocket edge.
 rcInsT = enSMZ and conf and f_reclaim(instTop)
@@ -152,6 +161,7 @@ plotshape(rc50,  "50 SMA reclaim",  style = shape.triangleup, location = locatio
 plotshape(rc100, "100 SMA reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#8B5CF6, 0),    size = size.tiny)
 plotshape(rc200, "200 SMA reclaim", style = shape.arrowup,    location = location.belowbar, color = color.new(color.teal, 0),  size = size.small)
 plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
+plotshape(rc520, "5/20 EMA cross",  style = shape.labelup,    location = location.belowbar, color = color.new(#10B981, 0),     size = size.tiny, text = "5/20")
 plotshape(rcFV,  "FV basis reclaim", style = shape.diamond,   location = location.belowbar, color = color.new(#F59E0B, 0),    size = size.tiny)
 plotshape(rcSMZ, "Smart Money zone reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#A855F7, 0), size = size.small)
 
@@ -165,6 +175,8 @@ if enAl and rc200
     alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered. Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rcR
     alert(f_pay("swing_rsi_30",  "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc520
+    alert(f_pay("ema_5_20_cross", "5/20 EMA bullish cross (Burns) — the " + str.tostring(emaFast) + " EMA crossed ABOVE the " + str.tostring(emaSlow) + " EMA at " + str.tostring(emaSlowV, format.mintick) + " · short-term trend flip up, a swing entry (hold days). Stop = the swept low; invalid on a close back under the " + str.tostring(emaSlow) + " EMA."), alert.freq_once_per_bar_close)
 if enAl and rcFV
     alert(f_pay("swing_fv_reclaim", "Fair Value (33-SMA OHLC4) reclaim at " + str.tostring(fvBasis, format.mintick) + " · closed back above the basis (weekly value support held). Stop = the swept low; invalid on a close below " + str.tostring(fvBasis, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rcSMZ
