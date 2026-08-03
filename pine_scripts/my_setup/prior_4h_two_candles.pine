@@ -44,7 +44,7 @@ colBrkUp  = input.color(#FB8C00, "Overhead EMA (nearest above)", group = gE, inl
 colBrkDn  = input.color(#42A5F5, "Support EMA (nearest below)", group = gE, inline = "brk")
 maxBrkPct = input.float(2.5, "Max EMA bracket DRAW distance (%)", group = gE, minval = 0.5, maxval = 20, tooltip = "Only DRAW the nearest above/below EMA when it's within this % of price — a far 100/200 EMA otherwise stretches TV's auto-scale and compresses the chart. It still counts as a TARGET regardless of whether it's drawn.")
 enSwing = input.bool(true, "Auto next 4H level (overhead + underfoot)", group = gE, tooltip = "Marks the nearest COMPLETED-4h high ABOVE price (next overhead resistance) + nearest 4h low BELOW price (next support), beyond the two mapped candles. It persists while the level holds/reclaims and advances only when price CLOSES through it. Feeds the target ladder once price clears the mapped pair.")
-maxNextPct = input.float(20, "Max Next-4H DRAW distance (%)", group = gE, minval = 1, maxval = 100, tooltip = "Only DRAW / pick the Next 4H up/down level when the nearest recent 4h high/low is within this % of price. A far, stale 4h level (e.g. an old pre-run candle) otherwise stretches TV's auto-scale and compresses the chart. Widen for very volatile names.")
+nDaysBack  = input.int(3, "Next-4H lookback (trading days back)", group = gE, minval = 1, maxval = 20, tooltip = "The Next 4H up/down level is picked ONLY from 4h candles within this many trading blocks back (equity = sessions, crypto = 8h blocks). Default 3 = today + yesterday + 2 & 3 days ago, so an old pre-run candle (SNDK's $28/$2350) can never be picked and can't compress the chart. The mapped pair (yesterday) is already drawn and skipped.")
 lvlMode = input.string("Auto (by symbol type)", "Level mode", options = ["Auto (by symbol type)", "Crypto — 8h block", "Equity — freeze per session"], tooltip = "Both LOCK the last two completed 4h candles as a PAIR and advance only when a new pair completes (no one-at-a-time sliding). EQUITY (stock/fund/ADR): the prior session's two 4h, held all day (like PDH/PDL). CRYPTO (24/7): the last completed 8h block's two 4h, advancing every 8h (00:00/08:00/16:00 UTC). Auto picks by symbol type.")
 
 // ── the last two 4h candles — LOCKED as a pair, advance per block ─────────────
@@ -61,6 +61,11 @@ isEquityType = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type
 isEquityMode = lvlMode == "Equity — freeze per session" or (lvlMode == "Auto (by symbol type)" and isEquityType)
 blockTf  = isEquityMode ? "D" : "480"
 newBlock = ta.change(time(blockTf)) != 0
+// monotonic block counter — one tick per session (equity) / 8h block (crypto). Used to age-limit the
+// Next-4H search to the last nDaysBack blocks (tag each accumulated 4h level with the block it formed in).
+var int blockIdx = 0
+if newBlock
+    blockIdx := blockIdx + 1
 [pH1, pL1, pH2, pL2] = request.security(syminfo.tickerid, "240", [high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_on)  // the two 4h completed at the block boundary
 [e8, e20, e50, e100, e200, sm50, sm100, sm200] = request.security(syminfo.tickerid, emaTF, [ta.ema(close, 8)[1], ta.ema(close, 20)[1], ta.ema(close, 50)[1], ta.ema(close, 100)[1], ta.ema(close, 200)[1], ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)  // settled daily EMAs + SMAs (flat)
 // today's 4H HIGH (resistance) + LOW (support) — the extremes of the most-recent completed 4h
@@ -106,6 +111,8 @@ for _i = 0 to array.size(_ev) - 1
 // low below it — beyond the two tracked candles. Settled ([1] via h4hLast/l4hLast) → non-repainting.
 var float[] pvHiArr = array.new_float()
 var float[] pvLoArr = array.new_float()
+var int[]   pvHiBlk = array.new_int()   // block index each 4h high formed in (for the recency filter)
+var int[]   pvLoBlk = array.new_int()
 // nest the guards — Pine's and/or do NOT short-circuit, so array.get must be reached only when size>0
 if not na(h4hLast)
     _pushH = array.size(pvHiArr) == 0
@@ -113,16 +120,20 @@ if not na(h4hLast)
         _pushH := array.get(pvHiArr, array.size(pvHiArr) - 1) != h4hLast
     if _pushH
         array.push(pvHiArr, h4hLast)
+        array.push(pvHiBlk, blockIdx)
         if array.size(pvHiArr) > 80
             array.shift(pvHiArr)
+            array.shift(pvHiBlk)
 if not na(l4hLast)
     _pushL = array.size(pvLoArr) == 0
     if not _pushL
         _pushL := array.get(pvLoArr, array.size(pvLoArr) - 1) != l4hLast
     if _pushL
         array.push(pvLoArr, l4hLast)
+        array.push(pvLoBlk, blockIdx)
         if array.size(pvLoArr) > 80
             array.shift(pvLoArr)
+            array.shift(pvLoBlk)
 var float h1 = na
 var float l1 = na
 var float h2 = na
@@ -188,28 +199,29 @@ f_conf(int idx) =>
         s := f_which(pql) == idx ? s + " · PQL" : s
     s
 
-// Next 4H = nearest COMPLETED-4h level on each side of price (nextHi above, nextLo below), from the
-// rolling multi-day set (pvHiArr/pvLoArr). Two rules keep it correct AND persistent (user 2026-08-03):
+// Next 4H = nearest COMPLETED-4h level on each side of price (nextHi above, nextLo below). Two rules
+// keep it correct AND persistent (user 2026-08-03):
 //  1. NEAREST to price → this IS "persist unless breached": while price holds/reclaims a level it stays
 //     the nearest on that side; it only advances when a CLOSE moves through it (then the next one takes
 //     over). No latch — a latch froze SNDK at an old $28/$2350 pre-run candle that never re-seated.
-//  2. WITHIN maxNextPct of price → a far, stale 4h level is never picked, so it can't stretch TV's
-//     auto-scale and compress the chart (same guard as the EMA bracket's maxBrkPct).
-// The four already-drawn mapped levels (h1/l1/h2/l2, within 0.05%) are skipped so "Next 4H" is always
-// a NEW level beyond the mapped pair (e.g. SNDK → 4h low two days back below, next 4h high above).
+//  2. RECENT ONLY → the level must come from a 4h candle within nDaysBack blocks (default 3 → today +
+//     yesterday + 2 & 3 days ago). An old pre-run candle is out of window, so it's never picked and
+//     can't compress the chart. The mapped pair (yesterday) is already drawn and skipped (within 0.05%).
 float nextHi = na
 float nextLo = na
 if enSwing and array.size(pvHiArr) > 0
     for _j = 0 to array.size(pvHiArr) - 1
         _pv = array.get(pvHiArr, _j)
+        _recent = (blockIdx - array.get(pvHiBlk, _j)) <= nDaysBack
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv > close and (_pv - close) / close * 100.0 <= maxNextPct and not _mp and (na(nextHi) or _pv < nextHi)
+        if _pv > close and _recent and not _mp and (na(nextHi) or _pv < nextHi)
             nextHi := _pv
 if enSwing and array.size(pvLoArr) > 0
     for _k = 0 to array.size(pvLoArr) - 1
         _pv = array.get(pvLoArr, _k)
+        _recent = (blockIdx - array.get(pvLoBlk, _k)) <= nDaysBack
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv < close and (close - _pv) / close * 100.0 <= maxNextPct and not _mp and (na(nextLo) or _pv > nextLo)
+        if _pv < close and _recent and not _mp and (na(nextLo) or _pv > nextLo)
             nextLo := _pv
 
 // ── draw (redrawn on the last bar; old lines cleared first) ───────────────────
