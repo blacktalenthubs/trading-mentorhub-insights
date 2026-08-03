@@ -38,7 +38,7 @@ f_draw(float v, string nm, int age, bool isHigh, bool conf) =>
         _fade = fadeOld ? math.min(65, age * 16) : 0        // today/D-1 solid, each older day fainter
         _col  = color.new(_base, _fade)
         _w    = conf ? wLine + 1 : wLine
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w))
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w, extend = extend.left))
         if showLbl
             _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
             _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
