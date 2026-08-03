@@ -360,6 +360,35 @@ if enAl and isBu
 if enAl and isBd
     alert(fh_pay("fourh_breakdn", "SHORT", close, high, "4H break-down thru " + str.tostring(bdLvl, format.mintick) + " · invalid on a 15m close above " + str.tostring(bdLvl, format.mintick)), alert.freq_once_per_bar_close)
 
+// ── GAP-AND-GO (the DAY pine owns it — user 2026-08-03: "gap and go is part of day trade, only two
+// pines: day + swing"). Equity opens ABOVE the prior high (PDH, or the highest high of the last N
+// days) and HOLDS above it (close > the session open AND close > the ref); STOP = the morning low.
+// ONE long/day. Equity only (a 24/7 crypto has no session gap). Emits rule "gap_and_go" (Day type).
+gG      = "Gap-and-go (Day)"
+enGap   = input.bool(true, "Fire gap-and-go (open > prior high, holding)", group = gG)
+gapDays = input.int(1, "Gap ref — highest high of last N days (1 = PDH)", group = gG, minval = 1, maxval = 20)
+gapMin  = input.float(0.0, "Min gap over ref (%)", group = gG, minval = 0.0, maxval = 10)
+gapRef  = request.security(syminfo.tickerid, "D", ta.highest(high, gapDays)[1], lookahead = barmerge.lookahead_on)
+newDayG = ta.change(time("D")) != 0
+var float gSessOpen = na
+var float gMornLow  = na
+if newDayG
+    gSessOpen := open
+    gMornLow  := low
+else
+    gMornLow  := math.min(nz(gMornLow, low), low)
+gapUp  = isEquityType and not na(gapRef) and not na(gSessOpen) and gSessOpen > gapRef * (1.0 + gapMin / 100.0)
+holdGo = gapUp and close > gSessOpen and close > gapRef
+var bool gFired = false
+if newDayG
+    gFired := false
+gTrig = enGap and barstate.isconfirmed and holdGo and not gFired
+if gTrig
+    gFired := true
+plotshape(gTrig, "Gap-and-Go", style = shape.triangleup, location = location.belowbar, color = colUp, size = size.small, text = "G&G")
+if gTrig
+    alert(fh_pay("gap_and_go", "BUY", close, gMornLow, "Gap-and-go — opened above " + str.tostring(gapRef, format.mintick) + " (prior high) and holding · stop = morning low " + str.tostring(gMornLow, format.mintick) + " · invalid on a 15m close below " + str.tostring(gapRef, format.mintick)), alert.freq_once_per_bar_close)
+
 // 50 EMA reactions + 200 SMA/EMA reclaim REMOVED 2026-07-30 — Day Trade = the 4H level RC only
-// (reclaim/reject/breakup/breakdn + gap_and_go). No EMA alerts. The 200-reclaim moved to the swing
-// book (swing_reclaim.pine · swing_sma200_reclaim). The 50/200 MAs stay VISUAL via the flat-MA pines.
+// (reclaim/reject/breakup/breakdn + gap_and_go, now emitted above). No EMA alerts. The 200-reclaim
+// moved to the swing book (swing_reclaim.pine · swing_sma200_reclaim). 50/200 MAs stay VISUAL.
