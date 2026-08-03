@@ -187,26 +187,33 @@ f_conf(int idx) =>
         s := f_which(pql) == idx ? s + " · PQL" : s
     s
 
-// Next 4H = nearest COMPLETED-4h level on each side of the CURRENT PRICE, drawn from the rolling
-// multi-day set (pvHiArr/pvLoArr, ~40 days back). Anchored to `close`, NOT the two-candle boundary,
-// so when price runs OUTSIDE the mapped pair the search walks back through prior days' 4h until it
-// brackets price — each day's 4h levels are in play (user 2026-08-03). The four already-drawn levels
-// (h1/l1/h2/l2, within 0.05%) are skipped so "Next 4H" is always a NEW level beyond the mapped pair;
-// when price is inside the pair this still points to the next levels above/below it (unchanged).
-float nextHi = na
-float nextLo = na
-if enSwing and array.size(pvHiArr) > 0
+// Next 4H = nearest COMPLETED-4h level on each side of price, from the rolling multi-day set
+// (pvHiArr/pvLoArr, ~40 days back). LATCHED (user 2026-08-03): once found, a level STAYS drawn and
+// does NOT slide as price drifts — it only advances when a confirmed 15m close BREACHES it (close
+// above the overhead / close below the support). A wick that pokes through and closes back (reject /
+// reclaim = held) is NOT a breach → the level is kept. Re-seat also when empty (first bars / after a
+// breach leaves nothing on that side). The four already-drawn mapped levels (h1/l1/h2/l2, within
+// 0.05%) are skipped so "Next 4H" is always a NEW level beyond the mapped pair.
+var float nextHi = na
+var float nextLo = na
+// OVERHEAD (resistance): re-seat to the nearest 4h high ABOVE price when empty or a close breached it.
+if enSwing and barstate.isconfirmed and array.size(pvHiArr) > 0 and (na(nextHi) or close > nextHi)
+    float _nh = na
     for _j = 0 to array.size(pvHiArr) - 1
         _pv = array.get(pvHiArr, _j)
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv > close and not _mp and (na(nextHi) or _pv < nextHi)
-            nextHi := _pv
-if enSwing and array.size(pvLoArr) > 0
+        if _pv > close and not _mp and (na(_nh) or _pv < _nh)
+            _nh := _pv
+    nextHi := _nh
+// UNDERFOOT (support): re-seat to the nearest 4h low BELOW price when empty or a close breached it.
+if enSwing and barstate.isconfirmed and array.size(pvLoArr) > 0 and (na(nextLo) or close < nextLo)
+    float _nl = na
     for _k = 0 to array.size(pvLoArr) - 1
         _pv = array.get(pvLoArr, _k)
         _mp = (not na(h1) and math.abs(_pv - h1) <= _pv * 0.0005) or (not na(l1) and math.abs(_pv - l1) <= _pv * 0.0005) or (not na(h2) and math.abs(_pv - h2) <= _pv * 0.0005) or (not na(l2) and math.abs(_pv - l2) <= _pv * 0.0005)
-        if _pv < close and not _mp and (na(nextLo) or _pv > nextLo)
-            nextLo := _pv
+        if _pv < close and not _mp and (na(_nl) or _pv > _nl)
+            _nl := _pv
+    nextLo := _nl
 
 // ── draw (redrawn on the last bar; old lines cleared first) ───────────────────
 var line[]  _lines  = array.new_line()
