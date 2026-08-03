@@ -1047,9 +1047,10 @@ async def lifespan(app: FastAPI):
                     )
                 logger.info("Registered 12 cron jobs for 2h crypto candle pings (24/7 UTC)")
 
-            # ── Hourly LEVELS agent (user 2026-08-02) — AI read of WHERE price sits vs its MA/EMA stack
-            # + the 4H levels. SPY during RTH (verifies Mon), BTC 24/7 (so it can be tested this weekend).
-            # Opt-in via the 'levels_hourly' toggle (only the founder is enabled for now). Telegram + push.
+            # ── Hourly LEVELS agent (user 2026-08-02) — AI read of WHERE SPY sits vs its FULL structural
+            # stack: PDH/PDL, PWH/PWL, PMH/PML, PQH/PQL, the last two 4H candle H/L, and the MA stack.
+            # SPY ONLY, during RTH (user 2026-08-03: dropped the BTC weekend test). Opt-in via the
+            # 'levels_hourly' toggle (only the founder is enabled for now). Telegram + push.
             def _push_levels(symbol: str, is_crypto: bool, label: str, mkt_guard: bool) -> None:
                 if mkt_guard and not is_market_hours():
                     return
@@ -1074,12 +1075,7 @@ async def lifespan(app: FastAPI):
                 scheduler.add_job(
                     _push_levels, CronTrigger(day_of_week="mon-fri", hour=_lh, minute=_lm, timezone=_et_lvl),
                     args=["SPY", False, "SPY", True], id=f"levels_spy_{_lh}{_lm}", misfire_grace_time=90, replace_existing=True)
-            _utc_lvl = _pytz.utc
-            for _lhh in range(0, 24):
-                scheduler.add_job(
-                    _push_levels, CronTrigger(hour=_lhh, minute=0, timezone=_utc_lvl),
-                    args=["BTC-USD", True, "BTC", False], id=f"levels_btc_{_lhh:02d}", misfire_grace_time=90, replace_existing=True)
-            logger.info("Registered levels-agent jobs: SPY 6/session (RTH) + BTC 24/day (24/7 UTC)")
+            logger.info("Registered levels-agent jobs: SPY 6/session (RTH) — SPY only")
 
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
