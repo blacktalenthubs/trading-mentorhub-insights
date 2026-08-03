@@ -893,7 +893,7 @@ _MOMENTUM_EXEMPT: frozenset[str] = frozenset({
 _NEVER_DEDUP_LEVELS: frozenset[str] = frozenset({"pdl_held", "pdh_held"})
 
 # (symbol, direction) -> {"session": str, "best": float, "last": datetime}
-_entry_dedup_state: dict[tuple[str, str], dict] = {}
+_entry_dedup_state: dict[tuple[str, str, str], dict] = {}  # (symbol, direction, day|swing bucket)
 
 # LEVEL-KEYED dedup for fourh (user 2026-07-27, option A) — key on the 4H LEVEL parsed from the
 # alert note, NOT the entry price: chop at a level prints entries across a wide band (NBIS 182→188
@@ -966,6 +966,19 @@ def _parse_fourh_level(note: Optional[str]) -> Optional[float]:
         return None
 
 
+def _dedup_style_bucket(alert_type_full: str) -> str:
+    """Coarse DAY-vs-SWING bucket for the entry-dedup key so day-trade fires and swing fires never
+    cross-suppress each other (user 2026-08-03: a 4h day reclaim was killing NBIS's 100-SMA SWING
+    reclaim as 'chase' — "day signals shouldn't interfere with swing signals in suppress/cooldown").
+    Day + Gap-and-go share the 'day' bucket; Swing + Long-hold share the 'swing' bucket. fourh reads
+    its own DB anchor (already fourh-only), so this mainly isolates the shared in-memory anchor."""
+    try:
+        from analytics.exit_plan import trade_style as _ts
+        return "day" if _ts(alert_type_full) in ("Day", "Gap-and-go") else "swing"
+    except Exception:
+        return "day"
+
+
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str, note: Optional[str] = None,
@@ -999,7 +1012,9 @@ def _check_entry_time_dedup(
     # dedup is solid"): confluence-merge + 2h cooldown + chase, keyed on ENTRY PRICE — which every
     # alert always sends. No note-parsing / level-keying (that depended on a `note` the stale alert
     # snapshots don't send, which is what broke it). Robust; no rebind dependency.
-    key = (symbol, (direction or "").upper())
+    # KEY includes the DAY/SWING bucket → a day-trade fire and a swing fire on the same symbol+dir
+    # keep SEPARATE anchors and never cross-suppress (user 2026-08-03).
+    key = (symbol, (direction or "").upper(), _dedup_style_bucket(alert_type_full))
     # fourh sources its anchor from the DB (restart-proof — see _db_dedup_state); other types keep
     # the in-memory dict. db_state is None when there's no prior delivered fourh alert = first fire.
     st = db_state if base in _FOURH_TYPES else _entry_dedup_state.get(key)
@@ -1063,7 +1078,7 @@ def _record_entry_time_fire(
     anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
     if entry is None or entry <= 0 or not _seeds_anchor(alert_type_full):
         return
-    key = (symbol, (direction or "").upper())
+    key = (symbol, (direction or "").upper(), _dedup_style_bucket(alert_type_full))
     is_long = (direction or "").upper() in ("BUY", "LONG")
     now = datetime.utcnow()
     p = float(entry)
