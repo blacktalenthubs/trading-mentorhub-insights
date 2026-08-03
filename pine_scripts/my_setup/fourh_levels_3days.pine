@@ -3,21 +3,21 @@
 // 4H Levels · 3 Days — every completed 4h candle's HIGH & LOW over the last N trading days.
 // ─────────────────────────────────────────────────────────────────────────────
 // A CONTEXT map, not a signal tool. Where prior_4h_two_candles.pine draws only the last TWO 4h
-// candles (the decision pair) + a single "Next 4H", THIS pine lays down the WHOLE recent 4h grid:
-// the H & L of each completed 4h candle from today back through the last N sessions (default 3 →
-// today + yesterday + 2 & 3 days ago). So you can see, at a glance, every level price is working
-// between — the "map each day's 4h levels" view.
+// candles (the decision pair) + a single "Next 4H", THIS pine lays down the PRIOR-days 4h grid:
+// the H & L of each completed 4h candle from YESTERDAY back through the last N sessions (default 3 →
+// D-1 / D-2 / D-3). TODAY's 4h candles are NOT drawn (today is the live tape, not a mapped level).
 //
 // Every level is a FLAT horizontal line, colored by ROLE vs the current price:
 //   green = SUPPORT (below price) · red = RESISTANCE (above price).
-// Coincident levels (consecutive 4h candles often share a near-equal H/L) MERGE into one line so
-// the chart stays readable. Each label tags its age (today / D-1 / D-2 …) and H or L. Visual only,
-// NO alerts. Bind on any intraday chart (15m is typical); the levels are 4h regardless of the TF.
+// CONFLUENCE: coincident levels (within mergePct — often a prior high == another day's low) MERGE
+// into ONE thicker line, and the label NOTES it: "4H CONF ×N · H·D-1 + L·D-2" so a stacked wall
+// reads at a glance. Each single label tags its side + age (H·D-1, L·D-2 …). Visual only, NO alerts.
+// Bind on any intraday chart (15m is typical); the levels are 4h regardless of the TF.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("4H Levels · 3 Days (H/L)", "4hr-3d", overlay = true, max_lines_count = 100, max_labels_count = 100)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
-nDays    = input.int(3, "Days of 4h levels to map (blocks back)", minval = 1, maxval = 10, tooltip = "How many trading blocks back to draw. Equity = sessions, crypto = 8h blocks. 3 = today + yesterday + 2 & 3 days ago.")
+nDays    = input.int(3, "Prior days of 4h levels to map", minval = 1, maxval = 10, tooltip = "How many PRIOR trading blocks to draw (today excluded). Equity = sessions, crypto = 8h blocks. 3 = D-1 (yesterday) + D-2 + D-3.")
 colHi    = input.color(#EF5350, "Resistance (above price)", inline = "c")
 colLo    = input.color(#26A69A, "Support (below price)",   inline = "c")
 wLine    = input.int(2,  "Line thickness", minval = 1, maxval = 6)
@@ -26,7 +26,7 @@ tagOff   = input.int(8,  "Label offset (bars right)", minval = 0, maxval = 50)
 lblSide  = input.string("Right", "Label side", options = ["Left", "Right"])
 mergePct = input.float(0.12, "Merge levels within (%)", minval = 0, maxval = 1, tooltip = "Two 4h levels within this % of each other draw as ONE line with a ·×N count, so near-equal highs/lows don't stack unreadable. 0 = never merge.")
 showLbl  = input.bool(true, "Show labels")
-dimOld   = input.bool(true, "Fade older days", tooltip = "Draw older days' lines more transparent so today/yesterday stand out.")
+dimOld   = input.bool(true, "Fade older days", tooltip = "Draw older days' lines more transparent so the freshest levels (D-1) stand out.")
 
 // ── block clock: one tick per session (equity) / 8h block (crypto) — the age unit ────────────
 // syminfo.type is "spot" for Coinbase crypto (the crypto flag lives in typespecs, unexposed) — so
@@ -63,12 +63,13 @@ if not na(h4) and not na(l4)
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 
-f_draw(float v, string nm, int age) =>
+f_draw(float v, string nm, int age, bool conf) =>
     if not na(v)
         _role = v >= close ? colHi : colLo
-        _fade = dimOld ? math.min(70, age * 22) : 0     // today = solid, each older day +22% transparent
+        _fade = dimOld ? math.min(70, (age - 1) * 22) : 0   // D-1 = solid, each older day +22% transparent
         _col  = color.new(_role, _fade)
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = wLine))
+        _w    = conf ? wLine + 1 : wLine                    // confluence draws one step thicker
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w))
         if showLbl
             _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
             _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
@@ -81,29 +82,30 @@ if barstate.islast
         label.delete(y)
     array.clear(_ln)
     array.clear(_lb)
-    // 1) gather every in-window level (H and L of each 4h candle within nDays blocks) + its age
+    // 1) gather every in-window level (H and L of each PRIOR-day 4h candle) + a compact tag + age.
+    //    age 0 = today → SKIPPED (today is the live tape, not a mapped level); only D-1..D-nDays.
     vArr = array.new_float()
-    nArr = array.new_string()
+    tArr = array.new_string()          // compact per-level tag, e.g. "H·D-1"
     gArr = array.new_int()             // age (blocks back) per gathered level, for the fade
     if array.size(aH) > 0
         for _i = 0 to array.size(aH) - 1
-            _b   = array.get(aB, _i)
-            _age = blockIdx - _b
-            if _age <= nDays
-                _tag = _age == 0 ? "today" : "D-" + str.tostring(_age)
+            _age = blockIdx - array.get(aB, _i)
+            if _age >= 1 and _age <= nDays
+                _dt = "D-" + str.tostring(_age)
                 array.push(vArr, array.get(aH, _i))
-                array.push(nArr, "4H H · " + _tag)
+                array.push(tArr, "H·" + _dt)
                 array.push(gArr, _age)
                 array.push(vArr, array.get(aL, _i))
-                array.push(nArr, "4H L · " + _tag)
+                array.push(tArr, "L·" + _dt)
                 array.push(gArr, _age)
-    // 2) merge coincident levels within mergePct into ONE line (·×N count), draw the rest
+    // 2) merge coincident levels within mergePct into ONE thicker line, and NOTE the confluence:
+    //    list every member ("H·D-1 + L·D-2") prefixed "4H CONF ×N ·". A lone level = "4H H·D-1".
     _used = array.new_bool(array.size(vArr), false)
     if array.size(vArr) > 0
         for _i = 0 to array.size(vArr) - 1
             if not array.get(_used, _i)
                 _v   = array.get(vArr, _i)
-                _nm  = array.get(nArr, _i)
+                _lbl = array.get(tArr, _i)
                 _age = array.get(gArr, _i)
                 _cnt = 1
                 // guard: Pine auto-reverses when from > to, so only scan for coincident when one exists
@@ -112,7 +114,9 @@ if barstate.islast
                         _vj = array.get(vArr, _j)
                         if not array.get(_used, _j) and mergePct > 0 and math.abs(_vj - _v) / _v * 100.0 <= mergePct
                             array.set(_used, _j, true)
+                            _lbl := _lbl + " + " + array.get(tArr, _j)      // note each merged member
                             _cnt := _cnt + 1
-                            _age := math.min(_age, array.get(gArr, _j))   // freshest member drives the fade
+                            _age := math.min(_age, array.get(gArr, _j))     // freshest member drives the fade
                 array.set(_used, _i, true)
-                f_draw(_v, _cnt > 1 ? _nm + "  ·×" + str.tostring(_cnt) : _nm, _age)
+                _name = _cnt > 1 ? "4H CONF ×" + str.tostring(_cnt) + " · " + _lbl : "4H " + _lbl
+                f_draw(_v, _name, _age, _cnt > 1)
