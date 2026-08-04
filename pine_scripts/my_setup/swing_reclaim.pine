@@ -47,6 +47,11 @@ flat50    = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = 
 flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = barmerge.lookahead_on)
 flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
 flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
+// prior-period CLOSE (yesterday, on the lock TF) — the RECLAIM role-guard: the level counts as SUPPORT
+// only if the PRIOR DAILY close was ABOVE it. A name that closed BELOW the daily SMA (came from below)
+// and breaks back up is a BREAKUP, not a reclaim (user 2026-08-04: NBIS fired 50-SMA "reclaim" on a
+// breakup — 0/10 prior daily closes were above the 50 SMA). In flat mode this is the DAILY close.
+dPrevClose = flatMode ? request.security(tid, lockTf, close[1], lookahead = barmerge.lookahead_on) : close[1]
 sma50  = flatMode ? flat50  : ta.sma(close, len50)
 sma100 = flatMode ? flat100 : ta.sma(close, len100)
 sma200 = flatMode ? flat200 : ta.sma(close, len200)
@@ -100,7 +105,7 @@ f_wasAbove(float L, int n) =>
 //   • wick-and-hold  — intrabar dip below, closed back above, prior close was still above (never lost it), OR
 //   • brief recovery — closed below for a bar or two BUT held above within the recent lookback.
 // A sustained-below cross-up (breakup of resistance) fails f_wasAbove and does NOT fire.
-f_reclaim(float L) => not na(L) and not na(L[1]) and close > L and ((low < L and close[1] >= L[1]) or (close[1] < L[1] and f_wasAbove(L, lbAbove)))
+f_reclaim(float L) => not na(L) and not na(L[1]) and not na(dPrevClose) and dPrevClose > L and close > L and ((low < L and close[1] >= L[1]) or (close[1] < L[1] and f_wasAbove(L, lbAbove)))
 
 rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
