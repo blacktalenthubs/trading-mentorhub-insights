@@ -30,6 +30,7 @@ import {
   useWatchlistRank,
   useWatchlistSignalsToday,
   useChartLevels,
+  useFourhLevels,
   useAddChartLevel,
   useUpdateChartLevel,
   useDeleteChartLevel,
@@ -130,7 +131,7 @@ const TIMEFRAMES = [
   { label: "15m", period: "5d", interval: "15m" },
   { label: "30m", period: "5d", interval: "30m" },
   { label: "1H", period: "5d", interval: "60m" },
-  { label: "4H", period: "1mo", interval: "60m" },
+  { label: "4H", period: "3mo", interval: "4h" },
   { label: "D", period: "1y", interval: "1d" },
   { label: "W", period: "2y", interval: "1wk" },
   { label: "M", period: "10y", interval: "1mo" },
@@ -1376,6 +1377,7 @@ export default function TradingPageV2() {
 
   /* ── User S/R levels ── */
   const { data: userLevels } = useChartLevels(selectedSymbol ?? "");
+  const { data: fourhLevels } = useFourhLevels(selectedSymbol ?? "");
   const addLevel = useAddChartLevel();
   const updateLevel = useUpdateChartLevel();
   const delLevel = useDeleteChartLevel();
@@ -1395,6 +1397,10 @@ export default function TradingPageV2() {
 
   const chartLevels = (() => {
     if (!selected) return [];
+    // On intraday TFs, use the server 4H structural stack (session-aligned 4h H/L + PDH/PDL/PWH/PWL/
+    // PMH/PML) — matches the 4h pine. Falls back to the client PDH/PDL/PWH/PWL on higher TFs.
+    if (["1m", "5m", "15m", "30m", "60m", "4h"].includes(tf.interval) && fourhLevels && fourhLevels.length)
+      return fourhLevels;
     // Only the levels traders actually mark: prior-day + prior-week high/low.
     const kl = keyLevels(ohlcv);
     const sym = selected.symbol;
