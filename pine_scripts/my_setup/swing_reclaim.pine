@@ -47,11 +47,12 @@ flat50    = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = 
 flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = barmerge.lookahead_on)
 flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
 flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
-// prior-period CLOSE (yesterday, on the lock TF) — the RECLAIM role-guard: the level counts as SUPPORT
-// only if the PRIOR DAILY close was ABOVE it. A name that closed BELOW the daily SMA (came from below)
-// and breaks back up is a BREAKUP, not a reclaim (user 2026-08-04: NBIS fired 50-SMA "reclaim" on a
-// breakup — 0/10 prior daily closes were above the 50 SMA). In flat mode this is the DAILY close.
-dPrevClose = flatMode ? request.security(tid, lockTf, close[1], lookahead = barmerge.lookahead_on) : close[1]
+// DAILY OPEN (on the lock TF) — the RECLAIM role-guard. TWO separate SMA setups (user 2026-08-04):
+//   • RECLAIM  — the period OPENED ABOVE the SMA (it was SUPPORT), wicked below, closed back above.
+//   • BREAK-UP — the period OPENED AT/BELOW the SMA (resistance) and closed UP through it.
+// A reclaim STRICTLY requires open-above; an opened-below cross-up is a BREAK-UP, not a reclaim (audit
+// 2026-08-04: 12 of 22 "50 SMA reclaim" cards had opened BELOW = breakups). In flat mode = the DAILY open.
+dOpen = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
 sma50  = flatMode ? flat50  : ta.sma(close, len50)
 sma100 = flatMode ? flat100 : ta.sma(close, len100)
 sma200 = flatMode ? flat200 : ta.sma(close, len200)
@@ -105,11 +106,15 @@ f_wasAbove(float L, int n) =>
 //   • wick-and-hold  — intrabar dip below, closed back above, prior close was still above (never lost it), OR
 //   • brief recovery — closed below for a bar or two BUT held above within the recent lookback.
 // A sustained-below cross-up (breakup of resistance) fails f_wasAbove and does NOT fire.
-f_reclaim(float L) => not na(L) and not na(L[1]) and not na(dPrevClose) and dPrevClose > L and close > L and ((low < L and close[1] >= L[1]) or (close[1] < L[1] and f_wasAbove(L, lbAbove)))
+f_reclaim(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen > L and close > L and (low < L or close[1] < L[1])
+f_breakup(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen <= L and close > L and close[1] <= L[1]
 
 rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
 rc200 = en200 and conf and f_reclaim(sma200)
+bu50  = en50  and conf and f_breakup(sma50)
+bu100 = en100 and conf and f_breakup(sma100)
+bu200 = en200 and conf and f_breakup(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
 rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)   // 5 EMA crosses UP through 20 EMA (Burns)
 rcFV  = enFV  and conf and f_reclaim(fvBasis)
@@ -169,6 +174,9 @@ plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = locatio
 plotshape(rc520, "5/20 EMA cross",  style = shape.labelup,    location = location.belowbar, color = color.new(#10B981, 0),     size = size.tiny, text = "5/20")
 plotshape(rcFV,  "FV basis reclaim", style = shape.diamond,   location = location.belowbar, color = color.new(#F59E0B, 0),    size = size.tiny)
 plotshape(rcSMZ, "Smart Money zone reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#A855F7, 0), size = size.small)
+plotshape(bu50,  "50 SMA break-up",  style = shape.triangleup, location = location.abovebar, color = color.new(#3B82F6, 35), size = size.tiny, text = "BU")
+plotshape(bu100, "100 SMA break-up", style = shape.triangleup, location = location.abovebar, color = color.new(#8B5CF6, 35), size = size.tiny, text = "BU")
+plotshape(bu200, "200 SMA break-up", style = shape.arrowup,    location = location.abovebar, color = color.new(color.teal, 35), size = size.small, text = "BU")
 
 f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
 
@@ -178,6 +186,12 @@ if enAl and rc100
     alert(f_pay("swing_sma100_reclaim", "100 SMA reclaim at " + str.tostring(sma100, format.mintick) + " · wick below + close back above (held). Stop = the swept low; invalid on a close below " + str.tostring(sma100, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rc200
     alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered. Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and bu50
+    alert(f_pay("swing_sma50_breakup",  "50 SMA BREAK-UP — opened below the 50 SMA "  + str.tostring(sma50,  format.mintick) + " and closed UP through it (breaking resistance). Stop = the breakout-bar low; invalid on a close back below."), alert.freq_once_per_bar_close)
+if enAl and bu100
+    alert(f_pay("swing_sma100_breakup", "100 SMA BREAK-UP — opened below the 100 SMA " + str.tostring(sma100, format.mintick) + " and closed UP through it (breaking resistance). Stop = the breakout-bar low; invalid on a close back below."), alert.freq_once_per_bar_close)
+if enAl and bu200
+    alert(f_pay("swing_sma200_breakup", "200 SMA BREAK-UP — opened below the 200 SMA " + str.tostring(sma200, format.mintick) + " and closed UP through it (structural resistance broken). Stop = the breakout-bar low; invalid on a close back below."), alert.freq_once_per_bar_close)
 if enAl and rcR
     alert(f_pay("swing_rsi_30",  "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc520
