@@ -1011,7 +1011,10 @@ def _check_entry_time_dedup(
     # + 5/20 cross), so a 200-SMA reclaim already sent kills a later 100-SMA / RSI / cross at a higher
     # price. Only a better/lower entry sends another. (user 2026-08-03) Handled here, before the
     # momentum-exempt / day-trade maze below (so momentum swings obey it too).
-    if _dedup_style_bucket(alert_type_full) == "swing":
+    # EXCEPTION: the 5/20 EMA cross is a NEW momentum trigger, not a worse re-entry of the same swing —
+    # it stays always-fire (falls through to _MOMENTUM_EXEMPT), never gated by the reclaim anchor
+    # (user 2026-08-03). Everything else in the swing bucket obeys the one-lowest-entry rule.
+    if _dedup_style_bucket(alert_type_full) == "swing" and not base.startswith("ema_5_20"):
         if entry is None or entry <= 0:
             return None
         _sw = _entry_dedup_state.get((symbol, (direction or "").upper(), "swing"))
@@ -1112,7 +1115,7 @@ def _record_entry_time_fire(
     anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
     # SWING seeds its OWN anchor for ANY swing fire (incl. momentum types that don't _seeds_anchor),
     # ratcheting to the LOWEST price for longs so the next swing chases DOWN from it (user 2026-08-03).
-    if _dedup_style_bucket(alert_type_full) == "swing":
+    if _dedup_style_bucket(alert_type_full) == "swing" and not _dedup_base(alert_type_full).startswith("ema_5_20"):
         if entry is None or entry <= 0:
             return
         _swk = (symbol, (direction or "").upper(), "swing")
