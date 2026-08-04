@@ -209,8 +209,8 @@ def _fourh_level_list(symbol: str, days: int = 3) -> List[dict]:
         a = _resample_4h(fetch_ohlc(symbol, "1mo", interval="1h"), is_crypto)
         if a is not None and len(a) >= 3:
             price = float(a["Close"].iloc[-1])
-            pairs = [("4H-1 H", float(a["High"].iloc[-2])), ("4H-1 L", float(a["Low"].iloc[-2])),
-                     ("4H-2 H", float(a["High"].iloc[-3])), ("4H-2 L", float(a["Low"].iloc[-3]))]
+            pairs = [("4H1H", float(a["High"].iloc[-2]), 1), ("4H1L", float(a["Low"].iloc[-2]), 1),
+                     ("4H2H", float(a["High"].iloc[-3]), 1), ("4H2L", float(a["Low"].iloc[-3]), 1)]
     except Exception:
         pairs = []
     try:
@@ -221,22 +221,34 @@ def _fourh_level_list(symbol: str, days: int = 3) -> List[dict]:
             # N days of prior-day H/L (PDH1=yesterday .. PDHn), like the pdh_pdl_5days pine
             for _d in range(1, days + 1):
                 if len(dfd) >= _d + 1:
-                    pairs += [(f"PDH{_d}", float(dfd["High"].iloc[-1 - _d])),
-                              (f"PDL{_d}", float(dfd["Low"].iloc[-1 - _d]))]
+                    pairs += [(f"PDH{_d}", float(dfd["High"].iloc[-1 - _d]), 2),
+                              (f"PDL{_d}", float(dfd["Low"].iloc[-1 - _d]), 2)]
             if len(dfd) >= 40 and isinstance(dfd.index, pd.DatetimeIndex):
                 _d = pd.DataFrame({"h": dfd["High"].values, "l": dfd["Low"].values}, index=dfd.index)
                 for rule, hl, ll in (("W", "PWH", "PWL"), ("M", "PMH", "PML")):
                     ag = _d.resample(rule).agg({"h": "max", "l": "min"}).dropna()
                     if len(ag) >= 2:
-                        pairs += [(hl, float(ag["h"].iloc[-2])), (ll, float(ag["l"].iloc[-2]))]
+                        pairs += [(hl, float(ag["h"].iloc[-2]), 3), (ll, float(ag["l"].iloc[-2]), 3)]
     except Exception:
         pass
+    # collapse levels within 1% of each other into ONE line — keep the highest-priority label (4h >
+    # daily > weekly/monthly) and tag "×N" for the count — so the overlay isn't a ladder of
+    # near-equal prices (user 2026-08-03: "if within 1% collapse to 1 line").
+    items = sorted([(lab, p, pri) for (lab, p, pri) in pairs if p and p > 0], key=lambda x: -x[1])
+    merged: List[list] = []
+    for lab, p, pri in items:
+        if merged and abs(merged[-1][1] - p) / p * 100.0 <= 1.0:
+            g = merged[-1]
+            g[3] += 1
+            if pri < g[2]:            # higher priority (lower number) wins the representative label/price
+                g[0], g[1], g[2] = lab, p, pri
+        else:
+            merged.append([lab, p, pri, 1])
     out: List[dict] = []
-    for i, (label, p) in enumerate(pairs):
-        if p is None or p <= 0:
-            continue
+    for i, (lab, p, pri, n) in enumerate(merged):
         color = _LVL_GREEN if (price is not None and p < price) else _LVL_RED
-        out.append({"id": -(100 + i), "symbol": symbol.upper(), "price": round(p, 2), "label": label, "color": color})
+        out.append({"id": -(100 + i), "symbol": symbol.upper(), "price": round(p, 2),
+                    "label": (f"{lab}×{n}" if n > 1 else lab), "color": color})
     return out
 
 
