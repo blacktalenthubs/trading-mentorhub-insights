@@ -436,6 +436,7 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
 # per-user/per-watchlist; only these longer-hold swing setups broadcast across the curated universe.
 _SWING_MASTER_TYPES: frozenset[str] = frozenset({
     "swing_sma50_reclaim", "swing_sma100_reclaim", "swing_sma200_reclaim",
+    "swing_sma50_breakup", "swing_sma100_breakup", "swing_sma200_breakup",
     "swing_rsi_30", "swing_fv_reclaim", "swing_smz_reclaim", "ema_5_20_cross",
 })
 MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc"}) | _SWING_MASTER_TYPES
