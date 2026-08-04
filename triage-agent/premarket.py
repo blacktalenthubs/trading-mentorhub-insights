@@ -554,6 +554,101 @@ def format_picks_block(picks: list[dict]) -> str:
     return f"<pre>{chr(10).join(rows)}</pre>"
 
 
+def _swing_note(kind: str, level_name: str, level: float) -> str:
+    if kind == "defense":
+        return f"defending a rising {level_name} @ {level:g} — long while it holds, stop < the swept low"
+    if kind == "reclaim":
+        return f"reclaimed the {level_name} @ {level:g} — support recovered, stop < the swept low"
+    if kind == "smz":
+        return f"in the smart-money golden pocket ~{level:g} — buy the discount, stop < the zone low"
+    if kind == "fv":
+        return f"reclaimed the FV basis @ {level:g} — weekly value held, stop < the swept low"
+    return f"{level_name} @ {level:g}"
+
+
+def scan_swing_setups(symbols: list, sym_to_sector: dict, quotes: dict, n: int = 4, band: float = 0.03):
+    """Rank watchlist stocks by SWING setup quality: DEFENDING a rising 50/100/200 SMA (support),
+    RECLAIMING one, reclaiming the FV (weekly value) basis, or sitting in a smart-money GOLDEN-POCKET
+    discount zone. Long-only. Returns (top-N setups, losing) where losing = names that just lost a
+    100/200 SMA they were above (caution). Self-contained daily-bar scan (user 2026-08-04)."""
+    if not symbols:
+        return [], []
+    import pandas as pd
+    try:
+        data = yf.download(tickers=" ".join(symbols), period="15mo", interval="1d",
+                           group_by="ticker", auto_adjust=False, progress=False, threads=True)
+    except Exception:
+        logger.exception("scan_swing_setups: download failed")
+        return [], []
+    multi = isinstance(getattr(data, "columns", None), pd.MultiIndex)
+    setups, losing = [], []
+    for sym in symbols:
+        try:
+            df = (data[sym] if multi else data).dropna(subset=["Close"])
+            if len(df) < 210:
+                continue
+            c, h, l = df["Close"], df["High"], df["Low"]
+            ohlc4 = (df["Open"] + df["High"] + df["Low"] + df["Close"]) / 4.0
+            price = float(c.iloc[-1])
+            q = quotes.get(sym)
+            pm_pct = float(getattr(q, "pct_change", 0.0)) if q else 0.0
+            best = None
+            for name, win, wt in (("200 SMA", 200, 3.4), ("100 SMA", 100, 2.2), ("50 SMA", 50, 1.4)):
+                ma = c.rolling(win).mean()
+                v = float(ma.iloc[-1]); v5 = float(ma.iloc[-6]); rising = v > v5
+                dist = (price - v) / v
+                recent_below = bool((c.iloc[-6:-1].values < ma.iloc[-6:-1].values).any())
+                if price >= v and dist <= band and rising:
+                    kind = "reclaim" if recent_below else "defense"
+                    sc = wt * (1.0 - (dist / band) * 0.4) * (1.3 if recent_below else 1.0) + (0.3 if pm_pct > 0 else 0.0)
+                    if not best or sc > best["score"]:
+                        best = {"symbol": sym, "kind": kind, "level_name": name, "level": round(v, 2), "score": sc}
+                elif price < v and float(c.iloc[-2]) >= float(ma.iloc[-2]) and win >= 100:
+                    losing.append((sym, name, round(v, 2)))
+            try:
+                wk = ohlc4.resample("W").mean().dropna()
+                if len(wk) >= 33:
+                    fv = float(wk.rolling(33).mean().iloc[-1]); dist = (price - fv) / fv if fv else 1
+                    if fv > 0 and 0 <= dist <= band:
+                        sc = 1.8 * (1.0 - (dist / band) * 0.4) + (0.3 if pm_pct > 0 else 0.0)
+                        if not best or sc > best["score"]:
+                            best = {"symbol": sym, "kind": "fv", "level_name": "FV basis", "level": round(fv, 2), "score": sc}
+            except Exception:
+                pass
+            sh = float(h.iloc[-200:].max()); sl = float(l.iloc[-200:].min()); rng = sh - sl
+            if rng > 0:
+                z_hi = sh - 0.618 * rng; z_lo = sh - 0.85 * rng
+                if z_lo <= price <= z_hi:
+                    depth = (z_hi - price) / (z_hi - z_lo) if z_hi > z_lo else 0.0
+                    sc = 2.6 * (1.0 + depth * 0.3) + (0.2 if pm_pct > 0 else 0.0)
+                    if not best or sc > best["score"]:
+                        best = {"symbol": sym, "kind": "smz", "level_name": "golden pocket", "level": round((z_hi + z_lo) / 2, 2), "score": sc}
+            if best:
+                best.update({"sector": sym_to_sector.get(sym, "—"), "premarket_price": round(price, 2),
+                             "pct_change": pm_pct, "note": _swing_note(best["kind"], best["level_name"], best["level"])})
+                setups.append(best)
+        except Exception:
+            continue
+    setups.sort(key=lambda x: -x["score"])
+    seen, losing_u = set(), []
+    for sym, nm, v in losing:
+        if sym not in seen:
+            seen.add(sym); losing_u.append((sym, nm, v))
+    return setups[:n], losing_u[:5]
+
+
+def format_setups_block(setups: list) -> str:
+    """The day's top swing setups — one line each: rank · symbol · price · sector · level defended."""
+    if not setups:
+        return ""
+    rows = []
+    for i, p in enumerate(setups, 1):
+        price = p["premarket_price"]
+        price_str = f"${price:>7,.0f}" if price >= 1000 else f"${price:>7.2f}"
+        rows.append(f"{i}. {p['symbol']:<6} {price_str}  {p.get('sector','—')} · {p.get('note','')}")
+    return f"<pre>{chr(10).join(rows)}</pre>"
+
+
 def load_gap_queue() -> list[dict]:
     """Top-3 Gap-and-Go Queue from the latest premarket gap snapshot — the entries
     ranked queue_rank 1-3 (scored by premarket_gaps.gap_quality_score). Empty list
@@ -608,6 +703,7 @@ def build_premarket_brief(
     queue: list[dict],
     polish: Optional[str],
     now: datetime,
+    losing: Optional[list] = None,
 ) -> str:
     et_str = now.strftime("%a %-I:%M %p ET") if hasattr(now, "strftime") else str(now)
     parts = [f"📊 <b>Premarket Heat</b> — {et_str}", ""]
@@ -625,6 +721,8 @@ def build_premarket_brief(
         parts.append(f"Focus: <b>{', '.join(s.name for s in focus)}</b> (longs)")
     if avoid:
         parts.append(f"Avoid: <b>{', '.join(s.name for s in avoid)}</b> (red breadth)")
+    if losing:
+        parts.append(f"Caution: <b>{', '.join(f'{sy} lost {nm}' for sy, nm, _v in losing[:3])}</b> (critical SMA lost)")
     parts.append("")
 
     if queue:
@@ -633,8 +731,14 @@ def build_premarket_brief(
         parts.append("")
 
     if picks:
-        parts.append("<b>⭐ Top Picks</b>")
-        parts.append(format_picks_block(picks))
+        # Swing setups (have a 'note') render as the level-defended Focus list; a momentum fallback
+        # (no note) renders as the old Top Picks table.
+        if picks[0].get("note"):
+            parts.append("<b>\U0001F3AF Focus Setups — defending key levels</b>")
+            parts.append(format_setups_block(picks))
+        else:
+            parts.append("<b>\u2b50 Top Picks</b>")
+            parts.append(format_picks_block(picks))
         parts.append("")
 
     if polish:
@@ -648,16 +752,19 @@ def build_premarket_brief(
 # LLM POLISH (heavy tier)
 # ──────────────────────────────────────────────────────────────────
 
-POLISH_PROMPT = """You are a trading-desk analyst writing one short paragraph for a trader's premarket brief.
+POLISH_PROMPT = """You are a swing-trade desk writing ONE short premarket focus note.
 
-Given sector breadth, top picks, news headlines, and macro context, write 2-3 sentences MAX.
-Rules:
-- NO header (no "**Premarket Brief**" or similar — the brief already has one)
-- NO bullet points or lists
-- NO restating the numbers — they're in the data above
-- DO cite catalysts by name when they explain the move (earnings, Fed, sector news)
-- DO note rotation patterns and one thing to watch
-- Be specific. "Memory rallying on chip cycle" beats "tech is up".
+You're given today's TOP SWING SETUPS — stocks DEFENDING a rising 50/100/200 SMA, RECLAIMING one,
+holding the FV (weekly value) basis, or sitting in a smart-money GOLDEN-POCKET discount zone — plus
+the tape and any names LOSING a critical SMA.
+
+Write 2-3 sentences MAX:
+- Name the 2-3 BEST setups and WHY — the exact level each defends/reclaims and the trigger to act
+  ("long while it holds", "on the reclaim close").
+- If a name just LOST a 100/200 SMA it held, flag it as caution.
+- End with the ONE setup that matters most today.
+Rules: NO header, NO lists, NO restating every number. Be concrete:
+"NVDA defending a rising 50 SMA at 152 — long while it holds, out on a close below."
 
 Output: the paragraph only, no preamble."""
 
@@ -669,33 +776,27 @@ def polish_with_llm(
     avoid: list[SectorBreadth],
     picks: list[dict],
     news: dict[str, list[dict]],
+    losing: Optional[list] = None,
 ) -> Optional[str]:
     if not ANTHROPIC_API_KEY:
         return None
     try:
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
         ctx = []
-        ctx.append("SECTOR BREADTH:")
-        for s in breadths:
-            cls = classify_sector(s)
-            ctx.append(f"  {s.name}: {s.avg_pct:+.1f}% ({s.n_positive}/{s.n_total}) [{cls}]")
-        ctx.append("")
-        ctx.append("FOCUS SECTORS: " + ", ".join(s.name for s in focus) if focus else "FOCUS SECTORS: none clearly bullish")
-        ctx.append("AVOID SECTORS: " + ", ".join(s.name for s in avoid) if avoid else "AVOID SECTORS: none clearly bearish")
-        ctx.append("")
-        ctx.append("TOP PICKS:")
+        ctx.append("TOP SWING SETUPS (today's focus):")
         for p in picks:
-            ctx.append(f"  {p['symbol']} (${p['premarket_price']:.2f}, {p['pct_change']:+.1f}%, {p['sector']})")
+            ctx.append(f"  {p['symbol']} (${p.get('premarket_price',0):.2f}, {p.get('pct_change',0):+.1f}%) — {p.get('note','')}")
         ctx.append("")
-        ctx.append("RECENT NEWS HEADLINES (for top movers):")
+        _los = losing or []
+        ctx.append("LOSING A CRITICAL SMA (caution): " + (", ".join(f"{sy} <{nm}" for sy, nm, _v in _los) if _los else "none"))
+        ctx.append("")
+        ctx.append("TAPE: " + "  ".join(f"{sm} {quotes[sm].pct_change:+.1f}%" for sm in INDICES if sm in quotes))
+        ctx.append("VIX: " + (f"{quotes[VIX_SYMBOL].premarket_price:.1f}" if VIX_SYMBOL in quotes else "n/a"))
+        ctx.append("")
+        ctx.append("NEWS:")
         for sym, items in news.items():
             if items:
-                ctx.append(f"  {sym}:")
-                for n in items[:2]:
-                    ctx.append(f"    • {n.get('title')}")
-        ctx.append("")
-        ctx.append("VIX: " + (f"{quotes[VIX_SYMBOL].premarket_price:.1f}"
-                              if VIX_SYMBOL in quotes else "n/a"))
+                ctx.append(f"  {sym}: " + "; ".join(nn.get('title','') for nn in items[:2]))
 
         resp = client.messages.create(
             model="claude-haiku-4-5",
@@ -780,8 +881,12 @@ def run_premarket_brief(send: bool = True) -> dict:
     # 4. Recent setups
     setups = load_recent_alerts_setups(TRIAGE_USER_ID, lookback_hours=24)
 
-    # 5. Top picks
-    picks = pick_top_stocks(focus, setups, n=4)
+    # 5. Top SWING SETUPS — stocks defending a rising 50/100/200 SMA, reclaiming one, holding the FV
+    #    basis, or in a smart-money golden-pocket discount. The 4 to focus on today (long-only). Falls
+    #    back to the momentum top-picks if no setups qualify.
+    sym_to_sector = {sy: name for name, syms in groups.items() for sy in syms}
+    swing_setups, losing = scan_swing_setups(watchlist_syms, sym_to_sector, quotes, n=4)
+    picks = swing_setups or pick_top_stocks(focus, setups, n=4)
 
     # 5b. Gap-and-Go Queue — top-3 quality-ranked gappers from the premarket snapshot.
     queue = load_gap_queue()
@@ -797,10 +902,10 @@ def run_premarket_brief(send: bool = True) -> dict:
                 if s.top_mover:
                     top_symbols_for_news.append(s.top_mover.symbol)
         news = fetch_news_for(list(set(top_symbols_for_news)))
-        polish = polish_with_llm(quotes, breadths, focus, avoid, picks, news)
+        polish = polish_with_llm(quotes, breadths, focus, avoid, picks, news, losing)
 
     # 7. Build the brief
-    brief = build_premarket_brief(quotes, breadths, focus, avoid, picks, queue, polish, et)
+    brief = build_premarket_brief(quotes, breadths, focus, avoid, picks, queue, polish, et, losing)
 
     # 8. Persist for EOD grading
     persist_morning_picks(picks, focus, avoid, et)
