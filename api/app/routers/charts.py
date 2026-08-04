@@ -26,6 +26,8 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 from analytics.market_data import fetch_ohlc  # noqa: E402
+from config import is_crypto_alert_symbol  # noqa: E402
+import pandas as pd  # noqa: E402
 
 router = APIRouter()
 
@@ -115,9 +117,29 @@ async def delete_level(
 
 # --- OHLCV ---
 
+def _resample_4h(df, is_crypto: bool):
+    """1h -> session-aligned 4h. Equity: RTH 09:30-16:00, buckets anchored 09:30/13:30 ET (matches
+    TV's "240"). Crypto: 4h blocks anchored 00:00 UTC. yfinance/Alpaca have no native 4h interval."""
+    if df is None or df.empty or not isinstance(df.index, pd.DatetimeIndex):
+        return df
+    agg = {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
+    try:
+        d = df.tz_localize("UTC") if df.index.tz is None else df
+        if is_crypto:
+            return d.tz_convert("UTC").resample("4h").agg(agg).dropna()
+        et = d.tz_convert("America/New_York").between_time("09:30", "16:00")
+        return et.resample("4h", offset="9h30min").agg(agg).dropna()
+    except Exception:
+        return df
+
+
 def _fetch_and_serialize_ohlcv(symbol: str, period: str, interval: str = "1d") -> List[dict]:
-    df = fetch_ohlc(symbol, period, interval=interval)
-    if df.empty:
+    if interval == "4h":
+        # no native 4h source -> fetch 1h and resample session-aligned
+        df = _resample_4h(fetch_ohlc(symbol, period, interval="1h"), is_crypto_alert_symbol(symbol))
+    else:
+        df = fetch_ohlc(symbol, period, interval=interval)
+    if df is None or df.empty:
         return []
     # Drop duplicate timestamps (yfinance can return dupes on intraday intervals)
     df = df[~df.index.duplicated(keep="last")]
@@ -170,6 +192,62 @@ async def ohlcv(
     # the data source can't serve doesn't re-fetch + re-block on every single click.
     cache_set(key, bars, _OHLCV_TTL if bars else _OHLCV_NEG_TTL)
     return bars
+
+
+_LVL_GREEN = "#22c55e"  # support (below price)
+_LVL_RED = "#ef4444"    # resistance (above price)
+
+
+def _fourh_level_list(symbol: str) -> List[dict]:
+    """The 4H structural stack for the chart overlay — last two SESSION-ALIGNED 4h candles' H/L +
+    PDH/PDL + PWH/PWL + PMH/PML — computed server-side so it matches the platform's 4h chart and the
+    4h pine. Colored by role vs the last price (green support / red resistance)."""
+    is_crypto = is_crypto_alert_symbol(symbol)
+    price = None
+    pairs: List[tuple] = []
+    try:
+        a = _resample_4h(fetch_ohlc(symbol, "1mo", interval="1h"), is_crypto)
+        if a is not None and len(a) >= 3:
+            price = float(a["Close"].iloc[-1])
+            pairs = [("4H-1 H", float(a["High"].iloc[-2])), ("4H-1 L", float(a["Low"].iloc[-2])),
+                     ("4H-2 H", float(a["High"].iloc[-3])), ("4H-2 L", float(a["Low"].iloc[-3]))]
+    except Exception:
+        pairs = []
+    try:
+        dfd = fetch_ohlc(symbol, "1y", interval="1d")
+        if dfd is not None and len(dfd) >= 2:
+            if price is None:
+                price = float(dfd["Close"].iloc[-1])
+            pairs += [("PDH", float(dfd["High"].iloc[-2])), ("PDL", float(dfd["Low"].iloc[-2]))]
+            if len(dfd) >= 40 and isinstance(dfd.index, pd.DatetimeIndex):
+                _d = pd.DataFrame({"h": dfd["High"].values, "l": dfd["Low"].values}, index=dfd.index)
+                for rule, hl, ll in (("W", "PWH", "PWL"), ("M", "PMH", "PML")):
+                    ag = _d.resample(rule).agg({"h": "max", "l": "min"}).dropna()
+                    if len(ag) >= 2:
+                        pairs += [(hl, float(ag["h"].iloc[-2])), (ll, float(ag["l"].iloc[-2]))]
+    except Exception:
+        pass
+    out: List[dict] = []
+    for i, (label, p) in enumerate(pairs):
+        if p is None or p <= 0:
+            continue
+        color = _LVL_GREEN if (price is not None and p < price) else _LVL_RED
+        out.append({"id": -(100 + i), "symbol": symbol.upper(), "price": round(p, 2), "label": label, "color": color})
+    return out
+
+
+@router.get("/fourh-levels/{symbol}", response_model=List[ChartLevelResponse])
+@limiter.limit("120/minute")
+async def fourh_levels(request: Request, symbol: str, user: User = Depends(get_current_user)):
+    """The 4H structural levels for the chart overlay (same key structure the 4h pine draws)."""
+    key = f"fourh_levels:{symbol.upper()}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+    loop = asyncio.get_event_loop()
+    lvls = await loop.run_in_executor(None, partial(_fourh_level_list, symbol.upper()))
+    cache_set(key, lvls, 300)
+    return lvls
 
 
 @router.get("/replay/{alert_id}")
