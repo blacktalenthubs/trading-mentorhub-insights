@@ -20,7 +20,7 @@ wLine     = input.int(2, "Line thickness", minval = 1, maxval = 6)
 lineLen   = input.int(80, "Line length (bars back)", minval = 10, maxval = 500)
 tagOff    = input.int(8, "Label offset (bars right)", minval = 0, maxval = 50)
 lblSide   = input.string("Right", "Label side", options = ["Left", "Right"])
-mergePct  = input.float(0.1, "Merge levels within (%)", minval = 0, maxval = 1, tooltip = "Two levels within this % of each other draw as ONE line with a ·×N count. 0 = never merge.")
+mergePct  = input.float(1.0, "Collapse levels within (%)", minval = 0, maxval = 5, tooltip = "Levels within this % of EACH OTHER collapse to ONE line with a ·×N confluence count (same pattern as the 4h chart). Default 1%. 0 = never merge.")
 showLbl   = input.bool(true, "Show labels")
 fadeOld   = input.bool(true, "Fade older days")
 
