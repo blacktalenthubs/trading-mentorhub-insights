@@ -1005,6 +1005,30 @@ def _check_entry_time_dedup(
     if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
         return None
     base = _dedup_base(alert_type_full)
+    # SWING = ONE entry per symbol+direction per SESSION: the LOWEST price. The first swing fires; a
+    # later swing fires ONLY if strictly LOWER (a better entry) than the day's best; higher/same is
+    # suppressed. NO time cooldown. ALL swing types share this ONE anchor (sma/fv/smz reclaims + rsi-30
+    # + 5/20 cross), so a 200-SMA reclaim already sent kills a later 100-SMA / RSI / cross at a higher
+    # price. Only a better/lower entry sends another. (user 2026-08-03) Handled here, before the
+    # momentum-exempt / day-trade maze below (so momentum swings obey it too).
+    if _dedup_style_bucket(alert_type_full) == "swing":
+        if entry is None or entry <= 0:
+            return None
+        _sw = _entry_dedup_state.get((symbol, (direction or "").upper(), "swing"))
+        if not _sw or _sw.get("session") != session_date:
+            return None  # first swing of the session -> fire (the best entry so far)
+        try:
+            _band = float(_envf("V2_ENTRY_DEDUP_BAND_PCT", 0.3)) / 100.0
+        except Exception:
+            _band = 0.003
+        for _lv in _sw.get("levels", []):
+            if _lv > 0 and abs(entry - _lv) / _lv <= _band:
+                return {"reason": "dedup_confluence", "anchor": _lv}
+        _long = (direction or "").upper() in ("BUY", "LONG")
+        _better = entry < _sw["best"] * (1.0 - _band) if _long else entry > _sw["best"] * (1.0 + _band)
+        if not _better:
+            return {"reason": "dedup_swing_worse", "anchor": _sw["best"]}
+        return None
     if base in _MOMENTUM_EXEMPT:
         return None  # momentum: always fire, never merged (different signal axis)
     if base in _NEVER_DEDUP_LEVELS:
@@ -1086,6 +1110,22 @@ def _record_entry_time_fire(
 ) -> None:
     """Record a KEPT fire — append the price to the session's level set, ratchet the
     anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
+    # SWING seeds its OWN anchor for ANY swing fire (incl. momentum types that don't _seeds_anchor),
+    # ratcheting to the LOWEST price for longs so the next swing chases DOWN from it (user 2026-08-03).
+    if _dedup_style_bucket(alert_type_full) == "swing":
+        if entry is None or entry <= 0:
+            return
+        _swk = (symbol, (direction or "").upper(), "swing")
+        _swlong = (direction or "").upper() in ("BUY", "LONG")
+        _swp = float(entry)
+        _sws = _entry_dedup_state.get(_swk)
+        if not _sws or _sws.get("session") != session_date:
+            _entry_dedup_state[_swk] = {"session": session_date, "best": _swp, "last": datetime.utcnow(), "levels": [_swp]}
+        else:
+            _sws.setdefault("levels", []).append(_swp)
+            _sws["best"] = min(_sws["best"], _swp) if _swlong else max(_sws["best"], _swp)
+            _sws["last"] = datetime.utcnow()
+        return
     if entry is None or entry <= 0 or not _seeds_anchor(alert_type_full):
         return
     key = (symbol, (direction or "").upper(), _dedup_style_bucket(alert_type_full))

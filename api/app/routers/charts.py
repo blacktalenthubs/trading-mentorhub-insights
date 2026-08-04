@@ -198,7 +198,7 @@ _LVL_GREEN = "#22c55e"  # support (below price)
 _LVL_RED = "#ef4444"    # resistance (above price)
 
 
-def _fourh_level_list(symbol: str) -> List[dict]:
+def _fourh_level_list(symbol: str, days: int = 3) -> List[dict]:
     """The 4H structural stack for the chart overlay — last two SESSION-ALIGNED 4h candles' H/L +
     PDH/PDL + PWH/PWL + PMH/PML — computed server-side so it matches the platform's 4h chart and the
     4h pine. Colored by role vs the last price (green support / red resistance)."""
@@ -218,7 +218,11 @@ def _fourh_level_list(symbol: str) -> List[dict]:
         if dfd is not None and len(dfd) >= 2:
             if price is None:
                 price = float(dfd["Close"].iloc[-1])
-            pairs += [("PDH", float(dfd["High"].iloc[-2])), ("PDL", float(dfd["Low"].iloc[-2]))]
+            # N days of prior-day H/L (PDH1=yesterday .. PDHn), like the pdh_pdl_5days pine
+            for _d in range(1, days + 1):
+                if len(dfd) >= _d + 1:
+                    pairs += [(f"PDH{_d}", float(dfd["High"].iloc[-1 - _d])),
+                              (f"PDL{_d}", float(dfd["Low"].iloc[-1 - _d]))]
             if len(dfd) >= 40 and isinstance(dfd.index, pd.DatetimeIndex):
                 _d = pd.DataFrame({"h": dfd["High"].values, "l": dfd["Low"].values}, index=dfd.index)
                 for rule, hl, ll in (("W", "PWH", "PWL"), ("M", "PMH", "PML")):
@@ -238,14 +242,16 @@ def _fourh_level_list(symbol: str) -> List[dict]:
 
 @router.get("/fourh-levels/{symbol}", response_model=List[ChartLevelResponse])
 @limiter.limit("120/minute")
-async def fourh_levels(request: Request, symbol: str, user: User = Depends(get_current_user)):
-    """The 4H structural levels for the chart overlay (same key structure the 4h pine draws)."""
-    key = f"fourh_levels:{symbol.upper()}"
+async def fourh_levels(request: Request, symbol: str, days: int = 3, user: User = Depends(get_current_user)):
+    """The 4H structural levels for the chart overlay (same key structure the 4h pine draws) +
+    `days` prior-day H/L (PDH1..PDHn / PDL1..PDLn, default 3) like the pdh_pdl 5-day pine."""
+    days = max(1, min(days, 5))
+    key = f"fourh_levels:{symbol.upper()}:{days}"
     cached = cache_get(key)
     if cached is not None:
         return cached
     loop = asyncio.get_event_loop()
-    lvls = await loop.run_in_executor(None, partial(_fourh_level_list, symbol.upper()))
+    lvls = await loop.run_in_executor(None, partial(_fourh_level_list, symbol.upper(), days))
     cache_set(key, lvls, 300)
     return lvls
 
