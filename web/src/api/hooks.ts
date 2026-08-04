@@ -1363,6 +1363,18 @@ export function useChartLevels(symbol: string) {
   });
 }
 
+/** The 4H structural stack (last two SESSION-ALIGNED 4h candles' H/L + PDH/PDL/PWH/PWL/PMH/PML) for
+ *  the chart overlay — computed server-side to match the 4h pine. Polls every 60s. */
+export function useFourhLevels(symbol: string) {
+  return useQuery({
+    queryKey: ["fourh-levels", symbol],
+    queryFn: () => api.get<ChartLevel[]>(`/charts/fourh-levels/${symbol}`),
+    enabled: !!symbol,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+}
+
 /* ── Computed key-level ladder (Trading page Level Map) ── */
 export interface SymbolLevel {
   label: string;
@@ -1424,7 +1436,7 @@ export function useDeleteChartLevel() {
 
 export function useOHLCV(symbol: string, period = "1y", interval = "1d") {
   // Chart data: refresh every 10s for intraday, 60s for daily
-  const isIntraday = ["1m", "5m", "15m", "30m", "60m"].includes(interval);
+  const isIntraday = ["1m", "5m", "15m", "30m", "60m", "4h"].includes(interval);
   const refreshMs = isIntraday ? 10_000 : 60_000;
   return useQuery({
     queryKey: ["ohlcv", symbol, period, interval],
