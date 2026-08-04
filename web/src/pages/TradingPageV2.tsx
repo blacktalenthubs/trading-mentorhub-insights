@@ -54,6 +54,7 @@ import { SkeletonRow } from "../components/ui/Skeleton";
 import {
   Search,
   Plus,
+  Check,
   X,
   Loader2,
   SlidersHorizontal,
@@ -1499,6 +1500,7 @@ export default function TradingPageV2() {
             const lp = livePrices[sy];
             const chg = lp?.change_pct ?? null;
             const isFocused = focusSymbols.has(sy);
+            const inWl = watchlistSymbols.has(sy);
             return (
               <div
                 key={sy}
@@ -1510,6 +1512,13 @@ export default function TradingPageV2() {
                   className={isFocused ? "text-amber-400" : "text-text-faint transition-colors hover:text-amber-400"}
                 >
                   <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); inWl ? _removeSymbol.mutate(sy) : addSymbol.mutate(sy); }}
+                  title={inWl ? `Remove ${sy} from your watchlist` : `Add ${sy} to your watchlist`}
+                  className={inWl ? "text-bullish-text" : "text-text-faint transition-colors hover:text-accent"}
+                >
+                  {inWl ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                 </button>
                 <button onClick={() => selectSymbol(sy)} className="flex flex-1 items-center gap-2 text-left">
                   <span className="font-mono text-[11px] font-semibold text-text-primary">{sy}</span>
