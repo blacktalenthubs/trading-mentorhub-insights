@@ -156,6 +156,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_sma50_reclaim", "50 SMA reclaim (long) — a daily candle wicked below the 50 SMA & closed back above (held structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_sma100_reclaim", "100 SMA reclaim (long) — a daily candle wicked below the 100 SMA & closed back above (held mid structural support). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
+    ("swing_sma50_breakup", "50 SMA break-up (long) — opened BELOW the 50 SMA (resistance) and closed UP through it. A breakup, NOT a reclaim. Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
+    ("swing_sma100_breakup", "100 SMA break-up (long) — opened BELOW the 100 SMA and closed UP through it (mid structural resistance broken). Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
+    ("swing_sma200_breakup", "200 SMA break-up (long) — opened BELOW the 200 SMA and closed UP through it (the line institutions defend, now broken from below). Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
     # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
     ("swing_fv_reclaim", "Fair Value reclaim (long) — closed back above the 33-SMA-OHLC4 weekly Fair-Value basis after dipping below (value support held). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_smz_reclaim", "Smart Money zone reclaim (long) — reclaimed a golden-pocket edge (weekly swing) that held as support. The alert names which edge. Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
