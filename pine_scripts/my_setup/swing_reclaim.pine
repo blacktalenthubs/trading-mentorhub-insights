@@ -126,7 +126,8 @@ f_support(float L) => f_reclaim(L) or f_hold(L)   // FV / SMZ: fire on either a 
 rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
 rc200 = en200 and conf and f_reclaim(sma200)
-rc30w = en30w and conf and f_support(w30)   // reclaim OR hold of the 30-week MA
+wOpen = request.security(tid, "W", open, lookahead = barmerge.lookahead_on)   // this WEEK's open — the 30W role-guard is judged on the WEEKLY, not the daily
+rc30w = en30w and conf and not na(w30) and not na(wOpen) and close > w30 and wOpen >= w30 * (1.0 - onBand)   // 30-week MA: RECLAIM or OPENED ABOVE on the WEEKLY (user 2026-08-05) — excludes a from-below weekly breakup
 bu50  = en50  and conf and f_breakup(sma50)
 bu100 = en100 and conf and f_breakup(sma100)
 bu200 = en200 and conf and f_breakup(sma200)
