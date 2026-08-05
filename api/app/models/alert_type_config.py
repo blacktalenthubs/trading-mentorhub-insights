@@ -93,6 +93,13 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("fourh_reject",  "4H rejection (short) — a 15m candle wicked above a prior 4h level & closed back below (resistance held). Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_breakup", "4H break-up (long) — a 15m candle closed up through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_breakdn", "4H break-down (short) — a 15m candle closed down through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
+    # Structural-level DAY reclaims (weekly-low / monthly-low / prior-2-day-low) — 2026-08-05. Same
+    # reclaim mechanic as the 4H reactions on the 15m close, LONG only, stop = the swept bar low. They
+    # JOIN the 4H DB-anchored day dedup stream: a 4H reclaim + these compete as ONE (symbol,BUY) anchor,
+    # so the LOWEST entry wins and worse entries are suppressed. From prior_4h_two_candles.pine.
+    ("day_weekly_reclaim",  "Weekly-low reclaim (day) — 15m wicked below the prior-WEEK low (PWL) & closed back above. Long, stop = bar low. Joins the 4H day dedup (lowest entry wins). Opt in HERE.", "Day levels", False),
+    ("day_monthly_reclaim", "Monthly-low reclaim (day) — 15m wicked below the prior-MONTH low (PML) & closed back above. Long, stop = bar low. Joins the 4H day dedup (lowest entry wins). Opt in HERE.", "Day levels", False),
+    ("day_pdlow_reclaim",   "Prior-day low reclaim (day) — 15m wicked below one of the last two days' lows (D-1/D-2) & closed back above. Long, stop = bar low. Joins the 4H day dedup. Opt in HERE.", "Day levels", False),
     # 50 EMA reactions — the SAME 4-reaction pattern on the daily 50 EMA (the one MA institutions
     # defend), as ISOLATED types so they can be toggled + evaluated separately (user 2026-07-26).
     # The ONE moving-average worth its own alert (user 2026-07-28): the daily 200 SMA/EMA is a structural
@@ -278,6 +285,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # the 4H method IS the day trade, so fourh_* → day_trade feed (no separate RC / 4H tab).
     ("staged_pwl", "day_trade"),   # weekly_rc/monthly_rc retired 2026-08-02 (→ Smart Money zones)
     ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
+    ("day_weekly_reclaim", "day_trade"), ("day_monthly_reclaim", "day_trade"), ("day_pdlow_reclaim", "day_trade"),   # structural day reclaims → Day feed
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
@@ -387,6 +395,9 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "fourh_reject": "4H rejection: a 15m candle poked above a prior 4h level and closed back below — resistance held, momentum flips down. Entry = the close, stop = the swept wick.",
     "fourh_breakup": "4H break-up: a 15m candle closed up through a prior 4h level — continuation. Entry = the close, stop back below the level.",
     "fourh_breakdn": "4H break-down: a 15m candle closed down through a prior 4h level — continuation. Entry = the close, stop back above the level.",
+    "day_weekly_reclaim": "Weekly-low reclaim (day trade): a 15m candle undercut the prior-WEEK low (PWL) and closed back above — the weekly support held. Entry = the 15m close, stop = the swept bar low. Shares the 4H day dedup, so only the LOWEST entry of the day fires.",
+    "day_monthly_reclaim": "Monthly-low reclaim (day trade): a 15m candle undercut the prior-MONTH low (PML) and closed back above — the monthly support held. Entry = the close, stop = the swept bar low. Shares the 4H day dedup (lowest entry wins).",
+    "day_pdlow_reclaim": "Prior-day low reclaim (day trade): a 15m candle undercut one of the last two sessions' lows (D-1 or D-2) and closed back above. Entry = the close, stop = the swept bar low. Shares the 4H day dedup (lowest entry wins).",
     "monthly_lvl_reclaim": "The ONE prior-month level alert. Fires a BUY on the PRIOR month's High or Low (PMH/PML) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic: dip-and-reclaim OR ran up through from below), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-month visual pine (monthly_levels.pine).",
     "weekly_lvl_reclaim": "The ONE prior-week level alert. Fires a BUY on the PRIOR week's High or Low (PWH/PWL) two ways: (1) RECLAIM — price traded below the level today and closed back above it (open-agnostic), or (2) GAP-and-go — the day opened above the level after the prior day closed under it, and held above. Entry = the level, stop = the day low. Once per level per day, day-trade. Pairs with the prior-week visual pine (weekly_levels.pine).",
 
