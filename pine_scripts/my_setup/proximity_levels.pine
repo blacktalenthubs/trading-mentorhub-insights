@@ -6,7 +6,7 @@
 // red = RESISTANCE / price below), labeled. Your 20/50/100/200 SMAs + 50/100/200 EMAs
 // (daily-locked, flat) are always drawn — the decision core.
 //
-// For the CONTEXT levels (prior week / month / quarter H/L/C + the weekly Fair-Value basis),
+// For the CONTEXT levels (prior week / month / quarter H/L/C — Fair Value removed 2026-08-05; the
 // two rules — so you always know the bracket price is trading in, yet the chart stays clean:
 //   1. ALWAYS show the NEAREST context level ABOVE price and the NEAREST BELOW (the bracket) —
 //      even if far (a 20% gap-down still shows PML above / PQ-Low below, the RDDT case).
@@ -31,6 +31,7 @@ en20  = input.bool(true, "20 SMA",  group = gS, inline = "a")
 en50  = input.bool(true, "50 SMA",  group = gS, inline = "a")
 en100 = input.bool(true, "100 SMA", group = gS, inline = "b")
 en200 = input.bool(true, "200 SMA", group = gS, inline = "b")
+en30w = input.bool(true, "30W MA (weekly · Weinstein)", group = gS)
 smaTf = input.timeframe("D", "SMA/EMA lock timeframe (flat)", group = gS, tooltip = "The SMAs/EMAs use this timeframe's value, drawn FLAT — so bind on the daily (or intraday) and still see the DAILY MAs.")
 
 // ── EMAs — always on, drawn FLAT (50/100/200) ──────────────────────────────────
@@ -44,7 +45,6 @@ gC   = "Context levels (nearest above & below always show)"
 enPW = input.bool(true, "Weekly — PWH / PWL",         group = gC)
 enPM = input.bool(true, "Monthly — PMH / PML",        group = gC)
 enPQ = input.bool(true, "Quarter — PQH / PQL / PQC",  group = gC)
-enFV = input.bool(true, "Fair Value (33-SMA OHLC4, weekly)", group = gC)
 
 // ── Smart Money zone — shows only when price is inside/near the zone ────────────
 gZ    = "Smart Money zone (shows when price is inside/near)"
@@ -75,6 +75,7 @@ sma20  = f_sec(smaTf, ta.sma(close, 20)[1])
 sma50  = f_sec(smaTf, ta.sma(close, 50)[1])
 sma100 = f_sec(smaTf, ta.sma(close, 100)[1])
 sma200 = f_sec(smaTf, ta.sma(close, 200)[1])
+w30    = f_sec("W", ta.sma(close, 30)[1])   // 30-WEEK MA (Weinstein Stage line), flat
 ema50  = f_sec(smaTf, ta.ema(close, 50)[1])
 ema100 = f_sec(smaTf, ta.ema(close, 100)[1])
 ema200 = f_sec(smaTf, ta.ema(close, 200)[1])
@@ -85,7 +86,6 @@ pml = f_sec("M",  low[1])
 pqh = f_sec("3M", high[1])
 pql = f_sec("3M", low[1])
 pqc = f_sec("3M", close[1])
-fv  = f_sec("W",  ta.sma(ohlc4, 33)[1])
 // prior-day H/L — RTH-accurate (regular-session ticker so extended-hours prints don't leak)
 rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 pdh = request.security(rthTid, "D", high[1], lookahead = barmerge.lookahead_on)
@@ -138,6 +138,7 @@ if barstate.islast
     f_add(sma50,  "50 SMA",  en50)
     f_add(sma100, "100 SMA", en100)
     f_add(sma200, "200 SMA", en200)
+    f_add(w30,    "30W MA",  en30w)
     f_add(ema50,  "50 EMA",  en50e)
     f_add(ema100, "100 EMA", en100e)
     f_add(ema200, "200 EMA", en200e)
@@ -149,7 +150,6 @@ if barstate.islast
     f_cand(pqh, "PQH", enPQ)
     f_cand(pql, "PQL", enPQ)
     f_cand(pqc, "PQC", enPQ)
-    f_cand(fv,  "FV 33", enFV)
     // nearest context ABOVE & BELOW price (the always-show bracket)
     naV = 1.0e18
     nbV = -1.0
