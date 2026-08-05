@@ -809,7 +809,12 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
 _RC_VALIDATION_TYPES: frozenset[str] = frozenset({"daily_rc", "weekly_rc", "monthly_rc"})
 # 4H day-trade method — same isolation as RC validation (collapse-exempt + entry-dedup None) so every
 # 15m-close reaction is captured for analysis (2026-07-25). MASTER-optin; bind the pine on 15m.
-_FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn", "fourh_ma200_reclaim"})
+_FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn", "fourh_ema_reclaim", "fourh_ema_reject", "fourh_ema_breakup", "fourh_ema_breakdn", "fourh_ma200_reclaim",
+    # Structural-level day reclaims (weekly-low / monthly-low / prior-2-day-low) — 2026-08-05. They JOIN
+    # the fourh DB-anchored day stream so a 4H reclaim + these compete as ONE (symbol,BUY) anchor: the
+    # LOWEST entry wins, worse ones suppressed (user: "if we send a 4h reclaim the lowest entry takes
+    # priority, others suppressed"). Long-only, so the fourh SHORT-cap branch never applies to them.
+    "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim"})
 
 
 def _is_collapse_exempt(alert_type_full: str) -> bool:
@@ -1151,7 +1156,7 @@ async def _db_dedup_state(symbol: str, direction: str, session_date: str):
     restarts. The in-memory _entry_dedup_state dict is wiped on every deploy/restart, which let
     same-level shorts re-fire hours apart (user 2026-07-28: "not a single ETH dedup" — dedup worked
     within an uptime window, leaked across every restart). Returns {session,best,last,levels} over
-    today's DELIVERED same-symbol+direction fourh alerts, or None (→ first fire). created_at is naive
+    today's DELIVERED same-symbol+direction fourh + day-reclaim alerts, or None (→ first fire). created_at is naive
     UTC in the DB, matching datetime.utcnow(). On any DB error, returns None (falls back to firing)."""
     from app.database import async_session_factory
     from sqlalchemy import text as _t
@@ -1163,7 +1168,7 @@ async def _db_dedup_state(symbol: str, direction: str, session_date: str):
             rows = (await _db.execute(_t(
                 "SELECT entry, created_at FROM alerts "
                 "WHERE symbol = :sym AND upper(direction) IN (:d1, :d2) "
-                "AND alert_type LIKE 'tv_fourh%' AND suppressed_reason IS NULL "
+                "AND (alert_type LIKE 'tv_fourh%' OR alert_type LIKE 'tv_day_%') AND suppressed_reason IS NULL "  # +day_* structural reclaims share the anchor (2026-08-05)
                 "AND session_date = :sess AND entry IS NOT NULL"
             ), {"sym": symbol, "d1": dirs[0], "d2": dirs[1], "sess": session_date})).all()
     except Exception as e:  # noqa: BLE001
