@@ -940,10 +940,13 @@ async def lifespan(app: FastAPI):
             # env var (default ON) so a stale Railway CANDLE_65=false override can't keep it dark.
             # Tuple: (idx, hour, minute, is_final)
             _CANDLE_2H_SCHEDULE = [
-                (1, 11, 30, False),
-                (2, 13, 30, False),
-                (3, 15, 30, False),
-                (4, 16, 0,  True),   # 4th 2h bar — session close (16:00 ET)
+                (1, 10, 30, False),
+                (2, 11, 30, False),
+                (3, 12, 30, False),
+                (4, 13, 30, False),
+                (5, 14, 30, False),
+                (6, 15, 30, False),
+                (7, 16, 0,  True),   # 7th 1h bar — session close (16:00 ET)
             ]
 
             def _broadcast_push(title: str, body: str, label: str, pref: str) -> int:
@@ -988,15 +991,15 @@ async def lifespan(app: FastAPI):
                     logger.info("CANDLE PING SKIP: 2h #%d outside market hours", idx)
                     return
                 if is_final:
-                    title = "2h candle 4 closed — session close"
+                    title = "1h candle 7 closed — session close"
                     body = (
-                        "<b>2h candle 4 of 4 closed — session close (16:00 ET)</b>\n"
-                        "Final 2h bar of the day. Review your charts + mark tomorrow's levels."
+                        "<b>1h candle 7 of 7 closed — session close (16:00 ET)</b>\n"
+                        "Final 1h bar of the day. Review your charts + mark tomorrow's levels."
                     )
                 else:
-                    title = f"2h candle {idx} closed"
+                    title = f"1h candle {idx} closed"
                     body = (
-                        f"<b>2h candle {idx} of 4 closed</b>\n"
+                        f"<b>1h candle {idx} of 7 closed</b>\n"
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
@@ -1017,15 +1020,15 @@ async def lifespan(app: FastAPI):
                         misfire_grace_time=60,
                         replace_existing=True,
                     )
-                logger.info("Registered 4 cron jobs for 2h equity candle pings")
+                logger.info("Registered 7 cron jobs for 1h equity candle pings")
 
             # 2h CRYPTO candle pings (24/7 UTC) — for weekend testing (user 2026-08-02: "enable crypto
             # this weekend to verify it works; users can disable in Settings, 2h crypto is a lot").
             # Crypto 2h bars anchor to 00:00 UTC → 12 closes/day. Same opt-in toggle + delivery.
             def _notify_crypto_candle(hour: int) -> None:
-                title = f"2h crypto candle closed — {hour:02d}:00 UTC"
+                title = f"1h crypto candle closed — {hour:02d}:00 UTC"
                 body = (
-                    f"<b>2h crypto candle closed — {hour:02d}:00 UTC</b>\n"
+                    f"<b>1h crypto candle closed — {hour:02d}:00 UTC</b>\n"
                     f"Check your charts (BTC/ETH/etc.)."
                 )
                 _broadcast_telegram(body, f"crypto2h#{hour:02d}", "candle_ping_crypto")
@@ -1036,7 +1039,7 @@ async def lifespan(app: FastAPI):
             logger.info("Candle 2h CRYPTO pings enabled: %s", _crypto2h_on)
             if _crypto2h_on:
                 _utc_tz = _pytz.utc
-                for _ch in [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]:
+                for _ch in range(24):
                     scheduler.add_job(
                         _notify_crypto_candle,
                         CronTrigger(hour=_ch, minute=0, timezone=_utc_tz),
@@ -1045,7 +1048,7 @@ async def lifespan(app: FastAPI):
                         misfire_grace_time=60,
                         replace_existing=True,
                     )
-                logger.info("Registered 12 cron jobs for 2h crypto candle pings (24/7 UTC)")
+                logger.info("Registered 24 cron jobs for 1h crypto candle pings (24/7 UTC)")
 
             # ── Hourly LEVELS agent (user 2026-08-02) — AI read of WHERE SPY sits vs its FULL structural
             # stack: PDH/PDL, PWH/PWL, PMH/PML, PQH/PQL, the last two 4H candle H/L, and the MA stack.
