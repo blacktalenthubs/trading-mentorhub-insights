@@ -50,6 +50,9 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "swing_sma50_breakup",     # daily 50 SMA break-up (opened below, closed up through) — Swing (2026-08-05)
     "swing_sma100_breakup",    # daily 100 SMA break-up
     "swing_sma200_breakup",    # daily 200 SMA break-up
+    "swing_sma50_hold",        # daily 50 SMA hold (opened on the line, held) — Swing (2026-08-05)
+    "swing_sma100_hold",       # daily 100 SMA hold
+    "swing_sma200_hold",       # daily 200 SMA hold
     "swing_fv_reclaim",        # 33-SMA OHLC4 weekly Fair-Value basis reclaim (2026-08-02)
     "swing_smz_reclaim",       # Smart Money zone (golden pocket) edge reclaim (2026-08-02)
 })
