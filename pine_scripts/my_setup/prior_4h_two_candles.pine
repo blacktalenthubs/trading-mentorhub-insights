@@ -17,7 +17,7 @@
 // BELOW the open is tagged today's SUPPORT (opened above it) and the nearest ABOVE is today's
 // RESISTANCE (opened below it) — the open sets each 4h level's role for the day. Visual only.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v5", overlay = true, max_lines_count = 32, max_labels_count = 48)
+indicator("4H Levels · last 2 candles (H/L)", "4hr-levels-v6", overlay = true, max_lines_count = 32, max_labels_count = 48)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 show1   = input.bool(true, "4H-1 — last completed 4h candle (solid)")
@@ -359,6 +359,36 @@ if enAl and isBu
     alert(fh_pay("fourh_breakup", "BUY",   close, low,  "4H break-up thru "   + str.tostring(buLvl, format.mintick) + " · invalid on a 15m close below " + str.tostring(buLvl, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isBd
     alert(fh_pay("fourh_breakdn", "SHORT", close, high, "4H break-down thru " + str.tostring(bdLvl, format.mintick) + " · invalid on a 15m close above " + str.tostring(bdLvl, format.mintick)), alert.freq_once_per_bar_close)
+
+// ── STRUCTURAL-LEVEL DAY RECLAIMS — weekly-low (PWL), monthly-low (PML), prior-2-day lows
+// (D-1 = pdl, D-2 = dL2). Same reclaim mechanic as the 4h reactions (rc_below: the prior close
+// held ABOVE the level → this 15m bar wicks BELOW it → closes back above), on the 15m close,
+// LONG only, STOP = the swept bar low. Day book: they emit day_* types that share the (symbol,BUY)
+// day dedup stream with the 4h reclaims — so the LOWEST entry wins and worse entries are suppressed
+// (user 2026-08-05). Default via enAl; each level individually toggleable.
+gLR    = "Structural-level day reclaims (weekly / monthly / prior-day low)"
+enWkRc = input.bool(true, "Weekly-low (PWL) reclaim → day BUY",       group = gLR)
+enMoRc = input.bool(true, "Monthly-low (PML) reclaim → day BUY",      group = gLR)
+enPdRc = input.bool(true, "Prior-day low (D-1/D-2) reclaim → day BUY", group = gLR)
+
+isWkRc  = conf and rc_below(pwl, pwl[1])
+isMoRc  = conf and rc_below(pml, pml[1])
+_rcPd1  = rc_below(pdl, pdl[1])
+_rcPd2  = rc_below(dL2, dL2[1])
+isPdRc  = conf and (_rcPd1 or _rcPd2)
+pdRcLvl = _rcPd1 ? pdl : dL2
+pdRcTag = _rcPd1 ? "prior-day low (D-1)" : "prior-day low (D-2)"
+
+plotshape(enMk and enWkRc and isWkRc, "Wk reclaim", style = shape.arrowup, location = location.belowbar, color = colUp, size = size.tiny, text = "W")
+plotshape(enMk and enMoRc and isMoRc, "Mo reclaim", style = shape.arrowup, location = location.belowbar, color = colUp, size = size.tiny, text = "M")
+plotshape(enMk and enPdRc and isPdRc, "PD reclaim", style = shape.arrowup, location = location.belowbar, color = colUp, size = size.tiny, text = "D")
+
+if enAl and enWkRc and isWkRc
+    alert(fh_pay("day_weekly_reclaim",  "BUY", close, low, "Weekly-low (PWL) reclaim of "  + str.tostring(pwl, format.mintick) + " · stop = bar low · invalid on a 15m close below " + str.tostring(pwl, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and enMoRc and isMoRc
+    alert(fh_pay("day_monthly_reclaim", "BUY", close, low, "Monthly-low (PML) reclaim of " + str.tostring(pml, format.mintick) + " · stop = bar low · invalid on a 15m close below " + str.tostring(pml, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and enPdRc and isPdRc
+    alert(fh_pay("day_pdlow_reclaim",   "BUY", close, low, pdRcTag + " reclaim of " + str.tostring(pdRcLvl, format.mintick) + " · stop = bar low · invalid on a 15m close below " + str.tostring(pdRcLvl, format.mintick)), alert.freq_once_per_bar_close)
 
 // ── GAP-AND-GO (the DAY pine owns it — user 2026-08-03: "gap and go is part of day trade, only two
 // pines: day + swing"). Equity opens ABOVE the prior high (PDH, or the highest high of the last N
