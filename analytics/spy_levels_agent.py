@@ -1,16 +1,17 @@
-"""Hourly SPY Levels Agent — reads SPY's MA/EMA stack + the 4H levels and narrates where
-SPY is sitting RELATIVE to each (which are support, which are resistance, above/below).
+"""Hourly Levels Agent — reads a symbol against its STRUCTURAL stack (MA/EMA + prior
+day/week/month/quarter H/L + the 30-week MA) and narrates where price sits relative to each
+(which are support, which resistance) plus the 1h trend (buying/selling).
 
-An AI heartbeat for market context during the session: not an event (like the regime-shift
-narrator), a scheduled hourly read. The data (price, EMAs, SMAs, the last two 4H candles' H/L,
-PDH/PDL) is computed upstream and passed in as a dict; this module just narrates it.
+An AI heartbeat for market context during the session: a scheduled hourly read. Output is a
+SOLID deterministic 3-line card — bias (+1h trend), bracketing support/resistance, ONE action —
+with only the short bias phrase written by the model. Data is computed upstream and passed in.
 """
 from __future__ import annotations
 
 
 # levels dict shape (all optional; missing keys are skipped):
 #   price, ema8, ema20, ema50, ema100, ema200, sma50, sma100, sma200,
-#   h4_1_high, h4_1_low, h4_2_high, h4_2_low, pdh, pdl,
+#   w30 (30-week MA), h1_trend ("buying ↑" / "selling ↓" / "mixed →"), pdh, pdl,
 #   pwh, pwl (prior week), pmh, pml (prior month), pqh, pql (prior quarter), session_time
 def _col(df, name):
     """Case-insensitive column accessor (Alpaca lowercases, yfinance capitalizes)."""
@@ -21,9 +22,9 @@ def _col(df, name):
 
 
 def compute_levels(symbol: str, is_crypto: bool = False) -> dict | None:
-    """Gather SPY/BTC price + EMA/SMA stack (daily) + last-two 4H H/L + PDH/PDL.
+    """Gather price + EMA/SMA stack (daily) + 30-week MA + PDH/PDL/PWH/PWL/PMH/PML/PQH/PQL + 1h trend.
 
-    Daily MAs use the same Alpaca daily path the regime engine uses (yfinance fallback); the 4H
+    Daily MAs use the same Alpaca daily path the regime engine uses (yfinance fallback); the 1h
     levels come from the intraday feed (works 24/7 for crypto). Any piece that fails is simply
     omitted from the dict — the narrator skips missing levels.
     """
@@ -63,26 +64,33 @@ def compute_levels(symbol: str, is_crypto: bool = False) -> dict | None:
                     if len(_agg) >= 2:
                         lv[_hk] = float(_agg["h"].iloc[-2])
                         lv[_lk] = float(_agg["l"].iloc[-2])
+                # 30-week MA (Weinstein Stage line) — from weekly closes
+                if c is not None:
+                    _wc = _pd.Series(list(c.values), index=_pd.DatetimeIndex(daily.index)).resample("W").last().dropna()
+                    if len(_wc) >= 30:
+                        lv["w30"] = float(_wc.rolling(30).mean().iloc[-1])
             except Exception:
                 pass
-    # ── intraday → last two COMPLETED 4H candles' H/L ──────────────────────────
+    # ── intraday 1h → HOURLY TREND (buying/selling) ─────────────────────────────
     intr = None
     try:
         intr = fetch_intraday_crypto(symbol, interval="1h") if is_crypto else _fetch_alpaca_bars(symbol, interval="1h", hours_back=24 * 12)
     except Exception:
         intr = None
     if intr is not None and len(intr) >= 8:
-        hi, lo, cl = _col(intr, "high"), _col(intr, "low"), _col(intr, "close")
-        if hi is not None and lo is not None:
+        cl = _col(intr, "close")
+        if cl is not None:
+            if lv.get("price") is None:
+                lv["price"] = float(cl.iloc[-1])
+            # HOURLY TREND — 1h 8/20 EMA + slope → buying / selling / mixed (user 2026-08-05)
             try:
-                agg = intr.assign(_h=hi.values, _l=lo.values).resample("4h").agg({"_h": "max", "_l": "min"}).dropna()
-                if len(agg) >= 3:
-                    lv["h4_1_high"], lv["h4_1_low"] = float(agg["_h"].iloc[-2]), float(agg["_l"].iloc[-2])
-                    lv["h4_2_high"], lv["h4_2_low"] = float(agg["_h"].iloc[-3]), float(agg["_l"].iloc[-3])
+                _e8 = cl.ewm(span=8, adjust=False).mean()
+                _e20 = cl.ewm(span=20, adjust=False).mean()
+                _up = float(_e8.iloc[-1]) > float(_e20.iloc[-1])
+                _rising = float(_e8.iloc[-1]) > float(_e8.iloc[-4]) if len(_e8) >= 4 else _up
+                lv["h1_trend"] = "buying ↑" if (_up and _rising) else "selling ↓" if (not _up and not _rising) else "mixed →"
             except Exception:
                 pass
-        if lv.get("price") is None and cl is not None:
-            lv["price"] = float(cl.iloc[-1])
     return lv if lv.get("price") is not None else None
 
 
@@ -115,8 +123,7 @@ def _levels_block(lv: dict) -> str:
         ("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
         ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200")),
         ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
-        ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
-        ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
+        ("30W MA", lv.get("w30")),
         ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
         ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
         ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
@@ -136,8 +143,7 @@ def _named_levels(lv: dict) -> list:
         ("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
         ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200")),
         ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
-        ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
-        ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
+        ("30W MA", lv.get("w30")),
         ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
         ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
         ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
@@ -159,91 +165,81 @@ def _bracket(lv: dict):
 def build_prompt(lv: dict, symbol: str = "SPY") -> str:
     price = lv.get("price")
     t = lv.get("session_time", "")
+    tr = lv.get("h1_trend", "n/a")
     sup, res = _bracket(lv)
     sup_s = f"{sup[1]:.2f} ({sup[0]})" if sup else "none below price"
     res_s = f"{res[1]:.2f} ({res[0]})" if res else "blue sky - nothing above price"
     return (
-        f"{symbol} is at ${_fmt(price)}{(' at ' + t) if t else ''}.\n"
+        f"{symbol} is at ${_fmt(price)}{(' at ' + t) if t else ''}. 1h trend: {tr}.\n"
         f"Structural levels, each marked support (BELOW price) or resistance (ABOVE price):\n"
         f"{_levels_block(lv)}\n\n"
-        f"NEAREST SUPPORT (below price): {sup_s}.  NEAREST RESISTANCE (above price): {res_s}.\n\n"
-        "Reply in EXACTLY 3 short lines - no preamble, no bold:\n"
-        "Line 1 - bias in <=8 words. It MUST agree with the levels: price is ABOVE every support and BELOW "
-        "every resistance. Do NOT say price is above a resistance or below a support.\n"
-        "Line 2 - Support <price> (<name>) - Resistance <price> (<name>): use the NEAREST SUPPORT and NEAREST "
-        "RESISTANCE given above, VERBATIM. If nothing is above, write Resistance: blue sky.\n"
-        "Line 3 - Action: ONE concrete trigger: long on a BREAK/RECLAIM ABOVE the resistance (price is below "
-        "it), stop BELOW the support. In blue sky, hold/trail - no invented target.\n"
-        "HARD RULES: (1) every price MUST be one of the levels above. (2) A RESISTANCE sits ABOVE price so the "
-        "only long trigger is a BREAK/RECLAIM ABOVE it; NEVER say price is already above it. A SUPPORT sits "
-        "BELOW price so the action is hold-above / stop-below it. Never contradict these."
+        f"Nearest support: {sup_s}.  Nearest resistance: {res_s}.\n\n"
+        "Reply with ONLY a bias phrase of <=8 words that AGREES with the levels and the 1h trend "
+        "(price is ABOVE every support and BELOW every resistance). Name the key level(s) it hugs. "
+        "No prices, no prose, no bold. Example: 'above PDH + all EMAs, 1h buying'."
     )
 
 
 SYSTEM = (
-    "You are a terse trade-desk reading a symbol against its KEY STRUCTURE — the prior day/week/month/quarter "
-    "highs & lows, the last two 4H candle H/L, and the MA stack. Output is a 3-line action card, not prose: "
-    "bias, the bracketing support/resistance, ONE concrete action trigger. EVERY price you cite MUST be one of "
-    "the named levels you were given — NEVER invent a number, and always name the level (PDL, PWH, 50 SMA, "
-    "4H-1 low, …) next to its price. A RESISTANCE sits ABOVE price and a SUPPORT BELOW it - NEVER contradict that (never say price is above a "
-    "resistance, or break above a support). No hedging, no fluff. Probabilistic, never a guarantee."
+    "You are a terse trade desk. Given a symbol's price versus its MA stack and its prior day/week/month/"
+    "quarter highs & lows and the 30-week MA, reply with ONLY a BIAS phrase of <=8 words — no prices, no "
+    "punctuation-heavy prose. Examples: 'above PDH + all EMAs, bullish', 'below PWL + 50 SMA, weak', "
+    "'coiled between 50 & 100 SMA, mixed'. Just the bias, nothing else."
 )
 
 
+def _det_bias(lv: dict) -> str:
+    price = lv.get("price")
+    emas = [lv.get(k) for k in ("ema8", "ema20", "ema50", "ema100", "ema200")]
+    above = sum(1 for v in emas if v is not None and price is not None and price > v)
+    return "above the stack, bullish" if above >= 4 else "below the stack, weak" if above <= 1 else "mid-stack, mixed"
+
+
+def _card(lv: dict, symbol: str, bias: str) -> str:
+    """Deterministic 3-line card — SOLID formatting, always consistent. S/R + action from _bracket."""
+    price = lv.get("price")
+    sup, res = _bracket(lv)
+    _s = f"{sup[1]:,.2f} {sup[0]}" if sup else "none"
+    _r = f"{res[1]:,.2f} {res[0]}" if res else "blue sky"
+    _tr = lv.get("h1_trend")
+    l1 = f"{symbol} ${price:,.2f} — {bias}" + (f"  · 1h {_tr}" if _tr else "")
+    l2 = f"S {_s}   ·   R {_r}"
+    if sup and res:
+        l3 = f"▶ Long on reclaim > {res[0]} {res[1]:,.2f} · stop < {sup[0]} {sup[1]:,.2f}"
+    elif sup:
+        l3 = f"▶ Hold above {sup[0]} {sup[1]:,.2f} · blue sky, trail"
+    elif res:
+        l3 = f"▶ Wait for a reclaim > {res[0]} {res[1]:,.2f}"
+    else:
+        l3 = "▶ No clean bracket — stand aside"
+    return "\n".join((l1, l2, l3))
+
+
 def narrate(lv: dict, symbol: str = "SPY", model: str | None = None) -> str:
-    """AI read of `symbol` vs its levels. Falls back to a structured template if the API is unavailable."""
+    """SOLID deterministic card (S/R + action) with a short AI-written bias phrase (falls back to a
+    deterministic bias if the API is down)."""
+    if lv.get("price") is None:
+        return f"{symbol} levels unavailable."
+    bias = _det_bias(lv)
     key = _resolve_api_key()
-    if not key:
-        return fallback(lv, symbol)
-    try:
-        from alert_config import CLAUDE_MODEL
-        import anthropic
-        client = anthropic.Anthropic(api_key=key)
-        resp = client.messages.create(
-            model=model or CLAUDE_MODEL,
-            max_tokens=130,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": build_prompt(lv, symbol)}],
-        )
-        txt = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
-        return txt or fallback(lv, symbol)
-    except Exception:
-        return fallback(lv, symbol)
+    if key:
+        try:
+            from alert_config import CLAUDE_MODEL
+            import anthropic
+            client = anthropic.Anthropic(api_key=key)
+            resp = client.messages.create(
+                model=model or CLAUDE_MODEL, max_tokens=24, system=SYSTEM,
+                messages=[{"role": "user", "content": build_prompt(lv, symbol)}],
+            )
+            txt = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+            if txt:
+                bias = txt.split("\n")[0].strip(' .·-')[:56]
+        except Exception:
+            pass
+    return _card(lv, symbol, bias)
 
 
 def fallback(lv: dict, symbol: str = "SPY") -> str:
-    """Deterministic structured read if the AI is unavailable — NAMED levels only, still useful."""
-    price = lv.get("price")
-    if price is None:
+    if lv.get("price") is None:
         return f"{symbol} levels unavailable."
-    named = [
-        ("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
-        ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200")),
-        ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
-        ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
-        ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
-        ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
-        ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
-        ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
-        ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
-    ]
-    belows = [(n, v) for n, v in named if v is not None and v < price]
-    aboves = [(n, v) for n, v in named if v is not None and v > price]
-    sup = max(belows, key=lambda x: x[1], default=None)   # nearest below
-    res = min(aboves, key=lambda x: x[1], default=None)   # nearest above
-    emas = [lv.get(k) for k in ("ema8", "ema20", "ema50", "ema100", "ema200")]
-    above_ct = sum(1 for v in emas if v is not None and price > v)
-    bias = "bullish stack" if above_ct >= 4 else "bearish — no long" if above_ct <= 1 else "mixed / chop"
-    l1 = f"{symbol} ${price:.2f} — {bias}"
-    _sup = f"Support {sup[1]:.2f} ({sup[0]})" if sup else "Support: none below"
-    _res = f"Resistance {res[1]:.2f} ({res[0]})" if res else "Resistance: blue sky"
-    l2 = f"{_sup} · {_res}"
-    if sup and res:
-        l3 = f"Action: long on reclaim of {res[0]} {res[1]:.2f}; short on loss of {sup[0]} {sup[1]:.2f}"
-    elif sup:
-        l3 = f"Action: hold above {sup[0]} {sup[1]:.2f} — blue sky above, trail"
-    elif res:
-        l3 = f"Action: stand aside below {res[0]} {res[1]:.2f}"
-    else:
-        l3 = "Action: stand aside — no level bracket"
-    return "\n".join((l1, l2, l3))
+    return _card(lv, symbol, _det_bias(lv))
