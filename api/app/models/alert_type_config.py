@@ -165,6 +165,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
     ("swing_fv_reclaim", "Fair Value reclaim (long) — closed back above the 33-SMA-OHLC4 weekly Fair-Value basis after dipping below (value support held). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_smz_reclaim", "Smart Money zone reclaim (long) — reclaimed a golden-pocket edge (weekly swing) that held as support. The alert names which edge. Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
+    ("swing_30w_reclaim", "30-week MA reclaim/hold (long) — price is back above the 30-week MA (Weinstein Stage-2 re-entry; the weekly trend line). Long-hold. Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
     # bottom-bounce & breakout swing. The level is named in the alert. From prior_quarter_hl.pine

@@ -438,7 +438,7 @@ _SWING_MASTER_TYPES: frozenset[str] = frozenset({
     "swing_sma50_reclaim", "swing_sma100_reclaim", "swing_sma200_reclaim",
     "swing_sma50_breakup", "swing_sma100_breakup", "swing_sma200_breakup",
     "swing_sma50_hold", "swing_sma100_hold", "swing_sma200_hold",
-    "swing_rsi_30", "swing_fv_reclaim", "swing_smz_reclaim", "ema_5_20_cross",
+    "swing_rsi_30", "swing_fv_reclaim", "swing_smz_reclaim", "swing_30w_reclaim", "ema_5_20_cross",
 })
 MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc"}) | _SWING_MASTER_TYPES
 

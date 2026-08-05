@@ -21,6 +21,7 @@ en200= input.bool(true, "200 SMA reclaim", group = gM)
 enR  = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
 enFV = input.bool(true, "FV basis reclaim (33-SMA of OHLC4)", group = gM)
 enSMZ= input.bool(true, "Smart Money zone reclaim (golden pocket)", group = gM)
+en30w= input.bool(true, "30-week MA reclaim/hold (Weinstein Stage-2)", group = gM)
 en520= input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
 enAl = input.bool(true, "Fire alerts (on bar close)", group = gM)
 
@@ -46,6 +47,7 @@ tid       = syminfo.tickerid
 flat50    = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
 flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = barmerge.lookahead_on)
 flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+w30       = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-WEEK MA (Weinstein Stage line), settled + flat
 flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
 // DAILY OPEN (on the lock TF) — the RECLAIM role-guard. TWO separate SMA setups (user 2026-08-04):
 //   • RECLAIM  — the period OPENED ABOVE the SMA (it was SUPPORT), wicked below, closed back above.
@@ -124,6 +126,7 @@ f_support(float L) => f_reclaim(L) or f_hold(L)   // FV / SMZ: fire on either a 
 rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
 rc200 = en200 and conf and f_reclaim(sma200)
+rc30w = en30w and conf and f_support(w30)   // reclaim OR hold of the 30-week MA
 bu50  = en50  and conf and f_breakup(sma50)
 bu100 = en100 and conf and f_breakup(sma100)
 bu200 = en200 and conf and f_breakup(sma200)
@@ -166,6 +169,7 @@ if barstate.islast and flatMode
     f_sr(sma100, "100 SMA", en100 and showSMA)
     f_sr(sma200, "200 SMA", en200 and showSMA)
     f_sr(fvBasis, "FV 33",  enFV  and showFV)
+    f_sr(w30,     "30W MA",  en30w)
     f_sr(instTop, "Inst top", enSMZ and showSMZ)
     f_sr(instBot, "Inst bot / SM top", enSMZ and showSMZ)
     f_sr(smzBot,  "SM bot",  enSMZ and showSMZ)
@@ -189,6 +193,7 @@ plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = locatio
 plotshape(rc520, "5/20 EMA cross",  style = shape.labelup,    location = location.belowbar, color = color.new(#10B981, 0),     size = size.tiny, text = "5/20")
 plotshape(rcFV,  "FV basis reclaim", style = shape.diamond,   location = location.belowbar, color = color.new(#F59E0B, 0),    size = size.tiny)
 plotshape(rcSMZ, "Smart Money zone reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#A855F7, 0), size = size.small)
+plotshape(rc30w, "30W MA reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#F97316, 0), size = size.small, text = "30W")
 plotshape(bu50,  "50 SMA break-up",  style = shape.triangleup, location = location.abovebar, color = color.new(#3B82F6, 35), size = size.tiny, text = "BU")
 plotshape(bu100, "100 SMA break-up", style = shape.triangleup, location = location.abovebar, color = color.new(#8B5CF6, 35), size = size.tiny, text = "BU")
 plotshape(bu200, "200 SMA break-up", style = shape.arrowup,    location = location.abovebar, color = color.new(color.teal, 35), size = size.small, text = "BU")
@@ -224,3 +229,5 @@ if enAl and rcFV
     alert(f_pay("swing_fv_reclaim", "Fair Value (33-SMA OHLC4) reclaim at " + str.tostring(fvBasis, format.mintick) + " · closed back above the basis (weekly value support held). Stop = the swept low; invalid on a close below " + str.tostring(fvBasis, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rcSMZ
     alert(f_pay("swing_smz_reclaim", "Smart Money zone reclaim — " + smzNm + " at " + str.tostring(smzLvl, format.mintick) + " · the golden-pocket edge held as support (price reclaimed it). Stop = the swept low; invalid on a close below " + str.tostring(smzLvl, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rc30w
+    alert(f_pay("swing_30w_reclaim", "30-week MA reclaim/hold at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below the 30-week MA / the swept low."), alert.freq_once_per_bar_close)
