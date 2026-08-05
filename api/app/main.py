@@ -1007,12 +1007,18 @@ async def lifespan(app: FastAPI):
                 # (user 2026-08-05). The candle-close ping now carries the structural SPY read.
                 try:
                     from analytics.spy_levels_agent import compute_levels as _cl, narrate as _nr
-                    _lv = _cl("SPY", False)
-                    if _lv:
-                        _lv["session_time"] = f"{hour:02d}:{minute:02d} ET"
-                        body = body + "\n\n📊 <b>SPY levels</b>\n" + _nr(_lv, symbol="SPY")
+                    _tl = f"{hour:02d}:{minute:02d} ET"
+                    _lsyms = [x.strip().upper() for x in os.getenv("HOURLY_LEVELS_SYMBOLS", "SPY,QQQ,NVDA,AAPL").split(",") if x.strip()]
+                    for _sym in _lsyms:
+                        try:
+                            _lv = _cl(_sym, False)
+                            if _lv:
+                                _lv["session_time"] = _tl
+                                body = body + f"\n\n📊 <b>{_sym} levels</b>\n" + _nr(_lv, symbol=_sym)
+                        except Exception:
+                            logger.exception("CANDLE PING: levels fold-in failed for %s", _sym)
                 except Exception:
-                    logger.exception("CANDLE PING: SPY levels fold-in failed")
+                    logger.exception("CANDLE PING: levels fold-in failed")
                 _broadcast_telegram(body, f"2h#{idx}", "candle_ping_equity")
                 _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}", "candle_ping_equity")
                 _write_candle_report(body, f"2h#{idx}")
