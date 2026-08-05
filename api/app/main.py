@@ -1003,22 +1003,9 @@ async def lifespan(app: FastAPI):
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
-                # Fold the SPY levels agent narrative INTO the hourly ping — one message, not two
-                # (user 2026-08-05). The candle-close ping now carries the structural SPY read.
-                try:
-                    from analytics.spy_levels_agent import compute_levels as _cl, narrate as _nr
-                    _tl = f"{hour:02d}:{minute:02d} ET"
-                    _lsyms = [x.strip().upper() for x in os.getenv("HOURLY_LEVELS_SYMBOLS", "SPY,QQQ,NVDA,AAPL").split(",") if x.strip()]
-                    for _sym in _lsyms:
-                        try:
-                            _lv = _cl(_sym, False)
-                            if _lv:
-                                _lv["session_time"] = _tl
-                                body = body + f"\n\n📊 <b>{_sym} levels</b>\n" + _nr(_lv, symbol=_sym)
-                        except Exception:
-                            logger.exception("CANDLE PING: levels fold-in failed for %s", _sym)
-                except Exception:
-                    logger.exception("CANDLE PING: levels fold-in failed")
+                # NOTE: the SPY levels read is delivered by its OWN hourly job (below), NOT folded
+                # in here — the equity candle ping is gated behind CANDLE_2H_NOTIFICATIONS_ENABLED,
+                # which is OFF on Railway, so folding levels in here silently killed them (2026-08-05).
                 _broadcast_telegram(body, f"2h#{idx}", "candle_ping_equity")
                 _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}", "candle_ping_equity")
                 _write_candle_report(body, f"2h#{idx}")
@@ -1089,9 +1076,29 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     logger.exception("LEVELS push failed for %s", symbol)
 
-            # SPY levels-agent PUSH jobs REMOVED 2026-08-05 — the read is now FOLDED into the hourly
-            # candle-close ping (_notify_candle_close), so users get ONE message instead of two.
-            logger.info("SPY levels read folded into the hourly candle-close ping (not a separate job)")
+            # Hourly LEVELS push — RESTORED 2026-08-05. It had been folded into the equity candle
+            # ping, but that ping is gated behind CANDLE_2H_NOTIFICATIONS_ENABLED (OFF on Railway), so
+            # the fold-in went dark and the founder's hourly levels notifications stopped. Levels are
+            # their own reliable job again: hourly at :00 during RTH, one push per symbol in
+            # HOURLY_LEVELS_SYMBOLS, gated per-user by the 'levels_hourly' pref. Own env gate (default
+            # ON) so the candle-ping override can never silence it.
+            _levels_on = os.getenv("LEVELS_HOURLY_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+            logger.info("Hourly levels push enabled: %s", _levels_on)
+            if _levels_on:
+                _lv_syms = [x.strip().upper() for x in os.getenv("HOURLY_LEVELS_SYMBOLS", "SPY,QQQ,NVDA,AAPL").split(",") if x.strip()]
+                def _push_levels_all():
+                    for _s in _lv_syms:
+                        _push_levels(_s, False, _s, True)
+                _et_lv = _pytz.timezone("America/New_York")
+                for _lh in (10, 11, 12, 13, 14, 15):
+                    scheduler.add_job(
+                        _push_levels_all,
+                        CronTrigger(day_of_week="mon-fri", hour=_lh, minute=0, timezone=_et_lv),
+                        id=f"levels_hourly_{_lh}",
+                        misfire_grace_time=120,
+                        replace_existing=True,
+                    )
+                logger.info("Registered 6 hourly levels-push jobs (RTH, per-symbol: %s)", _lv_syms)
 
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
