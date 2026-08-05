@@ -106,8 +106,18 @@ f_wasAbove(float L, int n) =>
 //   • wick-and-hold  — intrabar dip below, closed back above, prior close was still above (never lost it), OR
 //   • brief recovery — closed below for a bar or two BUT held above within the recent lookback.
 // A sustained-below cross-up (breakup of resistance) fails f_wasAbove and does NOT fire.
-f_reclaim(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen > L and close > L and (low < L or close[1] < L[1])
-f_breakup(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen <= L and close > L and close[1] <= L[1]
+// INTERACTION-BASED SMA setups (user 2026-08-04, final taxonomy):
+//   • RECLAIM  — opened ABOVE the SMA and WICKED it (tested support), closed back above; OR opened
+//                right ON the line (within onBand%) and held above. Opened above + NEVER touched the
+//                SMA = extended, NO signal (don't chase — AEHR opened +5.6% above, ran away untested).
+//   • BREAK-UP — opened BELOW the line and closed UP through it (resistance broken). Optional LATE
+//                filter (default OFF, user "hard to say no to a breakup"): skip ones whose OPEN was
+//                more than buLate% below the SMA (a big gap-up already run into the line = late entry).
+onBand   = input.float(0.5, "On-the-line band (%) — opened this close to the SMA = a HOLD at support", group = gM, minval = 0.0, maxval = 3) / 100.0
+enBuLate = input.bool(false, "Break-up: skip LATE ones (opened far below the SMA)", group = gM)
+buLate   = input.float(2.0, "  Break-up max % below the SMA at the open", group = gM, minval = 0.3, maxval = 10) / 100.0
+f_reclaim(float L) => not na(L) and not na(dOpen) and close > L and ((dOpen > L and low <= L) or (math.abs(dOpen - L) <= L * onBand))
+f_breakup(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen < L * (1.0 - onBand) and close > L and close[1] <= L[1] and (not enBuLate or dOpen >= L * (1.0 - buLate))
 
 rc50  = en50  and conf and f_reclaim(sma50)
 rc100 = en100 and conf and f_reclaim(sma100)
