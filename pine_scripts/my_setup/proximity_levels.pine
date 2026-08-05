@@ -56,6 +56,14 @@ fSmB  = input.float(0.85,  "Smart Money bottom",            group = gZ, step = 0
 colInst = input.color(color.new(color.blue,   85), "Institutional fill", group = gZ)
 colSm   = input.color(color.new(color.purple, 72), "Smart Money fill",   group = gZ)
 
+// ── pivot break (O'Neil base high) — the weekly base-high pivot + a breakout marker ──────────────
+gPV      = "Pivot break (O'Neil base high)"
+enPivot  = input.bool(true, "Pivot line + breakout marker", group = gPV)
+pivotTf  = input.timeframe("W", "Pivot timeframe", group = gPV, tooltip = "Base high (pivot) pulled from this timeframe, drawn flat. Weekly = the O'Neil base.")
+baseLen  = input.int(7, "Base length (bars of the pivot TF)", group = gPV, minval = 3, maxval = 40)
+volSurge = input.float(1.4, "Breakout volume surge (× avg)", group = gPV, minval = 1.0, maxval = 3.0, step = 0.1)
+volAvgLen= input.int(20, "Volume average length", group = gPV, minval = 5, maxval = 60)
+
 // ── style ──────────────────────────────────────────────────────────────────────
 gV     = "Style"
 supCol = input.color(#26A69A, "Support (price above)",    group = gV)
@@ -76,6 +84,10 @@ sma50  = f_sec(smaTf, ta.sma(close, 50)[1])
 sma100 = f_sec(smaTf, ta.sma(close, 100)[1])
 sma200 = f_sec(smaTf, ta.sma(close, 200)[1])
 w30    = f_sec("W", ta.sma(close, 30)[1])   // 30-WEEK MA (Weinstein Stage line), flat
+pivot  = f_sec(pivotTf, ta.highest(high, baseLen)[1])   // O'Neil base high = the pivot, flat
+_pvAvg = ta.sma(volume, volAvgLen)
+pvVolOk= not na(_pvAvg) and _pvAvg > 0 and volume > _pvAvg * volSurge
+brkPivot = enPivot and not na(pivot) and not na(close[1]) and close > pivot and close[1] <= pivot   // fresh close THROUGH the pivot
 ema50  = f_sec(smaTf, ta.ema(close, 50)[1])
 ema100 = f_sec(smaTf, ta.ema(close, 100)[1])
 ema200 = f_sec(smaTf, ta.ema(close, 200)[1])
@@ -139,6 +151,7 @@ if barstate.islast
     f_add(sma100, "100 SMA", en100)
     f_add(sma200, "200 SMA", en200)
     f_add(w30,    "30W MA",  en30w)
+    f_add(pivot,  "PIVOT",   enPivot)
     f_add(ema50,  "50 EMA",  en50e)
     f_add(ema100, "100 EMA", en100e)
     f_add(ema200, "200 EMA", en200e)
@@ -217,3 +230,7 @@ if barstate.islast
                 base = cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm
                 tag  = isOS ? "  ⊙ opened ABOVE (day support)" : isOR ? "  ⊙ opened BELOW (day resist)" : ""
                 f_draw(sumv / cnt, base + tag, isOS or isOR or cnt > 1 ? wLine + 2 : wLine)
+
+// ── pivot break marker (visual) — a fresh close through the base-high pivot. Green = on a volume
+// surge (confirmed O'Neil breakout), orange = weak volume (unconfirmed). No alert — visual only.
+plotshape(brkPivot, "Pivot break", style = shape.triangleup, location = location.belowbar, color = pvVolOk ? color.new(color.green, 0) : color.new(color.orange, 0), size = size.normal, text = "BO")
