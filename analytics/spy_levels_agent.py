@@ -131,24 +131,52 @@ def _levels_block(lv: dict) -> str:
     return "\n".join(rows)
 
 
+def _named_levels(lv: dict) -> list:
+    return [
+        ("8 EMA", lv.get("ema8")), ("20 EMA", lv.get("ema20")), ("50 EMA", lv.get("ema50")),
+        ("100 EMA", lv.get("ema100")), ("200 EMA", lv.get("ema200")),
+        ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
+        ("4H-1 high", lv.get("h4_1_high")), ("4H-1 low", lv.get("h4_1_low")),
+        ("4H-2 high", lv.get("h4_2_high")), ("4H-2 low", lv.get("h4_2_low")),
+        ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
+        ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
+        ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
+        ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
+    ]
+
+
+def _bracket(lv: dict):
+    price = lv.get("price")
+    if price is None:
+        return None, None
+    belows = [(n, v) for n, v in _named_levels(lv) if v is not None and v < price]
+    aboves = [(n, v) for n, v in _named_levels(lv) if v is not None and v > price]
+    sup = max(belows, key=lambda x: x[1], default=None)
+    res = min(aboves, key=lambda x: x[1], default=None)
+    return sup, res
+
+
 def build_prompt(lv: dict, symbol: str = "SPY") -> str:
     price = lv.get("price")
     t = lv.get("session_time", "")
+    sup, res = _bracket(lv)
+    sup_s = f"{sup[1]:.2f} ({sup[0]})" if sup else "none below price"
+    res_s = f"{res[1]:.2f} ({res[0]})" if res else "blue sky - nothing above price"
     return (
         f"{symbol} is at ${_fmt(price)}{(' at ' + t) if t else ''}.\n"
-        f"These are the ONLY structural levels — daily/weekly/monthly/quarterly H/L, the 4H candle levels, "
-        f"and the MA stack — each marked support (below price) or resistance (above):\n"
+        f"Structural levels, each marked support (BELOW price) or resistance (ABOVE price):\n"
         f"{_levels_block(lv)}\n\n"
-        "Reply in EXACTLY 3 short lines — no preamble, no bold, no extra words:\n"
-        "Line 1 — bias in ≤8 words, referencing the structure (e.g. 'Above PDH + all EMAs — bullish, blue sky' "
-        "or 'Rejected at PWH, below 50 EMA — weak').\n"
-        "Line 2 — 'Support <price> (<name>) · Resistance <price> (<name>)' using the NEAREST level below and "
-        "above from the list. If nothing is above, write 'Resistance: blue sky above <highest named level>'.\n"
-        "Line 3 — 'Action:' ONE concrete trigger naming an EXACT level from the list: long on a reclaim of the "
-        "nearest resistance, short on a loss of the nearest support, or stand aside if mid-range. In blue sky, "
-        "say hold/trail — do NOT invent a target.\n"
-        "HARD RULE: every price you write MUST be one of the levels above. Never invent a number that isn't in "
-        "the list."
+        f"NEAREST SUPPORT (below price): {sup_s}.  NEAREST RESISTANCE (above price): {res_s}.\n\n"
+        "Reply in EXACTLY 3 short lines - no preamble, no bold:\n"
+        "Line 1 - bias in <=8 words. It MUST agree with the levels: price is ABOVE every support and BELOW "
+        "every resistance. Do NOT say price is above a resistance or below a support.\n"
+        "Line 2 - Support <price> (<name>) - Resistance <price> (<name>): use the NEAREST SUPPORT and NEAREST "
+        "RESISTANCE given above, VERBATIM. If nothing is above, write Resistance: blue sky.\n"
+        "Line 3 - Action: ONE concrete trigger: long on a BREAK/RECLAIM ABOVE the resistance (price is below "
+        "it), stop BELOW the support. In blue sky, hold/trail - no invented target.\n"
+        "HARD RULES: (1) every price MUST be one of the levels above. (2) A RESISTANCE sits ABOVE price so the "
+        "only long trigger is a BREAK/RECLAIM ABOVE it; NEVER say price is already above it. A SUPPORT sits "
+        "BELOW price so the action is hold-above / stop-below it. Never contradict these."
     )
 
 
@@ -157,7 +185,8 @@ SYSTEM = (
     "highs & lows, the last two 4H candle H/L, and the MA stack. Output is a 3-line action card, not prose: "
     "bias, the bracketing support/resistance, ONE concrete action trigger. EVERY price you cite MUST be one of "
     "the named levels you were given — NEVER invent a number, and always name the level (PDL, PWH, 50 SMA, "
-    "4H-1 low, …) next to its price. No hedging, no fluff, no restating inputs. Probabilistic, never a guarantee."
+    "4H-1 low, …) next to its price. A RESISTANCE sits ABOVE price and a SUPPORT BELOW it - NEVER contradict that (never say price is above a "
+    "resistance, or break above a support). No hedging, no fluff. Probabilistic, never a guarantee."
 )
 
 
