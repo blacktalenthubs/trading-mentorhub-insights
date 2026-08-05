@@ -1003,6 +1003,16 @@ async def lifespan(app: FastAPI):
                         f"Time: {hour:02d}:{minute:02d} ET\n"
                         f"Check your charts."
                     )
+                # Fold the SPY levels agent narrative INTO the hourly ping — one message, not two
+                # (user 2026-08-05). The candle-close ping now carries the structural SPY read.
+                try:
+                    from analytics.spy_levels_agent import compute_levels as _cl, narrate as _nr
+                    _lv = _cl("SPY", False)
+                    if _lv:
+                        _lv["session_time"] = f"{hour:02d}:{minute:02d} ET"
+                        body = body + "\n\n📊 <b>SPY levels</b>\n" + _nr(_lv, symbol="SPY")
+                except Exception:
+                    logger.exception("CANDLE PING: SPY levels fold-in failed")
                 _broadcast_telegram(body, f"2h#{idx}", "candle_ping_equity")
                 _broadcast_push(title, body.replace("<b>", "").replace("</b>", ""), f"2h#{idx}", "candle_ping_equity")
                 _write_candle_report(body, f"2h#{idx}")
@@ -1073,12 +1083,9 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     logger.exception("LEVELS push failed for %s", symbol)
 
-            _et_lvl = _pytz.timezone("America/New_York")
-            for _lh, _lm in [(10, 30), (11, 30), (12, 30), (13, 30), (14, 30), (15, 30)]:
-                scheduler.add_job(
-                    _push_levels, CronTrigger(day_of_week="mon-fri", hour=_lh, minute=_lm, timezone=_et_lvl),
-                    args=["SPY", False, "SPY", True], id=f"levels_spy_{_lh}{_lm}", misfire_grace_time=90, replace_existing=True)
-            logger.info("Registered levels-agent jobs: SPY 6/session (RTH) — SPY only")
+            # SPY levels-agent PUSH jobs REMOVED 2026-08-05 — the read is now FOLDED into the hourly
+            # candle-close ping (_notify_candle_close), so users get ONE message instead of two.
+            logger.info("SPY levels read folded into the hourly candle-close ping (not a separate job)")
 
             # ETH 4h candle closes (UTC, 24/7): 6/day at 00, 04, 08, 12, 16, 20.
             # No "final candle" framing since crypto trades continuously.
