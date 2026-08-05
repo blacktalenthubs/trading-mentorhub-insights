@@ -163,8 +163,6 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("swing_sma100_hold", "100 SMA hold (long) — opened RIGHT ON the 100 SMA and held above (buying at mid support). Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
     ("swing_sma200_hold", "200 SMA hold (long) — opened RIGHT ON the 200 SMA and held above (buying at structural support). Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
     # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
-    ("swing_fv_reclaim", "Fair Value reclaim (long) — closed back above the 33-SMA-OHLC4 weekly Fair-Value basis after dipping below (value support held). Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
-    ("swing_smz_reclaim", "Smart Money zone reclaim (long) — reclaimed a golden-pocket edge (weekly swing) that held as support. The alert names which edge. Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     ("swing_30w_reclaim", "30-week MA reclaim/hold (long) — price is back above the 30-week MA (Weinstein Stage-2 re-entry; the weekly trend line). Long-hold. Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
@@ -413,6 +411,8 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-08-05 — user: removed FV basis + Smart-Money zones from swing_reclaim.pine (visual + alerts).
+    "swing_fv_reclaim", "swing_smz_reclaim",
     # 2026-08-02b — RC retired (user: "replace the rc with reclaims of smart money zone"). weekly_rc +
     # monthly_rc removed; replaced by swing_fv_reclaim + swing_smz_reclaim (the golden-pocket zones).
     "weekly_rc", "monthly_rc",
