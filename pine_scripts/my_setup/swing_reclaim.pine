@@ -1,170 +1,118 @@
 //@version=5
 // =============================================================================
 // SWING RECLAIM ENTRIES — 21 EMA (weekly) + 200 SMA (daily) + 30-week MA + RSI-30 + 5/20 cross
-// (condensed 2026-08-05: 50/100 SMA + all breakup/hold ALERTS retired — too noisy/intraday; SMA lines
-// stay VISUAL for manual day-trading. Swing ALERTS = structural weekly/daily reclaims only.)
 // =============================================================================
-// The validated long-hold / accumulation entries. Bind on DAILY for your whole watchlist.
-// EVERY entry is the SAME pattern: a structural line that was acting as SUPPORT (price held
-// above it) gets wicked below and RECLAIMED (closed back above) — role-guarded, so a
-// from-BELOW breakup of resistance does NOT fire. Stop = the swept low (lose the line = out):
-//   • 50 / 100 / 200 SMA reclaim                                  -> swing_sma{50,100,200}_reclaim
-//   • RSI(14) reclaims 30 (oversold turn from a washout)          -> swing_rsi_30
-//   • 5/20 EMA bullish cross (Steve Burns — daily trend flip up)  -> ema_5_20_cross
-// LONG only. Stop = the swept bar low. (FV basis + Smart-Money zones REMOVED 2026-08-05, user.)
-indicator("Swing Reclaim — SMA/RSI/30W/5-20", overlay = true, max_lines_count = 20, max_labels_count = 20)
+// The condensed, structural swing book (2026-08-05). STRICT: only these lines/entries — the noisy
+// 50/100 SMA and every breakup/hold variant were REMOVED (they whipsaw on intraday noise). Use the
+// SMA lines for manual day-trading from a SEPARATE visual pine; this one is the clean swing book.
+//
+// Every LEVEL entry is the SAME pattern: a structural line that was SUPPORT (price held ABOVE it)
+// gets reclaimed — role-guarded so a from-below breakup does NOT fire. Stop = the swept low. LONG only.
+//   • 21 EMA (weekly) reclaim  -> swing_21ema_w_reclaim   [judged on the WEEKLY]
+//   • 30-week MA reclaim       -> swing_30w_reclaim        [judged on the WEEKLY]
+//   • 200 SMA (daily) reclaim  -> swing_sma200_reclaim     [daily open-above + wick + reclaim]
+//   • RSI(14) reclaims 30      -> swing_rsi_30             (deep-oversold turn)
+//   • 5/20 EMA bullish cross   -> ema_5_20_cross           (mega-cap + index only, gated in backend)
+// All LINES drawn FLAT & non-repainting (weekly-locked EMAs / daily-locked 200 SMA) — identical on any
+// chart TF. 8 EMA (weekly) is VISUAL context only (no alert). Bind on Daily (or intraday in flat mode).
+// =============================================================================
+indicator("Swing Reclaim — 21EMA-W / 200SMA / 30W / RSI / 5-20", overlay = true, max_lines_count = 12, max_labels_count = 12)
 
-gM   = "Entries"
-en50 = input.bool(true, "50 SMA reclaim (wick + hold)", group = gM)
-en100= input.bool(true, "100 SMA reclaim (wick + hold)", group = gM)
-en200= input.bool(true, "200 SMA reclaim", group = gM)
-enR  = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
-en30w= input.bool(true, "30-week MA reclaim/hold (Weinstein Stage-2)", group = gM)
-en21w= input.bool(true, "21 EMA (weekly) reclaim — replaces 50/100 SMA (user 2026-08-05)", group = gM)
-en520= input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
-enAl = input.bool(true, "Fire alerts (on bar close)", group = gM)
+// ── entries ──────────────────────────────────────────────────────────────────
+gM    = "Entries"
+en21w = input.bool(true, "21 EMA (weekly) reclaim", group = gM)
+en30w = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gM)
+en200 = input.bool(true, "200 SMA (daily) reclaim", group = gM)
+enR   = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
+en520 = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
+enAl  = input.bool(true, "Fire alerts (on bar close)", group = gM)
+onBand= input.float(0.5, "Reclaim on-the-line band (%)", group = gM, minval = 0.0, maxval = 3) / 100.0
 
+// ── params ───────────────────────────────────────────────────────────────────
 gP     = "Params"
-len50  = input.int(50,  "Fast SMA length", group = gP, minval = 2)
-len100 = input.int(100, "Mid SMA length", group = gP, minval = 2)
-len200 = input.int(200, "Slow SMA length", group = gP, minval = 2)
-lbAbove= input.int(10,  "Reclaim lookback — bars price must have HELD ABOVE recently", group = gP, minval = 1, maxval = 60, tooltip = "The MA's role must be SUPPORT: price must have closed ABOVE it within this many recent bars. A sustained-below cross-up is a BREAKUP (resistance broken), NOT a reclaim — it won't fire.")
+len200 = input.int(200, "200 SMA length", group = gP, minval = 2)
 rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
 rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
 emaFast= input.int(5,   "5/20 cross — fast EMA", group = gP, minval = 2)
 emaSlow= input.int(20,  "5/20 cross — slow EMA", group = gP, minval = 3)
-showSMA = input.bool(true, "Draw the SMA lines (50/100/200)", group = gP)
 
-gL       = "Flat / lock to timeframe"
-flatMode = input.bool(true, "FLAT — lock the SMAs to a fixed timeframe", group = gL, tooltip = "ON = the 50/200 SMA (and RSI) use the LOCK timeframe's value, drawn FLAT — so you can bind this pine INTRADAY (e.g. 15m) and still trade reclaims of the DAILY 50/200 SMA. OFF = the current chart-TF sloping SMA (bind on Daily).")
-lockTf   = input.timeframe("D", "Lock timeframe", group = gL)
+// ── flat / lock + line style ───────────────────────────────────────────────
+gL       = "Flat / lock + lines"
+flatMode = input.bool(true, "FLAT — lock the 200 SMA / RSI / 5-20 to a fixed TF (bind intraday)", group = gL, tooltip = "The weekly 8/21 EMA + 30W MA are ALWAYS weekly-locked & flat. This locks the 200 SMA / RSI / 5-20 to the lock TF (default Daily) so you can bind intraday and still trade the daily levels.")
+lockTf   = input.timeframe("D", "200 SMA / RSI / 5-20 lock timeframe", group = gL)
+supCol   = input.color(#26A69A, "Support (price above)",    group = gL)
+resCol   = input.color(#EF5350, "Resistance (price below)", group = gL)
+lineW    = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
+lineLen  = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
+show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
+show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
+show30w  = input.bool(true, "Draw 30W MA line", group = gL)
+show200  = input.bool(true, "Draw 200 SMA line", group = gL)
 
-// FLAT = the lock-TF (daily) SMA — settled ([1], non-repainting), flat within the period,
-// steps at the roll. RSI in flat mode is the DEVELOPING lock-TF RSI (no [1]) so it can reclaim
-// 30 intraday. REGULAR = the chart-TF sloping values.
-tid       = syminfo.tickerid
-flat50    = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
-flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = barmerge.lookahead_on)
-flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
-w30       = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-WEEK MA (Weinstein Stage line), settled + flat
-e21w      = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA WEEKLY (Redler trend spine), settled + flat
-e8w       = request.security(tid, "W", ta.ema(close, 8)[1], lookahead = barmerge.lookahead_on)    // 8 EMA WEEKLY (fast trend spine) — VISUAL only (no alert), settled + flat
-flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
-// DAILY OPEN (on the lock TF) — the RECLAIM role-guard. TWO separate SMA setups (user 2026-08-04):
-//   • RECLAIM  — the period OPENED ABOVE the SMA (it was SUPPORT), wicked below, closed back above.
-//   • BREAK-UP — the period OPENED AT/BELOW the SMA (resistance) and closed UP through it.
-// A reclaim STRICTLY requires open-above; an opened-below cross-up is a BREAK-UP, not a reclaim (audit
-// 2026-08-04: 12 of 22 "50 SMA reclaim" cards had opened BELOW = breakups). In flat mode = the DAILY open.
-dOpen = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
-sma50  = flatMode ? flat50  : ta.sma(close, len50)
-sma100 = flatMode ? flat100 : ta.sma(close, len100)
-sma200 = flatMode ? flat200 : ta.sma(close, len200)
-rsi    = flatMode ? flatRsi : ta.rsi(close, rsiLen)
-// 5/20 EMA cross (Burns) — DEVELOPING lock-TF EMAs (like the RSI, no [1]) so the daily cross can fire
-// intraday on the bound TF's close; chart-TF EMAs when flat mode is OFF (bind on Daily).
-emaFastV = flatMode ? request.security(tid, lockTf, ta.ema(close, emaFast), lookahead = barmerge.lookahead_off) : ta.ema(close, emaFast)
-emaSlowV = flatMode ? request.security(tid, lockTf, ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off) : ta.ema(close, emaSlow)
-conf   = barstate.isconfirmed
+// ── levels (settled [1] + lookahead → FLAT, non-repainting) ──────────────────
+tid   = syminfo.tickerid
+e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 EMA weekly (visual)
+e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
+w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
+wOpen = request.security(tid, "W", open,                 lookahead = barmerge.lookahead_on)   // this week's open (weekly role-guard)
+flat200 = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+sma200  = flatMode ? flat200 : ta.sma(close, len200)
+dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
+rsi     = flatMode ? request.security(tid, lockTf, ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off) : ta.rsi(close, rsiLen)
+emaFastV= flatMode ? request.security(tid, lockTf, ta.ema(close, emaFast), lookahead = barmerge.lookahead_off) : ta.ema(close, emaFast)
+emaSlowV= flatMode ? request.security(tid, lockTf, ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off) : ta.ema(close, emaSlow)
+conf    = barstate.isconfirmed
 
-// The MA's role must be SUPPORT before a reclaim counts — price must have CLOSED ABOVE it within
-// the recent lookback (so it owned the level, then lost it briefly, then recovered). If price has
-// been BELOW the MA the whole window (MA = overhead resistance), a close-up-through it is a BREAKUP,
-// NOT a reclaim — and a breakup is a different, un-enabled setup (user 2026-08-02: AMD/AVGO/VRT).
-f_wasAbove(float L, int n) =>
-    _r = false
-    for _i = 1 to n
-        _r := _r or (not na(L[_i]) and close[_i] > L[_i])
-    _r
+// ── reclaim guards ───────────────────────────────────────────────────────────
+// DAILY reclaim (200 SMA): opened clearly ABOVE (it was support) + wicked/tested it + closed back above.
+f_reclaim(float L) => not na(L) and not na(dOpen) and dOpen > L * (1.0 + onBand) and low <= L and close > L
+// WEEKLY reclaim (21 EMA / 30W): the WEEK opened above the level (support) and price crossed BACK above
+// on this bar (fresh reclaim event) — not a from-below breakup, not every bar it's above.
+f_wReclaim(float L) => not na(L) and not na(L[1]) and not na(wOpen) and wOpen > L and close > L and close[1] <= L
 
-// RECLAIM = close back above the level, with the MA acting as support:
-//   • wick-and-hold  — intrabar dip below, closed back above, prior close was still above (never lost it), OR
-//   • brief recovery — closed below for a bar or two BUT held above within the recent lookback.
-// A sustained-below cross-up (breakup of resistance) fails f_wasAbove and does NOT fire.
-// INTERACTION-BASED SMA setups (user 2026-08-04, final taxonomy):
-//   • RECLAIM  — opened ABOVE the SMA and WICKED it (tested support), closed back above; OR opened
-//                right ON the line (within onBand%) and held above. Opened above + NEVER touched the
-//                SMA = extended, NO signal (don't chase — AEHR opened +5.6% above, ran away untested).
-//   • BREAK-UP — opened BELOW the line and closed UP through it (resistance broken). Optional LATE
-//                filter (default OFF, user "hard to say no to a breakup"): skip ones whose OPEN was
-//                more than buLate% below the SMA (a big gap-up already run into the line = late entry).
-onBand   = input.float(0.5, "On-the-line band (%) — opened this close to the SMA = a HOLD at support", group = gM, minval = 0.0, maxval = 3) / 100.0
-enBuLate = input.bool(false, "Break-up: skip LATE ones (opened far below the SMA)", group = gM)
-buLate   = input.float(2.0, "  Break-up max % below the SMA at the open", group = gM, minval = 0.3, maxval = 10) / 100.0
-f_reclaim(float L) => not na(L) and not na(dOpen) and dOpen > L * (1.0 + onBand) and low <= L and close > L   // opened clearly ABOVE + wicked/tested the SMA + closed back above (support DEFENDED)
-f_hold(float L)    => not na(L) and not na(dOpen) and math.abs(dOpen - L) <= L * onBand and close > L          // opened right ON the line + held above (buying at support, no wick needed)
-f_breakup(float L) => not na(L) and not na(L[1]) and not na(dOpen) and dOpen < L * (1.0 - onBand) and close > L and close[1] <= L[1] and (not enBuLate or dOpen >= L * (1.0 - buLate))
-
-rc50  = en50  and conf and f_reclaim(sma50)
-rc100 = en100 and conf and f_reclaim(sma100)
+rc21w = en21w and conf and f_wReclaim(e21w)
+rc30w = en30w and conf and f_wReclaim(w30)
 rc200 = en200 and conf and f_reclaim(sma200)
-wOpen = request.security(tid, "W", open, lookahead = barmerge.lookahead_on)   // this WEEK's open — the 30W role-guard is judged on the WEEKLY, not the daily
-rc30w = en30w and conf and not na(w30) and not na(w30[1]) and not na(wOpen) and wOpen > w30 and close > w30 and close[1] <= w30   // 30-week MA RECLAIM from ABOVE only: the WEEK opened ABOVE the 30W (it was support) AND price crossed BACK above on THIS bar (fresh reclaim event) — NOT a from-below breakup, and not every bar it's above (user 2026-08-05)
-rc21w = en21w and conf and not na(e21w) and not na(e21w[1]) and not na(wOpen) and wOpen > e21w and close > e21w and close[1] <= e21w   // 21 EMA WEEKLY reclaim from ABOVE: week opened above the weekly 21 EMA (support) and price crossed BACK above on this bar
-bu50  = en50  and conf and f_breakup(sma50)
-bu100 = en100 and conf and f_breakup(sma100)
-bu200 = en200 and conf and f_breakup(sma200)
-hd50  = en50  and conf and f_hold(sma50)
-hd100 = en100 and conf and f_hold(sma100)
-hd200 = en200 and conf and f_hold(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
-rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)   // 5 EMA crosses UP through 20 EMA (Burns)
+rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)
 
-// ── Flat S/R lines — GREEN = SUPPORT (price above), RED = RESISTANCE (price below);
-// role flips when price closes across. Drawn as a horizontal ray per SMA (flat mode only).
-supCol  = input.color(#26A69A, "Support color (price above)",    group = gL)
-resCol  = input.color(#EF5350, "Resistance color (price below)", group = gL)
-lineW   = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
-lineLen = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
-showW8  = input.bool(true, "Draw 8 EMA (weekly) flat line",  group = gL)
-showW21 = input.bool(true, "Draw 21 EMA (weekly) flat line", group = gL)
-show200 = input.bool(true, "Draw 200 SMA flat line (structural entry — own toggle)", group = gL)
+// ── flat S/R lines (green = support / price above, red = resistance / below) ──
 var line[]  _lns = array.new_line(0)
 var label[] _lbs = array.new_label(0)
-f_sr(float ma, string nm, bool show) =>
-    if show and not na(ma)
-        sup = close > ma
+f_sr(float lv, string nm, bool show) =>
+    if show and not na(lv)
+        sup = close > lv
         col = sup ? supCol : resCol
-        array.push(_lns, line.new(bar_index - lineLen, ma, bar_index + 6, ma, color = col, width = lineW))
-        array.push(_lbs, label.new(bar_index + 6, ma, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(ma, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
-if barstate.islast and flatMode
+        array.push(_lns, line.new(bar_index - lineLen, lv, bar_index + 6, lv, color = col, width = lineW))
+        array.push(_lbs, label.new(bar_index + 6, lv, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lv, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+if barstate.islast
     for _l in _lns
         line.delete(_l)
     for _b in _lbs
         label.delete(_b)
     array.clear(_lns)
     array.clear(_lbs)
-    f_sr(sma50,  "50 SMA",  en50  and showSMA)
-    f_sr(sma100, "100 SMA", en100 and showSMA)
-    f_sr(sma200, "200 SMA", en200 and show200)
-    f_sr(w30,     "30W MA",  en30w)
-    f_sr(e8w,     "8 EMA (W)",  showW8)
-    f_sr(e21w,    "21 EMA (W)", showW21)
-// sloping fallback (flat mode OFF) — normal plotted MA
-plot(showSMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
-plot(showSMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
-plotshape(rc50,  "50 SMA reclaim",  style = shape.triangleup, location = location.belowbar, color = color.new(#3B82F6, 0),    size = size.tiny)
-plotshape(rc100, "100 SMA reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(#8B5CF6, 0),    size = size.tiny)
-plotshape(rc200, "200 SMA reclaim", style = shape.arrowup,    location = location.belowbar, color = color.new(color.teal, 0),  size = size.small)
-plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,     location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
-plotshape(rc520, "5/20 EMA cross",  style = shape.labelup,    location = location.belowbar, color = color.new(#10B981, 0),     size = size.tiny, text = "5/20")
-plotshape(rc30w, "30W MA reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#F97316, 0), size = size.small, text = "30W")
-plotshape(rc21w, "21EMA-W reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#EAB308, 0), size = size.small, text = "21W")
-plotshape(bu50,  "50 SMA break-up",  style = shape.triangleup, location = location.abovebar, color = color.new(#3B82F6, 35), size = size.tiny, text = "BU")
-plotshape(bu100, "100 SMA break-up", style = shape.triangleup, location = location.abovebar, color = color.new(#8B5CF6, 35), size = size.tiny, text = "BU")
-plotshape(bu200, "200 SMA break-up", style = shape.arrowup,    location = location.abovebar, color = color.new(color.teal, 35), size = size.small, text = "BU")
-plotshape(hd50,  "50 SMA hold",  style = shape.circle, location = location.belowbar, color = color.new(#3B82F6, 20), size = size.tiny)
-plotshape(hd100, "100 SMA hold", style = shape.circle, location = location.belowbar, color = color.new(#8B5CF6, 20), size = size.tiny)
-plotshape(hd200, "200 SMA hold", style = shape.circle, location = location.belowbar, color = color.new(color.teal, 20), size = size.tiny)
+    f_sr(e8w,     "8 EMA (W)",  show8w)
+    f_sr(e21w,    "21 EMA (W)", show21w)
+    f_sr(w30,     "30W MA",     show30w)
+    f_sr(flat200, "200 SMA",    show200)
+
+// ── entry markers ──────────────────────────────────────────────────────────
+plotshape(rc21w, "21EMA-W reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#EAB308, 0),      size = size.small, text = "21W")
+plotshape(rc30w, "30W MA reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#F97316, 0),      size = size.small, text = "30W")
+plotshape(rc200, "200 SMA reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(color.teal, 0),   size = size.small, text = "200")
+plotshape(rcR,   "RSI-30 reclaim",  style = shape.circle,  location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
+plotshape(rc520, "5/20 EMA cross",  style = shape.labelup, location = location.belowbar, color = color.new(#10B981, 0),      size = size.tiny, text = "5/20")
 
 f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
 
-if enAl and rc200
-    alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered. Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
-if enAl and rcR
-    alert(f_pay("swing_rsi_30",  "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
-if enAl and rc520
-    alert(f_pay("ema_5_20_cross", "5/20 EMA bullish cross (Burns) — the " + str.tostring(emaFast) + " EMA crossed ABOVE the " + str.tostring(emaSlow) + " EMA at " + str.tostring(emaSlowV, format.mintick) + " · short-term trend flip up, a swing entry (hold days). Stop = the swept low; invalid on a close back under the " + str.tostring(emaSlow) + " EMA."), alert.freq_once_per_bar_close)
-if enAl and rc30w
-    alert(f_pay("swing_30w_reclaim", "30-week MA reclaim/hold at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below the 30-week MA / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc21w
-    alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (short-term trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+    alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc30w
+    alert(f_pay("swing_30w_reclaim", "30-week MA reclaim at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc200
+    alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered (the line institutions defend). Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rcR
+    alert(f_pay("swing_rsi_30", "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc520
+    alert(f_pay("ema_5_20_cross", "5/20 EMA bullish cross (Burns) — the " + str.tostring(emaFast) + " EMA crossed ABOVE the " + str.tostring(emaSlow) + " EMA at " + str.tostring(emaSlowV, format.mintick) + " · short-term trend flip up (a swing entry, hold days). Stop = the swept low; invalid on a close back under the " + str.tostring(emaSlow) + " EMA."), alert.freq_once_per_bar_close)
