@@ -60,7 +60,6 @@ s8w   = request.security(tid, "W", ta.sma(close, 8)[1],  lookahead = barmerge.lo
 s21w  = request.security(tid, "W", ta.sma(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 SMA weekly (optional visual — compare vs EMA)
 e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
 w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
-wOpen = request.security(tid, "W", open,                 lookahead = barmerge.lookahead_on)   // this week's open (weekly role-guard)
 flat200 = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
 sma200  = flatMode ? flat200 : ta.sma(close, len200)
 dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
@@ -72,13 +71,17 @@ conf    = barstate.isconfirmed
 // ── reclaim guards ───────────────────────────────────────────────────────────
 // DAILY reclaim (200 SMA): opened clearly ABOVE (it was support) + wicked/tested it + closed back above.
 f_reclaim(float L) => not na(L) and not na(dOpen) and dOpen > L * (1.0 + onBand) and low <= L and close > L
-// WEEKLY reclaim (21 EMA / 30W): the WEEK opened above the level (support) and price crossed BACK above
-// on this bar (fresh reclaim event) — not a from-below breakup, not every bar it's above.
-f_wReclaim(float L) => not na(L) and not na(L[1]) and not na(wOpen) and wOpen > L and close > L and close[1] <= L
-
-rc8w  = en8w  and conf and f_wReclaim(e8w)
-rc21w = en21w and conf and f_wReclaim(e21w)
-rc30w = en30w and conf and f_wReclaim(w30)
+// WEEKLY reclaims are judged on the CONFIRMED WEEKLY bar (non-repainting): the week OPENED above the
+// line (it was support), dipped to/below it, then CLOSED back above. Fires ONCE at the new-week edge —
+// an intraday poke above the weekly EMA can NOT trigger it (fix 2026-08-05: arrows were firing on a 1h
+// close before the WEEKLY candle clearly closed above).
+newWk = ta.change(time("W")) != 0
+rcW8  = request.security(tid, "W", open[1] > ta.ema(close, 8)[2]  and low[1] <= ta.ema(close, 8)[2]  and close[1] > ta.ema(close, 8)[2],  lookahead = barmerge.lookahead_off)
+rcW21 = request.security(tid, "W", open[1] > ta.ema(close, 21)[2] and low[1] <= ta.ema(close, 21)[2] and close[1] > ta.ema(close, 21)[2], lookahead = barmerge.lookahead_off)
+rcW30 = request.security(tid, "W", open[1] > ta.sma(close, 30)[2] and low[1] <= ta.sma(close, 30)[2] and close[1] > ta.sma(close, 30)[2], lookahead = barmerge.lookahead_off)
+rc8w  = en8w  and conf and newWk and rcW8
+rc21w = en21w and conf and newWk and rcW21
+rc30w = en30w and conf and newWk and rcW30
 rc200 = en200 and conf and f_reclaim(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
 rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)
