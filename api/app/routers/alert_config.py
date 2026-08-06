@@ -42,20 +42,11 @@ async def _set_pref(db: AsyncSession, user_id: int, alert_type: str, enabled: bo
 # TWO buckets only (user 2026-08-02): Day + Swing. Swing = the SMA 50/100/200 reclaims,
 # swing_rsi_30, the 5/20 cross, and the weekly/monthly LOW reclaims (moved in from the old RC tab).
 SWING_TRADE_TYPES: frozenset[str] = frozenset({
-    "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross
-    "swing_rsi_30",            # RSI(14) reclaims 30 — the oversold turn
-    "swing_sma50_reclaim",     # daily 50 SMA wick+hold reclaim
-    "swing_sma100_reclaim",    # daily 100 SMA wick+hold reclaim (2026-08-02)
+    "ema_5_20_cross",          # Steve Burns 5/20 daily bullish cross (mega-cap + index only, gated in webhook)
+    "swing_rsi_30",            # daily RSI-30 reclaim (deep-oversold turn)
     "swing_sma200_reclaim",    # daily 200 SMA structural reclaim
-    "swing_sma50_breakup",     # daily 50 SMA break-up (opened below, closed up through) — Swing (2026-08-05)
-    "swing_sma100_breakup",    # daily 100 SMA break-up
-    "swing_sma200_breakup",    # daily 200 SMA break-up
-    "swing_sma50_hold",        # daily 50 SMA hold (opened on the line, held) — Swing (2026-08-05)
-    "swing_sma100_hold",       # daily 100 SMA hold
-    "swing_sma200_hold",       # daily 200 SMA hold
-    "swing_fv_reclaim",        # 33-SMA OHLC4 weekly Fair-Value basis reclaim (2026-08-02)
-    "swing_smz_reclaim",       # Smart Money zone (golden pocket) edge reclaim (2026-08-02)
-    "swing_30w_reclaim",       # 30-week MA reclaim/hold (Weinstein Stage-2) (2026-08-05)
+    "swing_30w_reclaim",       # 30-week MA reclaim (Weinstein Stage-2)
+    "swing_21ema_w_reclaim",   # weekly 21 EMA reclaim (replaces 50/100 SMA — 2026-08-05)
 })
 # RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc replaced by the FV basis +
 # Smart Money zone reclaims (user: "replace the rc with reclaims of smart money zone").
