@@ -435,11 +435,18 @@ SWING_BROADCAST_TYPES: frozenset[str] = frozenset({
 # user who ENABLED the swing type, regardless of their small personal watchlist. Day trades stay
 # per-user/per-watchlist; only these longer-hold swing setups broadcast across the curated universe.
 _SWING_MASTER_TYPES: frozenset[str] = frozenset({
-    "swing_sma50_reclaim", "swing_sma100_reclaim", "swing_sma200_reclaim",
-    "swing_sma50_breakup", "swing_sma100_breakup", "swing_sma200_breakup",
-    "swing_sma50_hold", "swing_sma100_hold", "swing_sma200_hold",
-    "swing_rsi_30", "swing_fv_reclaim", "swing_smz_reclaim", "swing_30w_reclaim", "ema_5_20_cross",
+    # Condensed swing book (2026-08-05): 21 EMA weekly + 200 SMA daily + 30W MA + RSI-30 + 5/20 cross.
+    # 50/100 SMA + all breakup/hold retired (too noisy). MASTER_OPTIN = deliver to opted-in users
+    # regardless of personal watchlist.
+    "swing_21ema_w_reclaim", "swing_sma200_reclaim", "swing_30w_reclaim", "swing_rsi_30", "ema_5_20_cross",
 })
+# 5/20 EMA cross — deliver ONLY for these mega-caps + indexes (momentum whipsaws on choppy names;
+# user 2026-08-05). Admin-tunable, same pattern as HOURLY_LEVELS_SYMBOLS / V2_MULTI_SHORT_SYMS.
+_EMA_5_20_SYMBOLS: frozenset[str] = frozenset(
+    x.strip().upper() for x in os.getenv(
+        "EMA_5_20_SYMBOLS", "AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,SPY,QQQ,DIA,IWM"
+    ).split(",") if x.strip()
+)
 MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"pq_reclaim", "monthly_low_swing", "daily_rc", "weekly_rc", "monthly_rc"}) | _SWING_MASTER_TYPES
 
 
@@ -1761,6 +1768,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     if fourh_only and _bare_rule not in _FOURH_TYPES and _bare_rule != "gap_and_go":
         logger.info("TV webhook: 4H-only mode — %s dropped (%s)", alert_type_full, sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="fourh_only_mode")
+
+    # 5/20 EMA cross — mega-cap + index ONLY (user 2026-08-05: momentum needs liquid trenders).
+    # Pine emits for the whole watchlist; we deliver only for the EMA_5_20_SYMBOLS universe. Recorded
+    # unrouted (visible in Not-routed), not silently dropped. Edit the env var to tune the list.
+    if _bare_rule == "ema_5_20_cross" and (sig.symbol or "").upper().replace("-USD", "") not in _EMA_5_20_SYMBOLS:
+        logger.info("TV webhook: 5/20 cross off-universe — %s dropped", sig.symbol)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="ema_5_20_off_universe")
     # Delivery enable is PER-USER only (2026-07-24, user: "no gating if enabled").
     # The global AlertTypeConfig.enabled column is NO LONGER a delivery gate — it
     # was a second, hidden layer: Settings writes per-user prefs (UserAlertTypePref),
