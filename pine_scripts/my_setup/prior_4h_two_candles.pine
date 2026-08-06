@@ -26,7 +26,7 @@
 // below the bottom) — where price may head next. CONFLUENCE tag: appends · PDH/PWL/PMH… when a
 // level lines up with a prior day/week/month level (those are computed but NEVER drawn).
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Levels + Confluence + Bias · alerts", "4hr-levels-v6", overlay = true, max_lines_count = 16, max_labels_count = 12, max_boxes_count = 8)
+indicator("day-trade-signals-v2", overlay = true, max_lines_count = 16, max_labels_count = 12, max_boxes_count = 8)
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 show2   = input.bool(true, "Show yesterday's 2nd (older) 4h — 4H-2, dashed")
@@ -44,6 +44,7 @@ enBias  = input.bool(true,  "Show short/long BIAS on each level (mental construc
 nearPct = input.float(0.6, "  \"Near\" band (%) — emphasize when price is right at the level", minval = 0.05, maxval = 5, step = 0.05, group = "Bias") / 100.0
 enAuto   = input.bool(false, "Auto PDH/PDL — nearest prior-day level OUTSIDE the 4h band", group = "Auto PDH/PDL")
 autoDays = input.int(5, "Prior days to search", minval = 1, maxval = 5, group = "Auto PDH/PDL", tooltip = "Nearest prior-day HIGH above the 4h band's top (next resistance) + nearest LOW below its bottom (next support). Only those two — nearest = near price, so no compression.")
+autoPerSide = input.int(2, "Auto PDH/PDL — levels per side (nearest N)", minval = 1, maxval = 3, group = "Auto PDH/PDL")
 enAutoSma = input.bool(true,  "Auto SMA 50/100/200 — draw only when near price", group = "Auto SMA")
 maxSmaPct = input.float(3.0, "Max SMA draw distance (%)", minval = 0.5, maxval = 15, step = 0.5, group = "Auto SMA", tooltip = "Draw the daily 50/100/200 SMA only when it is within this % of price — a far SMA otherwise compresses the scale. Near ones cluster into confluence + carry the bias tag.")
 
@@ -177,23 +178,30 @@ if barstate.islast
         float _bot = na(bandLo) ? close : bandLo
         _vals = array.from(dh1, dl1, dh2, dl2, dh3, dl3, dh4, dl4, dh5, dl5)
         _lbls = array.from("PDH D-1", "PDL D-1", "PDH D-2", "PDL D-2", "PDH D-3", "PDL D-3", "PDH D-4", "PDL D-4", "PDH D-5", "PDL D-5")
-        float resV = na
-        string resN = ""
-        float supV = na
-        string supN = ""
         _lim = math.min(autoDays * 2, array.size(_vals))
-        if _lim > 0
-            for i = 0 to _lim - 1
-                _v2 = array.get(_vals, i)
-                if not na(_v2)
-                    if _v2 > _top and (na(resV) or _v2 < resV)
-                        resV := _v2
-                        resN := array.get(_lbls, i)
-                    if _v2 < _bot and (na(supV) or _v2 > supV)
-                        supV := _v2
-                        supN := array.get(_lbls, i)
-        f_add(cV, cN, cC, cS, resV, resN + " (next R)", colHi, line.style_solid)
-        f_add(cV, cN, cC, cS, supV, supN + " (next S)", colLo, line.style_solid)
+        _usedR = array.new_bool(array.size(_vals), false)
+        _usedS = array.new_bool(array.size(_vals), false)
+        for _p = 0 to autoPerSide - 1
+            float resV = na
+            int   resI = -1
+            float supV = na
+            int   supI = -1
+            if _lim > 0
+                for i = 0 to _lim - 1
+                    _v2 = array.get(_vals, i)
+                    if not na(_v2)
+                        if _v2 > _top and not array.get(_usedR, i) and (na(resV) or _v2 < resV)
+                            resV := _v2
+                            resI := i
+                        if _v2 < _bot and not array.get(_usedS, i) and (na(supV) or _v2 > supV)
+                            supV := _v2
+                            supI := i
+            if resI >= 0
+                array.set(_usedR, resI, true)
+                f_add(cV, cN, cC, cS, resV, array.get(_lbls, resI) + " (next R)", colHi, line.style_solid)
+            if supI >= 0
+                array.set(_usedS, supI, true)
+                f_add(cV, cN, cC, cS, supV, array.get(_lbls, supI) + " (next S)", colLo, line.style_solid)
 
     // ── AUTO SMA 50/100/200 (daily) — candidates only when within maxSmaPct of price (near price →
     //    no scale compression); they cluster into confluence + carry the bias tag like any level. ──
