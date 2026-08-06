@@ -8,18 +8,20 @@
 //
 // Every LEVEL entry is the SAME pattern: a structural line that was SUPPORT (price held ABOVE it)
 // gets reclaimed — role-guarded so a from-below breakup does NOT fire. Stop = the swept low. LONG only.
+//   • 8 EMA (weekly) reclaim   -> swing_8ema_w_reclaim    [judged on the WEEKLY, fast spine]
 //   • 21 EMA (weekly) reclaim  -> swing_21ema_w_reclaim   [judged on the WEEKLY]
 //   • 30-week MA reclaim       -> swing_30w_reclaim        [judged on the WEEKLY]
 //   • 200 SMA (daily) reclaim  -> swing_sma200_reclaim     [daily open-above + wick + reclaim]
 //   • RSI(14) reclaims 30      -> swing_rsi_30             (deep-oversold turn)
 //   • 5/20 EMA bullish cross   -> ema_5_20_cross           (mega-cap + index only, gated in backend)
 // All LINES drawn FLAT & non-repainting (weekly-locked EMAs / daily-locked 200 SMA) — identical on any
-// chart TF. 8 EMA (weekly) is VISUAL context only (no alert). Bind on Daily (or intraday in flat mode).
+// chart TF. Bind on Daily (or intraday in flat mode).
 // =============================================================================
 indicator("Swing Reclaim — 21EMA-W / 200SMA / 30W / RSI / 5-20", overlay = true, max_lines_count = 12, max_labels_count = 12)
 
 // ── entries ──────────────────────────────────────────────────────────────────
 gM    = "Entries"
+en8w  = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gM)
 en21w = input.bool(true, "21 EMA (weekly) reclaim", group = gM)
 en30w = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gM)
 en200 = input.bool(true, "200 SMA (daily) reclaim", group = gM)
@@ -70,6 +72,7 @@ f_reclaim(float L) => not na(L) and not na(dOpen) and dOpen > L * (1.0 + onBand)
 // on this bar (fresh reclaim event) — not a from-below breakup, not every bar it's above.
 f_wReclaim(float L) => not na(L) and not na(L[1]) and not na(wOpen) and wOpen > L and close > L and close[1] <= L
 
+rc8w  = en8w  and conf and f_wReclaim(e8w)
 rc21w = en21w and conf and f_wReclaim(e21w)
 rc30w = en30w and conf and f_wReclaim(w30)
 rc200 = en200 and conf and f_reclaim(sma200)
@@ -98,6 +101,7 @@ if barstate.islast
     f_sr(flat200, "200 SMA",    show200)
 
 // ── entry markers ──────────────────────────────────────────────────────────
+plotshape(rc8w,  "8EMA-W reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#22C55E, 0),      size = size.small, text = "8W")
 plotshape(rc21w, "21EMA-W reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#EAB308, 0),      size = size.small, text = "21W")
 plotshape(rc30w, "30W MA reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#F97316, 0),      size = size.small, text = "30W")
 plotshape(rc200, "200 SMA reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(color.teal, 0),   size = size.small, text = "200")
@@ -106,6 +110,8 @@ plotshape(rc520, "5/20 EMA cross",  style = shape.labelup, location = location.b
 
 f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
 
+if enAl and rc8w
+    alert(f_pay("swing_8ema_w_reclaim", "8 EMA (weekly) reclaim at " + str.tostring(e8w, format.mintick) + " — the week opened above the weekly 8 EMA (fast trend spine) and price reclaimed it, an early trend re-entry. Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc21w
     alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc30w

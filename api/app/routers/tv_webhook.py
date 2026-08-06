@@ -438,7 +438,7 @@ _SWING_MASTER_TYPES: frozenset[str] = frozenset({
     # Condensed swing book (2026-08-05): 21 EMA weekly + 200 SMA daily + 30W MA + RSI-30 + 5/20 cross.
     # 50/100 SMA + all breakup/hold retired (too noisy). MASTER_OPTIN = deliver to opted-in users
     # regardless of personal watchlist.
-    "swing_21ema_w_reclaim", "swing_sma200_reclaim", "swing_30w_reclaim", "swing_rsi_30", "ema_5_20_cross",
+    "swing_8ema_w_reclaim", "swing_21ema_w_reclaim", "swing_sma200_reclaim", "swing_30w_reclaim", "swing_rsi_30", "ema_5_20_cross",
 })
 # 5/20 EMA cross — deliver ONLY for these mega-caps + indexes (momentum whipsaws on choppy names;
 # user 2026-08-05). Admin-tunable, same pattern as HOURLY_LEVELS_SYMBOLS / V2_MULTI_SHORT_SYMS.
