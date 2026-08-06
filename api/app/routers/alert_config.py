@@ -46,6 +46,7 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "swing_rsi_30",            # daily RSI-30 reclaim (deep-oversold turn)
     "swing_sma200_reclaim",    # daily 200 SMA structural reclaim
     "swing_30w_reclaim",       # 30-week MA reclaim (Weinstein Stage-2)
+    "swing_8ema_w_reclaim",    # weekly 8 EMA reclaim — fast trend spine (2026-08-05)
     "swing_21ema_w_reclaim",   # weekly 21 EMA reclaim (replaces 50/100 SMA — 2026-08-05)
 })
 # RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc replaced by the FV basis +
