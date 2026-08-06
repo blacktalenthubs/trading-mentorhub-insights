@@ -50,10 +50,14 @@ show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
 show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
 show30w  = input.bool(true, "Draw 30W MA line", group = gL)
 show200  = input.bool(true, "Draw 200 SMA line", group = gL)
+show8sw  = input.bool(false, "Compare: 8 SMA (weekly) dashed",  group = gL, tooltip = "Optional visual only (no alert) — draws the WEEKLY 8 SMA dashed so you can compare it against the 8 EMA. SMA lags more in chop.")
+show21sw = input.bool(false, "Compare: 21 SMA (weekly) dashed", group = gL)
 
 // ── levels (settled [1] + lookahead → FLAT, non-repainting) ──────────────────
 tid   = syminfo.tickerid
-e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 EMA weekly (visual)
+e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 EMA weekly
+s8w   = request.security(tid, "W", ta.sma(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 SMA weekly  (optional visual — compare vs EMA)
+s21w  = request.security(tid, "W", ta.sma(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 SMA weekly (optional visual — compare vs EMA)
 e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
 w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
 wOpen = request.security(tid, "W", open,                 lookahead = barmerge.lookahead_on)   // this week's open (weekly role-guard)
@@ -82,11 +86,11 @@ rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)
 // ── flat S/R lines (green = support / price above, red = resistance / below) ──
 var line[]  _lns = array.new_line(0)
 var label[] _lbs = array.new_label(0)
-f_sr(float lv, string nm, bool show) =>
+f_sr(float lv, string nm, bool show, string lstyle) =>
     if show and not na(lv)
         sup = close > lv
         col = sup ? supCol : resCol
-        array.push(_lns, line.new(bar_index - lineLen, lv, bar_index + 6, lv, color = col, width = lineW))
+        array.push(_lns, line.new(bar_index - lineLen, lv, bar_index + 6, lv, color = col, width = lineW, style = lstyle))
         array.push(_lbs, label.new(bar_index + 6, lv, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lv, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
 if barstate.islast
     for _l in _lns
@@ -95,10 +99,12 @@ if barstate.islast
         label.delete(_b)
     array.clear(_lns)
     array.clear(_lbs)
-    f_sr(e8w,     "8 EMA (W)",  show8w)
-    f_sr(e21w,    "21 EMA (W)", show21w)
-    f_sr(w30,     "30W MA",     show30w)
-    f_sr(flat200, "200 SMA",    show200)
+    f_sr(e8w,     "8 EMA (W)",  show8w, line.style_solid)
+    f_sr(e21w,    "21 EMA (W)", show21w, line.style_solid)
+    f_sr(w30,     "30W MA",     show30w, line.style_solid)
+    f_sr(flat200, "200 SMA",    show200, line.style_solid)
+    f_sr(s8w,     "8 SMA (W)",  show8sw,  line.style_dashed)
+    f_sr(s21w,    "21 SMA (W)", show21sw, line.style_dashed)
 
 // ── entry markers ──────────────────────────────────────────────────────────
 plotshape(rc8w,  "8EMA-W reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#22C55E, 0),      size = size.small, text = "8W")
