@@ -937,10 +937,15 @@ _level_dedup_state: dict[tuple[str, str, float], dict] = {}
 # WLFC against its exact June-29 price, 9 names in one day). Hard-wipe the whole pile the
 # first time we see a new session_date so the anchor set can NEVER span more than today.
 _dedup_state_day: Optional[str] = None
+# Per-symbol DAY position — the 60-min cooldown + direction lock (user 2026-08-06). Keyed (symbol,'day')
+# -> {session, dir('long'|'short'), stop, last}. A stock can't be long AND short at once; price ranging
+# at stacked 4h levels was firing both on one bar.
+_day_pos: dict[tuple, dict] = {}
 def _wipe_dedup_state_on_new_day(session_date: str) -> None:
     global _dedup_state_day
     if _dedup_state_day != session_date:
         _entry_dedup_state.clear()
+        _day_pos.clear()
         _recent_confluence_fires.clear()
         _level_dedup_state.clear()
         _dedup_state_day = session_date
@@ -1003,10 +1008,50 @@ def _dedup_style_bucket(alert_type_full: str) -> str:
         return "day"
 
 
+def _record_day_pos(symbol: str, direction: str, entry: Optional[float], stop,
+                    alert_type_full: str, session_date: str) -> None:
+    """Record the active DAY position for the 60-min cooldown + direction lock (user 2026-08-06)."""
+    if _dedup_style_bucket(alert_type_full) != "day":
+        return
+    _sym = (symbol or "").upper()
+    _isL = (direction or "").upper() in ("BUY", "LONG")
+    _st = None
+    try:
+        _st = float(stop) if stop is not None and str(stop) != "" else None
+    except Exception:
+        _st = None
+    _day_pos[(_sym, "day")] = {"session": session_date, "dir": "long" if _isL else "short",
+                               "stop": _st, "last": datetime.utcnow()}
+
+
+def _short_has_confluence(entry: Optional[float], nearby_levels: Optional[str]) -> bool:
+    """A day SHORT only fires at a STRUCTURAL level (user 2026-08-06): entry within a band of a
+    PDH/PDL/PWH/PWL/PMH/PML from the pine's nearby_levels CSV ("kind|value|label,..."). No CSV or
+    no structural level nearby -> not confluent -> the short is dropped."""
+    if entry is None or entry <= 0 or not nearby_levels:
+        return False
+    try:
+        band = float(_envf("V2_SHORT_CONFLUENCE_PCT", 0.6)) / 100.0
+    except Exception:
+        band = 0.006
+    for part in str(nearby_levels).split(","):
+        seg = part.split("|")
+        if len(seg) >= 3 and seg[0].strip() == "day":
+            lbl = seg[2].strip().upper()
+            if any(k in lbl for k in ("PDH", "PDL", "PWH", "PWL", "PMH", "PML")):
+                try:
+                    lv = float(seg[1])
+                    if lv > 0 and abs(entry - lv) / lv <= band:
+                        return True
+                except Exception:
+                    pass
+    return False
+
+
 def _check_entry_time_dedup(
     symbol: str, direction: str, entry: Optional[float],
     alert_type_full: str, session_date: str, note: Optional[str] = None,
-    db_state: Optional[dict] = None,
+    db_state: Optional[dict] = None, nearby_levels: Optional[str] = None,
 ) -> Optional[dict]:
     """Suppression info, or None to fire. Three drop reasons:
       • `dedup_confluence` — SAME price as a level already alerted this session
@@ -1046,6 +1091,32 @@ def _check_entry_time_dedup(
         if not _better:
             return {"reason": "dedup_swing_worse", "anchor": _sw["best"]}
         return None
+    # ── DAY-BUCKET direction awareness (user 2026-08-06) — before the per-direction anchor maze:
+    #   (1) ONE alert per symbol per HOUR, any direction (kills the 09:45 same-bar long+short spam).
+    #   (2) DIRECTION LOCK — the opposite side is blocked until the ACTIVE side's STOP is breached by
+    #       price (a long stays THE trade until it fails; only then can a short fire).
+    #   (3) SHORTS need STRUCTURAL confluence — the level must sit on a PDH/PDL/PWH/PWL/PMH/PML.
+    if _dedup_style_bucket(alert_type_full) == "day":
+        _sym = (symbol or "").upper()
+        _isL = (direction or "").upper() in ("BUY", "LONG")
+        if not _isL and base not in ("staged_pdl_break", "staged_pdh_rejection") and not _short_has_confluence(entry, nearby_levels):
+            return {"reason": "short_no_confluence", "anchor": entry}  # staged_pdl/pdh ARE structural — exempt
+        _pos = _day_pos.get((_sym, "day"))
+        if _pos and _pos.get("session") == session_date:
+            _now = datetime.utcnow()
+            try:
+                _cd = float(_envf("V2_DAY_SYMBOL_COOLDOWN_MIN", 60))
+            except Exception:
+                _cd = 60.0
+            if _now - _pos["last"] < timedelta(minutes=_cd):
+                return {"reason": "dedup_symbol_cooldown", "anchor": _pos.get("stop")}
+            _activeL = _pos.get("dir") == "long"
+            if _isL != _activeL:
+                _st = _pos.get("stop")
+                if _st is not None and entry is not None and entry > 0:
+                    _breached = (entry <= _st) if _activeL else (entry >= _st)
+                    if not _breached:
+                        return {"reason": "dedup_dir_locked", "anchor": _st}
     if base in _MOMENTUM_EXEMPT:
         return None  # momentum: always fire, never merged (different signal axis)
     if base in _NEVER_DEDUP_LEVELS:
@@ -2081,6 +2152,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     dd = _check_entry_time_dedup(
         sig.symbol, direction, getattr(sig, "entry", None),
         alert_type_full, session_date, getattr(sig, "note", None), _db_dd_state,
+        getattr(sig, "nearby_levels", None),
     )
     if dd:
         logger.info(
@@ -2389,6 +2461,8 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             sig.symbol, direction, getattr(sig, "entry", None),
             alert_type_full, session_date, getattr(sig, "note", None),
         )
+        _record_day_pos(sig.symbol, direction, getattr(sig, "entry", None),
+                        getattr(sig, "stop", None), alert_type_full, session_date)
 
     # 6. Per-user Telegram + email delivery via notify_user (mirrors
     # monitor.py:857). Each user with telegram_enabled + telegram_chat_id
