@@ -44,6 +44,8 @@ enBias  = input.bool(true,  "Show short/long BIAS on each level (mental construc
 nearPct = input.float(0.6, "  \"Near\" band (%) — emphasize when price is right at the level", minval = 0.05, maxval = 5, step = 0.05, group = "Bias") / 100.0
 enAuto   = input.bool(false, "Auto PDH/PDL — nearest prior-day level OUTSIDE the 4h band", group = "Auto PDH/PDL")
 autoDays = input.int(5, "Prior days to search", minval = 1, maxval = 5, group = "Auto PDH/PDL", tooltip = "Nearest prior-day HIGH above the 4h band's top (next resistance) + nearest LOW below its bottom (next support). Only those two — nearest = near price, so no compression.")
+enAutoSma = input.bool(true,  "Auto SMA 50/100/200 — draw only when near price", group = "Auto SMA")
+maxSmaPct = input.float(3.0, "Max SMA draw distance (%)", minval = 0.5, maxval = 15, step = 0.5, group = "Auto SMA", tooltip = "Draw the daily 50/100/200 SMA only when it is within this % of price — a far SMA otherwise compresses the scale. Near ones cluster into confluence + carry the bias tag.")
 
 // ── last completed 4h candle: H / L / open-time (settled [1] + lookahead → non-repainting) ──
 [h4, l4, t4] = request.security(syminfo.tickerid, "240", [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
@@ -73,6 +75,7 @@ rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 [pwh, pwl] = request.security(rthTid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(rthTid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [dh1, dl1, dh2, dl2, dh3, dl3, dh4, dl4, dh5, dl5] = request.security(rthTid, "D", [high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5]], lookahead = barmerge.lookahead_on)
+[sd50, sd100, sd200] = request.security(rthTid, "D", [ta.sma(close, 50)[1], ta.sma(close, 100)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)   // daily SMAs for the optional Auto SMA
 
 f_conf(float v) =>
     s = ""
@@ -191,6 +194,17 @@ if barstate.islast
                         supN := array.get(_lbls, i)
         f_add(cV, cN, cC, cS, resV, resN + " (next R)", colHi, line.style_solid)
         f_add(cV, cN, cC, cS, supV, supN + " (next S)", colLo, line.style_solid)
+
+    // ── AUTO SMA 50/100/200 (daily) — candidates only when within maxSmaPct of price (near price →
+    //    no scale compression); they cluster into confluence + carry the bias tag like any level. ──
+    if enAutoSma
+        _msp = maxSmaPct / 100.0
+        if not na(sd50)  and math.abs(sd50  - close) / close <= _msp
+            f_add(cV, cN, cC, cS, sd50,  "50 SMA",  sd50  >= close ? colHi : colLo, line.style_solid)
+        if not na(sd100) and math.abs(sd100 - close) / close <= _msp
+            f_add(cV, cN, cC, cS, sd100, "100 SMA", sd100 >= close ? colHi : colLo, line.style_solid)
+        if not na(sd200) and math.abs(sd200 - close) / close <= _msp
+            f_add(cV, cN, cC, cS, sd200, "200 SMA", sd200 >= close ? colHi : colLo, line.style_solid)
 
     // ── SORT candidates ascending by value (selection sort — few candidates) ──
     n = array.size(cV)
