@@ -48,6 +48,7 @@ flat100   = request.security(tid, lockTf, ta.sma(close, len100)[1], lookahead = 
 flat200   = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
 w30       = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-WEEK MA (Weinstein Stage line), settled + flat
 e21w      = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA WEEKLY (Redler trend spine), settled + flat
+e8w       = request.security(tid, "W", ta.ema(close, 8)[1], lookahead = barmerge.lookahead_on)    // 8 EMA WEEKLY (fast trend spine) — VISUAL only (no alert), settled + flat
 flatRsi   = request.security(tid, lockTf, ta.rsi(close, rsiLen),    lookahead = barmerge.lookahead_off)
 // DAILY OPEN (on the lock TF) — the RECLAIM role-guard. TWO separate SMA setups (user 2026-08-04):
 //   • RECLAIM  — the period OPENED ABOVE the SMA (it was SUPPORT), wicked below, closed back above.
@@ -114,6 +115,8 @@ supCol  = input.color(#26A69A, "Support color (price above)",    group = gL)
 resCol  = input.color(#EF5350, "Resistance color (price below)", group = gL)
 lineW   = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
 lineLen = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
+showW8  = input.bool(true, "Draw 8 EMA (weekly) flat line",  group = gL)
+showW21 = input.bool(true, "Draw 21 EMA (weekly) flat line", group = gL)
 var line[]  _lns = array.new_line(0)
 var label[] _lbs = array.new_label(0)
 f_sr(float ma, string nm, bool show) =>
@@ -133,6 +136,8 @@ if barstate.islast and flatMode
     f_sr(sma100, "100 SMA", en100 and showSMA)
     f_sr(sma200, "200 SMA", en200 and showSMA)
     f_sr(w30,     "30W MA",  en30w)
+    f_sr(e8w,     "8 EMA (W)",  showW8)
+    f_sr(e21w,    "21 EMA (W)", showW21)
 // sloping fallback (flat mode OFF) — normal plotted MA
 plot(showSMA and not flatMode and en50  ? sma50  : na, "50 SMA",  color = color.new(#3B82F6, 20), linewidth = 1)
 plot(showSMA and not flatMode and en200 ? sma200 : na, "200 SMA", color = color.new(color.teal, 10), linewidth = 2)
