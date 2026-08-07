@@ -447,7 +447,7 @@ _EMA_5_20_SYMBOLS: frozenset[str] = frozenset(
         "EMA_5_20_SYMBOLS", "AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,SPY,QQQ,DIA,IWM"
     ).split(",") if x.strip()
 )
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"daily_rc"})  # 2026-08-06: pq_reclaim/monthly_low_swing/weekly_rc/monthly_rc plus the _SWING_MASTER_TYPES set moved to per-user watchlist delivery; only daily_rc stays master-broadcast
+MASTER_OPTIN_TYPES: frozenset[str] = frozenset()  # 2026-08-06: NO master broadcast — every type delivers per-user personal watchlist (empty watchlist still falls back to onboarding broadcast in _users_watching)
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
