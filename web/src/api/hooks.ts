@@ -2269,7 +2269,8 @@ export interface AlertTypeConfigItem {
   alert_type: string;
   label: string;
   category: string;
-  trade_group: string;   // Day Trade | Swing Trade | Long Term | Other (Settings grouping)
+  trade_group: string;   // Day Trade | Swing Trade | Notices (Settings grouping)
+  direction?: string;    // "Long" | "Short" — per-bucket direction toggle
   enabled: boolean;
   description?: string;
 }
@@ -2394,7 +2395,7 @@ export function useToggleAlertConfig() {
 export function useToggleAllAlertConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { enabled: boolean; category?: string; trade_group?: string }) =>
+    mutationFn: (vars: { enabled: boolean; category?: string; trade_group?: string; direction?: string }) =>
       api.put<{ updated: number; enabled: boolean }>("/alert-config", vars),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-config"] }),
     onError: (err: { message?: string; detail?: { message?: string } }) => {
