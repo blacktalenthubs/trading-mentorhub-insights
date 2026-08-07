@@ -53,6 +53,9 @@ def compute_levels(symbol: str, is_crypto: bool = False) -> dict | None:
                     lv[k] = float(c.rolling(win).mean().iloc[-1])
         if h is not None and l is not None and len(daily) >= 2:
             lv["pdh"], lv["pdl"] = float(h.iloc[-2]), float(l.iloc[-2])
+        # recent 5-day high/low — catches a fresh multi-day swing high (e.g. SPY 773 a few days ago)
+        # that a single prior-day PDH misses, so we don't call "blue sky" while price is still under it.
+        lv["rh"], lv["rl"] = float(h.iloc[-5:].max()), float(l.iloc[-5:].min())
         # prior WEEK / MONTH / QUARTER high & low (the last COMPLETED period → iloc[-2], since
         # iloc[-1] is the current developing one). Matches the pine's PWH/PWL/PMH/PML/PQH/PQL.
         if h is not None and l is not None and len(daily) >= 40:
@@ -125,6 +128,7 @@ def _levels_block(lv: dict) -> str:
         ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
         ("30W MA", lv.get("w30")),
         ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
+        ("5D-H", lv.get("rh")), ("5D-L", lv.get("rl")),
         ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
         ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
         ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
@@ -145,6 +149,7 @@ def _named_levels(lv: dict) -> list:
         ("50 SMA", lv.get("sma50")), ("100 SMA", lv.get("sma100")), ("200 SMA", lv.get("sma200")),
         ("30W MA", lv.get("w30")),
         ("PDH", lv.get("pdh")), ("PDL", lv.get("pdl")),
+        ("5D-H", lv.get("rh")), ("5D-L", lv.get("rl")),
         ("PWH", lv.get("pwh")), ("PWL", lv.get("pwl")),
         ("PMH", lv.get("pmh")), ("PML", lv.get("pml")),
         ("PQH", lv.get("pqh")), ("PQL", lv.get("pql")),
