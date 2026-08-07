@@ -1072,7 +1072,7 @@ async def lifespan(app: FastAPI):
                     lv["session_time"] = _tl
                     from analytics.spy_levels_agent import _det_bias as _db, _bracket as _bk
                     _su, _re = _bk(lv)
-                    _key = f"{_db(lv)}|{(_su[0]+chr(58)+str(round(_su[1],2))) if _su else chr(45)}|{(_re[0]+chr(58)+str(round(_re[1],2))) if _re else chr(45)}|{lv.get(chr(104)+chr(49)+chr(95)+chr(116)+chr(114)+chr(101)+chr(110)+chr(100))}"
+                    _key = f"{_db(lv)}|{(_su[0] + ':' + str(round(_su[1], 2))) if _su else '-'}|{(_re[0] + ':' + str(round(_re[1], 2))) if _re else '-'}|{lv.get('h1_trend')}"
                     if _levels_last.get(symbol) == _key:
                         logger.info("LEVELS %s: unchanged since last hour — skip repeat", symbol)
                         return
