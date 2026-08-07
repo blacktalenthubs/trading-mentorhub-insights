@@ -48,16 +48,29 @@ SWING_TRADE_TYPES: frozenset[str] = frozenset({
     "swing_30w_reclaim",       # 30-week MA reclaim (Weinstein Stage-2)
     "swing_8ema_w_reclaim",    # weekly 8 EMA reclaim — fast trend spine (2026-08-05)
     "swing_21ema_w_reclaim",   # weekly 21 EMA reclaim (replaces 50/100 SMA — 2026-08-05)
+    "swing_wq_reclaim_long",   # W/M/Q level reclaim/breakup — long (2026-08-06)
+    "swing_wq_reject_short",   # W/M/Q level reject/breakdown — short, opt-in (2026-08-06)
 })
 # RC tab RETIRED 2026-08-02 — daily_rc removed; weekly/monthly_rc replaced by the FV basis +
 # Smart Money zone reclaims (user: "replace the rc with reclaims of smart money zone").
 FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn"})
-TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade"]
+# Non-signals — heads-up/notice types (not trade entries); their own Settings bucket (user 2026-08-06).
+NOTICE_TYPES: frozenset[str] = frozenset({"candle_ping_equity", "candle_ping_crypto", "levels_hourly"})
+# SHORT-direction types — everything else is Long. Drives the per-bucket Long/Short toggles (2026-08-06).
+SHORT_TYPES: frozenset[str] = frozenset({"fourh_reject", "fourh_breakdn", "swing_wq_reject_short"})
+TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"]
+
+
+def _direction_for(alert_type: str) -> str:
+    """Long/Short for the per-bucket direction toggles. Only the known short entries are Short."""
+    return "Short" if alert_type in SHORT_TYPES else "Long"
 
 
 def _group_for(alert_type: str, category: str) -> str:
     """The Settings bucket for a type — exactly two: Day Trade or Swing Trade (user 2026-08-02).
     4H reactions + gap_and_go ARE the day-trade system; everything in SWING_TRADE_TYPES is Swing."""
+    if alert_type in NOTICE_TYPES:
+        return "Notices"
     if alert_type in FOURH_TYPES:
         return "Day Trade"
     return "Swing Trade" if alert_type in SWING_TRADE_TYPES else "Day Trade"
@@ -70,7 +83,8 @@ class AlertConfigUpdate(BaseModel):
 class AlertConfigBulkUpdate(BaseModel):
     enabled: bool
     category: str | None = None       # toggle ONLY this fine-grained category (#281)
-    trade_group: str | None = None    # toggle a whole Day/Swing/Long-term bucket (one-shot)
+    trade_group: str | None = None    # toggle a whole Day/Swing/Notices bucket (one-shot)
+    direction: str | None = None      # with trade_group: flip only "Long" or only "Short" in that bucket (2026-08-06)
 
 
 @router.get("")
@@ -98,6 +112,7 @@ async def list_alert_config(
             "label": r.label,
             "category": r.category,
             "trade_group": _group_for(r.alert_type, r.category),
+            "direction": _direction_for(r.alert_type),
             "enabled": enabled_by_type.get(r.alert_type, False),
             "description": describe_alert_type(r.alert_type),
         }
@@ -119,7 +134,7 @@ async def set_all_alert_config(
         types = (await db.execute(select(AlertTypeConfig.alert_type).where(AlertTypeConfig.category == body.category))).scalars().all()
     elif body.trade_group:
         allrows = (await db.execute(select(AlertTypeConfig.alert_type, AlertTypeConfig.category))).all()
-        types = [r.alert_type for r in allrows if _group_for(r.alert_type, r.category) == body.trade_group]
+        types = [r.alert_type for r in allrows if _group_for(r.alert_type, r.category) == body.trade_group and (body.direction is None or _direction_for(r.alert_type) == body.direction)]
     else:
         types = (await db.execute(select(AlertTypeConfig.alert_type))).scalars().all()
     for at in types:
