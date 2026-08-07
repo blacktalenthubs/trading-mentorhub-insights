@@ -67,6 +67,9 @@ _MA_TOGGLES = (
 # default_enabled only applies on FIRST insert — `enabled` is never
 # overwritten by seeding, so user toggles persist across deploys.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
+    # W/M/Q level interactions (30m) — the wmq_levels arrows, per-user watchlist (2026-08-06)
+    ("swing_wq_reclaim_long", "W/M/Q level reclaim or breakup (SWING long, 30m) — reclaimed/broke up through a prior week/month/quarter level. Stop 1.5% under the level.", "swing", True),
+    ("swing_wq_reject_short", "W/M/Q level reject or breakdown (SWING short, opt-in, 30m) — rejected/broke down through a prior week/month/quarter level. Stop 1.5% over the level.", "swing", False),
     # Candle-close pings (2026-08-02) — scheduled heads-ups (NOT trade signals) to review charts at each
     # 2h candle close. Per-user opt-in, delivered in-app (APNs push) + Telegram. TWO independent toggles
     # so a user can pick equity-only, crypto-only, or both.
