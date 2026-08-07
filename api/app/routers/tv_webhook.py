@@ -447,7 +447,7 @@ _EMA_5_20_SYMBOLS: frozenset[str] = frozenset(
         "EMA_5_20_SYMBOLS", "AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,SPY,QQQ,DIA,IWM"
     ).split(",") if x.strip()
 )
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"daily_rc"})  # 2026-08-06: swing/pq/weekly_rc/monthly_rc → per-user watchlist; only daily_rc stays master-broadcast | _SWING_MASTER_TYPES
+MASTER_OPTIN_TYPES: frozenset[str] = frozenset({"daily_rc"})  # 2026-08-06: pq_reclaim/monthly_low_swing/weekly_rc/monthly_rc plus the _SWING_MASTER_TYPES set moved to per-user watchlist delivery; only daily_rc stays master-broadcast
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
