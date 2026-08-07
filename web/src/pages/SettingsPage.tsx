@@ -601,12 +601,11 @@ function AlertTypesSection() {
   // expanded list keeps a small per-signal toggle ("i cant uncheck some" — same day).
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const GROUP_ORDER = ["Day Trade", "Swing Trade", "RC", "4H"];
+  const GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"];
   const GROUP_DESC: Record<string, string> = {
-    "Day Trade": "In and out the same session. Reclaims (4h / prior-day), PDH/PDL breaks & holds, weekly + monthly levels, MA/EMA bounces, gap-and-go, index shorts.",
-    "Swing Trade": "Levels that create the potential to hold for multiple days into weeks: 30-week MA reclaim · prior-quarter (PQ) reclaim · 200-MA bounce (daily close + SMA-200) · 5/20 EMA cross · monthly box breakouts (MoBO).",
-    "RC": "Validation channel — the pure UNDERCUT-and-reclaim of the prior day/week/month high/low (price dipped below a level, then closed back above). Runs on the master universe (opt-in). Off by default while being validated; shows in the RC feed tab.",
-    "4H": "The 4h day-trade method — reactions to the last two 4h candles' levels, confirmed on the 15m close: reclaim / rejection (wick + close back) and break-up / break-down. Opt-in; bind the pine on a 15m chart. Off by default while being validated.",
+    "Day Trade": "In and out the same session — all deduped. 4H reclaim / break-up · gap-and-go · prior-day / weekly / monthly-low reclaims (Long); 4H rejection / break-down (Short).",
+    "Swing Trade": "Hold days into weeks — all deduped. 21EMA-wk · 30W · 200SMA · RSI-30 · 5/20 · W/M/Q reclaim-breakup (Long); W/M/Q reject-breakdown (Short · opt-in).",
+    "Notices": "Not trade signals — heads-up only. 2h candle-close pings (equity / crypto) and the hourly levels agent.",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
@@ -629,30 +628,53 @@ function AlertTypesSection() {
         {orderedGroups.map((group) => {
           const items = grouped[group];
           const onCount = items.filter((i) => i.enabled).length;
+          const isNotices = group === "Notices";
+          const dirGroups: { dir: string; list: AlertTypeConfigItem[] }[] = [
+            { dir: "Long", list: items.filter((i) => i.direction !== "Short") },
+            { dir: "Short", list: items.filter((i) => i.direction === "Short") },
+          ];
           return (
             <div key={group} className="rounded-lg border border-border-subtle bg-surface-1/40">
-              <div className="flex items-start justify-between gap-3 px-3 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</div>
-                  <p className="mt-1 text-[11px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>
-                  <button
-                    onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
-                    className="mt-2 flex items-center gap-1 text-[10.5px] text-text-faint hover:text-text-secondary"
-                  >
-                    <ChevronRight className={`h-3 w-3 transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
-                    {items.length} signals included · {onCount} on
-                  </button>
-                </div>
-                <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
+              <div className="px-3 py-3">
+                <div className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</div>
+                <p className="mt-1 text-[11px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>
+                {isNotices ? (
+                  <div className="mt-3 flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
+                    <span className="text-[12px] font-semibold text-text-secondary">All notices</span>
+                    <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-1.5">
+                    {dirGroups.map(({ dir, list }) => {
+                      if (list.length === 0) return null;
+                      const dOn = list.filter((i) => i.enabled).length;
+                      const isShort = dir === "Short";
+                      return (
+                        <div key={dir} className="flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{dir}</span>
+                            <span className="text-[11px] text-text-faint">{list.length} signal{list.length > 1 ? "s" : ""} · {dOn} on</span>
+                          </div>
+                          <Toggle on={dOn === list.length} partial={dOn > 0 && dOn < list.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: dOn < list.length, trade_group: group, direction: dir })} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <button
+                  onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
+                  className="mt-2 flex items-center gap-1 text-[10.5px] text-text-faint hover:text-text-secondary"
+                >
+                  <ChevronRight className={`h-3 w-3 transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
+                  Advanced · {items.length} signal{items.length > 1 ? "s" : ""} · {onCount} on
+                </button>
               </div>
               {expanded.has(group) && (
                 <div className="border-t border-border-subtle px-3 pb-3 pt-2">
                   <div className="divide-y divide-border-subtle/40">
                     {items.map((t) => {
-                      const isShort = t.category === "Short" || /\b(short|reject)\b/i.test(t.label);
+                      const isShort = t.direction === "Short";
                       const [name, ...rest] = t.label.split(" — ");
-                      // Subtitle: the plain-language description from the catalog, falling back to
-                      // the label's own explainer after the dash.
                       const subtitle = t.description || rest.join(" — ");
                       return (
                         <div key={t.alert_type} className="flex items-start gap-2.5 py-2">
