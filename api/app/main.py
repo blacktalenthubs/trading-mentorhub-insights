@@ -1057,6 +1057,7 @@ async def lifespan(app: FastAPI):
             # stack: PDH/PDL, PWH/PWL, PMH/PML, PQH/PQL, the last two 4H candle H/L, and the MA stack.
             # SPY ONLY, during RTH (user 2026-08-03: dropped the BTC weekend test). Opt-in via the
             # 'levels_hourly' toggle (only the founder is enabled for now). Telegram + push.
+            _levels_last: dict = {}  # symbol -> structural key; skip an hourly repeat when nothing changed
             def _push_levels(symbol: str, is_crypto: bool, label: str, mkt_guard: bool) -> None:
                 if mkt_guard and not is_market_hours():
                     return
@@ -1069,6 +1070,13 @@ async def lifespan(app: FastAPI):
                         return
                     _tl = _dtl.now(_pytz.timezone("America/New_York")).strftime("%H:%M ET")
                     lv["session_time"] = _tl
+                    from analytics.spy_levels_agent import _det_bias as _db, _bracket as _bk
+                    _su, _re = _bk(lv)
+                    _key = f"{_db(lv)}|{(_su[0] + ':' + str(round(_su[1], 2))) if _su else '-'}|{(_re[0] + ':' + str(round(_re[1], 2))) if _re else '-'}|{lv.get('h1_trend')}"
+                    if _levels_last.get(symbol) == _key:
+                        logger.info("LEVELS %s: unchanged since last hour — skip repeat", symbol)
+                        return
+                    _levels_last[symbol] = _key
                     read = narrate(lv, symbol=label)
                     body = f"<b>📊 {label} levels · {_tl}</b>\n{read}"
                     _broadcast_telegram(body, f"levels:{label}", "levels_hourly")
