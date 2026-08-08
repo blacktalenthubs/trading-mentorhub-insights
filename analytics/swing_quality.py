@@ -172,7 +172,9 @@ def evaluate_swing_quality(
     if df is None:
         return None
     return (
-        _evaluate_bounce(symbol, df, cfg, session_date)
+        _evaluate_30w_bounce(symbol, df, cfg, session_date)
+        or _evaluate_base_breakout(symbol, df, cfg, session_date)
+        or _evaluate_bounce(symbol, df, cfg, session_date)
         or _evaluate_crossover(symbol, df, cfg, session_date)
         or _evaluate_golden_cross_retest(symbol, df, cfg, session_date)
         or _evaluate_52w_high_retest(symbol, df, cfg, session_date)
@@ -326,6 +328,69 @@ def _evaluate_5day_low_reclaim(
     return _build(symbol, REGIME_BOUNCE, hits, "5-day low", prior_5day_low,
                   latest_low, latest_close, session_date)
 
+
+def _evaluate_30w_bounce(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """Price defended a RISING 30-week MA (≈150-day SMA): today's low tested it and closed
+    back above WHILE the 30W is climbing (Weinstein Stage-2). The user-tested keystone swing —
+    a level reaction only counts when the trend is UP (a flat/falling 30W does not qualify)."""
+    _ = cfg
+    if len(df) < 170:
+        return None
+    close = df["close"].astype(float)
+    low = df["low"].astype(float)
+    ma30 = _sma(close, 150)
+    if pd.isna(ma30.iloc[-1]) or len(ma30) < 21 or pd.isna(ma30.iloc[-21]):
+        return None
+    ma_now = float(ma30.iloc[-1])
+    ma_prev = float(ma30.iloc[-21])                       # ≈ 4 weeks (20 trading days) ago
+    if ma_prev <= 0 or (ma_now - ma_prev) / ma_prev < 0.003:   # RISING ≥ 0.3% over the window
+        return None
+    latest_close = float(close.iloc[-1])
+    latest_low = float(low.iloc[-1])
+    tol = ma_now * 0.005                                  # 0.5% = "tested the line"
+    if not (latest_low <= ma_now + tol and latest_close > ma_now):
+        return None
+    hits = [SwingRuleHit(
+        "30w_bounce", "30W MA (rising)",
+        f"defended a RISING 30-week MA (${ma_now:.2f}) — today's low tested it and closed "
+        f"back above; Stage-2 trend intact",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "30W MA", ma_now,
+                  latest_low, latest_close, session_date)
+
+
+def _evaluate_base_breakout(
+    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
+) -> SwingQualification | None:
+    """Closed above the base/range high (the pivot = the 20-bar high before today) on volume
+    expansion (≥ 1.5× the 20-day average). The O'Neil / Minervini breakout — a consolidation
+    resolves up on volume. Entry = the pivot; stop = the breakout-bar low."""
+    _ = cfg
+    if len(df) < 30:
+        return None
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    volume = df["volume"].astype(float) if "volume" in df.columns else None
+    latest_close = float(close.iloc[-1])
+    prev_close = float(close.iloc[-2])
+    pivot = float(high.iloc[-21:-1].max())                # base high = the 20-bar high before today
+    if not (prev_close <= pivot and latest_close > pivot):   # a FRESH cross above the pivot
+        return None
+    if volume is None or pd.isna(volume.iloc[-1]):
+        return None
+    vol_avg = float(volume.iloc[-21:-1].mean()) if len(volume) >= 21 else None
+    if not vol_avg or float(volume.iloc[-1]) < 1.5 * vol_avg:
+        return None
+    hits = [SwingRuleHit(
+        "base_breakout", "base breakout",
+        f"closed above the 20-bar base high (${pivot:.2f}) on {float(volume.iloc[-1]) / vol_avg:.1f}× "
+        f"volume — a range/pivot breakout",
+    )]
+    return _build(symbol, REGIME_BOUNCE, hits, "base high", pivot,
+                  float(low.iloc[-1]), latest_close, session_date)
 
 def _evaluate_bounce(
     symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
