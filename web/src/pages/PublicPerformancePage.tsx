@@ -2,24 +2,58 @@
  *  Rendered at /public/performance/:token from a link the user created via the Share button.
  *  Reuses the aggregation helpers from RealTradesPage so the numbers match exactly.
  */
-import { Fragment } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { usePublicPerformance } from "../api/hooks";
+import { usePublicPerformance, type ScoredAlert } from "../api/hooks";
 import { median, pct, fmtDay, wrColor, aggregate, groupByDate } from "./RealTradesPage";
 
 const STYLE_TAG: Record<string, string> = { Day: "text-sky-400", Swing: "text-amber-400", Long: "text-bullish-text" };
 
+// Sortable columns — mirrors the logged-in Performance page so a shared link
+// is just as explorable (only the columns this page renders).
+type LbKey = "pattern" | "wr" | "mfe" | "n";
+type AlKey = "symbol" | "pattern" | "entry" | "intraday_high" | "eod_close" | "mfe_pct" | "result";
+
 export default function PublicPerformancePage() {
   const { token } = useParams<{ token: string }>();
   const { data, isLoading, error } = usePublicPerformance(token ?? "");
-  const alerts = data?.alerts ?? [];
+  const alerts = useMemo(() => data?.alerts ?? [], [data]);
   const closed = alerts.filter((a) => !a.open);
   const wins = closed.filter((a) => a.result === "WIN").length;
   const overallWr = closed.length ? Math.round((wins * 100) / closed.length) : 0;
-  const lb = aggregate(alerts);
-  const groups = groupByDate(alerts).slice(0, 3);
+  const lb = useMemo(() => aggregate(alerts), [alerts]);
+  const groups = useMemo(() => groupByDate(alerts).slice(0, 3), [alerts]);
   const medMfe = median(alerts.map((a) => a.mfe_pct));
+
+  // Pattern leaderboard sort (default: win rate desc — same as the app).
+  const [lbSort, setLbSort] = useState<{ k: LbKey; d: 1 | -1 }>({ k: "wr", d: -1 });
+  const lbClick = (k: LbKey) => setLbSort((s) => (s.k === k ? { k, d: (s.d * -1) as 1 | -1 } : { k, d: k === "pattern" ? 1 : -1 }));
+  const lbArrow = (k: LbKey) => (lbSort.k === k ? (lbSort.d < 0 ? " ↓" : " ↑") : "");
+  const sortedLb = useMemo(() => {
+    const c = [...lb];
+    c.sort((a, b) => {
+      const av = a[lbSort.k]; const bv = b[lbSort.k];
+      const r = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      return r * lbSort.d;
+    });
+    return c;
+  }, [lb, lbSort]);
+
+  // Alert list sort (within each date group; null = chronological as fired).
+  const [alSort, setAlSort] = useState<{ k: AlKey; d: 1 | -1 } | null>(null);
+  const alClick = (k: AlKey) => setAlSort((s) => (s && s.k === k ? { k, d: (s.d * -1) as 1 | -1 } : { k, d: k === "symbol" || k === "pattern" || k === "result" ? 1 : -1 }));
+  const alArrow = (k: AlKey) => (alSort && alSort.k === k ? (alSort.d < 0 ? " ↓" : " ↑") : "");
+  const sortItems = (items: ScoredAlert[]) => {
+    if (!alSort) return items;
+    const c = [...items];
+    c.sort((a, b) => {
+      const av = a[alSort.k]; const bv = b[alSort.k];
+      const r = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : (av as number) - (bv as number);
+      return r * alSort.d;
+    });
+    return c;
+  };
 
   return (
     <div className="min-h-screen bg-surface-0 text-text-primary">
@@ -57,9 +91,9 @@ export default function PublicPerformancePage() {
               <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-2">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[480px] text-sm">
-                    <thead><tr className="text-[10px] uppercase tracking-wide text-text-faint"><th className="px-3 py-2.5 text-center">#</th><th className="px-3 py-2.5 text-left">Pattern</th><th className="px-3 py-2.5 text-right">Win rate</th><th className="px-3 py-2.5 text-right">Med peak</th><th className="px-3 py-2.5 text-right">Alerts</th></tr></thead>
+                    <thead><tr className="text-[10px] uppercase tracking-wide text-text-faint select-none"><th className="px-3 py-2.5 text-center">#</th><th onClick={() => lbClick("pattern")} className="cursor-pointer px-3 py-2.5 text-left hover:text-text-muted">Pattern{lbArrow("pattern")}</th><th onClick={() => lbClick("wr")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Win rate{lbArrow("wr")}</th><th onClick={() => lbClick("mfe")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Med peak{lbArrow("mfe")}</th><th onClick={() => lbClick("n")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Alerts{lbArrow("n")}</th></tr></thead>
                     <tbody>
-                      {lb.map((r, i) => (
+                      {sortedLb.map((r, i) => (
                         <tr key={r.pattern} className="border-t border-border-subtle">
                           <td className="px-3 py-3 text-center font-mono text-text-faint">{i + 1}</td>
                           <td className="px-3 py-3 font-semibold">{r.pattern}</td>
@@ -80,12 +114,12 @@ export default function PublicPerformancePage() {
               <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface-2">
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
-                    <thead><tr className="text-[10px] uppercase tracking-wide text-text-faint"><th className="px-3 py-2.5 text-left">Sym</th><th className="px-3 py-2.5 text-left">Setup</th><th className="px-3 py-2.5 text-right">Entry</th><th className="px-3 py-2.5 text-right">Hi</th><th className="px-3 py-2.5 text-right">EOD</th><th className="px-3 py-2.5 text-right">Peak</th><th className="px-3 py-2.5 text-right">Result</th></tr></thead>
+                    <thead><tr className="text-[10px] uppercase tracking-wide text-text-faint select-none"><th onClick={() => alClick("symbol")} className="cursor-pointer px-3 py-2.5 text-left hover:text-text-muted">Sym{alArrow("symbol")}</th><th onClick={() => alClick("pattern")} className="cursor-pointer px-3 py-2.5 text-left hover:text-text-muted">Setup{alArrow("pattern")}</th><th onClick={() => alClick("entry")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Entry{alArrow("entry")}</th><th onClick={() => alClick("intraday_high")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Hi{alArrow("intraday_high")}</th><th onClick={() => alClick("eod_close")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">EOD{alArrow("eod_close")}</th><th onClick={() => alClick("mfe_pct")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Peak{alArrow("mfe_pct")}</th><th onClick={() => alClick("result")} className="cursor-pointer px-3 py-2.5 text-right hover:text-text-muted">Result{alArrow("result")}</th></tr></thead>
                     <tbody>
                       {groups.map((g) => (
                         <Fragment key={g.date}>
                           <tr className="bg-surface-0"><td colSpan={7} className="border-t border-border-subtle px-3 py-2 font-mono text-xs font-semibold">{fmtDay(g.date)} <span className="ml-2 font-normal text-text-faint"><span className="text-bullish-text">{g.wr}% win</span> · {g.items.length} alerts</span></td></tr>
-                          {g.items.map((a, i) => (
+                          {sortItems(g.items).map((a, i) => (
                             <tr key={`${a.symbol}-${i}`} className="border-t border-border-subtle font-mono">
                               <td className="px-3 py-2 text-left font-bold">{a.symbol}</td>
                               <td className="px-3 py-2 text-left font-sans text-[11px] text-text-muted">{a.pattern}</td>

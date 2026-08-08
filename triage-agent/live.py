@@ -61,15 +61,23 @@ DAILY_USD_CAP   = float(os.environ.get("TRIAGE_DAILY_USD_CAP", "1.50"))
 # Premarket / EOD scheduler — set ENABLE_PREMARKET_BRIEF=true to activate.
 # Default false so existing deploys aren't surprised by new behavior.
 ENABLE_PREMARKET_BRIEF = os.environ.get("ENABLE_PREMARKET_BRIEF", "false").lower() == "true"
+# 8:00 ET (was 8:30, 2026-07-10): busy professionals plan the day BEFORE the
+# open — movers/sector heat are mature enough by 8:00.
 PREMARKET_HOUR_ET   = int(os.environ.get("PREMARKET_HOUR_ET", "8"))
-PREMARKET_MINUTE_ET = int(os.environ.get("PREMARKET_MINUTE_ET", "30"))
+PREMARKET_MINUTE_ET = int(os.environ.get("PREMARKET_MINUTE_ET", "0"))
 EOD_HOUR_ET         = int(os.environ.get("EOD_HOUR_ET", "16"))
 EOD_MINUTE_ET       = int(os.environ.get("EOD_MINUTE_ET", "5"))
 # Today's Focus (morning_leaders) — generated HERE because yfinance works on the
-# triage worker (it's cloud-blocked on the main API). Runs after premarket; writes
-# market_reports kind=morning_focus daily so the Today's Focus tab stops being static.
-MORNING_FOCUS_HOUR_ET   = int(os.environ.get("MORNING_FOCUS_HOUR_ET", "8"))
-MORNING_FOCUS_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_MINUTE_ET", "35"))
+# triage worker (it's cloud-blocked on the main API). Writes market_reports
+# kind=morning_focus — an UPSERT keyed (kind, session_date), so re-runs the same
+# morning safely overwrite the row. TWO runs since 2026-07-10 (user: a busy
+# professional needs the day's focus much earlier):
+#   7:45 ET — early first cut: the day's plan lands well before the open
+#   8:45 ET — refresh: entries/prices re-anchored on mature premarket data
+MORNING_FOCUS_HOUR_ET   = int(os.environ.get("MORNING_FOCUS_HOUR_ET", "7"))
+MORNING_FOCUS_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_MINUTE_ET", "45"))
+MORNING_FOCUS_REFRESH_HOUR_ET   = int(os.environ.get("MORNING_FOCUS_REFRESH_HOUR_ET", "8"))
+MORNING_FOCUS_REFRESH_MINUTE_ET = int(os.environ.get("MORNING_FOCUS_REFRESH_MINUTE_ET", "45"))
 
 # Performance scorer — EOD, default 16:20 ET (= 3:20pm CT, just after the close settles so
 # the day's EOD prints are final). Scores the trailing PERF_DAYS window and publishes it.
@@ -631,6 +639,17 @@ def start_premarket_scheduler():
                     day_of_week="mon-fri", timezone=et_tz),
         id="morning_focus", replace_existing=True,
     )
+    # Same job, second run near the open — UPSERTs the same (kind, session_date)
+    # row so the 7:45 early cut gets re-anchored on mature premarket data.
+    # Disable by setting MORNING_FOCUS_REFRESH_HOUR_ET to the first run's hour+minute.
+    if (MORNING_FOCUS_REFRESH_HOUR_ET, MORNING_FOCUS_REFRESH_MINUTE_ET) != (
+            MORNING_FOCUS_HOUR_ET, MORNING_FOCUS_MINUTE_ET):
+        scheduler.add_job(
+            _safe_morning_focus,
+            CronTrigger(hour=MORNING_FOCUS_REFRESH_HOUR_ET, minute=MORNING_FOCUS_REFRESH_MINUTE_ET,
+                        day_of_week="mon-fri", timezone=et_tz),
+            id="morning_focus_refresh", replace_existing=True,
+        )
     scheduler.add_job(
         _safe_eod,
         CronTrigger(hour=EOD_HOUR_ET, minute=EOD_MINUTE_ET,
