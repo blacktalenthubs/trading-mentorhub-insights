@@ -68,8 +68,7 @@ _MA_TOGGLES = (
 # overwritten by seeding, so user toggles persist across deploys.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # W/M/Q level interactions (30m) — the wmq_levels arrows, per-user watchlist (2026-08-06)
-    ("swing_wq_reclaim_long", "W/M/Q level reclaim or breakup (SWING long, 30m) — reclaimed/broke up through a prior week/month/quarter level. Stop 1.5% under the level.", "Swing", True),
-    ("swing_wq_reject_short", "W/M/Q level reject or breakdown (SWING short, opt-in, 30m) — rejected/broke down through a prior week/month/quarter level. Stop 1.5% over the level.", "Swing", False),
+    # swing_wq_reclaim_long / swing_wq_reject_short RETIRED 2026-08-07 → OBSOLETE (level reaction ≠ trend; visual lines only)
     # Candle-close pings (2026-08-02) — scheduled heads-ups (NOT trade signals) to review charts at each
     # 2h candle close. Per-user opt-in, delivered in-app (APNs push) + Telegram. TWO independent toggles
     # so a user can pick equity-only, crypto-only, or both.
@@ -164,10 +163,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
     ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
-    ("swing_8ema_w_reclaim", "8 EMA (weekly) reclaim (long) — the week opened above the WEEKLY 8 EMA (fast trend spine) and price reclaimed it — an early trend re-entry after a pullback. Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
-    ("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim (long) — the week opened above the WEEKLY 21 EMA and price reclaimed it (Redler trend spine; replaces the noisy 50/100 SMA). Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
+    # swing_8ema_w_reclaim / swing_21ema_w_reclaim RETIRED 2026-08-07 → OBSOLETE (visual lines only)
     # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
-    ("swing_30w_reclaim", "30-week MA reclaim/hold (long) — price is back above the 30-week MA (Weinstein Stage-2 re-entry; the weekly trend line). Long-hold. Bind swing_reclaim.pine; opt in HERE.", "Swing", False),
+    ("swing_30w_reclaim", "30-week MA bounce (long) — price wicked to a RISING 30-week MA and closed back above it (Weinstein Stage-2 trend defended, not just any touch). Bind swing_reclaim.pine on 4h; opt in HERE.", "Swing", False),
+    ("swing_base_breakout", "Base breakout (long) — closed above the base/range high (pivot) on volume expansion (classic O'Neil swing entry). Bind swing_reclaim.pine on 4h; opt in HERE.", "Swing", False),
     # PQ reclaim (2026-07-17, re-landed 07-18 after the #820 rollback) — the daily close bounces the
     # prior-quarter LOW, reclaims the prior-quarter CLOSE, or breaks the HIGH. Low win% / high R:R
     # bottom-bounce & breakout swing. The level is named in the alert. From prior_quarter_hl.pine
@@ -378,7 +377,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
     "swing_8ema_w_reclaim": "The WEEK opened above the weekly 8 EMA (the fast trend spine) and price reclaimed it — an early trend re-entry after a pullback (fires a bit more than the 21 EMA-W but still weekly-gated). Long swing entry; stop = a weekly close back below / the swept low.",
     "swing_21ema_w_reclaim": "The WEEK opened above the weekly 21 EMA (it was support) and price reclaimed it — the higher-timeframe trend spine held. Replaces the noisy daily 50/100 SMA reclaims. Long swing entry; stop = a weekly close back below / the swept low.",
-    "swing_rsi_30": "Daily RSI crossed back ABOVE 30 from below (was oversold yesterday, reclaimed 30 today) on an upper-half close — the bottom-fishing 'turn is in' confirmation. Higher conviction near the 200 SMA/EMA. A longer-hold reversal entry on washed-out quality/mega caps. Manage by RSI: T1 ~RSI 45-50, T2 RSI 70; STOP = a close back under 30. Pairs with rsi_oversold (the watch) — this is the trigger.",
+    "swing_rsi_30": "Daily RSI crossed back ABOVE the oversold zone (30-35) from below — the bottom-fishing 'turn is in' on a washed-out name. Longer-hold reversal; stop = the swept low. Standalone (doesn't need to be above the 30W).",
+    "swing_base_breakout": "Base breakout — closed above the base/range high (the pivot) on volume expansion (≥1.5× the 20-bar average). The classic O'Neil/Minervini swing entry: a consolidation resolves up on volume. Stop = the swept low / back inside the base.",
     "swing_fv_reclaim": "Price closed back ABOVE the Fair-Value basis (33-SMA of weekly OHLC4) after dipping below — the key value level held as support (the reclaim is the best FV signal: continuation / stay-in-trend). Same reclaim + role-guard as the SMAs; STOP = the swept low, invalid on a close back below the basis.",
     "swing_smz_reclaim": "Price reclaimed a Smart-Money zone edge — a golden-pocket fib line (0.618 / 0.786 / 0.85) of the recent weekly swing that was acting as SUPPORT: price wicked below it and closed back above (the discount zone held). The alert names which edge (Institutional / Smart-Money). STOP = the swept low; invalid on a close back below the zone.",
     "rsi_oversold": "Daily RSI closed in the 30-35 buy zone — reclaimed 30 from below or dipped/holding in 30-35 from above. NEVER fires below 30 (the falling knife — RSI 29 is not a buy; wait for the turn/hold). A SWING entry (hold days), best on washed-out quality/mega caps that mean-revert. Manage by RSI: T1 = RSI 50, T2 = RSI 70; STOP = a daily close back under RSI 30 (exactly where Steve Burns stopped out of NFLX, -2.75%, Fri 06-12). Fired at the daily close, once per entry (rare).",
@@ -421,6 +421,9 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-08-07 — swing book finalized to trend/momentum entries; level-reaction reclaims retired to
+    # VISUAL lines only (a reclaim ≠ a trend). swing_wq_* + 8/21-EMA-weekly reclaims dropped as alerts.
+    "swing_wq_reclaim_long", "swing_wq_reject_short", "swing_8ema_w_reclaim", "swing_21ema_w_reclaim",
     # 2026-08-05 — swing book condensed to 21EMA-W + 200SMA + 30W + RSI30 + 5/20 (user: 50/100 SMA too
     # noisy/intraday, mostly run into resistance). 50/100 reclaims + ALL breakup/hold ALERTS retired
     # (SMA lines stay VISUAL in swing_reclaim.pine for manual day-trading).
