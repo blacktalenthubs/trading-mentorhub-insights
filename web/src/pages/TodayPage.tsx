@@ -50,59 +50,49 @@ type DayPick = {
    clickable → Trading chart. Falls back to plain text for old (non-JSON) reports;
    reads the legacy `picks` as swing for reports persisted before the two-section split. */
 type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
-type SwingSig = { symbol: string; setup: string; entry: number; stop: number; target: number; now?: number; status?: string; actionable?: boolean; reasons?: string[] };
-function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { character_change?: SwingSig[]; base_buy?: SwingSig[]; monthly_ma_reclaim?: SwingSig[]; mobo_breakout?: SwingSig[]; new_high_breakout?: SwingSig[]; universe?: number } | null = null;
+type SwingRow = { symbol: string; entry: number; stop: number; target: number; close: number; level: string; why: string };
+type SwingReport = { buckets?: Record<string, SwingRow[]>; bucket_order?: string[]; bucket_title?: Record<string, string>; universe?: number; total?: number };
+/* The MERGED swing finder — trend + swing are ONE thing (user 2026-08-08). Renders the
+   finalized swing book bucketed by the pattern each name hit (opened above a prior
+   week/month high · 30W bounce · 200 SMA hold · base breakout · 8/21 cross · RSI-30) and
+   folds the trend "ready at a rising 20 EMA" bucket in at the top. One section, one mental
+   model: which stocks are sitting in a swing zone today. */
+function SwingSetups({ body, trendBody, onChart }: { body: string; trendBody?: string | null; onChart: (s: string) => void }) {
+  let parsed: SwingReport | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
-  if (!parsed) return <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-[12px] text-text-faint">No swing report yet.</div>;
-  const cc = parsed.character_change ?? [];
-  const bb = parsed.base_buy ?? [];
-  const mr = parsed.monthly_ma_reclaim ?? [];
-  const mob = parsed.mobo_breakout ?? [];
-  const nh = parsed.new_high_breakout ?? [];
-  const card = (x: SwingSig) => (
-    <button key={x.symbol + x.setup} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
+  const buckets = parsed?.buckets ?? {};
+  const order = (parsed?.bucket_order ?? Object.keys(buckets)).filter((b) => (buckets[b] ?? []).length > 0);
+  const titles = parsed?.bucket_title ?? {};
+  let hasTrend = false;
+  try { hasTrend = (((trendBody ? JSON.parse(trendBody).ready_now : []) ?? []) as unknown[]).length > 0; } catch { hasTrend = false; }
+  if (order.length === 0 && !hasTrend) {
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No name is in a swing zone today — the scan runs after the close (~4:25 PM ET).</div>;
+  }
+  const card = (x: SwingRow) => (
+    <button key={x.symbol + x.level} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
       <div className="flex items-center justify-between">
         <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400">{x.setup}</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400">{x.level}</span>
       </div>
-      <div className="mt-1 flex gap-3 font-mono text-[11px]">
+      <div className="mt-1 flex flex-wrap gap-3 font-mono text-[11px]">
         <span className="text-bullish-text">buy {x.entry}</span>
         <span className="text-bearish-text">stop {x.stop}</span>
         <span className="text-text-muted">tgt {x.target}</span>
+        <span className="text-text-faint">now {x.close}</span>
       </div>
-      {x.status && <p className={`mt-0.5 font-mono text-[10.5px] font-medium ${x.actionable ? "text-bullish-text" : "text-amber-400"}`}>{x.now ? `now ${x.now} · ` : ""}{x.status}</p>}
-      {(x.reasons ?? []).slice(0, 2).map((r, i) => <p key={i} className="mt-0.5 text-[10.5px] leading-snug text-text-muted">• {r}</p>)}
+      <p className="mt-0.5 text-[10.5px] leading-snug text-text-muted">{x.why}</p>
     </button>
   );
   return (
     <div className="space-y-4">
-      <section className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Character Change · weekly reversal (rare)</h3>
-        {cc.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{cc.map(card)}</div>
-          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">None today — it's a rare, high-conviction reversal.</div>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Buying in Bases · right side lifting</h3>
-        {bb.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{bb.map(card)}</div>
-          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No base setting up today.</div>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Monthly MA reclaim · buy the rising trend MA (position)</h3>
-        {mr.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{mr.map(card)}</div>
-          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No name reclaiming its monthly MA today.</div>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">MoBO breakout · cleared a locked monthly base (catch the next MU/SNDK)</h3>
-        {mob.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{mob.map(card)}</div>
-          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No monthly base breaking out today.</div>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">New-high breakout · closed through the 52-week high on volume</h3>
-        {nh.length ? <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{nh.map(card)}</div>
-          : <div className="rounded-xl border border-border-subtle bg-surface-1 p-4 text-center text-[12px] text-text-faint">No name closed at a new 52-week high today.</div>}
-      </section>
-      <p className="text-[10px] text-text-faint">Swing setups scanned on the master universe — hold-for-days patterns above the 50-EMA. Educational, not financial advice.</p>
+      <p className="text-[11px] text-text-muted">One finder — trend + swing. Which names are sitting in a swing zone today, scanned on the master universe{parsed?.universe ? ` (${parsed.universe} names)` : ""}. Educational, not financial advice.</p>
+      {hasTrend && <TrendSetups body={trendBody!} onChart={onChart} />}
+      {order.map((b) => (
+        <section key={b} className="space-y-2">
+          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">{titles[b] ?? b}</h3>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{(buckets[b] ?? []).map(card)}</div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -345,11 +335,10 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
           {!pre && !eod && <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Briefing drops pre-open + after the close.</div>}
         </div>
       ) },
-    // ── DISCOVERY — collapsed below the fold; belongs in Trade Ideas (planned move). ──
-    { id: "sec-trend", time: "ALL·DAY", title: "Trend setups", present: !!ts,
-      wait: "Generated after the close (~4:15 PM ET).", render: () => <TrendSetups body={ts!.body} onChart={onChart} /> },
-    { id: "sec-swing", time: "WEEKLY", title: "Swing setups", present: !!sw,
-      wait: "Weekly swing scan — generated after the close (~4:25 PM ET).", render: () => <SwingSetups body={sw!.body} onChart={onChart} /> },
+    // ── DISCOVERY — trend + swing merged into ONE finder (which names are in a swing zone). ──
+    { id: "sec-swing", time: "AFTER·CLOSE", title: "Swing setups", present: !!sw || !!ts,
+      wait: "The swing finder runs after the close (~4:25 PM ET).",
+      render: () => <SwingSetups body={sw?.body ?? ""} trendBody={ts?.body} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
