@@ -7,7 +7,7 @@
  *  Its own scroll root (AppLayout <main> is overflow-hidden — see
  *  feedback_page_scroll_container).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
@@ -49,7 +49,6 @@ type DayPick = {
    (liquid mega-caps defending a key level / oversold / near a breakout). Symbol is
    clickable → Trading chart. Falls back to plain text for old (non-JSON) reports;
    reads the legacy `picks` as swing for reports persisted before the two-section split. */
-type TrendRow = { symbol: string; price: number; ema20: number; ema50: number; adx: number; dist_pct: number; stop: number };
 type SwingRow = { symbol: string; entry: number; stop: number; target: number; close: number; level: string; why: string };
 type SwingReport = { buckets?: Record<string, SwingRow[]>; bucket_order?: string[]; bucket_title?: Record<string, string>; universe?: number; total?: number };
 /* The MERGED swing finder — trend + swing are ONE thing (user 2026-08-08). Renders the
@@ -57,80 +56,83 @@ type SwingReport = { buckets?: Record<string, SwingRow[]>; bucket_order?: string
    week/month high · 30W bounce · 200 SMA hold · base breakout · 8/21 cross · RSI-30) and
    folds the trend "ready at a rising 20 EMA" bucket in at the top. One section, one mental
    model: which stocks are sitting in a swing zone today. */
-function SwingSetups({ body, trendBody, onChart }: { body: string; trendBody?: string | null; onChart: (s: string) => void }) {
+// Per-bucket visual identity — a color-coded dot + pill so each swing TYPE reads at a
+// glance, and a short label for the jump bar. Ordered by the report's bucket_order.
+const BUCKET_STYLE: Record<string, { dot: string; pill: string }> = {
+  opened_above: { dot: "bg-emerald-400", pill: "bg-emerald-400/10 text-emerald-300" },
+  "30w": { dot: "bg-amber-400", pill: "bg-amber-400/10 text-amber-300" },
+  sma200: { dot: "bg-teal-400", pill: "bg-teal-400/10 text-teal-300" },
+  base_bo: { dot: "bg-sky-400", pill: "bg-sky-400/10 text-sky-300" },
+  ema_cross: { dot: "bg-green-400", pill: "bg-green-400/10 text-green-300" },
+  rsi30: { dot: "bg-purple-400", pill: "bg-purple-400/10 text-purple-300" },
+  ma_hold: { dot: "bg-slate-400", pill: "bg-slate-400/10 text-slate-300" },
+};
+const BUCKET_FALLBACK = { dot: "bg-slate-400", pill: "bg-slate-400/10 text-slate-300" };
+const BUCKET_SHORT: Record<string, string> = {
+  opened_above: "PWH/PMH reclaim", "30w": "30W bounce", sma200: "200 SMA",
+  base_bo: "Base breakout", ema_cross: "8/21 cross", rsi30: "RSI-30", ma_hold: "MA hold",
+};
+const bStyle = (b: string) => BUCKET_STYLE[b] ?? BUCKET_FALLBACK;
+
+function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   let parsed: SwingReport | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const buckets = parsed?.buckets ?? {};
   const order = (parsed?.bucket_order ?? Object.keys(buckets)).filter((b) => (buckets[b] ?? []).length > 0);
   const titles = parsed?.bucket_title ?? {};
-  let hasTrend = false;
-  try { hasTrend = (((trendBody ? JSON.parse(trendBody).ready_now : []) ?? []) as unknown[]).length > 0; } catch { hasTrend = false; }
-  if (order.length === 0 && !hasTrend) {
+  const total = order.reduce((n, b) => n + (buckets[b] ?? []).length, 0);
+  if (order.length === 0) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No name is in a swing zone today — the scan runs after the close (~4:25 PM ET).</div>;
   }
-  const card = (x: SwingRow) => (
-    <button key={x.symbol + x.level} onClick={() => onChart(x.symbol)} className="text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-purple-400">{x.level}</span>
-      </div>
-      <div className="mt-1 flex flex-wrap gap-3 font-mono text-[11px]">
-        <span className="text-bullish-text">buy {x.entry}</span>
-        <span className="text-bearish-text">stop {x.stop}</span>
-        <span className="text-text-muted">tgt {x.target}</span>
-        <span className="text-text-faint">now {x.close}</span>
-      </div>
-      <p className="mt-0.5 text-[10.5px] leading-snug text-text-muted">{x.why}</p>
-    </button>
-  );
-  return (
-    <div className="space-y-4">
-      <p className="text-[11px] text-text-muted">One finder — trend + swing. Which names are sitting in a swing zone today, scanned on the master universe{parsed?.universe ? ` (${parsed.universe} names)` : ""}. Educational, not financial advice.</p>
-      {hasTrend && <TrendSetups body={trendBody!} onChart={onChart} />}
-      {order.map((b) => (
-        <section key={b} className="space-y-2">
-          <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">{titles[b] ?? b}</h3>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{(buckets[b] ?? []).map(card)}</div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function TrendSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { ready_now?: TrendRow[]; extended?: TrendRow[]; rolling_off?: TrendRow[] } | null = null;
-  try { parsed = JSON.parse(body); } catch { parsed = null; }
-  if (!parsed || (!parsed.ready_now && !parsed.extended)) {
-    return (
-      <div className="rounded-xl border border-border-subtle bg-surface-1 p-4">
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-text-secondary">{body.replace(/<\/?(pre|b|i|code|strong|em)>/gi, "")}</pre>
-      </div>
+  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const card = (x: SwingRow, b: string) => {
+    const cell = (label: string, val: number | string, tone: string) => (
+      <div><div className="text-[8.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div><div className={`font-mono text-[12px] ${tone}`}>{val}</div></div>
     );
-  }
-  const ready = parsed.ready_now ?? [];
+    return (
+      <button key={x.symbol + x.level} onClick={() => onChart(x.symbol)} className="group text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent hover:bg-surface-2/40">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
+          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${bStyle(b).pill}`}>{x.level}</span>
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {cell("buy", x.entry, "text-bullish-text")}
+          {cell("stop", x.stop, "text-bearish-text")}
+          {cell("tgt", x.target, "text-text-secondary")}
+          {cell("now", x.close, "text-text-muted")}
+        </div>
+        <p className="mt-2 text-[10.5px] leading-snug text-text-muted">{x.why}</p>
+      </button>
+    );
+  };
   return (
     <div className="space-y-4">
-      <section className="space-y-2.5">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-muted">Ready now · at a rising 20 EMA — enter the line</h3>
-        {ready.length === 0 ? (
-          <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
-            No name is at its 20 EMA today — wait for a pullback to the line.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
-            {ready.map((r) => (
-              <button key={r.symbol} onClick={() => onChart(r.symbol)} className="text-left rounded-xl border border-accent/40 bg-accent/5 p-3 hover:border-accent transition-colors">
-                <div className="flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-text-secondary">{r.symbol}</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-bullish-text">Ready · ADX {r.adx}</span>
-                </div>
-                <div className="mt-1 text-[12px] text-text-secondary">Entry <b className="text-bullish-text">${r.ema20}</b> (the 20) · stop <b>${r.stop}</b></div>
-                <div className="mt-0.5 text-[11px] text-text-faint">now ${r.price} · {r.dist_pct >= 0 ? "+" : ""}{r.dist_pct}% from the 20</div>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Jump bar — scan the whole board at a glance, tap a type to scroll to its group. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-[11px] font-bold text-text-secondary">{total} swing setup{total === 1 ? "" : "s"}</span>
+        {order.map((b) => (
+          <button key={b} onClick={() => jump(`swing-${b}`)} className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-surface-1 px-2.5 py-1 text-[10.5px] transition-colors hover:border-accent">
+            <span className={`h-1.5 w-1.5 rounded-full ${bStyle(b).dot}`} />
+            <span className="text-text-secondary">{BUCKET_SHORT[b] ?? b}</span>
+            <span className="font-mono text-text-faint">{(buckets[b] ?? []).length}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] leading-snug text-text-faint">The swing finder — which names are sitting in a swing zone today, scanned on the master universe{parsed?.universe ? ` (${parsed.universe} names)` : ""}. Educational, not financial advice.</p>
+      {order.map((b) => {
+        const [headline, sub] = (titles[b] ?? b).split(" · ");
+        return (
+          <section key={b} id={`swing-${b}`} className="scroll-mt-4 space-y-2">
+            <div className="flex items-center gap-2 border-b border-border-subtle/60 pb-1.5">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${bStyle(b).dot}`} />
+              <h3 className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">{headline}</h3>
+              {sub && <span className="hidden truncate text-[10px] text-text-faint sm:inline">· {sub}</span>}
+              <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${bStyle(b).pill}`}>{(buckets[b] ?? []).length}</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{(buckets[b] ?? []).map((x) => card(x, b))}</div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -281,8 +283,9 @@ function TopSpotlights({ body, onChart }: { body?: string | null; onChart: (s: s
 
 function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const nav = useNavigate();
-  // Per-day review — "" = latest; pick a past session to flip back to its reports.
-  const [selectedDate, setSelectedDate] = useState("");
+  // View state survives navigation (open a chart → back) via sessionStorage — otherwise a
+  // remount collapses every section + resets the session and you'd re-expand every time.
+  const [selectedDate, setSelectedDate] = useState(() => sessionStorage.getItem("today.date") ?? "");
   const { data, isLoading } = useMarketReports(selectedDate || undefined);
   const { data: datesData } = useReportDates();
   const reportDates = datesData?.dates ?? [];
@@ -291,15 +294,30 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const pre = data?.premarket ?? null;
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
-  const ts = data?.trend_setups ?? null;
   const sw = data?.swing_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
-  const [activeSec, setActiveSec] = useState<string>("sec-focus");
+  const [activeSec, setActiveSec] = useState<string>(() => sessionStorage.getItem("today.active") ?? "sec-focus");
   // Collapsible cards — collapsed by default for less context; Today's Focus (the
   // actionable core) starts open. Jumping from the rail also expands the target.
-  const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set(["sec-focus"]));
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() => {
+    try { const raw = sessionStorage.getItem("today.open"); if (raw) return new Set<string>(JSON.parse(raw)); } catch { /* ignore */ }
+    return new Set(["sec-focus"]);
+  });
+  // Persist view state so returning from the chart page lands you exactly where you were.
+  useEffect(() => { sessionStorage.setItem("today.date", selectedDate); }, [selectedDate]);
+  useEffect(() => { sessionStorage.setItem("today.active", activeSec); }, [activeSec]);
+  useEffect(() => { sessionStorage.setItem("today.open", JSON.stringify([...openSecs])); }, [openSecs]);
+  // One-time scroll restore once the reports render — return to the section you left open.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || isLoading || !data) return;
+    restored.current = true;
+    if (activeSec && activeSec !== "sec-focus") {
+      requestAnimationFrame(() => document.getElementById(activeSec)?.scrollIntoView({ block: "start" }));
+    }
+  }, [isLoading, data, activeSec]);
   const toggleSec = (id: string) =>
     setOpenSecs((prev) => {
       const n = new Set(prev);
@@ -336,9 +354,9 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
         </div>
       ) },
     // ── DISCOVERY — trend + swing merged into ONE finder (which names are in a swing zone). ──
-    { id: "sec-swing", time: "AFTER·CLOSE", title: "Swing setups", present: !!sw || !!ts,
+    { id: "sec-swing", time: "AFTER·CLOSE", title: "Swing setups", present: !!sw,
       wait: "The swing finder runs after the close (~4:25 PM ET).",
-      render: () => <SwingSetups body={sw?.body ?? ""} trendBody={ts?.body} onChart={onChart} /> },
+      render: () => <SwingSetups body={sw?.body ?? ""} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
