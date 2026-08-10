@@ -62,7 +62,6 @@ const BUCKET_STYLE: Record<string, { dot: string; pill: string }> = {
   opened_above: { dot: "bg-emerald-400", pill: "bg-emerald-400/10 text-emerald-300" },
   "30w": { dot: "bg-amber-400", pill: "bg-amber-400/10 text-amber-300" },
   sma200: { dot: "bg-teal-400", pill: "bg-teal-400/10 text-teal-300" },
-  base_bo: { dot: "bg-sky-400", pill: "bg-sky-400/10 text-sky-300" },
   ema_cross: { dot: "bg-green-400", pill: "bg-green-400/10 text-green-300" },
   rsi30: { dot: "bg-purple-400", pill: "bg-purple-400/10 text-purple-300" },
   ma_hold: { dot: "bg-slate-400", pill: "bg-slate-400/10 text-slate-300" },
@@ -70,7 +69,7 @@ const BUCKET_STYLE: Record<string, { dot: string; pill: string }> = {
 const BUCKET_FALLBACK = { dot: "bg-slate-400", pill: "bg-slate-400/10 text-slate-300" };
 const BUCKET_SHORT: Record<string, string> = {
   opened_above: "PWH/PMH reclaim", "30w": "30W bounce", sma200: "200 SMA",
-  base_bo: "Base breakout", ema_cross: "8/21 cross", rsi30: "RSI-30", ma_hold: "MA hold",
+  ema_cross: "8/21 cross", rsi30: "RSI-30", ma_hold: "MA hold",
 };
 const bStyle = (b: string) => BUCKET_STYLE[b] ?? BUCKET_FALLBACK;
 

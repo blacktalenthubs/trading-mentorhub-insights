@@ -102,8 +102,6 @@ def _alert_type_for(q) -> str:
         return "swing_rsi_30"
     if rule == "30w_bounce":
         return "swing_30w_reclaim"
-    if rule == "base_breakout":
-        return "swing_base_breakout"
     if rule == "ema_8_21_cross":
         return "swing_8_21_cross"
     if rule == "golden_cross_retest":

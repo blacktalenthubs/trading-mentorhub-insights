@@ -9,7 +9,6 @@ busy trader sees — in one scroll — WHICH stocks are sitting in a swing zone 
   • sma200     — held / reclaimed the 200 SMA (institutional line)
   • rsi30      — RSI reclaimed the 30-35 oversold zone (washout turning up)
   • ema_cross  — 8/21 EMA momentum flip (price above the 50)
-  • base_bo    — closed over a base high on volume expansion (O'Neil breakout)
   • opened_above — today's OPEN cleared a prior-WEEK / prior-MONTH high and is holding
                    (the premarket-reclaim of a level that had capped price)
 
@@ -44,18 +43,16 @@ from analytics.swing_quality import (
 # groups by the trader's mental model, not the internal rule name.
 _RULE_BUCKET = {
     "30w_bounce": "30w",
-    "base_breakout": "base_bo",
     "rsi_recovery": "rsi30",
     "ema_8_21_cross": "ema_cross",
 }
 
-BUCKET_ORDER = ["opened_above", "30w", "sma200", "base_bo", "ema_cross", "rsi30", "ma_hold"]
+BUCKET_ORDER = ["opened_above", "30w", "sma200", "ema_cross", "rsi30", "ma_hold"]
 
 BUCKET_TITLE = {
     "opened_above": "Opened above a prior week/month high · reclaimed a capping level",
     "30w": "30-week MA bounce · defended a rising Stage-2 trend line",
     "sma200": "200 SMA hold · defended the institutional line",
-    "base_bo": "Base breakout · cleared a base high on volume",
     "ema_cross": "8/21 EMA momentum cross · flipped up above the 50",
     "rsi30": "RSI reclaimed the oversold zone · washout turning up",
     "ma_hold": "Key-MA hold · defended a rising moving average",

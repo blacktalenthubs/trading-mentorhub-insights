@@ -173,7 +173,6 @@ def evaluate_swing_quality(
         return None
     return (
         _evaluate_30w_bounce(symbol, df, cfg, session_date)
-        or _evaluate_base_breakout(symbol, df, cfg, session_date)
         or _evaluate_bounce(symbol, df, cfg, session_date)
         or _evaluate_crossover(symbol, df, cfg, session_date)
         or _evaluate_golden_cross_retest(symbol, df, cfg, session_date)
@@ -360,37 +359,6 @@ def _evaluate_30w_bounce(
     return _build(symbol, REGIME_BOUNCE, hits, "30W MA", ma_now,
                   latest_low, latest_close, session_date)
 
-
-def _evaluate_base_breakout(
-    symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
-) -> SwingQualification | None:
-    """Closed above the base/range high (the pivot = the 20-bar high before today) on volume
-    expansion (≥ 1.5× the 20-day average). The O'Neil / Minervini breakout — a consolidation
-    resolves up on volume. Entry = the pivot; stop = the breakout-bar low."""
-    _ = cfg
-    if len(df) < 30:
-        return None
-    close = df["close"].astype(float)
-    high = df["high"].astype(float)
-    low = df["low"].astype(float)
-    volume = df["volume"].astype(float) if "volume" in df.columns else None
-    latest_close = float(close.iloc[-1])
-    prev_close = float(close.iloc[-2])
-    pivot = float(high.iloc[-21:-1].max())                # base high = the 20-bar high before today
-    if not (prev_close <= pivot and latest_close > pivot):   # a FRESH cross above the pivot
-        return None
-    if volume is None or pd.isna(volume.iloc[-1]):
-        return None
-    vol_avg = float(volume.iloc[-21:-1].mean()) if len(volume) >= 21 else None
-    if not vol_avg or float(volume.iloc[-1]) < 1.5 * vol_avg:
-        return None
-    hits = [SwingRuleHit(
-        "base_breakout", "base breakout",
-        f"closed above the 20-bar base high (${pivot:.2f}) on {float(volume.iloc[-1]) / vol_avg:.1f}× "
-        f"volume — a range/pivot breakout",
-    )]
-    return _build(symbol, REGIME_BOUNCE, hits, "base high", pivot,
-                  float(low.iloc[-1]), latest_close, session_date)
 
 def _evaluate_bounce(
     symbol: str, df: pd.DataFrame, cfg: SwingQualityConfig, session_date: str
