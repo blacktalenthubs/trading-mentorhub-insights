@@ -438,16 +438,23 @@ _SWING_MASTER_TYPES: frozenset[str] = frozenset({
     # Condensed swing book (2026-08-05): 21 EMA weekly + 200 SMA daily + 30W MA + RSI-30 + 5/20 cross.
     # 50/100 SMA + all breakup/hold retired (too noisy). MASTER_OPTIN = deliver to opted-in users
     # regardless of personal watchlist.
-    "swing_8ema_w_reclaim", "swing_21ema_w_reclaim", "swing_sma200_reclaim", "swing_30w_reclaim", "swing_rsi_30", "ema_5_20_cross",
+    "swing_8ema_w_reclaim", "swing_21ema_w_reclaim", "swing_sma200_reclaim", "swing_ema200_reclaim", "swing_30w_reclaim", "swing_rsi_30", "ema_5_20_cross",
 })
-# 5/20 EMA cross — deliver ONLY for these mega-caps + indexes (momentum whipsaws on choppy names;
-# user 2026-08-05). Admin-tunable, same pattern as HOURLY_LEVELS_SYMBOLS / V2_MULTI_SHORT_SYMS.
+# 5/20 EMA cross — OPTIONAL admin restrictor, EMPTY by default (2026-08-13, user: "all swing fires on
+# master"). ema_5_20_cross is a _SWING_MASTER_TYPES broadcast type, so it must reach every opted-in user
+# via the master universe like the rest of the swing book — an EMPTY allowlist routes it everywhere (the
+# per-user type toggle is the enable). Set EMA_5_20_SYMBOLS to a comma list ONLY to re-clamp it to
+# specific liquid names if the choppy-name whipsaws return (same optional-restrictor pattern as
+# short_symbols / ma_alert_symbols). Was mega-cap-only 2026-08-05 → 2026-08-13.
 _EMA_5_20_SYMBOLS: frozenset[str] = frozenset(
-    x.strip().upper() for x in os.getenv(
-        "EMA_5_20_SYMBOLS", "AAPL,MSFT,NVDA,GOOGL,AMZN,META,TSLA,AVGO,SPY,QQQ,DIA,IWM"
-    ).split(",") if x.strip()
+    x.strip().upper() for x in os.getenv("EMA_5_20_SYMBOLS", "").split(",") if x.strip()
 )
-MASTER_OPTIN_TYPES: frozenset[str] = frozenset()  # 2026-08-06: NO master broadcast — every type delivers per-user personal watchlist (empty watchlist still falls back to onboarding broadcast in _users_watching)
+# Master-universe broadcast RESTORED for the swing book (2026-08-13, user: "all swing fires on master").
+# Reverses the 2026-08-06 empty-set (which routed every type per-user watchlist): the longer-hold swing
+# setups scan the curated master watchlist in TV and deliver to ANY user who ENABLED the type, regardless
+# of their small personal watchlist (the per-user type toggle IS the opt-in). Day-trade types stay
+# per-user/per-watchlist — only these swing types broadcast.
+MASTER_OPTIN_TYPES: frozenset[str] = _SWING_MASTER_TYPES
 
 
 def rc4_short_symbol_blocks(symbol: Optional[str], allowlist: frozenset) -> bool:
@@ -1840,10 +1847,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         logger.info("TV webhook: 4H-only mode — %s dropped (%s)", alert_type_full, sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="fourh_only_mode")
 
-    # 5/20 EMA cross — mega-cap + index ONLY (user 2026-08-05: momentum needs liquid trenders).
-    # Pine emits for the whole watchlist; we deliver only for the EMA_5_20_SYMBOLS universe. Recorded
-    # unrouted (visible in Not-routed), not silently dropped. Edit the env var to tune the list.
-    if _bare_rule == "ema_5_20_cross" and (sig.symbol or "").upper().replace("-USD", "") not in _EMA_5_20_SYMBOLS:
+    # 5/20 EMA cross — OPTIONAL restrictor (2026-08-13: "all swing fires on master"). EMPTY allowlist
+    # (the default) routes it everywhere via the master-optin swing path; set EMA_5_20_SYMBOLS ONLY to
+    # re-clamp to specific names. Recorded unrouted (Not-routed), not silently dropped, when clamped.
+    if _EMA_5_20_SYMBOLS and _bare_rule == "ema_5_20_cross" and (sig.symbol or "").upper().replace("-USD", "") not in _EMA_5_20_SYMBOLS:
         logger.info("TV webhook: 5/20 cross off-universe — %s dropped", sig.symbol)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="ema_5_20_off_universe")
     # Delivery enable is PER-USER only (2026-07-24, user: "no gating if enabled").

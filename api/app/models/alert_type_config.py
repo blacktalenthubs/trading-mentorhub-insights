@@ -163,6 +163,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
     ("swing_sma200_reclaim", "200 SMA reclaim (long) — a daily close recovered/held the 200 SMA (the line institutions defend). Long-hold accumulation. Bind on Daily; opt in HERE.", "Swing", False),
+    ("swing_ema200_reclaim", "200 EMA reclaim (long) — a daily close recovered/held the 200 EMA (the faster trend line, reacts sooner than the 200 SMA). Long-hold trend re-entry. Bind swing_reclaim.pine on Daily; opt in HERE.", "Swing", False),
     # swing_8ema_w_reclaim / swing_21ema_w_reclaim RETIRED 2026-08-07 → OBSOLETE (visual lines only)
     # FV basis + Smart Money zones — the SAME reclaim pattern on a non-MA line (2026-08-02).
     ("swing_30w_reclaim", "30-week MA bounce (long) — price wicked to a RISING 30-week MA and closed back above it (Weinstein Stage-2 trend defended, not just any touch). Bind swing_reclaim.pine on 4h; opt in HERE.", "Swing", False),
