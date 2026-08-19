@@ -114,7 +114,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Open Bracket (2026-08-18) — the day's OPEN sets two neighbor levels (nearest resistance above, support below);
     # ONE live position reacts at them (break/reject/reclaim + gap-and-go), stop = entry-candle extreme, flips on a break.
     # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
-    ("open_bracket", "Open Bracket (day) — the OPEN's two neighbor levels drive ONE position: break-above/reject at resistance, reclaim/break-below at support, plus gap-and-go. Stop = entry-candle extreme; flips on a break. Bind the pine on 15m; opt in HERE + pick stocks in Settings.", "Day", False),
+    ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Day", False),  # label <=200 (seed aborts silently over 200)
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
