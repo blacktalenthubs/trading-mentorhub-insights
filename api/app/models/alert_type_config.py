@@ -111,6 +111,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Gap-and-Go (equity, 2026-07-27) — the session opened ABOVE the prior high and is holding.
     # Long-only momentum, watchlist-gated. Stop = the morning low. Bind gap_and_go.pine on 15m.
     ("gap_and_go", "Gap-and-Go (long, equity) — the session opened ABOVE the prior high (PDH) and is holding above it (momentum). Stop = the morning low. Bind the pine on 15m; opt in HERE.", "Day", False),
+    # Open Bracket (2026-08-18) — the day's OPEN sets two neighbor levels (nearest resistance above, support below);
+    # ONE live position reacts at them (break/reject/reclaim + gap-and-go), stop = entry-candle extreme, flips on a break.
+    # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
+    ("open_bracket", "Open Bracket (day) — the OPEN's two neighbor levels drive ONE position: break-above/reject at resistance, reclaim/break-below at support, plus gap-and-go. Stop = entry-candle extreme; flips on a break. Bind the pine on 15m; opt in HERE + pick stocks in Settings.", "Day", False),
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -284,6 +288,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
     ("day_weekly_reclaim", "day_trade"), ("day_monthly_reclaim", "day_trade"), ("day_pdlow_reclaim", "day_trade"),   # structural day reclaims → Day feed
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
+    ("open_bracket", "day_trade"),  # open-neighbor day signal → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc

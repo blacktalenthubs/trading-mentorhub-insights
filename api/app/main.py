@@ -164,6 +164,7 @@ async def lifespan(app: FastAPI):
         for col_def in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS short_symbols VARCHAR(2000) DEFAULT ''",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS orb_symbols VARCHAR(2000) DEFAULT ''",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS open_bracket_symbols VARCHAR(2000) DEFAULT ''",
         ]:
             try:
                 await conn.execute(text(col_def))

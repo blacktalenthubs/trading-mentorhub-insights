@@ -2279,6 +2279,9 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # whole watchlist (like rc_4h); a user who SET a non-empty orb_symbols gets ORB
         # only for those names. No global suppression — just a per-user delivery clamp.
         users = await _filter_users_by_orb_allowlist(db, users, sig, alert_type_full)
+        # OPTIONAL per-user OPEN-BRACKET stock clamp (same semantics as ORB): empty=whole watchlist,
+        # non-empty=only those names. Lets a user "start with fewer stocks" for the open-bracket day signal.
+        users = await _filter_users_by_open_bracket_allowlist(db, users, sig, alert_type_full)
         if not users:
             # No watcher has this type ENABLED. Still RECORD it unrouted (not drop), so a
             # type the user disabled shows in the Not-routed panel for review — the
@@ -2806,6 +2809,27 @@ async def _filter_users_by_orb_allowlist(db, users, sig, alert_type_full):
     sym = (sig.symbol or "").upper()
     ids = [u.id for u in users]
     rows = (await db.execute(select(_User.id, _User.orb_symbols).where(_User.id.in_(ids)))).all()
+    dropped: set = set()
+    for uid, allow in rows:
+        al = {x.strip().upper() for x in (allow or "").split(",") if x.strip()}
+        if al and sym not in al:   # clamp ONLY when the user set a non-empty list
+            dropped.add(uid)
+    return [u for u in users if u.id not in dropped]
+
+
+async def _filter_users_by_open_bracket_allowlist(db, users, sig, alert_type_full):
+    """OPTIONAL per-user OPEN-BRACKET stock clamp. Default (EMPTY open_bracket_symbols) = the user gets the
+    open-bracket day signal for their whole watchlist. If a user SETS a non-empty list, it is clamped to
+    just those names ("start with fewer stocks" — e.g. SPY/MU/SNDK). Empty = no clamp; one user's list
+    never affects another's. open_bracket type only, so nothing else is touched."""
+    if not users:
+        return users
+    if alert_type_full.replace("tv_", "", 1) != "open_bracket":
+        return users
+    from app.models.user import User as _User
+    sym = (sig.symbol or "").upper()
+    ids = [u.id for u in users]
+    rows = (await db.execute(select(_User.id, _User.open_bracket_symbols).where(_User.id.in_(ids)))).all()
     dropped: set = set()
     for uid, allow in rows:
         al = {x.strip().upper() for x in (allow or "").split(",") if x.strip()}
