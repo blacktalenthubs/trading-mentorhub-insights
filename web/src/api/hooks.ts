@@ -2375,6 +2375,24 @@ export function useUpdateOrbAllowlist() {
     onSuccess: (res) => qc.setQueryData(["orb-allowlist"], res),
   });
 }
+// Open Bracket (day open-neighbor signal) per-user stock allowlist — empty = whole watchlist.
+export interface OpenBracketAllowlist {
+  symbols: string;
+}
+export function useOpenBracketAllowlist() {
+  return useQuery({
+    queryKey: ["open-bracket-allowlist"],
+    queryFn: () => api.get<OpenBracketAllowlist>("/settings/open-bracket-allowlist"),
+    staleTime: 60_000,
+  });
+}
+export function useUpdateOpenBracketAllowlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { symbols: string }) => api.put<OpenBracketAllowlist>("/settings/open-bracket-allowlist", v),
+    onSuccess: (res) => qc.setQueryData(["open-bracket-allowlist"], res),
+  });
+}
 
 export function useToggleAlertConfig() {
   const qc = useQueryClient();

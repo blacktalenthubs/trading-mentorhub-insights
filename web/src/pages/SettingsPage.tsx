@@ -20,6 +20,8 @@ import {
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
+  useOpenBracketAllowlist,
+  useUpdateOpenBracketAllowlist,
   useWatchlist,
   type AlertTypeConfigItem,
 } from "../api/hooks";
@@ -714,6 +716,80 @@ const SETTINGS_NAV: { id: SettingsPane; label: string; icon: typeof Zap }[] = [
   { id: "account", label: "Account", icon: User },
 ];
 
+function OpenBracketStocksSection() {
+  const { data, isError } = useOpenBracketAllowlist();
+  const { data: watchlist } = useWatchlist();
+  const update = useUpdateOpenBracketAllowlist();
+  const [input, setInput] = useState("");
+
+  if (isError) return null;
+
+  const symbols = (data?.symbols || "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const wlSuggestions = (watchlist ?? []).map((w) => w.symbol.toUpperCase()).filter((s) => !symbols.includes(s));
+
+  const addSymbol = () => {
+    const s = input.trim().toUpperCase();
+    setInput("");
+    if (!s || symbols.includes(s)) return;
+    update.mutate({ symbols: [...symbols, s].join(",") });
+  };
+  const removeSymbol = (s: string) =>
+    update.mutate({ symbols: symbols.filter((x) => x !== s).join(",") });
+
+  return (
+    <Section title="Open Bracket — day-trade stocks" icon={<Zap className="h-4 w-4 text-accent" />}>
+      <p className="text-[12px] leading-relaxed text-text-muted mb-3">
+        The <b>Open Bracket</b> day signal (enable it in <b>Alert Types</b> above) fires off the two levels
+        that bracket the day&apos;s open. Pick the stocks you want it for below to <b>start with fewer names</b>
+        {" — "}e.g. <b>SPY, MU, SNDK</b>. Leave it empty and it runs on your <b>whole watchlist</b>.
+      </p>
+      <div className="mt-1">
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Open Bracket signal on these stocks</label>
+          {symbols.length > 0 && <span className="text-[10px] text-text-faint">{symbols.length}</span>}
+        </div>
+        {symbols.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5 rounded-lg border border-border-subtle bg-surface-2/40 p-2.5">
+            {symbols.map((s) => (
+              <span key={s} className="inline-flex items-center gap-1 rounded-md border border-border-subtle bg-surface-1 px-2 py-0.5 font-mono text-[11px] font-semibold text-text-secondary">
+                {s}
+                <button type="button" onClick={() => removeSymbol(s)} className="text-text-faint transition-colors hover:text-bearish-text" aria-label={`Remove ${s}`}>
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mb-2 text-[11px] text-text-faint">Empty — the Open Bracket signal runs on your whole watchlist. Add names to narrow it.</p>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSymbol(); } }}
+            placeholder="Add a symbol — type or pick from your watchlist"
+            list="ob-watchlist"
+            className="flex-1 rounded-lg border border-border-subtle bg-surface-2 px-3 py-2 text-[13px] text-text-primary placeholder:text-text-faint outline-none focus:border-accent"
+          />
+          <datalist id="ob-watchlist">
+            {wlSuggestions.map((s) => <option key={s} value={s} />)}
+          </datalist>
+          <button
+            type="button"
+            onClick={addSymbol}
+            disabled={!input.trim() || update.isPending}
+            className="inline-flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-3 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+          >
+            {update.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add
+          </button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+
 export default function SettingsPage() {
   const [pane, setPane] = useState<SettingsPane>(() => {
     if (typeof window === "undefined") return "alerts";
@@ -749,7 +825,7 @@ export default function SettingsPage() {
 
           {/* Active pane */}
           <div className="min-w-0 flex-1 space-y-5">
-            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /></>)}
+            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /><OpenBracketStocksSection /></>)}
             {pane === "delivery" && (<><TelegramSetup /><NotificationChannels /></>)}
             {pane === "risk" && <TradingSettings />}
             {pane === "appearance" && <ThemeToggle />}
