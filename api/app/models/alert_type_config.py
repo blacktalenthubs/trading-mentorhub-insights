@@ -99,9 +99,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # reclaim mechanic as the 4H reactions on the 15m close, LONG only, stop = the swept bar low. They
     # JOIN the 4H DB-anchored day dedup stream: a 4H reclaim + these compete as ONE (symbol,BUY) anchor,
     # so the LOWEST entry wins and worse entries are suppressed. From prior_4h_two_candles.pine.
-    ("day_weekly_reclaim",  "Weekly-low reclaim (day) — 15m wicked below the prior-WEEK low (PWL) & closed back above. Long, stop = bar low. Joins the 4H day dedup (lowest entry wins). Opt in HERE.", "Day levels", False),
-    ("day_monthly_reclaim", "Monthly-low reclaim (day) — 15m wicked below the prior-MONTH low (PML) & closed back above. Long, stop = bar low. Joins the 4H day dedup (lowest entry wins). Opt in HERE.", "Day levels", False),
-    ("day_pdlow_reclaim",   "Prior-day low reclaim (day) — 15m wicked below one of the last two days' lows (D-1/D-2) & closed back above. Long, stop = bar low. Joins the 4H day dedup. Opt in HERE.", "Day levels", False),
+    # day_weekly/monthly/pdlow_reclaim RETIRED 2026-08-18 → OBSOLETE (redundant with open_bracket: PWL/PML/PDL
+    # ARE the open's neighbor levels, so Open Bracket covers them). User: "two toggle day signals only".
     # 50 EMA reactions — the SAME 4-reaction pattern on the daily 50 EMA (the one MA institutions
     # defend), as ISOLATED types so they can be toggled + evaluated separately (user 2026-07-26).
     # The ONE moving-average worth its own alert (user 2026-07-28): the daily 200 SMA/EMA is a structural
@@ -110,11 +109,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
 
     # Gap-and-Go (equity, 2026-07-27) — the session opened ABOVE the prior high and is holding.
     # Long-only momentum, watchlist-gated. Stop = the morning low. Bind gap_and_go.pine on 15m.
-    ("gap_and_go", "Gap-and-Go (long, equity) — the session opened ABOVE the prior high (PDH) and is holding above it (momentum). Stop = the morning low. Bind the pine on 15m; opt in HERE.", "Day", False),
+    # gap_and_go RETIRED 2026-08-18 → OBSOLETE (Open Bracket has gap-and-go built in). User: "two day signals only".
     # Open Bracket (2026-08-18) — the day's OPEN sets two neighbor levels (nearest resistance above, support below);
     # ONE live position reacts at them (break/reject/reclaim + gap-and-go), stop = entry-candle extreme, flips on a break.
     # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
-    ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Day", False),  # label <=200 (seed aborts silently over 200)
+    ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Open Bracket", False),  # own category = its own family toggle
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -426,6 +425,9 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-08-18 — consolidated to TWO day signals: Open Bracket + 4H. These are subsumed by open_bracket
+    # (neighbor levels = PDL/PWL/PML; gap-and-go built in). User: "two toggle day signals only".
+    "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim", "gap_and_go",
     # 2026-08-10 — swing_base_breakout dropped (user: "nearly firing for anything and everything").
     "swing_base_breakout",
     # 2026-08-07 — swing book finalized to trend/momentum entries; level-reaction reclaims retired to
