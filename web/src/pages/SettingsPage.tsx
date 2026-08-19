@@ -16,7 +16,6 @@ import {
   useTelegramLink,
   useTelegramUnlink,
   useAlertConfig,
-  useToggleAlertConfig,
   useToggleAllAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
@@ -597,31 +596,34 @@ function Toggle({ on, onClick, disabled, partial }: { on: boolean; onClick: () =
 
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
-  const toggle = useToggleAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
-  // TWO controls (user 2026-07-18): Day Trade + Swing Trade master switches; the
-  // expanded list keeps a small per-signal toggle ("i cant uncheck some" — same day).
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"];
   const GROUP_DESC: Record<string, string> = {
-    "Day Trade": "In and out the same session — all deduped. 4H reclaim / break-up · gap-and-go · prior-day / weekly / monthly-low reclaims (Long); 4H rejection / break-down (Short).",
-    "Swing Trade": "Hold days into weeks — all deduped. 21EMA-wk · 30W · 200SMA · RSI-30 · 5/20 · W/M/Q reclaim-breakup (Long); W/M/Q reject-breakdown (Short · opt-in).",
-    "Notices": "Not trade signals — heads-up only. 2h candle-close pings (equity / crypto) and the hourly levels agent.",
+    "Day Trade": "In and out the same session. Two systems — Open Bracket (the open's two neighbor levels) and 4H (reactions to the last two 4H candles). Bind the pine you're testing on 15m.",
+    "Swing Trade": "Hold days into weeks — all deduped. 21EMA-wk · 30W · 200SMA · RSI-30 · 5/20 · W/M/Q reclaim (Long); W/M/Q reject (Short · opt-in).",
+    "Notices": "Not trade signals — heads-up only. 2h candle-close pings and the hourly levels agent.",
+  };
+  // One toggle per signal FAMILY (category). Friendly label; fallback = the category name.
+  const CAT_LABEL: Record<string, string> = {
+    "Open Bracket": "Open Bracket",
+    "4H": "4H signals",
+    "Swing": "Swing",
+    "Candle pings": "Notices",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
     (grouped[t.trade_group ?? "Day Trade"] ??= []).push(t);
   }
   const orderedGroups = GROUP_ORDER.filter((g) => (grouped[g]?.length ?? 0) > 0);
-  const busy = toggle.isPending || toggleAll.isPending;
+  const busy = toggleAll.isPending;
 
   return (
     <Section title="Alert Types" icon={<Zap className="h-4 w-4 text-accent" />}>
       <div className="mb-4 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2 text-[11px] leading-relaxed text-text-muted">
         <b className="text-bullish-text">ON</b> = delivered to your Signals feed + notifications ·{" "}
         <b className="text-text-secondary">OFF</b> = still fires &amp; records silently for review.
-        One switch per style — it turns the whole style on or off.
+        One switch per signal system.
       </div>
 
       {isLoading && <p className="text-xs text-text-faint">Loading…</p>}
@@ -629,69 +631,27 @@ function AlertTypesSection() {
       <div className="space-y-4">
         {orderedGroups.map((group) => {
           const items = grouped[group];
-          const onCount = items.filter((i) => i.enabled).length;
-          const isNotices = group === "Notices";
-          const dirGroups: { dir: string; list: AlertTypeConfigItem[] }[] = [
-            { dir: "Long", list: items.filter((i) => i.direction !== "Short") },
-            { dir: "Short", list: items.filter((i) => i.direction === "Short") },
-          ];
+          const cats: string[] = [];
+          for (const t of items) if (!cats.includes(t.category)) cats.push(t.category);
           return (
-            <div key={group} className="rounded-lg border border-border-subtle bg-surface-1/40">
-              <div className="px-3 py-3">
-                <div className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</div>
-                <p className="mt-1 text-[11px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>
-                {isNotices ? (
-                  <div className="mt-3 flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
-                    <span className="text-[12px] font-semibold text-text-secondary">All notices</span>
-                    <Toggle on={onCount === items.length} partial={onCount > 0 && onCount < items.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: onCount < items.length, trade_group: group })} />
-                  </div>
-                ) : (
-                  <div className="mt-3 space-y-1.5">
-                    {dirGroups.map(({ dir, list }) => {
-                      if (list.length === 0) return null;
-                      const dOn = list.filter((i) => i.enabled).length;
-                      const isShort = dir === "Short";
-                      return (
-                        <div key={dir} className="flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{dir}</span>
-                            <span className="text-[11px] text-text-faint">{list.length} signal{list.length > 1 ? "s" : ""} · {dOn} on</span>
-                          </div>
-                          <Toggle on={dOn === list.length} partial={dOn > 0 && dOn < list.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: dOn < list.length, trade_group: group, direction: dir })} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <button
-                  onClick={() => setExpanded((s) => { const n = new Set(s); n.has(group) ? n.delete(group) : n.add(group); return n; })}
-                  className="mt-2 flex items-center gap-1 text-[10.5px] text-text-faint hover:text-text-secondary"
-                >
-                  <ChevronRight className={`h-3 w-3 transition-transform ${expanded.has(group) ? "rotate-90" : ""}`} />
-                  Advanced · {items.length} signal{items.length > 1 ? "s" : ""} · {onCount} on
-                </button>
+            <div key={group} className="rounded-lg border border-border-subtle bg-surface-1/40 px-3 py-3">
+              <div className="text-[13px] font-bold uppercase tracking-wide text-text-secondary">{group}</div>
+              <p className="mt-1 text-[11px] leading-snug text-text-faint">{GROUP_DESC[group]}</p>
+              <div className="mt-3 space-y-1.5">
+                {cats.map((cat) => {
+                  const list = items.filter((i) => i.category === cat);
+                  const on = list.filter((i) => i.enabled).length;
+                  return (
+                    <div key={cat} className="flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
+                      <div className="flex flex-col">
+                        <span className="text-[12px] font-semibold text-text-secondary">{CAT_LABEL[cat] ?? cat}</span>
+                        <span className="text-[10px] text-text-faint">{list.length} signal{list.length > 1 ? "s" : ""} · {on} on</span>
+                      </div>
+                      <Toggle on={on === list.length && list.length > 0} partial={on > 0 && on < list.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: on < list.length, category: cat })} />
+                    </div>
+                  );
+                })}
               </div>
-              {expanded.has(group) && (
-                <div className="border-t border-border-subtle px-3 pb-3 pt-2">
-                  <div className="divide-y divide-border-subtle/40">
-                    {items.map((t) => {
-                      const isShort = t.direction === "Short";
-                      const [name, ...rest] = t.label.split(" — ");
-                      const subtitle = t.description || rest.join(" — ");
-                      return (
-                        <div key={t.alert_type} className="flex items-start gap-2.5 py-2">
-                          <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[8.5px] font-bold uppercase ${isShort ? "bg-bearish-subtle text-bearish-text" : "bg-bullish-subtle text-bullish-text"}`}>{isShort ? "short" : "long"}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className={`text-[11.5px] ${t.enabled ? "text-text-secondary" : "text-text-faint"}`}>{name}</div>
-                            {subtitle && <div className="mt-0.5 text-[10px] leading-snug text-text-faint">{subtitle}</div>}
-                          </div>
-                          <Toggle on={t.enabled} disabled={busy} onClick={() => toggle.mutate({ alert_type: t.alert_type, enabled: !t.enabled })} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
