@@ -59,6 +59,9 @@ class User(Base):
     # Per-user ORB allowlist — which symbols this user wants ORB (opening-range) alerts for.
     # Empty falls back to the admin default. ORB is opt-in-by-name (noisy 4-rail machine).
     orb_symbols: Mapped[str] = mapped_column(String(2000), server_default="", default="")
+    # Per-user OPEN-BRACKET (day open-neighbor signal) stock clamp — empty = whole watchlist,
+    # non-empty = ONLY these names ("start with fewer stocks", e.g. SPY/MU/SNDK) (2026-08-18)
+    open_bracket_symbols: Mapped[str] = mapped_column(String(2000), server_default="", default="")
 
     # Attribution — captured at signup from UTM params
     attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
