@@ -252,6 +252,33 @@ async def update_orb_allowlist(
     return {"symbols": user.orb_symbols}
 
 
+class OpenBracketAllowlistBody(BaseModel):
+    symbols: str = ""
+
+
+@router.get("/open-bracket-allowlist")
+async def get_open_bracket_allowlist(user: User = Depends(get_current_user)):
+    """This user's OPEN-BRACKET (day open-neighbor signal) stock list — which symbols they want the
+    signal for. EMPTY = their whole watchlist. Set it to start with fewer names (e.g. SPY, MU, SNDK)."""
+    return {"symbols": getattr(user, "open_bracket_symbols", "") or ""}
+
+
+@router.put("/open-bracket-allowlist")
+async def update_open_bracket_allowlist(
+    body: OpenBracketAllowlistBody,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    syms: list[str] = []
+    for part in (body.symbols or "").split(","):
+        t = part.strip().upper()
+        if t and t not in syms:
+            syms.append(t)
+    user.open_bracket_symbols = ",".join(syms)
+    await db.flush()
+    return {"symbols": user.open_bracket_symbols}
+
+
 # --- Per-Alert-Type Channel Routing ---
 
 
