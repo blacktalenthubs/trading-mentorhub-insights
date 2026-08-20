@@ -2829,11 +2829,13 @@ async def _filter_users_by_open_bracket_allowlist(db, users, sig, alert_type_ful
     from app.models.user import User as _User
     sym = (sig.symbol or "").upper()
     ids = [u.id for u in users]
-    rows = (await db.execute(select(_User.id, _User.open_bracket_symbols).where(_User.id.in_(ids)))).all()
+    rows = (await db.execute(select(_User.id, _User.open_bracket_symbols, _User.open_bracket_all).where(_User.id.in_(ids)))).all()
     dropped: set = set()
-    for uid, allow in rows:
+    for uid, allow, all_wl in rows:
+        if all_wl is True:
+            continue   # master toggle ON = alert the WHOLE watchlist (list kept but ignored)
         al = {x.strip().upper() for x in (allow or "").split(",") if x.strip()}
-        if al and sym not in al:   # clamp ONLY when the user set a non-empty list
+        if al and sym not in al:   # clamp ONLY when a non-empty list is set (toggle OFF / legacy default)
             dropped.add(uid)
     return [u for u in users if u.id not in dropped]
 
