@@ -62,6 +62,10 @@ class User(Base):
     # Per-user OPEN-BRACKET (day open-neighbor signal) stock clamp — empty = whole watchlist,
     # non-empty = ONLY these names ("start with fewer stocks", e.g. SPY/MU/SNDK) (2026-08-18)
     open_bracket_symbols: Mapped[str] = mapped_column(String(2000), server_default="", default="")
+    # Per-user OPEN-BRACKET master toggle (2026-08-20) — TRUE = alert my WHOLE watchlist (the
+    # open_bracket_symbols list is kept but ignored); FALSE/NULL = use the list as before (empty =
+    # whole watchlist, set = only those). Lets "whole watchlist" and "few exceptions" coexist.
+    open_bracket_all: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
     # Attribution — captured at signup from UTM params
     attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
