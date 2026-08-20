@@ -696,16 +696,26 @@ function OpenBracketStocksSection() {
   const removeSymbol = (s: string) =>
     update.mutate({ symbols: symbols.filter((x) => x !== s).join(",") });
 
+  const whole = data?.all_watchlist ?? (symbols.length === 0);
+  const setWhole = (on: boolean) => update.mutate({ symbols: symbols.join(","), all_watchlist: on });
+
   return (
     <Section title="Open Bracket — day-trade stocks" icon={<Zap className="h-4 w-4 text-accent" />}>
       <p className="text-[12px] leading-relaxed text-text-muted mb-3">
         The <b>Open Bracket</b> day signal (enable it in <b>Alert Types</b> above) fires off the two levels
-        that bracket the day&apos;s open. Pick the stocks you want it for below to <b>start with fewer names</b>
-        {" — "}e.g. <b>SPY, MU, SNDK</b>. Leave it empty and it runs on your <b>whole watchlist</b>.
+        that bracket the day&apos;s open. Choose whether it runs on your <b>whole watchlist</b> (like your 4H
+        alerts) or only a <b>few specific stocks</b> — your list is kept either way.
       </p>
+      <div className="mb-3 flex items-center justify-between rounded-lg border border-border-subtle bg-surface-2/40 px-3 py-2.5">
+        <div className="pr-3">
+          <div className="text-[12px] font-semibold text-text-primary">Alert my whole watchlist</div>
+          <div className="text-[11px] text-text-faint">{whole ? "On — every stock on your watchlist gets Open Bracket (your list below is kept for later)." : "Off — only the stocks listed below get Open Bracket."}</div>
+        </div>
+        <Toggle on={whole} onClick={() => setWhole(!whole)} disabled={update.isPending} />
+      </div>
       <div className="mt-1">
         <div className="mb-1.5 flex items-baseline justify-between">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Open Bracket signal on these stocks</label>
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-text-faint">Only these stocks (used when “whole watchlist” is off)</label>
           {symbols.length > 0 && <span className="text-[10px] text-text-faint">{symbols.length}</span>}
         </div>
         {symbols.length > 0 ? (
