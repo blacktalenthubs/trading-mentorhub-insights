@@ -15,7 +15,7 @@ import {
   useCloseDay,
   useReopenDay,
   useWatchlist,
-  useSectorsWatchlist,
+  useMasterSymbols,
   type DailyTradeInput,
 } from "../api/hooks";
 
@@ -67,14 +67,14 @@ export default function DailyTargetPage() {
   const reopenDay = useReopenDay();
 
   // Symbol typeahead — the master (Editor's Picks) universe + your own watchlist, deduped.
-  const { data: masterWl } = useSectorsWatchlist();
+  const { data: master } = useMasterSymbols();
   const { data: myWl } = useWatchlist();
   const symbolOptions = useMemo(() => {
     const set = new Set<string>();
-    (masterWl ?? []).forEach((w) => set.add(w.symbol));
+    (master?.symbols ?? []).forEach((s) => set.add(s));
     (myWl ?? []).forEach((w) => set.add(w.symbol));
     return Array.from(set).sort();
-  }, [masterWl, myWl]);
+  }, [master, myWl]);
 
   // trade form
   const [symbol, setSymbol] = useState("");

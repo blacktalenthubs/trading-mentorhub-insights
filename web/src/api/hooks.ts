@@ -445,6 +445,13 @@ export function useWatchlistGroups() {
 // signed-in user can fetch this; UI surfaces it as a separate panel with a
 // "+ Add to my watchlist" action per symbol and a "Copy all" bulk action.
 // Refetch on focus so admin updates propagate quickly when users tab-switch.
+export function useMasterSymbols() {
+  return useQuery({
+    queryKey: ["master-symbols"],
+    queryFn: () => api.get<{ count: number; symbols: string[] }>("/watchlist/master-symbols"),
+    staleTime: 5 * 60_000,
+  });
+}
 export function useSectorsWatchlist() {
   return useQuery({
     queryKey: ["watchlist-sectors"],
