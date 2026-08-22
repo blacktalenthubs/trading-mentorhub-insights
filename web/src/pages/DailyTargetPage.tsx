@@ -276,6 +276,7 @@ export default function DailyTargetPage() {
   const [targetDraft, setTargetDraft] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  const [dragOver, setDragOver] = useState(false);
 
   // Paste a screenshot anywhere on the page (⌘V / Ctrl+V) → attaches it to the form.
   useEffect(() => {
@@ -422,6 +423,15 @@ export default function DailyTargetPage() {
     if (f) setChartImage(await fileToCompressedDataUrl(f));
     e.target.value = "";
   };
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const f = Array.from(e.dataTransfer.files).find((x) => x.type.startsWith("image/"));
+    if (f) {
+      setChartImage(await fileToCompressedDataUrl(f));
+      toast.success("Chart attached");
+    }
+  };
 
   const inputCls =
     "rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50";
@@ -562,7 +572,13 @@ export default function DailyTargetPage() {
         {/* Log / edit a trade — always available (edit even on a closed day) */}
         <form
           onSubmit={submitTrade}
-          className={`rounded-xl border p-5 space-y-3 ${editingId ? "border-accent/50 bg-accent/5" : "border-border-subtle bg-surface-1"}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`rounded-xl border p-5 space-y-3 ${dragOver ? "border-accent bg-accent/10" : editingId ? "border-accent/50 bg-accent/5" : "border-border-subtle bg-surface-1"}`}
         >
           <div className="flex items-center justify-between">
             <div className="font-semibold text-text-primary">{editingId ? "Edit trade" : "Log a trade"}</div>
@@ -670,7 +686,7 @@ export default function DailyTargetPage() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-[13px] text-text-secondary hover:text-text-primary">
-                <ImageIcon className="h-4 w-4" /> Attach chart (or paste ⌘V)
+                <ImageIcon className="h-4 w-4" /> Attach chart — click, drag a file here, or paste
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
               </label>
               {chartImage && (
