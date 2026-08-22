@@ -4,7 +4,7 @@
  * toward your target, and CLOSE THE DAY once you hit it. "Make your number, then stop" — the
  * guard against overtrading and giving it back. */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Plus, Trash2, Lock, Check, Pencil } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import {
@@ -14,6 +14,8 @@ import {
   useDeleteDailyTrade,
   useCloseDay,
   useReopenDay,
+  useWatchlist,
+  useSectorsWatchlist,
   type DailyTradeInput,
 } from "../api/hooks";
 
@@ -24,12 +26,15 @@ const SETUPS = [
   "PDH break",
   "PDL held",
   "PDL reclaim",
-  "PWH / PWL level",
-  "Level reclaim",
-  "Level reject",
   "8 SMA reclaim",
   "21 SMA reclaim",
   "50 SMA support",
+  "100 SMA support",
+  "200 SMA support",
+  "Level reclaim",
+  "Level reject",
+  "Weekly breakout (PWH)",
+  "Monthly breakout (PMH)",
   "Open bracket",
   "Gap and go",
   "Pivot breakout",
@@ -60,6 +65,16 @@ export default function DailyTargetPage() {
   const delTrade = useDeleteDailyTrade();
   const closeDay = useCloseDay();
   const reopenDay = useReopenDay();
+
+  // Symbol typeahead — the master (Editor's Picks) universe + your own watchlist, deduped.
+  const { data: masterWl } = useSectorsWatchlist();
+  const { data: myWl } = useWatchlist();
+  const symbolOptions = useMemo(() => {
+    const set = new Set<string>();
+    (masterWl ?? []).forEach((w) => set.add(w.symbol));
+    (myWl ?? []).forEach((w) => set.add(w.symbol));
+    return Array.from(set).sort();
+  }, [masterWl, myWl]);
 
   // trade form
   const [symbol, setSymbol] = useState("");
@@ -240,9 +255,15 @@ export default function DailyTargetPage() {
               <input
                 className={`${inputCls} font-mono uppercase`}
                 placeholder="Symbol"
+                list="daily-symbols"
                 value={symbol}
                 onChange={(e) => setSymbol(e.target.value)}
               />
+              <datalist id="daily-symbols">
+                {symbolOptions.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
               <select className={inputCls} value={instrument} onChange={(e) => setInstrument(e.target.value)}>
                 <option value="stock">Stock</option>
                 <option value="option">Option</option>
