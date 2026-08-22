@@ -2589,6 +2589,7 @@ export function useSetDailyTarget() {
     mutationFn: (target: number) => api.put("/daily/target", { target }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      qc.invalidateQueries({ queryKey: ["daily-history"] });
       toast.success("Target updated");
     },
     onError: () => toast.error("Couldn't update the target"),
@@ -2600,6 +2601,7 @@ export function useAddDailyTrade() {
     mutationFn: (t: DailyTradeInput) => api.post("/daily/trade", t),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      qc.invalidateQueries({ queryKey: ["daily-history"] });
       toast.success("Trade logged");
     },
     onError: () => toast.error("Couldn't log the trade"),
@@ -2619,6 +2621,7 @@ export function useCloseDay() {
     mutationFn: () => api.post("/daily/close", {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      qc.invalidateQueries({ queryKey: ["daily-history"] });
       toast.success("Day closed — nice work. Step away.");
     },
     onError: () => toast.error("Couldn't close the day"),
@@ -2639,5 +2642,37 @@ export function useTradeImage(id: number, enabled: boolean) {
     queryFn: () => api.get<{ chart_image: string | null }>(`/daily/trade/${id}/image`),
     enabled,
     staleTime: Infinity,
+  });
+}
+
+export interface DailyDay {
+  date: string;
+  target: number;
+  total_pnl: number;
+  hit: boolean;
+  closed: boolean;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  trades: DailyTradeRow[];
+}
+export function useDailyHistory(limit = 60) {
+  return useQuery({
+    queryKey: ["daily-history", limit],
+    queryFn: () => api.get<{ days: DailyDay[] }>(`/daily/history?limit=${limit}`),
+  });
+}
+export function useUpdateDailyTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: DailyTradeInput }) =>
+      api.put(`/daily/trade/${id}`, body),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      qc.invalidateQueries({ queryKey: ["daily-history"] });
+      qc.invalidateQueries({ queryKey: ["daily-trade-image", vars.id] });
+      toast.success("Trade updated");
+    },
+    onError: () => toast.error("Couldn't update the trade"),
   });
 }

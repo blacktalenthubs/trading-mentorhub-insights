@@ -124,6 +124,46 @@ async def summary(
     }
 
 
+@router.get("/history")
+async def history(
+    limit: int = 60,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_owner(user)
+    res = await db.execute(
+        select(DailyTrade)
+        .where(DailyTrade.user_id == user.id)
+        .order_by(DailyTrade.session_date.desc(), DailyTrade.created_at)
+    )
+    trades = list(res.scalars().all())
+    sres = await db.execute(select(DailySession).where(DailySession.user_id == user.id))
+    sessions = {s.session_date: s for s in sres.scalars().all()}
+    by_date: dict[str, list] = {}
+    for t in trades:
+        by_date.setdefault(t.session_date, []).append(t)
+    for d in sessions:
+        by_date.setdefault(d, [])
+    days = []
+    for d in sorted(by_date.keys(), reverse=True)[:limit]:
+        ts = by_date[d]
+        total = round(sum(t.pnl for t in ts), 2)
+        sess = sessions.get(d)
+        target = sess.target if sess else _user_default_target(user)
+        days.append({
+            "date": d,
+            "target": target,
+            "total_pnl": total,
+            "hit": total >= target,
+            "closed": bool(sess.closed) if sess else False,
+            "trade_count": len(ts),
+            "wins": sum(1 for t in ts if t.pnl > 0),
+            "losses": sum(1 for t in ts if t.pnl < 0),
+            "trades": [_trade_dict(t) for t in ts],
+        })
+    return {"days": days}
+
+
 @router.put("/target")
 async def set_target(
     body: TargetIn,
@@ -189,6 +229,39 @@ async def trade_image(
     if t is None:
         raise HTTPException(status_code=404, detail="Trade not found")
     return {"chart_image": t.chart_image}
+
+
+@router.put("/trade/{trade_id}")
+async def update_trade(
+    trade_id: int,
+    body: TradeIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_owner(user)
+    res = await db.execute(
+        select(DailyTrade).where(DailyTrade.id == trade_id, DailyTrade.user_id == user.id)
+    )
+    t = res.scalar_one_or_none()
+    if t is None:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    sym = (body.symbol or "").strip().upper()
+    if sym:
+        t.symbol = sym
+    t.instrument = (body.instrument or "stock").strip().lower()
+    t.trade_type = (body.trade_type or "day").strip().lower()
+    t.setup = body.setup
+    t.direction = body.direction
+    t.entry_price = body.entry_price
+    t.exit_price = body.exit_price
+    t.quantity = body.quantity
+    t.position_size = body.position_size
+    t.pnl = float(body.pnl)
+    t.exit_reason = body.exit_reason
+    t.note = body.note
+    t.chart_image = body.chart_image
+    await db.flush()
+    return _trade_dict(t)
 
 
 @router.delete("/trade/{trade_id}")

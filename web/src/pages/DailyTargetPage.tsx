@@ -1,28 +1,32 @@
 /** Daily Target — self-reporting discipline page (gated to one account for now).
  *
- * Log the day's trades (setup, instrument, entry/exit, P/L), watch the running total climb
- * toward your target, and CLOSE THE DAY once you hit it. "Make your number, then stop" — the
- * guard against overtrading and giving it back. */
+ * Top: today's scoreboard (realized vs target) + close-the-day. Middle: log/edit a trade.
+ * Bottom: full history grouped into weeks → collapsible day panes → trades you can expand
+ * (note + chart), edit, or delete — even after a day is closed. */
 
 import { useState, useMemo, Fragment } from "react";
-import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X } from "lucide-react";
+import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
+import { api } from "../api/client";
 import {
   useDailySummary,
+  useDailyHistory,
   useSetDailyTarget,
   useAddDailyTrade,
+  useUpdateDailyTrade,
   useDeleteDailyTrade,
   useCloseDay,
   useReopenDay,
-  useWatchlist,
   useMasterSymbols,
+  useWatchlist,
+  useTradeImage,
   type DailyTradeInput,
   type DailyTradeRow,
+  type DailyDay,
 } from "../api/hooks";
 
 const OWNER_EMAIL = "vbolofinde@gmail.com";
 
-// Entry mechanisms (your rules) — levels + SMA.
 const SETUPS = [
   "PDH break",
   "PDL held",
@@ -56,6 +60,24 @@ const usd = (n: number) =>
   (n < 0 ? "-" : "") +
   Math.abs(n).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
+// Parse a YYYY-MM-DD string as a LOCAL date (avoids UTC off-by-one).
+function parseDate(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function mondayOf(s: string): string {
+  const dt = parseDate(s);
+  const back = (dt.getDay() + 6) % 7; // days since Monday
+  dt.setDate(dt.getDate() - back);
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${dt.getFullYear()}-${mm}-${dd}`;
+}
+const fmtDay = (s: string) =>
+  parseDate(s).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+const fmtWeek = (s: string) =>
+  "Week of " + parseDate(s).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
 // Downscale + compress a screenshot to a small JPEG data URL so it fits in a DB text column.
 async function fileToCompressedDataUrl(file: File, maxDim = 1400, quality = 0.7): Promise<string> {
   const dataUrl: string = await new Promise((res, rej) => {
@@ -86,7 +108,7 @@ async function fileToCompressedDataUrl(file: File, maxDim = 1400, quality = 0.7)
   return canvas.toDataURL("image/jpeg", quality);
 }
 
-// Expandable review row — shows the note + lazily-loaded chart screenshot.
+// Expandable review row — note + lazily-loaded chart screenshot.
 function TradeDetailRow({ trade, colSpan }: { trade: DailyTradeRow; colSpan: number }) {
   const { data } = useTradeImage(trade.id, !!trade.has_image);
   return (
@@ -109,18 +131,112 @@ function TradeDetailRow({ trade, colSpan }: { trade: DailyTradeRow; colSpan: num
   );
 }
 
+// One day's trades as a table (used inside each day pane).
+function DayTrades({
+  trades,
+  expandedId,
+  setExpandedId,
+  onEdit,
+  onDelete,
+}: {
+  trades: DailyTradeRow[];
+  expandedId: number | null;
+  setExpandedId: (id: number | null) => void;
+  onEdit: (t: DailyTradeRow) => void;
+  onDelete: (id: number) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border-subtle text-[11px] uppercase tracking-wide text-text-faint">
+            <th className="text-left font-medium px-4 py-2.5">Symbol</th>
+            <th className="text-left font-medium px-3 py-2.5">Setup</th>
+            <th className="text-left font-medium px-3 py-2.5">Dir</th>
+            <th className="text-right font-medium px-3 py-2.5">Entry</th>
+            <th className="text-right font-medium px-3 py-2.5">Exit</th>
+            <th className="text-right font-medium px-3 py-2.5">Size</th>
+            <th className="text-right font-medium px-3 py-2.5">P/L</th>
+            <th className="text-left font-medium px-3 py-2.5">Exit</th>
+            <th className="px-3 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border-subtle/40">
+          {trades.map((t) => (
+            <Fragment key={t.id}>
+              <tr
+                className="text-text-secondary cursor-pointer hover:bg-surface-2/30"
+                onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+              >
+                <td className="px-4 py-2.5">
+                  <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                  <span className="ml-1.5 text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                  {(t.note || t.has_image) && <span className="ml-1.5 text-[10px]">{t.has_image ? "🖼" : "📝"}</span>}
+                </td>
+                <td className="px-3 py-2.5">{t.setup || "—"}</td>
+                <td className="px-3 py-2.5 uppercase text-[11px]">
+                  {t.direction || "—"}
+                  <span className="ml-1 lowercase text-text-faint">{t.trade_type === "swing" ? "· swing" : "· day"}</span>
+                </td>
+                <td className="px-3 py-2.5 text-right font-mono">{t.entry_price ?? "—"}</td>
+                <td className="px-3 py-2.5 text-right font-mono">{t.exit_price ?? "—"}</td>
+                <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-muted">
+                  {t.quantity ?? "—"}
+                  {t.position_size ? ` · ${usd(t.position_size)}` : ""}
+                </td>
+                <td
+                  className={`px-3 py-2.5 text-right font-mono font-semibold ${
+                    t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
+                  }`}
+                >
+                  {usd(t.pnl)}
+                </td>
+                <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(t);
+                    }}
+                    className="text-text-faint hover:text-accent"
+                    aria-label="Edit trade"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(t.id);
+                    }}
+                    className="ml-3 text-text-faint hover:text-bearish-text"
+                    aria-label="Delete trade"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </td>
+              </tr>
+              {expandedId === t.id && <TradeDetailRow trade={t} colSpan={9} />}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function DailyTargetPage() {
   const user = useAuthStore((s) => s.user);
   const isOwner = (user?.email || "").toLowerCase() === OWNER_EMAIL;
 
-  const { data, isLoading } = useDailySummary();
+  const { data: summary } = useDailySummary();
+  const { data: history } = useDailyHistory();
   const setTarget = useSetDailyTarget();
   const addTrade = useAddDailyTrade();
+  const updateTrade = useUpdateDailyTrade();
   const delTrade = useDeleteDailyTrade();
   const closeDay = useCloseDay();
   const reopenDay = useReopenDay();
 
-  // Symbol typeahead — the master (Editor's Picks) universe + your own watchlist, deduped.
   const { data: master } = useMasterSymbols();
   const { data: myWl } = useWatchlist();
   const symbolOptions = useMemo(() => {
@@ -131,6 +247,7 @@ export default function DailyTargetPage() {
   }, [master, myWl]);
 
   // trade form
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [symbol, setSymbol] = useState("");
   const [instrument, setInstrument] = useState("stock");
   const [tradeType, setTradeType] = useState("day");
@@ -146,13 +263,13 @@ export default function DailyTargetPage() {
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
   const [chartImage, setChartImage] = useState("");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  // target editor
+  // target editor + row expand + day panes
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetDraft, setTargetDraft] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
 
-  // Auto P/L = (exit − entry) × size, ×100 for options, sign-flipped for shorts. Editable — a manual value wins.
   const _num = (s: string) => (s.trim() === "" ? null : Number(s));
   const computedPnl = useMemo(() => {
     const e = _num(entry);
@@ -164,7 +281,6 @@ export default function DailyTargetPage() {
     return Math.round((x - e) * q * mult * dir * 100) / 100;
   }, [entry, exit, qty, instrument, direction]);
   const effectivePnl = pnlEdited ? pnl : computedPnl !== null ? String(computedPnl) : "";
-  // Size $ = capital deployed = entry × qty (×100 for options). Editable — a manual value wins.
   const computedSize = useMemo(() => {
     const e = _num(entry);
     const q = _num(qty);
@@ -186,12 +302,31 @@ export default function DailyTargetPage() {
     );
   }
 
-  const target = data?.target ?? 4000;
-  const total = data?.total_pnl ?? 0;
-  const hit = data?.hit ?? false;
-  const closed = data?.closed ?? false;
+  const target = summary?.target ?? 4000;
+  const total = summary?.total_pnl ?? 0;
+  const hit = summary?.hit ?? false;
+  const closed = summary?.closed ?? false;
   const pct = target > 0 ? Math.max(0, Math.min(100, (total / target) * 100)) : 0;
-  const trades = data?.trades ?? [];
+  const todayStr = summary?.date;
+
+  const resetForm = () => {
+    setEditingId(null);
+    setSymbol("");
+    setInstrument("stock");
+    setTradeType("day");
+    setSetup(SETUPS[0]);
+    setDirection("long");
+    setEntry("");
+    setExit("");
+    setQty("");
+    setSize("");
+    setPnl("");
+    setPnlEdited(false);
+    setSizeEdited(false);
+    setExitReason(EXIT_REASONS[0]);
+    setNote("");
+    setChartImage("");
+  };
 
   const submitTrade = (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,24 +346,39 @@ export default function DailyTargetPage() {
       note: note.trim() || null,
       chart_image: chartImage || null,
     };
-    addTrade.mutate(body, {
-      onSuccess: () => {
-        setSymbol("");
-        setEntry("");
-        setExit("");
-        setQty("");
-        setSize("");
-        setPnl("");
-        setPnlEdited(false);
-        setSizeEdited(false);
-        setChartImage("");
-        setNote("");
-      },
-    });
+    if (editingId) {
+      updateTrade.mutate({ id: editingId, body }, { onSuccess: resetForm });
+    } else {
+      addTrade.mutate(body, { onSuccess: resetForm });
+    }
   };
 
-  const inputCls =
-    "rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50";
+  const startEdit = async (t: DailyTradeRow) => {
+    setEditingId(t.id);
+    setSymbol(t.symbol);
+    setInstrument(t.instrument || "stock");
+    setTradeType(t.trade_type || "day");
+    setSetup(t.setup || SETUPS[0]);
+    setDirection(t.direction || "long");
+    setEntry(t.entry_price != null ? String(t.entry_price) : "");
+    setExit(t.exit_price != null ? String(t.exit_price) : "");
+    setQty(t.quantity != null ? String(t.quantity) : "");
+    setSize(t.position_size != null ? String(t.position_size) : "");
+    setSizeEdited(true);
+    setPnl(String(t.pnl));
+    setPnlEdited(true);
+    setExitReason(t.exit_reason || EXIT_REASONS[0]);
+    setNote(t.note || "");
+    setChartImage("");
+    if (t.has_image) {
+      try {
+        const img = await api.get<{ chart_image: string | null }>(`/daily/trade/${t.id}/image`);
+        setChartImage(img.chart_image || "");
+      } catch {
+        /* ignore */
+      }
+    }
+  };
 
   const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -241,18 +391,47 @@ export default function DailyTargetPage() {
     if (f) setChartImage(await fileToCompressedDataUrl(f));
   };
 
+  const inputCls =
+    "rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50";
+
+  // group history days into weeks (preserving the desc order the API returns)
+  const weeks = useMemo(() => {
+    const days = history?.days ?? [];
+    const order: string[] = [];
+    const map: Record<string, DailyDay[]> = {};
+    for (const d of days) {
+      const wk = mondayOf(d.date);
+      if (!map[wk]) {
+        map[wk] = [];
+        order.push(wk);
+      }
+      map[wk].push(d);
+    }
+    return order.map((wk) => {
+      const wdays = map[wk];
+      return {
+        week: wk,
+        days: wdays,
+        total: Math.round(wdays.reduce((a, d) => a + d.total_pnl, 0) * 100) / 100,
+        hitDays: wdays.filter((d) => d.hit).length,
+        wins: wdays.reduce((a, d) => a + d.wins, 0),
+        losses: wdays.reduce((a, d) => a + d.losses, 0),
+      };
+    });
+  }, [history]);
+
+  const isDayOpen = (date: string) => openDays[date] ?? date === todayStr;
+
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-5">
       <div className="max-w-5xl mx-auto space-y-4">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="font-display text-xl font-bold text-text-primary">Daily Target</h1>
-            <p className="mt-1 text-[11px] text-text-faint">{data?.date ?? "today"} · make your number, then stop</p>
-          </div>
+        <div>
+          <h1 className="font-display text-xl font-bold text-text-primary">Daily Target</h1>
+          <p className="mt-1 text-[11px] text-text-faint">{todayStr ?? "today"} · make your number, then stop</p>
         </div>
 
-        {/* Scoreboard */}
+        {/* Scoreboard (today) */}
         <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-4">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -298,7 +477,6 @@ export default function DailyTargetPage() {
             </div>
           </div>
 
-          {/* Progress */}
           <div>
             <div className="h-2.5 w-full rounded-full bg-surface-3 overflow-hidden">
               <div
@@ -307,14 +485,13 @@ export default function DailyTargetPage() {
               />
             </div>
             <div className="mt-2 flex items-center gap-4 text-[11px] text-text-faint">
-              <span>{trades.length} trades</span>
-              <span className="text-bullish-text">{data?.wins ?? 0}W</span>
-              <span className="text-bearish-text">{data?.losses ?? 0}L</span>
+              <span>{summary?.trade_count ?? 0} trades</span>
+              <span className="text-bullish-text">{summary?.wins ?? 0}W</span>
+              <span className="text-bearish-text">{summary?.losses ?? 0}L</span>
               <span className="ml-auto">{Math.round(pct)}% of target</span>
             </div>
           </div>
 
-          {/* Status banner + close/reopen */}
           {closed ? (
             <div className="flex items-center justify-between gap-3 rounded-lg border border-border-subtle bg-surface-2 px-4 py-3">
               <div className="flex items-center gap-2 text-text-primary font-semibold">
@@ -350,105 +527,116 @@ export default function DailyTargetPage() {
           )}
         </div>
 
-        {/* Log a trade */}
-        {!closed && (
-          <form onSubmit={submitTrade} onPaste={handlePaste} className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-3">
-            <div className="font-semibold text-text-primary">Log a trade</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <input
-                className={`${inputCls} font-mono uppercase`}
-                placeholder="Symbol"
-                list="daily-symbols"
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-              />
-              <datalist id="daily-symbols">
-                {symbolOptions.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
-              <select className={inputCls} value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-                <option value="stock">Stock</option>
-                <option value="option">Option</option>
-              </select>
-              <select className={inputCls} value={tradeType} onChange={(e) => setTradeType(e.target.value)}>
-                <option value="day">Day</option>
-                <option value="swing">Swing</option>
-              </select>
-              <select className={inputCls} value={setup} onChange={(e) => setSetup(e.target.value)}>
-                {SETUPS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <select className={inputCls} value={direction} onChange={(e) => setDirection(e.target.value)}>
-                <option value="long">Long</option>
-                <option value="short">Short</option>
-              </select>
-              <input
-                className={inputCls}
-                type="number"
-                step="any"
-                placeholder="Entry"
-                value={entry}
-                onChange={(e) => setEntry(e.target.value)}
-              />
-              <input
-                className={inputCls}
-                type="number"
-                step="any"
-                placeholder="Exit"
-                value={exit}
-                onChange={(e) => setExit(e.target.value)}
-              />
-              <input
-                className={inputCls}
-                type="number"
-                step="any"
-                placeholder={instrument === "option" ? "Contracts" : "Shares"}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-              />
-              <input
-                className={`${inputCls} ${!sizeEdited && computedSize !== null ? "text-text-secondary" : ""}`}
-                type="number"
-                step="any"
-                placeholder="Size $ (auto)"
-                value={effectiveSize}
-                onChange={(e) => {
-                  setSize(e.target.value);
-                  setSizeEdited(true);
-                }}
-                title={!sizeEdited && computedSize !== null ? "Capital deployed = entry × qty (×100 for options) — type to override" : ""}
-              />
-              <input
-                className={`${inputCls} font-semibold ${!pnlEdited && computedPnl !== null ? "text-bullish-text" : ""}`}
-                type="number"
-                step="any"
-                placeholder="P/L $ (auto)"
-                value={effectivePnl}
-                onChange={(e) => {
-                  setPnl(e.target.value);
-                  setPnlEdited(true);
-                }}
-                title={!pnlEdited && computedPnl !== null ? "Auto from entry, exit & size — type to override" : ""}
-              />
-              <select className={inputCls} value={exitReason} onChange={(e) => setExitReason(e.target.value)}>
-                {EXIT_REASONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <textarea
-              className={`${inputCls} w-full`}
-              rows={2}
-              placeholder="Note — your thought process (optional). Tip: paste a chart screenshot anywhere in this form."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+        {/* Log / edit a trade — always available (edit even on a closed day) */}
+        <form
+          onSubmit={submitTrade}
+          onPaste={handlePaste}
+          className={`rounded-xl border p-5 space-y-3 ${editingId ? "border-accent/50 bg-accent/5" : "border-border-subtle bg-surface-1"}`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="font-semibold text-text-primary">{editingId ? "Edit trade" : "Log a trade"}</div>
+            {editingId && (
+              <button type="button" onClick={resetForm} className="text-xs text-text-faint hover:text-text-primary">
+                Cancel edit
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <input
+              className={`${inputCls} font-mono uppercase`}
+              placeholder="Symbol"
+              list="daily-symbols"
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
             />
+            <datalist id="daily-symbols">
+              {symbolOptions.map((s) => (
+                <option key={s} value={s} />
+              ))}
+            </datalist>
+            <select className={inputCls} value={instrument} onChange={(e) => setInstrument(e.target.value)}>
+              <option value="stock">Stock</option>
+              <option value="option">Option</option>
+            </select>
+            <select className={inputCls} value={tradeType} onChange={(e) => setTradeType(e.target.value)}>
+              <option value="day">Day</option>
+              <option value="swing">Swing</option>
+            </select>
+            <select className={inputCls} value={setup} onChange={(e) => setSetup(e.target.value)}>
+              {SETUPS.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+            <select className={inputCls} value={direction} onChange={(e) => setDirection(e.target.value)}>
+              <option value="long">Long</option>
+              <option value="short">Short</option>
+            </select>
+            <input
+              className={inputCls}
+              type="number"
+              step="any"
+              placeholder="Entry"
+              value={entry}
+              onChange={(e) => setEntry(e.target.value)}
+            />
+            <input
+              className={inputCls}
+              type="number"
+              step="any"
+              placeholder="Exit"
+              value={exit}
+              onChange={(e) => setExit(e.target.value)}
+            />
+            <input
+              className={inputCls}
+              type="number"
+              step="any"
+              placeholder={instrument === "option" ? "Contracts" : "Shares"}
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
+            <input
+              className={`${inputCls} ${!sizeEdited && computedSize !== null ? "text-text-secondary" : ""}`}
+              type="number"
+              step="any"
+              placeholder="Size $ (auto)"
+              value={effectiveSize}
+              onChange={(e) => {
+                setSize(e.target.value);
+                setSizeEdited(true);
+              }}
+              title={!sizeEdited && computedSize !== null ? "Capital deployed = entry × qty (×100 for options) — type to override" : ""}
+            />
+            <input
+              className={`${inputCls} font-semibold ${!pnlEdited && computedPnl !== null ? "text-bullish-text" : ""}`}
+              type="number"
+              step="any"
+              placeholder="P/L $ (auto)"
+              value={effectivePnl}
+              onChange={(e) => {
+                setPnl(e.target.value);
+                setPnlEdited(true);
+              }}
+              title={!pnlEdited && computedPnl !== null ? "Auto from entry, exit & size — type to override" : ""}
+            />
+            <select className={inputCls} value={exitReason} onChange={(e) => setExitReason(e.target.value)}>
+              {EXIT_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <textarea
+            className={`${inputCls} w-full`}
+            rows={2}
+            placeholder="Note — your thought process (optional). Tip: paste a chart screenshot anywhere in this form."
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-[13px] text-text-secondary hover:text-text-primary">
                 <ImageIcon className="h-4 w-4" /> Attach chart
@@ -468,94 +656,83 @@ export default function DailyTargetPage() {
                 </div>
               )}
             </div>
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={addTrade.isPending || !symbol.trim() || effectivePnl.trim() === ""}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" /> Add trade
-              </button>
-            </div>
-          </form>
-        )}
+            <button
+              type="submit"
+              disabled={addTrade.isPending || updateTrade.isPending || !symbol.trim() || effectivePnl.trim() === ""}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
+            >
+              {editingId ? (
+                <>
+                  <Check className="h-4 w-4" /> Save changes
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" /> Add trade
+                </>
+              )}
+            </button>
+          </div>
+        </form>
 
-        {/* Trades table */}
-        <div className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
-          {isLoading ? (
-            <div className="p-5 text-sm text-text-muted">Loading…</div>
-          ) : trades.length === 0 ? (
-            <div className="p-5 text-sm text-text-muted">No trades logged yet today.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle text-[11px] uppercase tracking-wide text-text-faint">
-                    <th className="text-left font-medium px-4 py-2.5">Symbol</th>
-                    <th className="text-left font-medium px-3 py-2.5">Setup</th>
-                    <th className="text-left font-medium px-3 py-2.5">Dir</th>
-                    <th className="text-right font-medium px-3 py-2.5">Entry</th>
-                    <th className="text-right font-medium px-3 py-2.5">Exit</th>
-                    <th className="text-right font-medium px-3 py-2.5">Size</th>
-                    <th className="text-right font-medium px-3 py-2.5">P/L</th>
-                    <th className="text-left font-medium px-3 py-2.5">Exit</th>
-                    <th className="px-3 py-2.5"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle/40">
-                  {trades.map((t) => (
-                    <Fragment key={t.id}>
-                    <tr
-                      className="text-text-secondary cursor-pointer hover:bg-surface-2/30"
-                      onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+        {/* History — weeks → collapsible day panes → trades */}
+        {weeks.length === 0 ? (
+          <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 text-sm text-text-muted">
+            No trades logged yet.
+          </div>
+        ) : (
+          weeks.map((wk) => (
+            <div key={wk.week} className="space-y-2">
+              <div className="flex items-center justify-between px-1 pt-2">
+                <div className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">{fmtWeek(wk.week)}</div>
+                <div className="flex items-center gap-3 text-[12px]">
+                  <span className={`font-mono font-semibold ${wk.total < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
+                    {usd(wk.total)}
+                  </span>
+                  <span className="text-text-faint">
+                    {wk.hitDays}/{wk.days.length} days hit · {wk.wins}W {wk.losses}L
+                  </span>
+                </div>
+              </div>
+              {wk.days.map((d) => {
+                const open = isDayOpen(d.date);
+                return (
+                  <div key={d.date} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setOpenDays((o) => ({ ...o, [d.date]: !open }))}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-2/30"
                     >
-                      <td className="px-4 py-2.5">
-                        <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
-                        <span className="ml-1.5 text-[10px] uppercase text-text-faint">{t.instrument}</span>
-                        {(t.note || t.has_image) && (
-                          <span className="ml-1.5 text-[10px]">{t.has_image ? "🖼" : "📝"}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">{t.setup || "—"}</td>
-                      <td className="px-3 py-2.5 uppercase text-[11px]">
-                        {t.direction || "—"}
-                        <span className="ml-1 lowercase text-text-faint">{t.trade_type === "swing" ? "· swing" : "· day"}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono">{t.entry_price ?? "—"}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{t.exit_price ?? "—"}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-muted">
-                        {t.quantity ?? "—"}
-                        {t.position_size ? ` · ${usd(t.position_size)}` : ""}
-                      </td>
-                      <td
-                        className={`px-3 py-2.5 text-right font-mono font-semibold ${
-                          t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
-                        }`}
-                      >
-                        {usd(t.pnl)}
-                      </td>
-                      <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            delTrade.mutate(t.id);
-                          }}
-                          className="text-text-faint hover:text-bearish-text"
-                          aria-label="Delete trade"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedId === t.id && <TradeDetailRow trade={t} colSpan={9} />}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
+                      <ChevronRight
+                        className={`h-4 w-4 text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
+                      />
+                      <span className="font-semibold text-text-primary">{fmtDay(d.date)}</span>
+                      {d.closed && <Lock className="h-3 w-3 text-text-faint" />}
+                      <span className={`ml-auto font-mono font-semibold ${d.total_pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
+                        {usd(d.total_pnl)}
+                      </span>
+                      <span className="text-[11px] text-text-faint">
+                        {d.trade_count} · {d.wins}W {d.losses}L
+                      </span>
+                    </button>
+                    {open &&
+                      (d.trades.length === 0 ? (
+                        <div className="px-4 py-3 text-[12px] text-text-faint border-t border-border-subtle">No trades this day.</div>
+                      ) : (
+                        <div className="border-t border-border-subtle">
+                          <DayTrades
+                            trades={d.trades}
+                            expandedId={expandedId}
+                            setExpandedId={setExpandedId}
+                            onEdit={startEdit}
+                            onDelete={(id) => delTrade.mutate(id)}
+                          />
+                        </div>
+                      ))}
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
+          ))
+        )}
       </div>
     </div>
   );
