@@ -55,6 +55,7 @@ class TradeIn(BaseModel):
     pnl: float                         # realized P/L in $
     exit_reason: Optional[str] = None  # target | stop | into resistance | time | other
     note: Optional[str] = None
+    chart_image: Optional[str] = None  # data: URL of a chart screenshot
 
 
 class TargetIn(BaseModel):
@@ -76,6 +77,7 @@ def _trade_dict(t: DailyTrade) -> dict:
         "pnl": t.pnl,
         "exit_reason": t.exit_reason,
         "note": t.note,
+        "has_image": t.chart_image is not None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -166,10 +168,27 @@ async def add_trade(
         pnl=float(body.pnl),
         exit_reason=body.exit_reason,
         note=body.note,
+        chart_image=body.chart_image,
     )
     db.add(t)
     await db.flush()
     return _trade_dict(t)
+
+
+@router.get("/trade/{trade_id}/image")
+async def trade_image(
+    trade_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_owner(user)
+    res = await db.execute(
+        select(DailyTrade).where(DailyTrade.id == trade_id, DailyTrade.user_id == user.id)
+    )
+    t = res.scalar_one_or_none()
+    if t is None:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    return {"chart_image": t.chart_image}
 
 
 @router.delete("/trade/{trade_id}")

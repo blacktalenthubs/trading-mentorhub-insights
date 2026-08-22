@@ -4,8 +4,8 @@
  * toward your target, and CLOSE THE DAY once you hit it. "Make your number, then stop" — the
  * guard against overtrading and giving it back. */
 
-import { useState, useMemo } from "react";
-import { Plus, Trash2, Lock, Check, Pencil } from "lucide-react";
+import { useState, useMemo, Fragment } from "react";
+import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import {
   useDailySummary,
@@ -17,6 +17,7 @@ import {
   useWatchlist,
   useMasterSymbols,
   type DailyTradeInput,
+  type DailyTradeRow,
 } from "../api/hooks";
 
 const OWNER_EMAIL = "vbolofinde@gmail.com";
@@ -55,6 +56,59 @@ const usd = (n: number) =>
   (n < 0 ? "-" : "") +
   Math.abs(n).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
+// Downscale + compress a screenshot to a small JPEG data URL so it fits in a DB text column.
+async function fileToCompressedDataUrl(file: File, maxDim = 1400, quality = 0.7): Promise<string> {
+  const dataUrl: string = await new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result as string);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const img: HTMLImageElement = await new Promise((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = rej;
+    i.src = dataUrl;
+  });
+  let w = img.width;
+  let h = img.height;
+  if (Math.max(w, h) > maxDim) {
+    const s = maxDim / Math.max(w, h);
+    w = Math.round(w * s);
+    h = Math.round(h * s);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+// Expandable review row — shows the note + lazily-loaded chart screenshot.
+function TradeDetailRow({ trade, colSpan }: { trade: DailyTradeRow; colSpan: number }) {
+  const { data } = useTradeImage(trade.id, !!trade.has_image);
+  return (
+    <tr>
+      <td colSpan={colSpan} className="bg-surface-2/40 px-4 py-3">
+        {trade.note && (
+          <div className="mb-2 whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary">{trade.note}</div>
+        )}
+        {trade.has_image &&
+          (data?.chart_image ? (
+            <a href={data.chart_image} target="_blank" rel="noreferrer">
+              <img src={data.chart_image} alt="chart" className="max-h-96 rounded-lg border border-border-subtle" />
+            </a>
+          ) : (
+            <div className="text-[12px] text-text-faint">Loading chart…</div>
+          ))}
+        {!trade.note && !trade.has_image && <div className="text-[12px] text-text-faint">No note or chart.</div>}
+      </td>
+    </tr>
+  );
+}
+
 export default function DailyTargetPage() {
   const user = useAuthStore((s) => s.user);
   const isOwner = (user?.email || "").toLowerCase() === OWNER_EMAIL;
@@ -91,6 +145,8 @@ export default function DailyTargetPage() {
   const [sizeEdited, setSizeEdited] = useState(false);
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
+  const [chartImage, setChartImage] = useState("");
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   // target editor
   const [editingTarget, setEditingTarget] = useState(false);
@@ -153,6 +209,7 @@ export default function DailyTargetPage() {
       pnl: Number(effectivePnl),
       exit_reason: exitReason,
       note: note.trim() || null,
+      chart_image: chartImage || null,
     };
     addTrade.mutate(body, {
       onSuccess: () => {
@@ -164,6 +221,7 @@ export default function DailyTargetPage() {
         setPnl("");
         setPnlEdited(false);
         setSizeEdited(false);
+        setChartImage("");
         setNote("");
       },
     });
@@ -171,6 +229,17 @@ export default function DailyTargetPage() {
 
   const inputCls =
     "rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50";
+
+  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) setChartImage(await fileToCompressedDataUrl(f));
+    e.target.value = "";
+  };
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+    const f = item?.getAsFile();
+    if (f) setChartImage(await fileToCompressedDataUrl(f));
+  };
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-5">
@@ -283,7 +352,7 @@ export default function DailyTargetPage() {
 
         {/* Log a trade */}
         {!closed && (
-          <form onSubmit={submitTrade} className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-3">
+          <form onSubmit={submitTrade} onPaste={handlePaste} className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-3">
             <div className="font-semibold text-text-primary">Log a trade</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <input
@@ -373,12 +442,32 @@ export default function DailyTargetPage() {
                 ))}
               </select>
             </div>
-            <input
+            <textarea
               className={`${inputCls} w-full`}
-              placeholder="Note (optional)"
+              rows={2}
+              placeholder="Note — your thought process (optional). Tip: paste a chart screenshot anywhere in this form."
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-[13px] text-text-secondary hover:text-text-primary">
+                <ImageIcon className="h-4 w-4" /> Attach chart
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
+              </label>
+              {chartImage && (
+                <div className="flex items-center gap-2">
+                  <img src={chartImage} alt="chart preview" className="h-10 rounded border border-border-subtle" />
+                  <button
+                    type="button"
+                    onClick={() => setChartImage("")}
+                    className="text-text-faint hover:text-bearish-text"
+                    aria-label="Remove chart"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex justify-end">
               <button
                 type="submit"
@@ -415,10 +504,17 @@ export default function DailyTargetPage() {
                 </thead>
                 <tbody className="divide-y divide-border-subtle/40">
                   {trades.map((t) => (
-                    <tr key={t.id} className="text-text-secondary">
+                    <Fragment key={t.id}>
+                    <tr
+                      className="text-text-secondary cursor-pointer hover:bg-surface-2/30"
+                      onClick={() => setExpandedId(expandedId === t.id ? null : t.id)}
+                    >
                       <td className="px-4 py-2.5">
                         <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
                         <span className="ml-1.5 text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                        {(t.note || t.has_image) && (
+                          <span className="ml-1.5 text-[10px]">{t.has_image ? "🖼" : "📝"}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5">{t.setup || "—"}</td>
                       <td className="px-3 py-2.5 uppercase text-[11px]">
@@ -441,7 +537,10 @@ export default function DailyTargetPage() {
                       <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
                       <td className="px-3 py-2.5 text-right">
                         <button
-                          onClick={() => delTrade.mutate(t.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            delTrade.mutate(t.id);
+                          }}
                           className="text-text-faint hover:text-bearish-text"
                           aria-label="Delete trade"
                         >
@@ -449,6 +548,8 @@ export default function DailyTargetPage() {
                         </button>
                       </td>
                     </tr>
+                    {expandedId === t.id && <TradeDetailRow trade={t} colSpan={9} />}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
