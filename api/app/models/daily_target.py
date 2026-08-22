@@ -29,6 +29,8 @@ class DailyTrade(Base):
     direction: Mapped[Optional[str]] = mapped_column(String(10))      # long | short
     entry_price: Mapped[Optional[float]] = mapped_column(Float)
     exit_price: Mapped[Optional[float]] = mapped_column(Float)
+    quantity: Mapped[Optional[float]] = mapped_column(Float)        # shares (stock) or contracts (option)
+    position_size: Mapped[Optional[float]] = mapped_column(Float)   # $ deployed (notional / capital in the trade)
     pnl: Mapped[float] = mapped_column(Float, nullable=False)         # realized P/L in $ (+ win / − loss)
     exit_reason: Mapped[Optional[str]] = mapped_column(String(60))    # target | stop | into resistance | time | other
     note: Mapped[Optional[str]] = mapped_column(String(500))
