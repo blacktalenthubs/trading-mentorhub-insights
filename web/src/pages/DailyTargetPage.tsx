@@ -79,6 +79,7 @@ export default function DailyTargetPage() {
   // trade form
   const [symbol, setSymbol] = useState("");
   const [instrument, setInstrument] = useState("stock");
+  const [tradeType, setTradeType] = useState("day");
   const [setup, setSetup] = useState(SETUPS[0]);
   const [direction, setDirection] = useState("long");
   const [entry, setEntry] = useState("");
@@ -118,6 +119,7 @@ export default function DailyTargetPage() {
     const body: DailyTradeInput = {
       symbol: symbol.trim().toUpperCase(),
       instrument,
+      trade_type: tradeType,
       setup,
       direction,
       entry_price: entry.trim() === "" ? null : Number(entry),
@@ -274,6 +276,10 @@ export default function DailyTargetPage() {
                 <option value="stock">Stock</option>
                 <option value="option">Option</option>
               </select>
+              <select className={inputCls} value={tradeType} onChange={(e) => setTradeType(e.target.value)}>
+                <option value="day">Day</option>
+                <option value="swing">Swing</option>
+              </select>
               <select className={inputCls} value={setup} onChange={(e) => setSetup(e.target.value)}>
                 {SETUPS.map((s) => (
                   <option key={s} value={s}>
@@ -381,7 +387,10 @@ export default function DailyTargetPage() {
                         <span className="ml-1.5 text-[10px] uppercase text-text-faint">{t.instrument}</span>
                       </td>
                       <td className="px-3 py-2.5">{t.setup || "—"}</td>
-                      <td className="px-3 py-2.5 uppercase text-[11px]">{t.direction || "—"}</td>
+                      <td className="px-3 py-2.5 uppercase text-[11px]">
+                        {t.direction || "—"}
+                        <span className="ml-1 lowercase text-text-faint">{t.trade_type === "swing" ? "· swing" : "· day"}</span>
+                      </td>
                       <td className="px-3 py-2.5 text-right font-mono">{t.entry_price ?? "—"}</td>
                       <td className="px-3 py-2.5 text-right font-mono">{t.exit_price ?? "—"}</td>
                       <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-muted">

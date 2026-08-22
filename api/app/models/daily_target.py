@@ -25,6 +25,7 @@ class DailyTrade(Base):
     session_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD (ET)
     symbol: Mapped[str] = mapped_column(String(20), nullable=False)
     instrument: Mapped[str] = mapped_column(String(10), server_default="stock", default="stock")  # stock | option
+    trade_type: Mapped[str] = mapped_column(String(10), server_default="day", default="day")     # day | swing
     setup: Mapped[Optional[str]] = mapped_column(String(60))          # entry mechanism (PDH break, SMA reclaim, ...)
     direction: Mapped[Optional[str]] = mapped_column(String(10))      # long | short
     entry_price: Mapped[Optional[float]] = mapped_column(Float)

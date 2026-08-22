@@ -45,6 +45,7 @@ def _user_default_target(user: User) -> float:
 class TradeIn(BaseModel):
     symbol: str
     instrument: str = "stock"          # stock | option
+    trade_type: str = "day"            # day | swing
     setup: Optional[str] = None        # entry mechanism (PDH break, PDL held, SMA reclaim, level, ...)
     direction: Optional[str] = None    # long | short
     entry_price: Optional[float] = None
@@ -65,6 +66,7 @@ def _trade_dict(t: DailyTrade) -> dict:
         "id": t.id,
         "symbol": t.symbol,
         "instrument": t.instrument,
+        "trade_type": t.trade_type,
         "setup": t.setup,
         "direction": t.direction,
         "entry_price": t.entry_price,
@@ -154,6 +156,7 @@ async def add_trade(
         session_date=_today(),
         symbol=sym,
         instrument=(body.instrument or "stock").strip().lower(),
+        trade_type=(body.trade_type or "day").strip().lower(),
         setup=body.setup,
         direction=body.direction,
         entry_price=body.entry_price,
