@@ -168,6 +168,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS open_bracket_symbols VARCHAR(2000) DEFAULT ''",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS open_bracket_all BOOLEAN",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_target REAL DEFAULT 4000",
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS quantity REAL",
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS position_size REAL",
         ]:
             try:
                 await conn.execute(text(col_def))
