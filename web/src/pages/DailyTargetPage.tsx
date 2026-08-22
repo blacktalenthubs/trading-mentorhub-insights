@@ -88,6 +88,7 @@ export default function DailyTargetPage() {
   const [size, setSize] = useState("");
   const [pnl, setPnl] = useState("");
   const [pnlEdited, setPnlEdited] = useState(false);
+  const [sizeEdited, setSizeEdited] = useState(false);
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
 
@@ -107,6 +108,15 @@ export default function DailyTargetPage() {
     return Math.round((x - e) * q * mult * dir * 100) / 100;
   }, [entry, exit, qty, instrument, direction]);
   const effectivePnl = pnlEdited ? pnl : computedPnl !== null ? String(computedPnl) : "";
+  // Size $ = capital deployed = entry × qty (×100 for options). Editable — a manual value wins.
+  const computedSize = useMemo(() => {
+    const e = _num(entry);
+    const q = _num(qty);
+    if (e === null || q === null || Number.isNaN(e) || Number.isNaN(q)) return null;
+    const mult = instrument === "option" ? 100 : 1;
+    return Math.round(Math.abs(e * q * mult) * 100) / 100;
+  }, [entry, qty, instrument]);
+  const effectiveSize = sizeEdited ? size : computedSize !== null ? String(computedSize) : "";
 
   if (!isOwner) {
     return (
@@ -139,7 +149,7 @@ export default function DailyTargetPage() {
       entry_price: entry.trim() === "" ? null : Number(entry),
       exit_price: exit.trim() === "" ? null : Number(exit),
       quantity: qty.trim() === "" ? null : Number(qty),
-      position_size: size.trim() === "" ? null : Number(size),
+      position_size: effectiveSize.trim() === "" ? null : Number(effectiveSize),
       pnl: Number(effectivePnl),
       exit_reason: exitReason,
       note: note.trim() || null,
@@ -153,6 +163,7 @@ export default function DailyTargetPage() {
         setSize("");
         setPnl("");
         setPnlEdited(false);
+        setSizeEdited(false);
         setNote("");
       },
     });
@@ -331,12 +342,16 @@ export default function DailyTargetPage() {
                 onChange={(e) => setQty(e.target.value)}
               />
               <input
-                className={inputCls}
+                className={`${inputCls} ${!sizeEdited && computedSize !== null ? "text-text-secondary" : ""}`}
                 type="number"
                 step="any"
-                placeholder="Size $"
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
+                placeholder="Size $ (auto)"
+                value={effectiveSize}
+                onChange={(e) => {
+                  setSize(e.target.value);
+                  setSizeEdited(true);
+                }}
+                title={!sizeEdited && computedSize !== null ? "Capital deployed = entry × qty (×100 for options) — type to override" : ""}
               />
               <input
                 className={`${inputCls} font-semibold ${!pnlEdited && computedPnl !== null ? "text-bullish-text" : ""}`}
