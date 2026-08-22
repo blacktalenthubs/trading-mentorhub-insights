@@ -83,6 +83,8 @@ export default function DailyTargetPage() {
   const [direction, setDirection] = useState("long");
   const [entry, setEntry] = useState("");
   const [exit, setExit] = useState("");
+  const [qty, setQty] = useState("");
+  const [size, setSize] = useState("");
   const [pnl, setPnl] = useState("");
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
@@ -120,6 +122,8 @@ export default function DailyTargetPage() {
       direction,
       entry_price: entry.trim() === "" ? null : Number(entry),
       exit_price: exit.trim() === "" ? null : Number(exit),
+      quantity: qty.trim() === "" ? null : Number(qty),
+      position_size: size.trim() === "" ? null : Number(size),
       pnl: Number(pnl),
       exit_reason: exitReason,
       note: note.trim() || null,
@@ -129,6 +133,8 @@ export default function DailyTargetPage() {
         setSymbol("");
         setEntry("");
         setExit("");
+        setQty("");
+        setSize("");
         setPnl("");
         setNote("");
       },
@@ -296,6 +302,22 @@ export default function DailyTargetPage() {
                 onChange={(e) => setExit(e.target.value)}
               />
               <input
+                className={inputCls}
+                type="number"
+                step="any"
+                placeholder={instrument === "option" ? "Contracts" : "Shares"}
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+              />
+              <input
+                className={inputCls}
+                type="number"
+                step="any"
+                placeholder="Size $"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+              />
+              <input
                 className={`${inputCls} font-semibold`}
                 type="number"
                 step="any"
@@ -345,6 +367,7 @@ export default function DailyTargetPage() {
                     <th className="text-left font-medium px-3 py-2.5">Dir</th>
                     <th className="text-right font-medium px-3 py-2.5">Entry</th>
                     <th className="text-right font-medium px-3 py-2.5">Exit</th>
+                    <th className="text-right font-medium px-3 py-2.5">Size</th>
                     <th className="text-right font-medium px-3 py-2.5">P/L</th>
                     <th className="text-left font-medium px-3 py-2.5">Exit</th>
                     <th className="px-3 py-2.5"></th>
@@ -361,6 +384,10 @@ export default function DailyTargetPage() {
                       <td className="px-3 py-2.5 uppercase text-[11px]">{t.direction || "—"}</td>
                       <td className="px-3 py-2.5 text-right font-mono">{t.entry_price ?? "—"}</td>
                       <td className="px-3 py-2.5 text-right font-mono">{t.exit_price ?? "—"}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-muted">
+                        {t.quantity ?? "—"}
+                        {t.position_size ? ` · ${usd(t.position_size)}` : ""}
+                      </td>
                       <td
                         className={`px-3 py-2.5 text-right font-mono font-semibold ${
                           t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
