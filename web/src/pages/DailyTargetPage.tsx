@@ -8,6 +8,7 @@ import { useState, useMemo, useEffect, Fragment } from "react";
 import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
+import { toast } from "../components/Toast";
 import {
   useDailySummary,
   useDailyHistory,
@@ -279,12 +280,31 @@ export default function DailyTargetPage() {
   // Paste a screenshot anywhere on the page (⌘V / Ctrl+V) → attaches it to the form.
   useEffect(() => {
     const onPaste = async (e: ClipboardEvent) => {
-      const item = e.clipboardData && Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
-      const f = item ? item.getAsFile() : null;
-      if (f) setChartImage(await fileToCompressedDataUrl(f));
+      const dt = e.clipboardData;
+      if (!dt) return;
+      let file: File | null = null;
+      for (const it of Array.from(dt.items || [])) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          file = it.getAsFile();
+          break;
+        }
+      }
+      if (!file && dt.files && dt.files.length) {
+        for (const f of Array.from(dt.files)) {
+          if (f.type.startsWith("image/")) {
+            file = f;
+            break;
+          }
+        }
+      }
+      if (file) {
+        e.preventDefault();
+        setChartImage(await fileToCompressedDataUrl(file));
+        toast.success("Chart attached");
+      }
     };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
   }, []);
 
   const _num = (s: string) => (s.trim() === "" ? null : Number(s));
