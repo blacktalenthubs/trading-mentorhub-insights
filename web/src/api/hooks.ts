@@ -2523,3 +2523,97 @@ export function usePublicPerformance(token: string) {
     retry: false,
   });
 }
+
+
+// --- Daily Target (self-reporting discipline page, gated) ---
+export interface DailyTradeRow {
+  id: number;
+  symbol: string;
+  instrument: string;
+  setup: string | null;
+  direction: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  pnl: number;
+  exit_reason: string | null;
+  note: string | null;
+  created_at: string | null;
+}
+export interface DailySummary {
+  date: string;
+  target: number;
+  total_pnl: number;
+  hit: boolean;
+  closed: boolean;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  trades: DailyTradeRow[];
+}
+export interface DailyTradeInput {
+  symbol: string;
+  instrument: string;
+  setup?: string | null;
+  direction?: string | null;
+  entry_price?: number | null;
+  exit_price?: number | null;
+  pnl: number;
+  exit_reason?: string | null;
+  note?: string | null;
+}
+export function useDailySummary(date?: string) {
+  return useQuery({
+    queryKey: ["daily-summary", date ?? "today"],
+    queryFn: () => api.get<DailySummary>(`/daily/summary${date ? `?date=${date}` : ""}`),
+    refetchInterval: 60_000,
+  });
+}
+export function useSetDailyTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (target: number) => api.put("/daily/target", { target }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      toast.success("Target updated");
+    },
+    onError: () => toast.error("Couldn't update the target"),
+  });
+}
+export function useAddDailyTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (t: DailyTradeInput) => api.post("/daily/trade", t),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      toast.success("Trade logged");
+    },
+    onError: () => toast.error("Couldn't log the trade"),
+  });
+}
+export function useDeleteDailyTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/daily/trade/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-summary"] }),
+    onError: () => toast.error("Couldn't delete the trade"),
+  });
+}
+export function useCloseDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/daily/close", {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      toast.success("Day closed — nice work. Step away.");
+    },
+    onError: () => toast.error("Couldn't close the day"),
+  });
+}
+export function useReopenDay() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post("/daily/reopen", {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-summary"] }),
+    onError: () => toast.error("Couldn't reopen the day"),
+  });
+}
