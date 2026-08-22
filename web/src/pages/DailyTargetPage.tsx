@@ -114,19 +114,34 @@ function TradeDetailRow({ trade, colSpan }: { trade: DailyTradeRow; colSpan: num
   const { data } = useTradeImage(trade.id, !!trade.has_image);
   return (
     <tr>
-      <td colSpan={colSpan} className="bg-surface-2/40 px-4 py-3">
-        {trade.note && (
-          <div className="mb-2 whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary">{trade.note}</div>
-        )}
-        {trade.has_image &&
-          (data?.chart_image ? (
-            <a href={data.chart_image} target="_blank" rel="noreferrer">
-              <img src={data.chart_image} alt="chart" className="max-h-96 rounded-lg border border-border-subtle" />
-            </a>
-          ) : (
-            <div className="text-[12px] text-text-faint">Loading chart…</div>
-          ))}
-        {!trade.note && !trade.has_image && <div className="text-[12px] text-text-faint">No note or chart.</div>}
+      <td colSpan={colSpan} className="bg-surface-2/40 px-4 py-4">
+        <div className="space-y-3">
+          {trade.note && (
+            <div className="max-w-3xl">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-faint">Note</div>
+              <div className="whitespace-pre-wrap text-[13px] leading-relaxed text-text-secondary">{trade.note}</div>
+            </div>
+          )}
+          {trade.has_image && (
+            <div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-faint">Chart · click to enlarge</div>
+              {data?.chart_image ? (
+                <a href={data.chart_image} target="_blank" rel="noreferrer" className="inline-block">
+                  <img
+                    src={data.chart_image}
+                    alt="chart"
+                    className="max-h-72 max-w-full rounded-lg border border-border-subtle transition hover:ring-2 hover:ring-accent/40"
+                  />
+                </a>
+              ) : (
+                <div className="text-[12px] text-text-faint">Loading chart…</div>
+              )}
+            </div>
+          )}
+          {!trade.note && !trade.has_image && (
+            <div className="text-[12px] text-text-faint">No note or chart — click the pencil to add one.</div>
+          )}
+        </div>
       </td>
     </tr>
   );
