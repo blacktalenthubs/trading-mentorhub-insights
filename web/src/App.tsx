@@ -38,6 +38,7 @@ import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
 import PatternLearnPage from "./pages/PatternLearnPage";
 import UniverseResearchPage from "./pages/UniverseResearchPage";
+import DailyTargetPage from "./pages/DailyTargetPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -141,6 +142,7 @@ export default function App() {
                 <Route path="research"    element={<ErrorBoundary><UniverseResearchPage /></ErrorBoundary>} />
                 <Route path="premarket"   element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
                 <Route path="performance" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
+                <Route path="daily"       element={<ErrorBoundary><DailyTargetPage /></ErrorBoundary>} />
                 <Route path="settings"    element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
                 <Route path="billing"     element={<ErrorBoundary><BillingPage /></ErrorBoundary>} />
                 <Route path="admin"       element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
