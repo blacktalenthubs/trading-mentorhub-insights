@@ -2547,6 +2547,7 @@ export interface DailyTradeRow {
   pnl: number;
   exit_reason: string | null;
   note: string | null;
+  has_image?: boolean;
   created_at: string | null;
 }
 export interface DailySummary {
@@ -2573,6 +2574,7 @@ export interface DailyTradeInput {
   pnl: number;
   exit_reason?: string | null;
   note?: string | null;
+  chart_image?: string | null;
 }
 export function useDailySummary(date?: string) {
   return useQuery({
@@ -2628,5 +2630,14 @@ export function useReopenDay() {
     mutationFn: () => api.post("/daily/reopen", {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["daily-summary"] }),
     onError: () => toast.error("Couldn't reopen the day"),
+  });
+}
+
+export function useTradeImage(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["daily-trade-image", id],
+    queryFn: () => api.get<{ chart_image: string | null }>(`/daily/trade/${id}/image`),
+    enabled,
+    staleTime: Infinity,
   });
 }
