@@ -158,6 +158,7 @@ function DayTrades({
             <th className="text-right font-medium px-3 py-2.5">Size</th>
             <th className="text-right font-medium px-3 py-2.5">P/L</th>
             <th className="text-left font-medium px-3 py-2.5">Exit</th>
+            <th className="text-left font-medium px-3 py-2.5">Note</th>
             <th className="px-3 py-2.5"></th>
           </tr>
         </thead>
@@ -192,6 +193,11 @@ function DayTrades({
                   {usd(t.pnl)}
                 </td>
                 <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
+                <td className="px-3 py-2.5 max-w-[220px]">
+                  <span className="block truncate text-[12px] text-text-muted" title={t.note || ""}>
+                    {t.note || "—"}
+                  </span>
+                </td>
                 <td className="px-3 py-2.5 text-right whitespace-nowrap">
                   <button
                     onClick={(e) => {
@@ -215,7 +221,7 @@ function DayTrades({
                   </button>
                 </td>
               </tr>
-              {expandedId === t.id && <TradeDetailRow trade={t} colSpan={9} />}
+              {expandedId === t.id && <TradeDetailRow trade={t} colSpan={10} />}
             </Fragment>
           ))}
         </tbody>
