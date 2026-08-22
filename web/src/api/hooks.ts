@@ -2534,6 +2534,8 @@ export interface DailyTradeRow {
   direction: string | null;
   entry_price: number | null;
   exit_price: number | null;
+  quantity: number | null;
+  position_size: number | null;
   pnl: number;
   exit_reason: string | null;
   note: string | null;
@@ -2557,6 +2559,8 @@ export interface DailyTradeInput {
   direction?: string | null;
   entry_price?: number | null;
   exit_price?: number | null;
+  quantity?: number | null;
+  position_size?: number | null;
   pnl: number;
   exit_reason?: string | null;
   note?: string | null;
