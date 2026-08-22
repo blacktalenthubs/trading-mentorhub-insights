@@ -5,7 +5,7 @@
  * (note + chart), edit, or delete — even after a day is closed. */
 
 import { useState, useMemo, useEffect, Fragment } from "react";
-import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight, ClipboardPaste } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import { toast } from "../components/Toast";
@@ -432,6 +432,24 @@ export default function DailyTargetPage() {
       toast.success("Chart attached");
     }
   };
+  const pasteFromClipboard = async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) {
+          const blob = await item.getType(type);
+          const file = new File([blob], "chart.png", { type });
+          setChartImage(await fileToCompressedDataUrl(file));
+          toast.success("Chart attached");
+          return;
+        }
+      }
+      toast.error("No image on the clipboard — copy the chart first");
+    } catch {
+      toast.error("Clipboard read blocked — use Attach chart or drag the file instead");
+    }
+  };
 
   const inputCls =
     "rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-sm text-text-primary focus:border-accent focus:ring-1 focus:ring-accent/30 focus:outline-none disabled:opacity-50";
@@ -689,6 +707,13 @@ export default function DailyTargetPage() {
                 <ImageIcon className="h-4 w-4" /> Attach chart — click, drag a file here, or paste
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
               </label>
+              <button
+                type="button"
+                onClick={pasteFromClipboard}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-[13px] text-text-secondary hover:text-text-primary"
+              >
+                <ClipboardPaste className="h-4 w-4" /> Paste from clipboard
+              </button>
               {chartImage && (
                 <div className="flex items-center gap-2">
                   <img src={chartImage} alt="chart preview" className="h-10 rounded border border-border-subtle" />
