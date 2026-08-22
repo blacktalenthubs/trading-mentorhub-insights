@@ -30,6 +30,7 @@ import {
   X,
   ChevronLeft,
   Shield,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -97,7 +98,10 @@ function readCollapsed(): boolean {
 export default function AppLayout() {
   const user = useAuthStore((s) => s.user);
   // Admin-only nav link — the /admin console has no public link; gate on is_admin (ADMIN_EMAILS).
-  const adminNav: NavItem[] = user?.is_admin ? [...NAV_ITEMS, { to: "/admin", label: "Admin", icon: Shield }] : NAV_ITEMS;
+  // Daily Target — founder self-reporting page; gated by email until it generalizes.
+  const isDailyOwner = (user?.email || "").toLowerCase() === "vbolofinde@gmail.com";
+  const ownerNav: NavItem[] = isDailyOwner ? [...NAV_ITEMS, { to: "/daily", label: "Daily Target", icon: Wallet }] : NAV_ITEMS;
+  const adminNav: NavItem[] = user?.is_admin ? [...ownerNav, { to: "/admin", label: "Admin", icon: Shield }] : ownerNav;
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
   const { isTrial, trialDaysLeft, tier } = useFeatureGate();
