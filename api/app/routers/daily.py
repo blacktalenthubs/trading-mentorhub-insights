@@ -49,6 +49,8 @@ class TradeIn(BaseModel):
     direction: Optional[str] = None    # long | short
     entry_price: Optional[float] = None
     exit_price: Optional[float] = None
+    quantity: Optional[float] = None       # shares (stock) or contracts (option)
+    position_size: Optional[float] = None  # $ deployed
     pnl: float                         # realized P/L in $
     exit_reason: Optional[str] = None  # target | stop | into resistance | time | other
     note: Optional[str] = None
@@ -67,6 +69,8 @@ def _trade_dict(t: DailyTrade) -> dict:
         "direction": t.direction,
         "entry_price": t.entry_price,
         "exit_price": t.exit_price,
+        "quantity": t.quantity,
+        "position_size": t.position_size,
         "pnl": t.pnl,
         "exit_reason": t.exit_reason,
         "note": t.note,
@@ -154,6 +158,8 @@ async def add_trade(
         direction=body.direction,
         entry_price=body.entry_price,
         exit_price=body.exit_price,
+        quantity=body.quantity,
+        position_size=body.position_size,
         pnl=float(body.pnl),
         exit_reason=body.exit_reason,
         note=body.note,
