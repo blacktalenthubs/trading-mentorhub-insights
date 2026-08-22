@@ -87,12 +87,26 @@ export default function DailyTargetPage() {
   const [qty, setQty] = useState("");
   const [size, setSize] = useState("");
   const [pnl, setPnl] = useState("");
+  const [pnlEdited, setPnlEdited] = useState(false);
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
 
   // target editor
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetDraft, setTargetDraft] = useState("");
+
+  // Auto P/L = (exit − entry) × size, ×100 for options, sign-flipped for shorts. Editable — a manual value wins.
+  const _num = (s: string) => (s.trim() === "" ? null : Number(s));
+  const computedPnl = useMemo(() => {
+    const e = _num(entry);
+    const x = _num(exit);
+    const q = _num(qty);
+    if (e === null || x === null || q === null || Number.isNaN(e) || Number.isNaN(x) || Number.isNaN(q)) return null;
+    const mult = instrument === "option" ? 100 : 1;
+    const dir = direction === "short" ? -1 : 1;
+    return Math.round((x - e) * q * mult * dir * 100) / 100;
+  }, [entry, exit, qty, instrument, direction]);
+  const effectivePnl = pnlEdited ? pnl : computedPnl !== null ? String(computedPnl) : "";
 
   if (!isOwner) {
     return (
@@ -115,7 +129,7 @@ export default function DailyTargetPage() {
 
   const submitTrade = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!symbol.trim() || pnl.trim() === "") return;
+    if (!symbol.trim() || effectivePnl.trim() === "") return;
     const body: DailyTradeInput = {
       symbol: symbol.trim().toUpperCase(),
       instrument,
@@ -126,7 +140,7 @@ export default function DailyTargetPage() {
       exit_price: exit.trim() === "" ? null : Number(exit),
       quantity: qty.trim() === "" ? null : Number(qty),
       position_size: size.trim() === "" ? null : Number(size),
-      pnl: Number(pnl),
+      pnl: Number(effectivePnl),
       exit_reason: exitReason,
       note: note.trim() || null,
     };
@@ -138,6 +152,7 @@ export default function DailyTargetPage() {
         setQty("");
         setSize("");
         setPnl("");
+        setPnlEdited(false);
         setNote("");
       },
     });
@@ -324,12 +339,16 @@ export default function DailyTargetPage() {
                 onChange={(e) => setSize(e.target.value)}
               />
               <input
-                className={`${inputCls} font-semibold`}
+                className={`${inputCls} font-semibold ${!pnlEdited && computedPnl !== null ? "text-bullish-text" : ""}`}
                 type="number"
                 step="any"
-                placeholder="P/L $"
-                value={pnl}
-                onChange={(e) => setPnl(e.target.value)}
+                placeholder="P/L $ (auto)"
+                value={effectivePnl}
+                onChange={(e) => {
+                  setPnl(e.target.value);
+                  setPnlEdited(true);
+                }}
+                title={!pnlEdited && computedPnl !== null ? "Auto from entry, exit & size — type to override" : ""}
               />
               <select className={inputCls} value={exitReason} onChange={(e) => setExitReason(e.target.value)}>
                 {EXIT_REASONS.map((r) => (
@@ -348,7 +367,7 @@ export default function DailyTargetPage() {
             <div className="flex justify-end">
               <button
                 type="submit"
-                disabled={addTrade.isPending || !symbol.trim() || pnl.trim() === ""}
+                disabled={addTrade.isPending || !symbol.trim() || effectivePnl.trim() === ""}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" /> Add trade
