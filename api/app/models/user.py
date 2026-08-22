@@ -67,6 +67,10 @@ class User(Base):
     # whole watchlist, set = only those). Lets "whole watchlist" and "few exceptions" coexist.
     open_bracket_all: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
+    # Daily Target page — the user's standing daily $ target (make my number, then stop).
+    # Snapshotted per day in daily_sessions; NULL falls back to a 4000 default.
+    daily_target: Mapped[Optional[float]] = mapped_column(Float, server_default="4000", nullable=True)
+
     # Attribution — captured at signup from UTM params
     attribution_source: Mapped[Optional[str]] = mapped_column(String(100))    # twitter, tiktok, friend, ...
     attribution_medium: Mapped[Optional[str]] = mapped_column(String(100))    # social, dm, cpc, organic, ...

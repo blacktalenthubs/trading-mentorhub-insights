@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     import app.models.journal as _m_journal  # noqa: F401
     import app.models.screener as _m_screener  # noqa: F401  # spec 62 — screener_universe + screener_snapshot
     import app.models.regime_config as _m_regime  # noqa: F401  # spec 61 — gate exempt allow-lists
+    import app.models.daily_target as _m_daily  # noqa: F401  # Daily Target self-report
 
     # Auto-create new tables (usage_limits etc.) and add missing columns
     async with engine.begin() as conn:
@@ -166,6 +167,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS orb_symbols VARCHAR(2000) DEFAULT ''",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS open_bracket_symbols VARCHAR(2000) DEFAULT ''",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS open_bracket_all BOOLEAN",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_target REAL DEFAULT 4000",
         ]:
             try:
                 await conn.execute(text(col_def))
@@ -1557,6 +1559,7 @@ def create_app() -> FastAPI:
         earnings,    # Spec 61 — Watchlist earnings calendar + T-7 notifications
         screener,    # Spec 62 — In-Play Volume Screener
         fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
+        daily,  # Daily Target self-reporting page (gated to one account)
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -1585,6 +1588,7 @@ def create_app() -> FastAPI:
     app.include_router(regime_config.router, prefix="/api/v1/regime-config", tags=["regime-config"])
     app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
     app.include_router(fundamentals.router, prefix="/api/v1/fundamentals", tags=["fundamentals"])
+    app.include_router(daily.router, prefix="/api/v1/daily", tags=["daily"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])
