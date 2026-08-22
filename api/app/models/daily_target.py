@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -34,7 +34,8 @@ class DailyTrade(Base):
     position_size: Mapped[Optional[float]] = mapped_column(Float)   # $ deployed (notional / capital in the trade)
     pnl: Mapped[float] = mapped_column(Float, nullable=False)         # realized P/L in $ (+ win / − loss)
     exit_reason: Mapped[Optional[str]] = mapped_column(String(60))    # target | stop | into resistance | time | other
-    note: Mapped[Optional[str]] = mapped_column(String(500))
+    note: Mapped[Optional[str]] = mapped_column(Text)                # thought process / review comment
+    chart_image: Mapped[Optional[str]] = mapped_column(Text)         # a chart screenshot as a data: URL (base64)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
