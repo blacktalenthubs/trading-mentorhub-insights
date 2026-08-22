@@ -4,7 +4,7 @@
  * Bottom: full history grouped into weeks → collapsible day panes → trades you can expand
  * (note + chart), edit, or delete — even after a day is closed. */
 
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
@@ -270,6 +270,17 @@ export default function DailyTargetPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
 
+  // Paste a screenshot anywhere on the page (⌘V / Ctrl+V) → attaches it to the form.
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      const item = e.clipboardData && Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+      const f = item ? item.getAsFile() : null;
+      if (f) setChartImage(await fileToCompressedDataUrl(f));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, []);
+
   const _num = (s: string) => (s.trim() === "" ? null : Number(s));
   const computedPnl = useMemo(() => {
     const e = _num(entry);
@@ -384,11 +395,6 @@ export default function DailyTargetPage() {
     const f = e.target.files?.[0];
     if (f) setChartImage(await fileToCompressedDataUrl(f));
     e.target.value = "";
-  };
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
-    const f = item?.getAsFile();
-    if (f) setChartImage(await fileToCompressedDataUrl(f));
   };
 
   const inputCls =
@@ -530,7 +536,6 @@ export default function DailyTargetPage() {
         {/* Log / edit a trade — always available (edit even on a closed day) */}
         <form
           onSubmit={submitTrade}
-          onPaste={handlePaste}
           className={`rounded-xl border p-5 space-y-3 ${editingId ? "border-accent/50 bg-accent/5" : "border-border-subtle bg-surface-1"}`}
         >
           <div className="flex items-center justify-between">
@@ -632,14 +637,14 @@ export default function DailyTargetPage() {
           <textarea
             className={`${inputCls} w-full`}
             rows={2}
-            placeholder="Note — your thought process (optional). Tip: paste a chart screenshot anywhere in this form."
+            placeholder="Note — your thought process (optional). Tip: take a screenshot and paste it (⌘V) anywhere on this page."
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-2 text-[13px] text-text-secondary hover:text-text-primary">
-                <ImageIcon className="h-4 w-4" /> Attach chart
+                <ImageIcon className="h-4 w-4" /> Attach chart (or paste ⌘V)
                 <input type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
               </label>
               {chartImage && (
