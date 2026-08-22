@@ -2530,6 +2530,7 @@ export interface DailyTradeRow {
   id: number;
   symbol: string;
   instrument: string;
+  trade_type: string;
   setup: string | null;
   direction: string | null;
   entry_price: number | null;
@@ -2555,6 +2556,7 @@ export interface DailySummary {
 export interface DailyTradeInput {
   symbol: string;
   instrument: string;
+  trade_type?: string;
   setup?: string | null;
   direction?: string | null;
   entry_price?: number | null;
