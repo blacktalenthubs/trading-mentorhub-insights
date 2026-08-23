@@ -285,6 +285,9 @@ export default function DailyTargetPage() {
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = useState(false);
   const [logOpen, setLogOpen] = useState(false); // the "Log a trade" form is collapsed by default (mobile-first)
+  const [view, setView] = useState<"journal" | "patterns">("journal");
+  const [patternSort, setPatternSort] = useState<"total" | "winrate" | "avg" | "count">("total");
+  const [openSetup, setOpenSetup] = useState<string | null>(null);
 
   // Editing a trade opens the form (and scrolls it into view via the auto-expand).
   useEffect(() => {
@@ -506,6 +509,45 @@ export default function DailyTargetPage() {
     };
   }, [history]);
 
+  // Pattern leaderboard — group every logged trade by its setup, rank by realized edge.
+  const patterns = useMemo(() => {
+    const allTrades = (history?.days ?? []).flatMap((d) => d.trades);
+    const map = new Map<string, DailyTradeRow[]>();
+    for (const t of allTrades) {
+      const k = t.setup || "—";
+      const arr = map.get(k);
+      if (arr) arr.push(t);
+      else map.set(k, [t]);
+    }
+    const rows = Array.from(map.entries()).map(([setup, ts]) => {
+      const total = Math.round(ts.reduce((a, t) => a + t.pnl, 0) * 100) / 100;
+      const wins = ts.filter((t) => t.pnl > 0).length;
+      const losses = ts.filter((t) => t.pnl < 0).length;
+      const decided = wins + losses;
+      const best = ts.reduce<DailyTradeRow | null>((b, t) => (t.pnl > (b?.pnl ?? -Infinity) ? t : b), null);
+      const worst = ts.reduce<DailyTradeRow | null>((b, t) => (t.pnl < (b?.pnl ?? Infinity) ? t : b), null);
+      return {
+        setup,
+        trades: ts,
+        count: ts.length,
+        wins,
+        losses,
+        winRate: decided > 0 ? wins / decided : 0,
+        total,
+        avg: ts.length > 0 ? Math.round((total / ts.length) * 100) / 100 : 0,
+        best,
+        worst,
+      };
+    });
+    const by = {
+      total: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.total - a.total,
+      winrate: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.winRate - a.winRate,
+      avg: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.avg - a.avg,
+      count: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.count - a.count,
+    };
+    return rows.sort(by[patternSort]);
+  }, [history, patternSort]);
+
   const isDayOpen = (date: string) => openDays[date] ?? date === todayStr;
 
   return (
@@ -517,6 +559,23 @@ export default function DailyTargetPage() {
           <p className="mt-1 text-[11px] text-text-faint">{todayStr ?? "today"} · make your number, then stop</p>
         </div>
 
+        {/* View switcher — Journal (log + history) vs Patterns (setup leaderboard) */}
+        <div className="flex w-fit gap-1 rounded-lg border border-border-subtle bg-surface-1 p-1">
+          {(["journal", "patterns"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`rounded-md px-4 py-1.5 text-[13px] font-semibold transition-colors ${
+                view === v ? "bg-surface-3 text-accent" : "text-text-faint hover:text-text-secondary"
+              }`}
+            >
+              {v === "journal" ? "Journal" : "Patterns"}
+            </button>
+          ))}
+        </div>
+
+        {view === "journal" && (
+          <>
         {/* Scoreboard (today) */}
         <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 space-y-4">
           <div className="flex items-end justify-between gap-4">
@@ -866,6 +925,97 @@ export default function DailyTargetPage() {
             </div>
           ))
         )}
+          </>
+        )}
+
+        {view === "patterns" &&
+          (patterns.length === 0 ? (
+            <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 text-sm text-text-muted">
+              Log some trades and your setups will rank here by realized edge.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 px-1">
+                <div className="text-[12px] text-text-faint">
+                  Ranked by{" "}
+                  {patternSort === "total"
+                    ? "total P/L"
+                    : patternSort === "winrate"
+                      ? "win rate"
+                      : patternSort === "avg"
+                        ? "avg P/L"
+                        : "trade count"}
+                </div>
+                <select
+                  value={patternSort}
+                  onChange={(e) => setPatternSort(e.target.value as "total" | "winrate" | "avg" | "count")}
+                  className={`${inputCls} py-1 text-[12px]`}
+                >
+                  <option value="total">Total P/L</option>
+                  <option value="winrate">Win rate</option>
+                  <option value="avg">Avg P/L</option>
+                  <option value="count">Trade count</option>
+                </select>
+              </div>
+              {patterns.map((p) => {
+                const open = openSetup === p.setup;
+                return (
+                  <div key={p.setup} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+                    <button
+                      onClick={() => setOpenSetup(open ? null : p.setup)}
+                      className="w-full text-left px-4 py-3 hover:bg-surface-2/30"
+                    >
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="flex items-center gap-2 font-semibold text-text-primary">
+                          <ChevronRight className={`h-4 w-4 text-text-faint transition-transform ${open ? "rotate-90" : ""}`} />
+                          {p.setup}
+                        </span>
+                        <span className={`font-mono font-semibold ${p.total < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
+                          {usd(p.total)}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                        <div className="h-full rounded-full bg-bullish" style={{ width: `${Math.round(p.winRate * 100)}%` }} />
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-faint">
+                        <span>{p.count} trades</span>
+                        <span className="text-text-faint/50">·</span>
+                        <span>
+                          {Math.round(p.winRate * 100)}% win ({p.wins}W {p.losses}L)
+                        </span>
+                        <span className="text-text-faint/50">·</span>
+                        <span>
+                          avg <span className={p.avg < 0 ? "text-bearish-text" : "text-bullish-text"}>{usd(p.avg)}</span>
+                        </span>
+                        {p.best && p.best.pnl > 0 && (
+                          <>
+                            <span className="text-text-faint/50">·</span>
+                            <span>
+                              best <span className="text-bullish-text">{usd(p.best.pnl)}</span> {p.best.symbol}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="border-t border-border-subtle">
+                        <DayTrades
+                          trades={p.trades}
+                          expandedId={expandedId}
+                          setExpandedId={setExpandedId}
+                          onEdit={(t) => {
+                            startEdit(t);
+                            setView("journal");
+                          }}
+                          onDelete={(id) => delTrade.mutate(id)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
       </div>
     </div>
   );
