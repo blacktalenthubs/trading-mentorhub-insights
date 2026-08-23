@@ -506,7 +506,8 @@ export default function DailyTargetPage() {
   const [logOpen, setLogOpen] = useState(false); // the "Log a trade" form is collapsed by default (mobile-first)
   const [view, setView] = useState<"journal" | "patterns">("journal");
   const [patternSort, setPatternSort] = useState<"total" | "winrate" | "avg" | "count">("total");
-  const [groupBy, setGroupBy] = useState<"setup" | "target" | "stop">("setup");
+  const [groupBy, setGroupBy] = useState<"setup" | "target" | "stop" | "instrument">("setup");
+  const [instFilter, setInstFilter] = useState<"all" | "stock" | "option">("all"); // scope patterns to stocks / options
   const [openSetup, setOpenSetup] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-screen chart image src
 
@@ -760,10 +761,17 @@ export default function DailyTargetPage() {
 
   // Pattern leaderboard — group every logged trade by its setup, rank by realized edge.
   const patterns = useMemo(() => {
-    const allTrades = (history?.days ?? []).flatMap((d) => d.trades).filter((t) => !t.is_open);
+    const allTrades = (history?.days ?? [])
+      .flatMap((d) => d.trades)
+      .filter((t) => !t.is_open && (instFilter === "all" || t.instrument === instFilter));
     const map = new Map<string, DailyTradeRow[]>();
     for (const t of allTrades) {
-      const k = (groupBy === "target" ? t.target : groupBy === "stop" ? t.stop : t.setup) || "—";
+      const k =
+        groupBy === "instrument"
+          ? t.instrument === "option"
+            ? "Options"
+            : "Stocks"
+          : (groupBy === "target" ? t.target : groupBy === "stop" ? t.stop : t.setup) || "—";
       const arr = map.get(k);
       if (arr) arr.push(t);
       else map.set(k, [t]);
@@ -795,7 +803,7 @@ export default function DailyTargetPage() {
       count: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.count - a.count,
     };
     return rows.sort(by[patternSort]);
-  }, [history, patternSort, groupBy]);
+  }, [history, patternSort, groupBy, instFilter]);
 
   const isDayOpen = (date: string) => openDays[date] ?? date === todayStr;
 
@@ -1244,7 +1252,14 @@ export default function DailyTargetPage() {
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <div className="text-[12px] text-text-faint">
-                  {groupBy === "setup" ? "Entry setups" : groupBy === "target" ? "Targets" : "Stops"} ranked by{" "}
+                  {groupBy === "setup"
+                    ? "Entry setups"
+                    : groupBy === "target"
+                      ? "Targets"
+                      : groupBy === "stop"
+                        ? "Stops"
+                        : "Instruments"}
+                  {instFilter !== "all" ? ` · ${instFilter === "option" ? "options" : "stocks"} only` : ""} ranked by{" "}
                   {patternSort === "total"
                     ? "total P/L"
                     : patternSort === "winrate"
@@ -1253,19 +1268,33 @@ export default function DailyTargetPage() {
                         ? "avg P/L"
                         : "trade count"}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <select
-                    value={groupBy}
+                    value={instFilter}
                     onChange={(e) => {
-                      setGroupBy(e.target.value as "setup" | "target" | "stop");
+                      setInstFilter(e.target.value as "all" | "stock" | "option");
                       setOpenSetup(null);
                     }}
                     className={`${inputCls} py-1 text-[12px]`}
-                    title="Group the leaderboard by entry setup, by target, or by stop"
+                    title="Scope the leaderboard to stocks or options"
+                  >
+                    <option value="all">Stocks + options</option>
+                    <option value="stock">Stocks only</option>
+                    <option value="option">Options only</option>
+                  </select>
+                  <select
+                    value={groupBy}
+                    onChange={(e) => {
+                      setGroupBy(e.target.value as "setup" | "target" | "stop" | "instrument");
+                      setOpenSetup(null);
+                    }}
+                    className={`${inputCls} py-1 text-[12px]`}
+                    title="Group the leaderboard by entry setup, target, stop, or instrument"
                   >
                     <option value="setup">By setup</option>
                     <option value="target">By target</option>
                     <option value="stop">By stop</option>
+                    <option value="instrument">By instrument</option>
                   </select>
                   <select
                     value={patternSort}
