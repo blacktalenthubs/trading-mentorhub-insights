@@ -114,6 +114,7 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # ONE live position reacts at them (break/reject/reclaim + gap-and-go), stop = entry-candle extreme, flips on a break.
     # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
     ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Open Bracket", False),  # own category = its own family toggle
+    ("structural_breakout", "Structural breakout (day) — gap/break/reclaim of a MAJOR level (PDH/PWH/PMH/PQH/pivot=long; PDL/PWL/PML/PQL break=short, reclaim=long). Bind proximity_levels_pure.pine on 15m.", "Structural Breakout", False),  # own family; replaces open_bracket
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -288,6 +289,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("day_weekly_reclaim", "day_trade"), ("day_monthly_reclaim", "day_trade"), ("day_pdlow_reclaim", "day_trade"),   # structural day reclaims → Day feed
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("open_bracket", "day_trade"),  # open-neighbor day signal → Day Trade feed
+    ("structural_breakout", "day_trade"),  # major-level breakouts → Day Trade feed
     ("monthly_lvl", "day_trade"),      # MLV — a monthly-LEVEL reclaim is a day-trade tool, not a hold-for-days swing (user 2026-07-09)
     ("weekly_lvl", "day_trade"),       # WLV — same, a weekly-LEVEL reclaim day-trade tool (user 2026-07-12)
     ("monthly_ma_reclaim", "swing"),   # a trend-MA reclaim = swing, not the day-trade monthly_rc
@@ -323,6 +325,7 @@ def style_for(alert_type: str) -> str:
 # rather than promotional ("strong setup!") so users learn the actual
 # mechanics of each pattern.
 ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
+    "structural_breakout": "Structural breakout: price takes a MAJOR level three ways — a gap past it, a fresh close through it, or a wick-and-reclaim (opens above, wicks to it, closes back above). Longs on the highs (PDH/PWH/PMH/PQH/pivot) and on a LOW reclaim (bear trap); shorts on a low breakdown. Stop = the level or the reclaim wick — the big-wall entries, clearer + better R/R than the open-neighbor signal.",
     # MA bounce — per moving average. Tightest to widest support.
     "ma_bounce_long_v3_ema8":   "Intraday price pulled back to the 8 EMA in an uptrend and bounced — tightest trend support.",
     "ma_bounce_long_v3_ema21":  "Intraday price pulled back to the 21 EMA in an uptrend and bounced — short trend support.",
