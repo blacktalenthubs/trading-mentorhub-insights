@@ -62,6 +62,8 @@ const STRUCTURES = [
   "PML",
   "PQH",
   "PQL",
+  "All-time high",
+  "All-time low",
   "Pivot",
   "Range high",
   "Range low",
