@@ -4,7 +4,7 @@
  * Bottom: full history grouped into weeks → collapsible day panes → trades you can expand
  * (note + chart), edit, or delete — even after a day is closed. */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight, ClipboardPaste } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
@@ -110,7 +110,7 @@ async function fileToCompressedDataUrl(file: File, maxDim = 1400, quality = 0.7)
 }
 
 // Expandable review row — note + lazily-loaded chart screenshot.
-function TradeDetail({ trade }: { trade: DailyTradeRow }) {
+function TradeDetail({ trade, onView }: { trade: DailyTradeRow; onView: (src: string) => void }) {
   const { data } = useTradeImage(trade.id, !!trade.has_image);
   return (
     <div className="space-y-3 border-t border-border-subtle bg-surface-2/40 px-4 py-4">
@@ -122,119 +122,284 @@ function TradeDetail({ trade }: { trade: DailyTradeRow }) {
       )}
       {trade.has_image && (
         <div>
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-faint">Chart · tap to enlarge</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-faint">Chart · click to view full screen</div>
           {data?.chart_image ? (
-            <a href={data.chart_image} target="_blank" rel="noreferrer" className="block">
+            <button type="button" onClick={() => onView(data.chart_image!)} className="block w-full">
               <img
                 src={data.chart_image}
                 alt="chart"
-                className="max-h-80 w-full rounded-lg border border-border-subtle object-contain transition hover:ring-2 hover:ring-accent/40"
+                className="max-h-80 w-full cursor-zoom-in rounded-lg border border-border-subtle object-contain transition hover:ring-2 hover:ring-accent/40"
               />
-            </a>
+            </button>
           ) : (
             <div className="text-[12px] text-text-faint">Loading chart…</div>
           )}
         </div>
       )}
       {!trade.note && !trade.has_image && (
-        <div className="text-[12px] text-text-faint">No note or chart — tap Edit to add one.</div>
+        <div className="text-[12px] text-text-faint">No note or chart — click Edit to add one.</div>
       )}
     </div>
   );
 }
 
-// One day's trades as a mobile-first card list (tap a row to expand note + chart + edit/delete).
+// Sortable column header for the desktop trade table.
+function Th({
+  label,
+  k,
+  sortKey,
+  sortDir,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  k: string;
+  sortKey: string | null;
+  sortDir: "asc" | "desc";
+  onSort: (k: string) => void;
+  align?: "left" | "right";
+}) {
+  const active = sortKey === k;
+  return (
+    <th className={`px-3 py-2.5 font-medium ${align === "right" ? "text-right" : "text-left"}`}>
+      <button
+        type="button"
+        onClick={() => onSort(k)}
+        className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""} ${active ? "text-accent" : "hover:text-text-secondary"}`}
+      >
+        {label}
+        <span className="text-[9px]">{active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
+}
+
+// One day's / one setup's trades: a SORTABLE table on desktop, cards on mobile. Row expands to note + chart.
 function DayTrades({
   trades,
   expandedId,
   setExpandedId,
   onEdit,
   onDelete,
+  onView,
 }: {
   trades: DailyTradeRow[];
   expandedId: number | null;
   setExpandedId: (id: number | null) => void;
   onEdit: (t: DailyTradeRow) => void;
   onDelete: (id: number) => void;
+  onView: (src: string) => void;
 }) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const onSort = (k: string) => {
+    if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir(k === "symbol" || k === "setup" || k === "dir" || k === "reason" ? "asc" : "desc");
+    }
+  };
+  const sorted = useMemo(() => {
+    if (!sortKey) return trades;
+    const val = (t: DailyTradeRow): string | number => {
+      switch (sortKey) {
+        case "when": return t.created_at ?? "";
+        case "symbol": return t.symbol ?? "";
+        case "setup": return t.setup ?? "";
+        case "dir": return t.direction ?? "";
+        case "entry": return t.entry_price ?? -Infinity;
+        case "exit": return t.exit_price ?? -Infinity;
+        case "size": return t.position_size ?? -Infinity;
+        case "pnl": return t.pnl;
+        case "reason": return t.exit_reason ?? "";
+        default: return 0;
+      }
+    };
+    return [...trades].sort((a, b) => {
+      const va = val(a);
+      const vb = val(b);
+      const c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+      return sortDir === "asc" ? c : -c;
+    });
+  }, [trades, sortKey, sortDir]);
+  const fmtWhen = (s: string | null) =>
+    s ? new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
+  const COLS = 11;
   return (
-    <ul className="divide-y divide-border-subtle/40">
-      {trades.map((t) => {
-        const open = expandedId === t.id;
-        return (
-          <li key={t.id}>
-            <button
-              onClick={() => setExpandedId(open ? null : t.id)}
-              className="w-full text-left px-4 py-3 hover:bg-surface-2/30"
-            >
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
-                  <span className="text-[10px] uppercase text-text-faint">{t.instrument}</span>
-                  <span
-                    className={`text-[10px] font-semibold uppercase ${
-                      t.direction === "short" ? "text-bearish-text" : "text-bullish-text"
-                    }`}
+    <div>
+      {/* Desktop — sortable table (click a header to sort; click a row to expand note + chart) */}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border-subtle text-[11px] uppercase tracking-wide text-text-faint">
+              <Th label="When" k="when" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Symbol" k="symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Setup" k="setup" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Dir" k="dir" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Entry" k="entry" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+              <Th label="Exit" k="exit" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+              <Th label="Size" k="size" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+              <Th label="P/L" k="pnl" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+              <Th label="Exit" k="reason" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <th className="px-3 py-2.5 text-center font-medium">Chart</th>
+              <th className="px-3 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-subtle/40">
+            {sorted.map((t) => {
+              const open = expandedId === t.id;
+              return (
+                <Fragment key={t.id}>
+                  <tr
+                    className="cursor-pointer text-text-secondary hover:bg-surface-2/30"
+                    onClick={() => setExpandedId(open ? null : t.id)}
                   >
-                    {t.direction || ""}
-                  </span>
-                  {(t.note || t.has_image) && <span className="text-[10px]">{t.has_image ? "🖼" : "📝"}</span>}
-                </div>
-                <span
-                  className={`shrink-0 font-mono font-semibold ${t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
-                >
-                  {usd(t.pnl)}
-                </span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-faint">
-                <span>{t.setup || "—"}</span>
-                <span className="text-text-faint/50">·</span>
-                <span className="lowercase">{t.trade_type === "swing" ? "swing" : "day"}</span>
-                {(t.entry_price != null || t.exit_price != null) && (
-                  <>
-                    <span className="text-text-faint/50">·</span>
-                    <span className="font-mono">
-                      {t.entry_price ?? "—"} → {t.exit_price ?? "—"}
+                    <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-text-faint">{fmtWhen(t.created_at)}</td>
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                      <span className="ml-1 text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px]">{t.setup || "—"}</td>
+                    <td
+                      className={`px-3 py-2.5 text-[11px] font-semibold uppercase ${
+                        t.direction === "short" ? "text-bearish-text" : "text-bullish-text"
+                      }`}
+                    >
+                      {t.direction || "—"}
+                      <span className="ml-1 lowercase text-text-faint">{t.trade_type === "swing" ? "swing" : "day"}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono">{t.entry_price ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{t.exit_price ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-muted">
+                      {t.position_size ? usd(t.position_size) : "—"}
+                    </td>
+                    <td
+                      className={`px-3 py-2.5 text-right font-mono font-semibold ${
+                        t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
+                      }`}
+                    >
+                      {usd(t.pnl)}
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
+                    <td className="px-3 py-2.5 text-center">
+                      {t.has_image ? "🖼" : t.note ? "📝" : <span className="text-text-faint/40">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit(t);
+                        }}
+                        className="text-text-faint hover:text-accent"
+                        aria-label="Edit trade"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(t.id);
+                        }}
+                        className="ml-3 text-text-faint hover:text-bearish-text"
+                        aria-label="Delete trade"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                  {open && (
+                    <tr>
+                      <td colSpan={COLS} className="p-0">
+                        <TradeDetail trade={t} onView={onView} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile — cards */}
+      <ul className="divide-y divide-border-subtle/40 md:hidden">
+        {sorted.map((t) => {
+          const open = expandedId === t.id;
+          return (
+            <li key={t.id}>
+              <button
+                onClick={() => setExpandedId(open ? null : t.id)}
+                className="w-full text-left px-4 py-3 hover:bg-surface-2/30"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                    <span className="text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                    <span
+                      className={`text-[10px] font-semibold uppercase ${
+                        t.direction === "short" ? "text-bearish-text" : "text-bullish-text"
+                      }`}
+                    >
+                      {t.direction || ""}
                     </span>
-                  </>
-                )}
-                {t.position_size ? (
-                  <>
-                    <span className="text-text-faint/50">·</span>
-                    <span className="font-mono">{usd(t.position_size)}</span>
-                  </>
-                ) : null}
-                {t.exit_reason ? (
-                  <>
-                    <span className="text-text-faint/50">·</span>
-                    <span>{t.exit_reason}</span>
-                  </>
-                ) : null}
-              </div>
-            </button>
-            {open && (
-              <div>
-                <TradeDetail trade={t} />
-                <div className="flex items-center justify-end gap-2 border-t border-border-subtle bg-surface-2/40 px-4 py-2">
-                  <button
-                    onClick={() => onEdit(t)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-[12px] text-text-secondary hover:text-accent"
+                    {(t.note || t.has_image) && <span className="text-[10px]">{t.has_image ? "🖼" : "📝"}</span>}
+                  </div>
+                  <span
+                    className={`shrink-0 font-mono font-semibold ${t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
                   >
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
-                  <button
-                    onClick={() => onDelete(t.id)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-[12px] text-text-secondary hover:text-bearish-text"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete
-                  </button>
+                    {usd(t.pnl)}
+                  </span>
                 </div>
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-faint">
+                  <span>{t.setup || "—"}</span>
+                  <span className="text-text-faint/50">·</span>
+                  <span className="lowercase">{t.trade_type === "swing" ? "swing" : "day"}</span>
+                  {(t.entry_price != null || t.exit_price != null) && (
+                    <>
+                      <span className="text-text-faint/50">·</span>
+                      <span className="font-mono">
+                        {t.entry_price ?? "—"} → {t.exit_price ?? "—"}
+                      </span>
+                    </>
+                  )}
+                  {t.position_size ? (
+                    <>
+                      <span className="text-text-faint/50">·</span>
+                      <span className="font-mono">{usd(t.position_size)}</span>
+                    </>
+                  ) : null}
+                  {t.exit_reason ? (
+                    <>
+                      <span className="text-text-faint/50">·</span>
+                      <span>{t.exit_reason}</span>
+                    </>
+                  ) : null}
+                </div>
+              </button>
+              {open && (
+                <div>
+                  <TradeDetail trade={t} onView={onView} />
+                  <div className="flex items-center justify-end gap-2 border-t border-border-subtle bg-surface-2/40 px-4 py-2">
+                    <button
+                      onClick={() => onEdit(t)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-[12px] text-text-secondary hover:text-accent"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={() => onDelete(t.id)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border-subtle bg-surface-3 px-3 py-1.5 text-[12px] text-text-secondary hover:text-bearish-text"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -288,11 +453,22 @@ export default function DailyTargetPage() {
   const [view, setView] = useState<"journal" | "patterns">("journal");
   const [patternSort, setPatternSort] = useState<"total" | "winrate" | "avg" | "count">("total");
   const [openSetup, setOpenSetup] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null); // full-screen chart image src
 
   // Editing a trade opens the form (and scrolls it into view via the auto-expand).
   useEffect(() => {
     if (editingId) setLogOpen(true);
   }, [editingId]);
+
+  // Esc closes the full-screen chart.
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
 
   // Paste a screenshot anywhere on the page (⌘V / Ctrl+V) → attaches it to the form.
   useEffect(() => {
@@ -916,6 +1092,7 @@ export default function DailyTargetPage() {
                             setExpandedId={setExpandedId}
                             onEdit={startEdit}
                             onDelete={(id) => delTrade.mutate(id)}
+                            onView={setLightbox}
                           />
                         </div>
                       ))}
@@ -1008,6 +1185,7 @@ export default function DailyTargetPage() {
                             setView("journal");
                           }}
                           onDelete={(id) => delTrade.mutate(id)}
+                          onView={setLightbox}
                         />
                       </div>
                     )}
@@ -1017,6 +1195,23 @@ export default function DailyTargetPage() {
             </div>
           ))}
       </div>
+
+      {/* Full-screen chart lightbox — click anywhere or Esc to close */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="chart full screen" className="max-h-full max-w-full rounded-lg object-contain" />
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
