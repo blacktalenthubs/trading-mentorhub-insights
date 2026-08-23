@@ -105,7 +105,7 @@ const fmtWeek = (s: string) =>
   "Week of " + parseDate(s).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 // Downscale + compress a screenshot to a small JPEG data URL so it fits in a DB text column.
-async function fileToCompressedDataUrl(file: File, maxDim = 1400, quality = 0.7): Promise<string> {
+async function fileToCompressedDataUrl(file: File, maxDim = 2560, quality = 0.85): Promise<string> {
   const dataUrl: string = await new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result as string);
