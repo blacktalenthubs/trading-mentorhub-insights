@@ -72,11 +72,12 @@ const STRUCTURES = [
   "Other",
 ];
 
+// Exit reason = the OUTCOME. WHICH level you hit lives in the Target / Stop structure fields
+// (so "Hit target" + Target=50 SMA is fully specified — no vague "into resistance").
 const EXIT_REASONS = [
-  "Target hit",
-  "Stop",
-  "Into resistance",
-  "Give-back / trailed out",
+  "Hit target",
+  "Hit stop",
+  "Trailed / gave back",
   "Time cutoff",
   "Changed mind",
   "Other",
