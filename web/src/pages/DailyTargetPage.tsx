@@ -236,6 +236,7 @@ function DayTrades({
       switch (sortKey) {
         case "when": return t.created_at ?? "";
         case "symbol": return t.symbol ?? "";
+        case "instrument": return t.instrument ?? "";
         case "setup": return t.setup ?? "";
         case "dir": return t.direction ?? "";
         case "entry": return t.entry_price ?? -Infinity;
@@ -257,7 +258,7 @@ function DayTrades({
   }, [trades, sortKey, sortDir]);
   const fmtWhen = (s: string | null) =>
     s ? new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-  const COLS = 13;
+  const COLS = 14;
   return (
     <div>
       {/* Desktop — sortable table (click a header to sort; click a row to expand note + chart) */}
@@ -267,6 +268,7 @@ function DayTrades({
             <tr className="border-b border-border-subtle text-[11px] uppercase tracking-wide text-text-faint">
               <Th label="When" k="when" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <Th label="Symbol" k="symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Type" k="instrument" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <Th label="Setup" k="setup" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <Th label="Dir" k="dir" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <Th label="Entry" k="entry" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
@@ -292,9 +294,13 @@ function DayTrades({
                     <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-text-faint">{fmtWhen(t.created_at)}</td>
                     <td className="px-3 py-2.5">
                       <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
-                      <span className="ml-1 text-[10px] uppercase text-text-faint">{t.instrument}</span>
-                      {t.is_open && (<span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">open</span>)}
+                      {t.is_open && (
+                        <span className="ml-1 rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">
+                          open
+                        </span>
+                      )}
                     </td>
+                    <td className="px-3 py-2.5 text-[11px] uppercase text-text-muted">{t.instrument}</td>
                     <td className="px-3 py-2.5 text-[12px]">{t.setup || "—"}</td>
                     <td
                       className={`px-3 py-2.5 text-[11px] font-semibold uppercase ${
