@@ -36,6 +36,7 @@ class DailyTrade(Base):
     exit_reason: Mapped[Optional[str]] = mapped_column(String(60))    # target | stop | into resistance | time | other
     note: Mapped[Optional[str]] = mapped_column(Text)                # thought process / review comment
     chart_image: Mapped[Optional[str]] = mapped_column(Text)         # a chart screenshot as a data: URL (base64)
+    is_open: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)  # still holding — no exit / not realized yet
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

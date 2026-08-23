@@ -258,6 +258,7 @@ function DayTrades({
                     <td className="px-3 py-2.5">
                       <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
                       <span className="ml-1 text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                      {t.is_open && (<span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">open</span>)}
                     </td>
                     <td className="px-3 py-2.5 text-[12px]">{t.setup || "—"}</td>
                     <td
@@ -275,10 +276,10 @@ function DayTrades({
                     </td>
                     <td
                       className={`px-3 py-2.5 text-right font-mono font-semibold ${
-                        t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
+                        t.is_open ? "text-text-faint" : t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"
                       }`}
                     >
-                      {usd(t.pnl)}
+                      {t.is_open ? "open" : usd(t.pnl)}
                     </td>
                     <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
                     <td className="px-3 py-2.5 text-center">
@@ -343,11 +344,12 @@ function DayTrades({
                       {t.direction || ""}
                     </span>
                     {(t.note || t.has_image) && <span className="text-[10px]">{t.has_image ? "🖼" : "📝"}</span>}
+                    {t.is_open && (<span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">open</span>)}
                   </div>
                   <span
-                    className={`shrink-0 font-mono font-semibold ${t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
+                    className={`shrink-0 font-mono font-semibold ${t.is_open ? "text-text-faint" : t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
                   >
-                    {usd(t.pnl)}
+                    {t.is_open ? "open" : usd(t.pnl)}
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-faint">
@@ -442,6 +444,7 @@ export default function DailyTargetPage() {
   const [exitReason, setExitReason] = useState(EXIT_REASONS[0]);
   const [note, setNote] = useState("");
   const [chartImage, setChartImage] = useState("");
+  const [isOpen, setIsOpen] = useState(false); // still holding — open position (no exit / P/L yet)
 
   // target editor + row expand + day panes
   const [editingTarget, setEditingTarget] = useState(false);
@@ -556,11 +559,12 @@ export default function DailyTargetPage() {
     setExitReason(EXIT_REASONS[0]);
     setNote("");
     setChartImage("");
+    setIsOpen(false);
   };
 
   const submitTrade = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!symbol.trim() || effectivePnl.trim() === "") return;
+    if (!symbol.trim() || (!isOpen && effectivePnl.trim() === "")) return;
     const body: DailyTradeInput = {
       symbol: symbol.trim().toUpperCase(),
       instrument,
@@ -571,10 +575,11 @@ export default function DailyTargetPage() {
       exit_price: exit.trim() === "" ? null : Number(exit),
       quantity: qty.trim() === "" ? null : Number(qty),
       position_size: effectiveSize.trim() === "" ? null : Number(effectiveSize),
-      pnl: Number(effectivePnl),
+      pnl: isOpen ? 0 : Number(effectivePnl),
       exit_reason: exitReason,
       note: note.trim() || null,
       chart_image: chartImage || null,
+      is_open: isOpen,
     };
     if (editingId) {
       updateTrade.mutate({ id: editingId, body }, { onSuccess: resetForm });
@@ -600,6 +605,7 @@ export default function DailyTargetPage() {
     setExitReason(t.exit_reason || EXIT_REASONS[0]);
     setNote(t.note || "");
     setChartImage("");
+    setIsOpen(!!t.is_open);
     if (t.has_image) {
       try {
         const img = await api.get<{ chart_image: string | null }>(`/daily/trade/${t.id}/image`);
@@ -687,7 +693,7 @@ export default function DailyTargetPage() {
 
   // Pattern leaderboard — group every logged trade by its setup, rank by realized edge.
   const patterns = useMemo(() => {
-    const allTrades = (history?.days ?? []).flatMap((d) => d.trades);
+    const allTrades = (history?.days ?? []).flatMap((d) => d.trades).filter((t) => !t.is_open);
     const map = new Map<string, DailyTradeRow[]>();
     for (const t of allTrades) {
       const k = t.setup || "—";
@@ -944,8 +950,9 @@ export default function DailyTargetPage() {
               className={inputCls}
               type="number"
               step="any"
-              placeholder="Exit"
-              value={exit}
+              placeholder={isOpen ? "Exit — n/a (open)" : "Exit"}
+              value={isOpen ? "" : exit}
+              disabled={isOpen}
               onChange={(e) => setExit(e.target.value)}
             />
             <input
@@ -972,8 +979,9 @@ export default function DailyTargetPage() {
               className={`${inputCls} font-semibold ${!pnlEdited && computedPnl !== null ? "text-bullish-text" : ""}`}
               type="number"
               step="any"
-              placeholder="P/L $ (auto)"
-              value={effectivePnl}
+              placeholder={isOpen ? "P/L — n/a (open)" : "P/L $ (auto)"}
+              value={isOpen ? "" : effectivePnl}
+              disabled={isOpen}
               onChange={(e) => {
                 setPnl(e.target.value);
                 setPnlEdited(true);
@@ -988,6 +996,15 @@ export default function DailyTargetPage() {
               ))}
             </select>
           </div>
+          <label className="flex items-center gap-2 text-[13px] text-text-secondary">
+            <input
+              type="checkbox"
+              checked={isOpen}
+              onChange={(e) => setIsOpen(e.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+            Still holding — open position (log the entry now, add the exit &amp; P/L when you close it)
+          </label>
           <textarea
             className={`${inputCls} w-full`}
             rows={2}
@@ -1024,7 +1041,7 @@ export default function DailyTargetPage() {
             </div>
             <button
               type="submit"
-              disabled={addTrade.isPending || updateTrade.isPending || !symbol.trim() || effectivePnl.trim() === ""}
+              disabled={addTrade.isPending || updateTrade.isPending || !symbol.trim() || (!isOpen && effectivePnl.trim() === "")}
               className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-[13px] font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50"
             >
               {editingId ? (
