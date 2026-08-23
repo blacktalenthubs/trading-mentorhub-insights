@@ -173,6 +173,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS trade_type VARCHAR(10) DEFAULT 'day'",
             "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS chart_image TEXT",
             "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS is_open BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS target VARCHAR(60)",
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS stop VARCHAR(60)",
             "ALTER TABLE daily_trades ALTER COLUMN note TYPE TEXT",
         ]:
             try:
