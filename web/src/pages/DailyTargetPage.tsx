@@ -749,6 +749,15 @@ export default function DailyTargetPage() {
     };
   }, [history]);
 
+  // Open book — capital deployed in positions still held (risk exposure: are you within your limits + stops?).
+  const openBook = useMemo(() => {
+    const opens = (history?.days ?? []).flatMap((d) => d.trades).filter((t) => t.is_open);
+    return {
+      count: opens.length,
+      invested: Math.round(opens.reduce((a, t) => a + (t.position_size ?? 0), 0) * 100) / 100,
+    };
+  }, [history]);
+
   // Pattern leaderboard — group every logged trade by its setup, rank by realized edge.
   const patterns = useMemo(() => {
     const allTrades = (history?.days ?? []).flatMap((d) => d.trades).filter((t) => !t.is_open);
@@ -927,6 +936,19 @@ export default function DailyTargetPage() {
             </span>
           </div>
         </div>
+
+        {/* Open book — capital deployed in positions still held (risk exposure) */}
+        {openBook.count > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/30 bg-accent/5 px-5 py-3">
+            <div className="text-[11px] uppercase tracking-wide text-text-faint">Open positions · capital deployed</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+              <span className="font-display text-lg font-bold text-text-primary">{usd(openBook.invested)}</span>
+              <span className="text-text-faint">
+                {openBook.count} open · mind your stops
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Log / edit a trade — collapsed by default (tap to open); auto-opens when editing */}
         <form
