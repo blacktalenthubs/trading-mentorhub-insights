@@ -47,6 +47,31 @@ const SETUPS = [
   "Other",
 ];
 
+const STRUCTURES = [
+  "",
+  "8 SMA",
+  "21 SMA",
+  "50 SMA",
+  "100 SMA",
+  "200 SMA",
+  "PDH",
+  "PDL",
+  "PWH",
+  "PWL",
+  "PMH",
+  "PML",
+  "PQH",
+  "PQL",
+  "Pivot",
+  "Range high",
+  "Range low",
+  "Prior high",
+  "Prior low",
+  "VWAP",
+  "Open",
+  "Other",
+];
+
 const EXIT_REASONS = [
   "Target hit",
   "Stop",
@@ -212,6 +237,8 @@ function DayTrades({
         case "size": return t.position_size ?? -Infinity;
         case "pnl": return t.pnl;
         case "reason": return t.exit_reason ?? "";
+        case "target": return t.target ?? "";
+        case "stop": return t.stop ?? "";
         default: return 0;
       }
     };
@@ -224,7 +251,7 @@ function DayTrades({
   }, [trades, sortKey, sortDir]);
   const fmtWhen = (s: string | null) =>
     s ? new Date(s).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "—";
-  const COLS = 11;
+  const COLS = 13;
   return (
     <div>
       {/* Desktop — sortable table (click a header to sort; click a row to expand note + chart) */}
@@ -241,6 +268,8 @@ function DayTrades({
               <Th label="Size" k="size" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
               <Th label="P/L" k="pnl" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
               <Th label="Exit" k="reason" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Target" k="target" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+              <Th label="Stop" k="stop" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
               <th className="px-3 py-2.5 text-center font-medium">Chart</th>
               <th className="px-3 py-2.5"></th>
             </tr>
@@ -282,6 +311,8 @@ function DayTrades({
                       {t.is_open ? "open" : usd(t.pnl)}
                     </td>
                     <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-text-muted">{t.target || "—"}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-text-muted">{t.stop || "—"}</td>
                     <td className="px-3 py-2.5 text-center">
                       {t.has_image ? "🖼" : t.note ? "📝" : <span className="text-text-faint/40">—</span>}
                     </td>
@@ -376,6 +407,18 @@ function DayTrades({
                       <span>{t.exit_reason}</span>
                     </>
                   ) : null}
+                  {t.target ? (
+                    <>
+                      <span className="text-text-faint/50">·</span>
+                      <span>🎯 {t.target}</span>
+                    </>
+                  ) : null}
+                  {t.stop ? (
+                    <>
+                      <span className="text-text-faint/50">·</span>
+                      <span>🛑 {t.stop}</span>
+                    </>
+                  ) : null}
                 </div>
               </button>
               {open && (
@@ -433,6 +476,8 @@ export default function DailyTargetPage() {
   const [instrument, setInstrument] = useState("stock");
   const [tradeType, setTradeType] = useState("day");
   const [setup, setSetup] = useState(SETUPS[0]);
+  const [target, setTarget] = useState(""); // structural target (level)
+  const [stop, setStop] = useState(""); // structural stop (level)
   const [direction, setDirection] = useState("long");
   const [entry, setEntry] = useState("");
   const [exit, setExit] = useState("");
@@ -455,6 +500,7 @@ export default function DailyTargetPage() {
   const [logOpen, setLogOpen] = useState(false); // the "Log a trade" form is collapsed by default (mobile-first)
   const [view, setView] = useState<"journal" | "patterns">("journal");
   const [patternSort, setPatternSort] = useState<"total" | "winrate" | "avg" | "count">("total");
+  const [groupBy, setGroupBy] = useState<"setup" | "target" | "stop">("setup");
   const [openSetup, setOpenSetup] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-screen chart image src
 
@@ -548,6 +594,8 @@ export default function DailyTargetPage() {
     setInstrument("stock");
     setTradeType("day");
     setSetup(SETUPS[0]);
+    setTarget("");
+    setStop("");
     setDirection("long");
     setEntry("");
     setExit("");
@@ -580,6 +628,8 @@ export default function DailyTargetPage() {
       note: note.trim() || null,
       chart_image: chartImage || null,
       is_open: isOpen,
+      target: target || null,
+      stop: stop || null,
     };
     if (editingId) {
       updateTrade.mutate({ id: editingId, body }, { onSuccess: resetForm });
@@ -594,6 +644,8 @@ export default function DailyTargetPage() {
     setInstrument(t.instrument || "stock");
     setTradeType(t.trade_type || "day");
     setSetup(t.setup || SETUPS[0]);
+    setTarget(t.target || "");
+    setStop(t.stop || "");
     setDirection(t.direction || "long");
     setEntry(t.entry_price != null ? String(t.entry_price) : "");
     setExit(t.exit_price != null ? String(t.exit_price) : "");
@@ -696,12 +748,12 @@ export default function DailyTargetPage() {
     const allTrades = (history?.days ?? []).flatMap((d) => d.trades).filter((t) => !t.is_open);
     const map = new Map<string, DailyTradeRow[]>();
     for (const t of allTrades) {
-      const k = t.setup || "—";
+      const k = (groupBy === "target" ? t.target : groupBy === "stop" ? t.stop : t.setup) || "—";
       const arr = map.get(k);
       if (arr) arr.push(t);
       else map.set(k, [t]);
     }
-    const rows = Array.from(map.entries()).map(([setup, ts]) => {
+    const rows = Array.from(map.entries()).map(([key, ts]) => {
       const total = Math.round(ts.reduce((a, t) => a + t.pnl, 0) * 100) / 100;
       const wins = ts.filter((t) => t.pnl > 0).length;
       const losses = ts.filter((t) => t.pnl < 0).length;
@@ -709,7 +761,7 @@ export default function DailyTargetPage() {
       const best = ts.reduce<DailyTradeRow | null>((b, t) => (t.pnl > (b?.pnl ?? -Infinity) ? t : b), null);
       const worst = ts.reduce<DailyTradeRow | null>((b, t) => (t.pnl < (b?.pnl ?? Infinity) ? t : b), null);
       return {
-        setup,
+        key,
         trades: ts,
         count: ts.length,
         wins,
@@ -728,7 +780,7 @@ export default function DailyTargetPage() {
       count: (a: (typeof rows)[0], b: (typeof rows)[0]) => b.count - a.count,
     };
     return rows.sort(by[patternSort]);
-  }, [history, patternSort]);
+  }, [history, patternSort, groupBy]);
 
   const isDayOpen = (date: string) => openDays[date] ?? date === todayStr;
 
@@ -995,6 +1047,32 @@ export default function DailyTargetPage() {
                 </option>
               ))}
             </select>
+            <select
+              className={inputCls}
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              title="Target — the structure you aim for (e.g. entered at 200 SMA, target the 50 SMA)"
+            >
+              <option value="">Target level…</option>
+              {STRUCTURES.filter(Boolean).map((x) => (
+                <option key={x} value={x}>
+                  🎯 {x}
+                </option>
+              ))}
+            </select>
+            <select
+              className={inputCls}
+              value={stop}
+              onChange={(e) => setStop(e.target.value)}
+              title="Stop — the structure that invalidates the trade (e.g. below the 200 SMA / PDL)"
+            >
+              <option value="">Stop level…</option>
+              {STRUCTURES.filter(Boolean).map((x) => (
+                <option key={x} value={x}>
+                  🛑 {x}
+                </option>
+              ))}
+            </select>
           </div>
           <label className="flex items-center gap-2 text-[13px] text-text-secondary">
             <input
@@ -1125,13 +1203,13 @@ export default function DailyTargetPage() {
         {view === "patterns" &&
           (patterns.length === 0 ? (
             <div className="bg-surface-1 border border-border-subtle rounded-xl p-5 text-sm text-text-muted">
-              Log some trades and your setups will rank here by realized edge.
+              Log some trades and they'll rank here by realized edge.
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3 px-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                 <div className="text-[12px] text-text-faint">
-                  Ranked by{" "}
+                  {groupBy === "setup" ? "Entry setups" : groupBy === "target" ? "Targets" : "Stops"} ranked by{" "}
                   {patternSort === "total"
                     ? "total P/L"
                     : patternSort === "winrate"
@@ -1140,29 +1218,44 @@ export default function DailyTargetPage() {
                         ? "avg P/L"
                         : "trade count"}
                 </div>
-                <select
-                  value={patternSort}
-                  onChange={(e) => setPatternSort(e.target.value as "total" | "winrate" | "avg" | "count")}
-                  className={`${inputCls} py-1 text-[12px]`}
-                >
-                  <option value="total">Total P/L</option>
-                  <option value="winrate">Win rate</option>
-                  <option value="avg">Avg P/L</option>
-                  <option value="count">Trade count</option>
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={groupBy}
+                    onChange={(e) => {
+                      setGroupBy(e.target.value as "setup" | "target" | "stop");
+                      setOpenSetup(null);
+                    }}
+                    className={`${inputCls} py-1 text-[12px]`}
+                    title="Group the leaderboard by entry setup, by target, or by stop"
+                  >
+                    <option value="setup">By setup</option>
+                    <option value="target">By target</option>
+                    <option value="stop">By stop</option>
+                  </select>
+                  <select
+                    value={patternSort}
+                    onChange={(e) => setPatternSort(e.target.value as "total" | "winrate" | "avg" | "count")}
+                    className={`${inputCls} py-1 text-[12px]`}
+                  >
+                    <option value="total">Total P/L</option>
+                    <option value="winrate">Win rate</option>
+                    <option value="avg">Avg P/L</option>
+                    <option value="count">Trade count</option>
+                  </select>
+                </div>
               </div>
               {patterns.map((p) => {
-                const open = openSetup === p.setup;
+                const open = openSetup === p.key;
                 return (
-                  <div key={p.setup} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
+                  <div key={p.key} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
                     <button
-                      onClick={() => setOpenSetup(open ? null : p.setup)}
+                      onClick={() => setOpenSetup(open ? null : p.key)}
                       className="w-full text-left px-4 py-3 hover:bg-surface-2/30"
                     >
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="flex items-center gap-2 font-semibold text-text-primary">
                           <ChevronRight className={`h-4 w-4 text-text-faint transition-transform ${open ? "rotate-90" : ""}`} />
-                          {p.setup}
+                          {p.key}
                         </span>
                         <span className={`font-mono font-semibold ${p.total < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
                           {usd(p.total)}

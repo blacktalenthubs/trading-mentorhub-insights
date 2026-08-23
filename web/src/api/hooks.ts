@@ -2549,6 +2549,8 @@ export interface DailyTradeRow {
   note: string | null;
   has_image?: boolean;
   is_open?: boolean;
+  target?: string | null;
+  stop?: string | null;
   created_at: string | null;
 }
 export interface DailySummary {
@@ -2578,6 +2580,8 @@ export interface DailyTradeInput {
   note?: string | null;
   chart_image?: string | null;
   is_open?: boolean;
+  target?: string | null;
+  stop?: string | null;
 }
 export function useDailySummary(date?: string) {
   return useQuery({

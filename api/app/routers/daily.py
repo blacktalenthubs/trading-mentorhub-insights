@@ -54,6 +54,8 @@ class TradeIn(BaseModel):
     position_size: Optional[float] = None  # $ deployed
     pnl: float = 0.0                   # realized P/L in $ (0 while a position is still open)
     is_open: bool = False              # still holding — no exit / not realized yet
+    target: Optional[str] = None       # structural target (50 SMA, PWH, ...)
+    stop: Optional[str] = None         # structural stop (200 SMA, PDL, ...)
     exit_reason: Optional[str] = None  # target | stop | into resistance | time | other
     note: Optional[str] = None
     chart_image: Optional[str] = None  # data: URL of a chart screenshot
@@ -80,6 +82,8 @@ def _trade_dict(t: DailyTrade) -> dict:
         "note": t.note,
         "has_image": t.chart_image is not None,
         "is_open": bool(t.is_open),
+        "target": t.target,
+        "stop": t.stop,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -216,6 +220,8 @@ async def add_trade(
         note=body.note,
         chart_image=body.chart_image,
         is_open=bool(body.is_open),
+        target=body.target,
+        stop=body.stop,
     )
     db.add(t)
     await db.flush()
@@ -268,6 +274,8 @@ async def update_trade(
     t.note = body.note
     t.chart_image = body.chart_image
     t.is_open = bool(body.is_open)
+    t.target = body.target
+    t.stop = body.stop
     await db.flush()
     return _trade_dict(t)
 
