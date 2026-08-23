@@ -2548,6 +2548,7 @@ export interface DailyTradeRow {
   exit_reason: string | null;
   note: string | null;
   has_image?: boolean;
+  is_open?: boolean;
   created_at: string | null;
 }
 export interface DailySummary {
@@ -2559,6 +2560,7 @@ export interface DailySummary {
   trade_count: number;
   wins: number;
   losses: number;
+  open_count?: number;
   trades: DailyTradeRow[];
 }
 export interface DailyTradeInput {
@@ -2575,6 +2577,7 @@ export interface DailyTradeInput {
   exit_reason?: string | null;
   note?: string | null;
   chart_image?: string | null;
+  is_open?: boolean;
 }
 export function useDailySummary(date?: string) {
   return useQuery({
@@ -2654,6 +2657,7 @@ export interface DailyDay {
   trade_count: number;
   wins: number;
   losses: number;
+  open_count?: number;
   trades: DailyTradeRow[];
 }
 export function useDailyHistory(limit = 60) {
