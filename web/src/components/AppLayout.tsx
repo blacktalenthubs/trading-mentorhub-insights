@@ -102,6 +102,13 @@ export default function AppLayout() {
   const isDailyOwner = (user?.email || "").toLowerCase() === "vbolofinde@gmail.com";
   const ownerNav: NavItem[] = isDailyOwner ? [...NAV_ITEMS, { to: "/daily", label: "Daily Target", icon: Wallet }] : NAV_ITEMS;
   const adminNav: NavItem[] = user?.is_admin ? [...ownerNav, { to: "/admin", label: "Admin", icon: Shield }] : ownerNav;
+  // Mobile "More" sheet — MOBILE_PRIMARY covers the 4 bar tabs; MORE_ITEMS holds the rest. The gated links
+  // (Daily Target, Admin) live only in the desktop rail's adminNav, so append them here too or mobile can't reach them.
+  const mobileMore: NavItem[] = [
+    ...MORE_ITEMS,
+    ...(isDailyOwner ? [{ to: "/daily", label: "Daily Target", icon: Wallet }] : []),
+    ...(user?.is_admin ? [{ to: "/admin", label: "Admin", icon: Shield }] : []),
+  ];
   const logout = useAuthStore((s) => s.logout);
   const { data: market } = useMarketStatus();
   const { isTrial, trialDaysLeft, tier } = useFeatureGate();
@@ -399,7 +406,7 @@ export default function AppLayout() {
                 <button onClick={() => setMoreOpen(false)} aria-label="Close" className="p-1 text-text-faint hover:text-text-secondary"><X className="h-[18px] w-[18px]" /></button>
               </div>
               <div className="grid grid-cols-2 gap-1.5 p-3">
-                {MORE_ITEMS.map((item) => {
+                {mobileMore.map((item) => {
                   const Icon = item.icon;
                   return (
                     <NavLink
