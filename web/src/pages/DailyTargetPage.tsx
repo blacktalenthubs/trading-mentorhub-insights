@@ -310,7 +310,7 @@ function DayTrades({
                     >
                       {t.is_open ? "open" : usd(t.pnl)}
                     </td>
-                    <td className="px-3 py-2.5 text-[12px]">{t.exit_reason || "—"}</td>
+                    <td className="px-3 py-2.5 text-[12px]">{t.is_open ? "—" : t.exit_reason || "—"}</td>
                     <td className="px-3 py-2.5 text-[12px] text-text-muted">{t.target || "—"}</td>
                     <td className="px-3 py-2.5 text-[12px] text-text-muted">{t.stop || "—"}</td>
                     <td className="px-3 py-2.5 text-center">
@@ -401,7 +401,7 @@ function DayTrades({
                       <span className="font-mono">{usd(t.position_size)}</span>
                     </>
                   ) : null}
-                  {t.exit_reason ? (
+                  {!t.is_open && t.exit_reason ? (
                     <>
                       <span className="text-text-faint/50">·</span>
                       <span>{t.exit_reason}</span>
@@ -624,10 +624,10 @@ export default function DailyTargetPage() {
       quantity: qty.trim() === "" ? null : Number(qty),
       position_size: effectiveSize.trim() === "" ? null : Number(effectiveSize),
       pnl: isOpen ? 0 : Number(effectivePnl),
-      exit_reason: exitReason,
       note: note.trim() || null,
       chart_image: chartImage || null,
       is_open: isOpen,
+      exit_reason: isOpen ? null : exitReason,
       target: target || null,
       stop: stop || null,
     };
@@ -1040,7 +1040,14 @@ export default function DailyTargetPage() {
               }}
               title={!pnlEdited && computedPnl !== null ? "Auto from entry, exit & size — type to override" : ""}
             />
-            <select className={inputCls} value={exitReason} onChange={(e) => setExitReason(e.target.value)}>
+            <select
+              className={inputCls}
+              value={isOpen ? "" : exitReason}
+              disabled={isOpen}
+              onChange={(e) => setExitReason(e.target.value)}
+              title={isOpen ? "No exit reason yet — you're still holding" : "How the trade ended"}
+            >
+              {isOpen && <option value="">Exit reason — n/a (open)</option>}
               {EXIT_REASONS.map((r) => (
                 <option key={r} value={r}>
                   {r}
