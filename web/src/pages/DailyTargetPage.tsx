@@ -516,6 +516,7 @@ export default function DailyTargetPage() {
   const [instFilter, setInstFilter] = useState<"all" | "stock" | "option">("all"); // scope patterns to stocks / options
   const [openSetup, setOpenSetup] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-screen chart image src
+  const [openBookOpen, setOpenBookOpen] = useState(false); // expand the open-positions allocation breakdown
 
   // Editing a trade opens the form (and scrolls it into view via the auto-expand).
   useEffect(() => {
@@ -762,6 +763,7 @@ export default function DailyTargetPage() {
     return {
       count: opens.length,
       invested: Math.round(opens.reduce((a, t) => a + (t.position_size ?? 0), 0) * 100) / 100,
+      trades: opens,
     };
   }, [history]);
 
@@ -951,16 +953,47 @@ export default function DailyTargetPage() {
           </div>
         </div>
 
-        {/* Open book — capital deployed in positions still held (risk exposure) */}
+        {/* Open book — capital deployed in positions still held (tap to expand per-position allocation) */}
         {openBook.count > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-accent/30 bg-accent/5 px-5 py-3">
-            <div className="text-[11px] uppercase tracking-wide text-text-faint">Open positions · capital deployed</div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-              <span className="font-display text-lg font-bold text-text-primary">{usd(openBook.invested)}</span>
-              <span className="text-text-faint">
-                {openBook.count} open · mind your stops
-              </span>
-            </div>
+          <div className="overflow-hidden rounded-xl border border-accent/30 bg-accent/5">
+            <button
+              onClick={() => setOpenBookOpen((o) => !o)}
+              className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-3 text-left"
+            >
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-text-faint">
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform ${openBookOpen ? "rotate-90" : ""}`} />
+                Open positions · capital deployed
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+                <span className="font-display text-lg font-bold text-text-primary">{usd(openBook.invested)}</span>
+                <span className="text-text-faint">{openBook.count} open · mind your stops</span>
+              </div>
+            </button>
+            {openBookOpen && (
+              <div className="divide-y divide-border-subtle/40 border-t border-accent/20">
+                {[...openBook.trades]
+                  .sort((a, b) => (b.position_size ?? 0) - (a.position_size ?? 0))
+                  .map((t) => {
+                    const size = t.position_size ?? 0;
+                    const pct = openBook.invested > 0 ? Math.round((size / openBook.invested) * 100) : 0;
+                    return (
+                      <div key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2 text-[12px]">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                          <span className="text-[10px] uppercase text-text-faint">{t.instrument}</span>
+                          <span className="text-text-faint">{t.setup || "—"}</span>
+                          {t.stop ? <span className="text-text-faint">· 🛑 {t.stop}</span> : null}
+                        </div>
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-surface-3">
+                          <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="w-24 text-right font-mono text-text-secondary">{usd(size)}</span>
+                        <span className="w-10 text-right text-text-faint">{pct}%</span>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
