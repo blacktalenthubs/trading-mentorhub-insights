@@ -477,8 +477,8 @@ export default function DailyTargetPage() {
   const [instrument, setInstrument] = useState("stock");
   const [tradeType, setTradeType] = useState("day");
   const [setup, setSetup] = useState(SETUPS[0]);
-  const [target, setTarget] = useState(""); // structural target (level)
-  const [stop, setStop] = useState(""); // structural stop (level)
+  const [targetLevel, setTargetLevel] = useState(""); // structural target (level)
+  const [stopLevel, setStopLevel] = useState(""); // structural stop (level)
   const [direction, setDirection] = useState("long");
   const [entry, setEntry] = useState("");
   const [exit, setExit] = useState("");
@@ -595,8 +595,8 @@ export default function DailyTargetPage() {
     setInstrument("stock");
     setTradeType("day");
     setSetup(SETUPS[0]);
-    setTarget("");
-    setStop("");
+    setTargetLevel("");
+    setStopLevel("");
     setDirection("long");
     setEntry("");
     setExit("");
@@ -629,8 +629,8 @@ export default function DailyTargetPage() {
       chart_image: chartImage || null,
       is_open: isOpen,
       exit_reason: isOpen ? null : exitReason,
-      target: target || null,
-      stop: stop || null,
+      target: targetLevel || null,
+      stop: stopLevel || null,
     };
     if (editingId) {
       updateTrade.mutate({ id: editingId, body }, { onSuccess: resetForm });
@@ -645,8 +645,8 @@ export default function DailyTargetPage() {
     setInstrument(t.instrument || "stock");
     setTradeType(t.trade_type || "day");
     setSetup(t.setup || SETUPS[0]);
-    setTarget(t.target || "");
-    setStop(t.stop || "");
+    setTargetLevel(t.target || "");
+    setStopLevel(t.stop || "");
     setDirection(t.direction || "long");
     setEntry(t.entry_price != null ? String(t.entry_price) : "");
     setExit(t.exit_price != null ? String(t.exit_price) : "");
@@ -1057,8 +1057,8 @@ export default function DailyTargetPage() {
             </select>
             <select
               className={inputCls}
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
+              value={targetLevel}
+              onChange={(e) => setTargetLevel(e.target.value)}
               title="Target — the structure you aim for (e.g. entered at 200 SMA, target the 50 SMA)"
             >
               <option value="">Target level…</option>
@@ -1070,8 +1070,8 @@ export default function DailyTargetPage() {
             </select>
             <select
               className={inputCls}
-              value={stop}
-              onChange={(e) => setStop(e.target.value)}
+              value={stopLevel}
+              onChange={(e) => setStopLevel(e.target.value)}
               title="Stop — the structure that invalidates the trade (e.g. below the 200 SMA / PDL)"
             >
               <option value="">Stop level…</option>
