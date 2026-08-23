@@ -52,7 +52,8 @@ class TradeIn(BaseModel):
     exit_price: Optional[float] = None
     quantity: Optional[float] = None       # shares (stock) or contracts (option)
     position_size: Optional[float] = None  # $ deployed
-    pnl: float                         # realized P/L in $
+    pnl: float = 0.0                   # realized P/L in $ (0 while a position is still open)
+    is_open: bool = False              # still holding — no exit / not realized yet
     exit_reason: Optional[str] = None  # target | stop | into resistance | time | other
     note: Optional[str] = None
     chart_image: Optional[str] = None  # data: URL of a chart screenshot
@@ -78,6 +79,7 @@ def _trade_dict(t: DailyTrade) -> dict:
         "exit_reason": t.exit_reason,
         "note": t.note,
         "has_image": t.chart_image is not None,
+        "is_open": bool(t.is_open),
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -105,21 +107,23 @@ async def summary(
         .order_by(DailyTrade.created_at)
     )
     trades = list(res.scalars().all())
-    total = round(sum(t.pnl for t in trades), 2)
+    realized = [t for t in trades if not t.is_open]  # open positions are NOT realized — excluded from the number
+    total = round(sum(t.pnl for t in realized), 2)
     sess = await _get_session_row(db, user.id, d)
     target = sess.target if sess else _user_default_target(user)
     closed = bool(sess.closed) if sess else False
-    wins = sum(1 for t in trades if t.pnl > 0)
-    losses = sum(1 for t in trades if t.pnl < 0)
+    wins = sum(1 for t in realized if t.pnl > 0)
+    losses = sum(1 for t in realized if t.pnl < 0)
     return {
         "date": d,
         "target": target,
         "total_pnl": total,
         "hit": total >= target,
         "closed": closed,
-        "trade_count": len(trades),
+        "trade_count": len(realized),
         "wins": wins,
         "losses": losses,
+        "open_count": len(trades) - len(realized),
         "trades": [_trade_dict(t) for t in trades],
     }
 
@@ -147,7 +151,8 @@ async def history(
     days = []
     for d in sorted(by_date.keys(), reverse=True)[:limit]:
         ts = by_date[d]
-        total = round(sum(t.pnl for t in ts), 2)
+        realized = [t for t in ts if not t.is_open]
+        total = round(sum(t.pnl for t in realized), 2)
         sess = sessions.get(d)
         target = sess.target if sess else _user_default_target(user)
         days.append({
@@ -156,9 +161,10 @@ async def history(
             "total_pnl": total,
             "hit": total >= target,
             "closed": bool(sess.closed) if sess else False,
-            "trade_count": len(ts),
-            "wins": sum(1 for t in ts if t.pnl > 0),
-            "losses": sum(1 for t in ts if t.pnl < 0),
+            "trade_count": len(realized),
+            "wins": sum(1 for t in realized if t.pnl > 0),
+            "losses": sum(1 for t in realized if t.pnl < 0),
+            "open_count": len(ts) - len(realized),
             "trades": [_trade_dict(t) for t in ts],
         })
     return {"days": days}
@@ -205,10 +211,11 @@ async def add_trade(
         exit_price=body.exit_price,
         quantity=body.quantity,
         position_size=body.position_size,
-        pnl=float(body.pnl),
+        pnl=float(body.pnl or 0.0),
         exit_reason=body.exit_reason,
         note=body.note,
         chart_image=body.chart_image,
+        is_open=bool(body.is_open),
     )
     db.add(t)
     await db.flush()
@@ -256,10 +263,11 @@ async def update_trade(
     t.exit_price = body.exit_price
     t.quantity = body.quantity
     t.position_size = body.position_size
-    t.pnl = float(body.pnl)
+    t.pnl = float(body.pnl or 0.0)
     t.exit_reason = body.exit_reason
     t.note = body.note
     t.chart_image = body.chart_image
+    t.is_open = bool(body.is_open)
     await db.flush()
     return _trade_dict(t)
 
