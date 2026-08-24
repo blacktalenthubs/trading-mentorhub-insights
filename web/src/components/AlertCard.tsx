@@ -46,7 +46,15 @@ export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: 
   const dir = (a.direction || "").toUpperCase();
   const long = dir === "BUY" || dir === "LONG";
   const grade = (a.grade || "C").toUpperCase();
-  const why = a.description || a.entry_guidance || formatSetup(a.alert_type);
+  // Pine's plain-English note carries the specific level context ("reclaim of PDL 76525 · LONG · stop below…").
+  // It lives in `message` behind a "[TV] <rule> (<interval>) · " prefix — strip that and use it when a type has
+  // no canned description (e.g. structural_breakout), so the card says WHAT level, not just "Structure breakout".
+  const noteFromMsg = (() => {
+    if (!a.message) return "";
+    const i = a.message.indexOf("·");
+    return i >= 0 ? a.message.slice(i + 1).trim() : "";
+  })();
+  const why = a.description || a.entry_guidance || noteFromMsg || formatSetup(a.alert_type);
 
   const report = useReportTrade();
   const ack = useAckAlert();
