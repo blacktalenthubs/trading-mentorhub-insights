@@ -1,0 +1,152 @@
+//@version=5
+// =============================================================================
+// PROXIMITY MAs · FLAT — 8/20/50/100/200 SMA + 50/100/200 EMA as flat levels. NO structural levels.
+// =============================================================================
+// The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
+// as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
+// price is NOW: green ▲ = SUPPORT (price above it), red ▼ = RESISTANCE (price below it).
+// Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
+//
+// Two show-rules:
+//   1. The SHORT MAs (8 / 20 / 50 SMA) ALWAYS draw — they're the core entry references (8 SMA
+//      reclaim, 50 SMA support), so they bypass the proximity bracket entirely.
+//   2. Everything else draws only inside the nearest-N bracket: the N closest MAs ABOVE price and
+//      N closest BELOW (default 3 each). A far 200 EMA stays hidden until price approaches, so it
+//      can never stretch the axis.
+// MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
+//
+// NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
+// same idiom as active/ma_ema_daily.pine. That's yesterday's closed daily MA, which is what a flat
+// structural line should be; lookahead_off reads the developing value and shifts intrabar.
+//
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
+indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 30, max_labels_count = 30)
+
+// ── which MAs ───────────────────────────────────────────────────────────────────
+gMA    = "Moving averages"
+maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/20/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
+en8    = input.bool(true, "8 SMA",   inline = "ma1", group = gMA)
+en20   = input.bool(true, "20 SMA",  inline = "ma1", group = gMA)
+en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
+en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
+en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
+en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
+en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
+en200e = input.bool(true, "200 EMA", inline = "ma3", group = gMA)
+mergePct = input.float(0.20, "Merge MAs within (%) into one line", group = gMA, minval = 0.0, maxval = 2, step = 0.05, tooltip = "MAs within this % of each other collapse into ONE line naming all (e.g. '50 SMA · 200 EMA'). 0 = draw each separately.") / 100.0
+
+// ── proximity ───────────────────────────────────────────────────────────────────
+gN        = "Proximity"
+nBracket  = input.int(3, "Show this many NEAREST MAs above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Always draw the N closest MAs ABOVE price and the N closest BELOW — a count, not a %, so every symbol shows the same-size near-price set.")
+alwaysShort = input.bool(true, "Always show 8 / 20 / 50 SMA (ignore the bracket)", group = gN, tooltip = "ON (default) = the three short SMAs draw at any distance — they're the entry references you never want hidden. The 100/200 SMA·EMA stay bracket-gated so they can't compress the axis.")
+farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
+showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+supCol    = input.color(#26A69A, "Support (price above)",    group = gV)
+resCol    = input.color(#EF5350, "Resistance (price below)", group = gV)
+wLine     = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+dotted    = input.bool(true, "Draw MAs dotted (so a MA still reads as a MA)", group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── values — SETTLED higher-TF MA ([1] + lookahead_on), the ma_ema_daily idiom. Flat, non-repainting.
+// (each call written out in full — a request.security wrapped in a helper that also branches is the
+//  one shape that bites; this is the exact form proximity_levels_pure / ma_ema_daily already use)
+sma8v   = en8    ? request.security(syminfo.tickerid, maTf, ta.sma(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
+sma20v  = en20   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on) : na
+sma50v  = en50   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
+sma100v = en100  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on) : na
+sma200v = en200  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
+ema100v = en100e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on) : na
+ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+
+// ── collection + flat-line drawing ──────────────────────────────────────────────
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _maV = array.new_float()
+var string[] _maN = array.new_string()
+var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
+var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+// the SHORT MAs (8/20/50 SMA) bypass the bracket; the long ones stay gated so they can't compress the axis
+f_draw(float v, string nm) =>
+    _core = alwaysShort and (str.contains(nm, "8 SMA") or str.contains(nm, "20 SMA") or str.contains(nm, "50 SMA"))
+    _inBr = v <= _brkHi and v >= _brkLo
+    _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
+    if not na(v) and v > 0 and (showAll or _core or (_inBr and _cap))
+        col = close > v ? supCol : resCol
+        _xo = f_xoff(v)
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ " : "  ▼ ") + str.tostring(v, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+f_collect(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_maV, v)
+        array.push(_maN, nm)
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_maV)
+    array.clear(_maN)
+    array.clear(_drawnY)
+    f_collect(sma8v,   "8 SMA")
+    f_collect(sma20v,  "20 SMA")
+    f_collect(sma50v,  "50 SMA")
+    f_collect(sma100v, "100 SMA")
+    f_collect(sma200v, "200 SMA")
+    f_collect(ema50v,  "50 EMA")
+    f_collect(ema100v, "100 EMA")
+    f_collect(ema200v, "200 EMA")
+    // ── NEAREST-N bracket — the N closest MAs above price and N closest below ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_maV) > 0
+        for _i = 0 to array.size(_maV) - 1
+            v = array.get(_maV, _i)
+            if v > close
+                array.push(_ab, v)
+            else if v < close
+                array.push(_bl, v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    _brkHi := array.size(_ab) > 0 ? array.get(_ab, math.min(nBracket, array.size(_ab)) - 1) : 1.0e18
+    _brkLo := array.size(_bl) > 0 ? array.get(_bl, math.min(nBracket, array.size(_bl)) - 1) : -1.0
+    // ── MERGE stacked MAs into one line, then draw (the bracket test lives in f_draw) ──
+    _n = array.size(_maV)
+    if _n > 0
+        _ord = array.sort_indices(_maV, order.ascending)
+        _i = 0
+        while _i < _n
+            _s  = array.get(_ord, _i)
+            _lo = array.get(_maV, _s)
+            _hi = _lo
+            _nm = array.get(_maN, _s)
+            _j  = _i + 1
+            while _j < _n
+                _vj = array.get(_maV, array.get(_ord, _j))
+                if mergePct > 0 and _vj <= _hi * (1.0 + mergePct)
+                    _hi := _vj
+                    _nm := _nm + " · " + array.get(_maN, array.get(_ord, _j))
+                    _j  := _j + 1
+                else
+                    break
+            f_draw((_lo + _hi) / 2.0, _nm)
+            _i := _j
