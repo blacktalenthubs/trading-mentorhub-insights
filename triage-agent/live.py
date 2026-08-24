@@ -422,9 +422,24 @@ def process_alert(alert_id, budget, dry_run=False):
     try:
         result = triage_mod.triage(dict(alert), user_id=USER_ID)
     except Exception:
-        logger.exception("triage threw for alert #%s", alert_id)
-        write_audit({"alert_id": alert_id, "verdict": "ERROR",
-                     "reason": "triage exception"})
+        # RESILIENCE (2026-08-24): the AI narration is down (e.g. Anthropic credits exhausted / API
+        # outage). Do NOT blackhole the alert — that silently killed Telegram delivery for weeks. Deliver
+        # a PLAIN, un-narrated alert instead so a triage failure can never stop delivery again. Forced
+        # mode="all" so the fallback always sends during an outage, regardless of the configured POST_MODE.
+        logger.exception("triage threw for alert #%s — sending FALLBACK plain alert", alert_id)
+        fb_ok = None
+        try:
+            if not dry_run:
+                fb_ok = telegram_post.send_verdict(
+                    alert,
+                    {"verdict": "NORMAL", "reason": "⚠ AI triage unavailable — plain alert (verify)"},
+                    mode="all",
+                )
+        except Exception:
+            logger.exception("FALLBACK telegram send ALSO failed for #%s", alert_id)
+        write_audit({"alert_id": alert_id, "verdict": "FALLBACK",
+                     "reason": "triage exception — plain alert delivered",
+                     "telegram_sent": fb_ok})
         save_cursor(alert_id)
         return
 
