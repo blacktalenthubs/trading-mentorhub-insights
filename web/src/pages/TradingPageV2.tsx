@@ -901,6 +901,13 @@ function SignalFeedTab({
         // Collapsed (deduped/merged) — only visible when "Show collapsed" is on.
         // Badge it distinctly + dim hard so it reads as "dropped, for audit".
         const colLabel = collapsedLabel(a.suppressed_reason);
+        // Pine's plain-English note (level + trigger) lives in `message` behind a "[TV] <rule> (<tf>) · " prefix.
+        // Strip the prefix by PATTERN (robust to the exact separator char); "" if there's no note beyond the prefix.
+        // This is what gives structural_breakout its "reclaim of PDL 76525 · LONG · stop…" instead of a bare label.
+        const levelNote = (a.message || "")
+          .replace(/^\[TV\]\s+(?:SWING\s+)?\S+\s*(?:\([^)]*\))?\s*/, "")
+          .replace(/^[·•|:\-\s]+/, "")
+          .trim();
         // Fired but not routed to Telegram (e.g. SPY < PDL) — show greyed +
         // badged so it's reviewable without reading as a live, delivered call.
         const nrLabel = colLabel ? null : notRoutedLabel(a.suppressed_reason);
@@ -974,14 +981,13 @@ function SignalFeedTab({
               })()}
             </div>
 
-            {/* plain-English meaning — what the setup IS, so jargon ("Rc 4h Hrec") isn't the only
-                label. Uses the curated per-type blurb; a.message is an unreliable "[TV] type (tf)"
-                fallback for NOT_SENT alerts, so it is NOT preferred here. */}
-            {setupBlurb(a.alert_type) && (
-              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">
-                {setupBlurb(a.alert_type)}
-              </p>
-            )}
+            {/* the SPECIFIC context first — the pine note names the level + trigger ("reclaim of PDL 76525 ·
+                LONG · stop below…"). Falls back to the curated per-type blurb when there's no note. */}
+            {levelNote ? (
+              <p className="mt-1 text-[11px] leading-snug text-text-secondary line-clamp-2">{levelNote}</p>
+            ) : setupBlurb(a.alert_type) ? (
+              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">{setupBlurb(a.alert_type)}</p>
+            ) : null}
 
             {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
             {a.entry != null ? (
