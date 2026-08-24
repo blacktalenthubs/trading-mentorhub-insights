@@ -1,0 +1,253 @@
+//@version=5
+// =============================================================================
+// PROXIMITY LEVELS · STRUCTURAL ONLY — the horizontal battle lines. NO MAs, at all.
+// =============================================================================
+// The levels half of Proximity Levels · Pure, on its own. Nothing but the structural prices a
+// level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC · yesterday's inner
+// 4h H/L · the O'Neil base pivot. No SMA, no EMA, no MA confluence tags — if you want the moving
+// averages, run "Proximity MAs · Flat" alongside this.
+//
+// EVERYTHING is a FLAT line, role-colored by where price is NOW: green ▲ = SUPPORT (price above it),
+// red ▼ = RESISTANCE (price below it). RTH-accurate (regular-session ticker, so extended-hours
+// prints never leak into the H/L) and non-repainting (settled [1] + lookahead).
+//
+// Two show-rules keep it clean but never blind:
+//   1. ALWAYS draw the N nearest levels ABOVE price and N nearest BELOW (default 3 each) — a count,
+//      not a %, so a $1000 stock and a $30 stock both show the same-size near-price set.
+//   2. PDH/PDL always draw regardless of distance — they're the day's rails.
+// CONFLUENCE: levels stacked within ±0.4% merge into ONE thicker line whose label names every
+// member + a ·×N count ("PWH + PMH ·×2") — a wall reads at a glance.
+//
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook. Safe to run next to
+// the emitting pines without double-firing anything.
+indicator("Proximity Levels · Structural", "Prox Levels", overlay = true, max_lines_count = 60, max_labels_count = 100)
+
+// ── proximity + confluence ──────────────────────────────────────────────────────
+gN        = "Proximity"
+nBracket  = input.int(3, "Show this many NEAREST levels above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Always draw the N closest levels ABOVE price and the N closest BELOW, so every symbol shows the same-size near-price set. A % band can't do that (5% is $50 on a $1000 stock and $1.50 on a $30 one).")
+farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5, tooltip = "Safety valve: if the nearest level is far enough to compress the axis, hide anything beyond ± this %. 0 = off.") / 100.0
+confPct   = input.float(0.4, "Confluence — merge levels within ± % into one", group = gN, minval = 0.05, maxval = 3, step = 0.05) / 100.0
+showAll   = input.bool(false, "Show ALL levels (ignore proximity — will compress the scale)", group = gN)
+
+// ── which structural levels ─────────────────────────────────────────────────────
+gC    = "Levels (uncheck any one to hide it)"
+enPDH = input.bool(true, "PDH", group = gC, inline = "pd")
+enPDL = input.bool(true, "PDL", group = gC, inline = "pd")
+enPWH = input.bool(true, "PWH", group = gC, inline = "pw")
+enPWL = input.bool(true, "PWL", group = gC, inline = "pw")
+enPWC = input.bool(true, "PWC", group = gC, inline = "pw")
+enPMH = input.bool(true, "PMH", group = gC, inline = "pm")
+enPML = input.bool(true, "PML", group = gC, inline = "pm")
+enPMC = input.bool(true, "PMC", group = gC, inline = "pm")
+enPQH = input.bool(true, "PQH", group = gC, inline = "pq")
+enPQL = input.bool(true, "PQL", group = gC, inline = "pq")
+enPQC = input.bool(true, "PQC", group = gC, inline = "pq")
+en4h  = input.bool(true, "Yesterday's INNER 4h high / low (the two that aren't PDH/PDL)", group = gC, tooltip = "Yesterday's two RTH 4h candles give 4 prices. The outer high IS PDH and the outer low IS PDL (already drawn) — this adds the INNER pair, the mid-range 4h reaction levels.")
+
+// ── pivot (O'Neil base high) ────────────────────────────────────────────────────
+gPV     = "Pivot (O'Neil base high)"
+enPivot = input.bool(true, "Base-high pivot as a level", group = gPV, tooltip = "The highest high of the last N pivot-TF bars, drawn flat. Weekly = the O'Neil base high.")
+pivotTf = input.timeframe("W", "Pivot timeframe", group = gPV)
+baseLen = input.int(7, "Base length (bars of the pivot TF)", group = gPV, minval = 3, maxval = 40)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+supCol    = input.color(#26A69A, "Support (price above)",    group = gV)
+resCol    = input.color(#EF5350, "Resistance (price below)", group = gV)
+wLine     = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when levels are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── day open + take-profit nudge ────────────────────────────────────────────────
+gO        = "Day open"
+enOpen    = input.bool(true, "Mark the day's open + tag the levels it bracketed", group = gO, tooltip = "Where price OPENED sets each level's role for the session: nearest level BELOW the open = today's support, nearest ABOVE = today's resistance.")
+openCol   = input.color(color.new(#EAB308, 0), "Open line", group = gO)
+enPdlStop = input.bool(true, "Flag PDL as the 🛑 STOP in its label (Redler: lose it, you're out)", group = gO)
+gTP       = "Take-profit into resistance"
+enTp      = input.bool(true, "Warn when price reaches the nearest resistance above", group = gTP, tooltip = "When price rallies to within the band below the nearest drawn level above it, a subtle amber tag says 'into <level> — take profit'.")
+tpBand    = input.float(0.30, "Warn within this % below the resistance", group = gTP, minval = 0.05, maxval = 3, step = 0.05) / 100.0
+tpCol     = input.color(color.new(#F59E0B, 0), "Warning tag", group = gTP)
+
+// ── values — RTH-accurate, settled, non-repainting ──────────────────────────────
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+f_rth(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
+pdh = f_rth("D",  high[1])
+pdl = f_rth("D",  low[1])
+pwh = f_rth("W",  high[1])
+pwl = f_rth("W",  low[1])
+pwc = f_rth("W",  close[1])
+pmh = f_rth("M",  high[1])
+pml = f_rth("M",  low[1])
+pmc = f_rth("M",  close[1])
+pqh = f_rth("3M", high[1])
+pql = f_rth("3M", low[1])
+pqc = f_rth("3M", close[1])
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+pivot   = f_rth(pivotTf, ta.highest(high, baseLen)[1])
+// yesterday's last TWO 4h candles (RTH), frozen at each new session so they stay YESTERDAY's all day
+_isEq4h   = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
+_newBlk4h = ta.change(time(_isEq4h ? "D" : "480")) != 0
+[_ph1, _pl1, _ph2, _pl2] = request.security(rthTid, "240", [high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_on)
+var float _yh1 = na
+var float _yl1 = na
+var float _yh2 = na
+var float _yl2 = na
+if na(_yh1) or _newBlk4h
+    _yh1 := _ph1
+    _yl1 := _pl1
+    _yh2 := _ph2
+    _yl2 := _pl2
+innerHigh = not na(_yh1) and not na(_yh2) ? math.min(_yh1, _yh2) : na
+innerLow  = not na(_yl1) and not na(_yl2) ? math.max(_yl1, _yl2) : na
+// only show an inner level when it's meaningfully off PDH/PDL (degenerate day = both 4h highs equal → skip the dup)
+_show4hH = en4h and not na(innerHigh) and (na(pdh) or math.abs(innerHigh - pdh) / pdh > 0.0005)
+_show4hL = en4h and not na(innerLow)  and (na(pdl) or math.abs(innerLow  - pdl) / pdl > 0.0005)
+
+// ── collection + flat-line drawing (with confluence clustering) ─────────────────
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _cv = array.new_float()      // ALL candidates (bracket calc + draw filter)
+var string[] _cn = array.new_string()
+var bool[]   _ca = array.new_bool()       // always-draw? (PDH/PDL — never proximity-filtered)
+var float[]  _dv = array.new_float()      // what will actually be drawn
+var string[] _dn = array.new_string()
+var float[]  _drawnY = array.new_float()  // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18              // Nth-nearest ABOVE price — bracket top
+var float    _brkLo = -1.0                // Nth-nearest BELOW price — bracket bottom
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+f_draw(float lvl, string nm, int w) =>
+    sup = close > lvl
+    col = sup ? supCol : resCol
+    _xo = f_xoff(lvl)
+    array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + _xo, lvl, color = col, width = w, extend = extendAll ? extend.both : extend.none))
+    array.push(_lb, label.new(bar_index + _xo, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+f_cand(float v, string nm, bool show, bool always) =>
+    if show and not na(v) and v > 0
+        array.push(_cv, v)
+        array.push(_cn, nm)
+        array.push(_ca, always)
+f_add(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_dv, v)
+        array.push(_dn, nm)
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_cv)
+    array.clear(_cn)
+    array.clear(_ca)
+    array.clear(_dv)
+    array.clear(_dn)
+    array.clear(_drawnY)
+    // candidates — PDH/PDL ALWAYS draw; everything else obeys the nearest-N bracket
+    f_cand(pdh, "PDH", enPDH, true)
+    f_cand(pdl, "PDL", enPDL, true)
+    f_cand(pwh, "PWH", enPWH, false)
+    f_cand(pwl, "PWL", enPWL, false)
+    f_cand(pwc, "PWC", enPWC, false)
+    f_cand(pmh, "PMH", enPMH, false)
+    f_cand(pml, "PML", enPML, false)
+    f_cand(pmc, "PMC", enPMC, false)
+    f_cand(pqh, "PQH", enPQH, false)
+    f_cand(pql, "PQL", enPQL, false)
+    f_cand(pqc, "PQC", enPQC, false)
+    f_cand(pivot, "PIVOT", enPivot, false)
+    f_cand(innerHigh, "4H H", _show4hH, false)
+    f_cand(innerLow,  "4H L", _show4hL, false)
+    // ── NEAREST-N bracket — the N closest above price and N closest below ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            if v > close
+                array.push(_ab, v)
+            else if v < close
+                array.push(_bl, v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    _brkHi := array.size(_ab) > 0 ? array.get(_ab, math.min(nBracket, array.size(_ab)) - 1) : 1.0e18
+    _brkLo := array.size(_bl) > 0 ? array.get(_bl, math.min(nBracket, array.size(_bl)) - 1) : -1.0
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            _inBr = (v > close and v <= _brkHi) or (v < close and v >= _brkLo)
+            _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
+            if showAll or array.get(_ca, _i) or (_inBr and _cap)
+                f_add(v, array.get(_cn, _i))
+    // day-open bracket — the drawn level nearest BELOW the open (day support) & nearest ABOVE (day resistance)
+    oSupV = -1.0
+    oResV = 1.0e18
+    if enOpen and not na(dayOpen) and array.size(_dv) > 0
+        for _i = 0 to array.size(_dv) - 1
+            v = array.get(_dv, _i)
+            if v < dayOpen and v > oSupV
+                oSupV := v
+            if v > dayOpen and v < oResV
+                oResV := v
+    // ── CONFLUENCE — group levels within confPct into ONE thicker line naming every member ──
+    if array.size(_dv) > 0
+        _used = array.new_bool(array.size(_dv), false)
+        for _i = 0 to array.size(_dv) - 1
+            if not array.get(_used, _i)
+                vi    = array.get(_dv, _i)
+                nm    = array.get(_dn, _i)
+                _isPd = str.contains(nm, "PDH") or str.contains(nm, "PDL")   // day rails never merge — keep the EXACT price
+                cnt   = 1
+                isOS  = vi == oSupV
+                isOR  = vi == oResV
+                _near  = vi                       // the merged line sits on the REAL member nearest price,
+                _nearD = math.abs(close - vi)     //   never a fabricated average that lands on none of them
+                array.set(_used, _i, true)
+                if not _isPd and _i < array.size(_dv) - 1
+                    for _j = _i + 1 to array.size(_dv) - 1
+                        _vj  = array.get(_dv, _j)
+                        _nmj = array.get(_dn, _j)
+                        _jPd = str.contains(_nmj, "PDH") or str.contains(_nmj, "PDL")
+                        if not array.get(_used, _j) and not _jPd and math.abs(_vj - vi) / vi <= confPct
+                            nm   := nm + " + " + _nmj
+                            cnt  := cnt + 1
+                            isOS := isOS or _vj == oSupV
+                            isOR := isOR or _vj == oResV
+                            if math.abs(close - _vj) < _nearD
+                                _near  := _vj
+                                _nearD := math.abs(close - _vj)
+                            array.set(_used, _j, true)
+                base = cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm
+                tag  = isOS ? "  ⊙ opened ABOVE (day support)" : isOR ? "  ⊙ opened BELOW (day resist)" : ""
+                tag  := (enPdlStop and str.contains(nm, "PDL")) ? tag + "  · 🛑 STOP" : tag
+                f_draw(_near, base + tag, cnt > 1 or isOS or isOR ? wLine + 2 : wLine)
+    // ── the day's OPEN — drawn LAST so its tag is never hidden ──
+    if enOpen and not na(dayOpen)
+        _bias = not na(pdh) and dayOpen > pdh ? " ▲ strong" : not na(pdl) and dayOpen < pdl ? " ▼ weak" : ""
+        _nbDn = oSupV > 0      ? str.tostring(oSupV, format.mintick) : "—"
+        _nbUp = oResV < 1.0e17 ? str.tostring(oResV, format.mintick) : "—"
+        _oxo  = f_xoff(dayOpen)
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _bias + "  ·  between  S " + _nbDn + "  ↔  R " + _nbUp, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
+    // ── TAKE-PROFIT nudge — nearest DRAWN level above price ──
+    if enTp and array.size(_dv) > 0
+        _rUp = 1.0e18
+        _rNm = ""
+        for _i = 0 to array.size(_dv) - 1
+            _vv = array.get(_dv, _i)
+            if _vv > close and _vv < _rUp
+                _rUp := _vv
+                _rNm := array.get(_dn, _i)
+        if _rUp < 1.0e17 and close >= _rUp * (1 - tpBand)
+            array.push(_lb, label.new(bar_index, high, "⚠ into " + _rNm + " " + str.tostring(_rUp, format.mintick) + " — take profit", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(tpCol, 10), textcolor = color.white, size = size.small))
