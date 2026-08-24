@@ -543,11 +543,15 @@ function SignalFeedTab({
   // Two feeds only (2026-08-02): Day (day_trade — 4H reactions + gap_and_go) vs Swing (everything
   // else — SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims). The old RC + 4H tabs
   // folded away (fourh_* → day_trade, weekly/monthly_rc → swing on the backend).
-  const dayAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade");
-  const swingAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") !== "day_trade");
   // Off-hours (equities only): fired outside US regular hours (pre/post-market or weekend). Crypto is 24/7 → excluded.
-  const offHoursAlerts = feedAllRaw.filter(
-    (a) => !(a.symbol || "").toUpperCase().endsWith("-USD") && isOffHoursET(a.created_at),
+  // The three tabs are MUTUALLY EXCLUSIVE — an off-hours equity signal lives ONLY in Off-hrs, not Day/Swing.
+  const isOffHrs = (a: Alert) => !(a.symbol || "").toUpperCase().endsWith("-USD") && isOffHoursET(a.created_at);
+  const offHoursAlerts = feedAllRaw.filter(isOffHrs);
+  const dayAlerts = feedAllRaw.filter(
+    (a) => !isOffHrs(a) && ((a as { style?: string }).style ?? "day_trade") === "day_trade",
+  );
+  const swingAlerts = feedAllRaw.filter(
+    (a) => !isOffHrs(a) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
   );
   const feedAlerts = view === "day" ? dayAlerts : view === "swing" ? swingAlerts : offHoursAlerts;
   // Counts per grade for the chip badges.
