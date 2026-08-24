@@ -4,7 +4,7 @@
  * Bottom: full history grouped into weeks → collapsible day panes → trades you can expand
  * (note + chart), edit, or delete — even after a day is closed. */
 
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight, ClipboardPaste } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
@@ -91,6 +91,22 @@ const EXIT_REASONS = [
 const usd = (n: number) =>
   (n < 0 ? "-" : "") +
   Math.abs(n).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+// Return on the capital that was actually deployed: P/L ÷ position size. That's the honest
+// number across instruments — a $400 option win on $2k risked is +20%, the same $400 on a
+// $60k stock position is +0.7%. Falls back to the raw price move (direction-aware) when no
+// size was logged. Open trades have no realized return → null.
+const pctReturn = (t: DailyTradeRow): number | null => {
+  if (t.is_open) return null;
+  const size = t.position_size ?? 0;
+  if (size > 0) return Math.round((t.pnl / size) * 1000) / 10;
+  const e = t.entry_price;
+  const x = t.exit_price;
+  if (e == null || x == null || e === 0) return null;
+  const dir = t.direction === "short" ? -1 : 1;
+  return Math.round(((x - e) / Math.abs(e)) * dir * 1000) / 10;
+};
+const pctStr = (p: number) => (p >= 0 ? "+" : "") + p.toFixed(1) + "%";
 
 // Parse a YYYY-MM-DD string as a LOCAL date (avoids UTC off-by-one).
 function parseDate(s: string): Date {
@@ -285,6 +301,7 @@ function DayTrades({
           <tbody className="divide-y divide-border-subtle/40">
             {sorted.map((t) => {
               const open = expandedId === t.id;
+              const ret = pctReturn(t);
               return (
                 <Fragment key={t.id}>
                   <tr
@@ -321,6 +338,9 @@ function DayTrades({
                       }`}
                     >
                       {t.is_open ? "open" : usd(t.pnl)}
+                      {ret !== null && (
+                        <span className="block text-[10px] font-normal text-text-faint">{pctStr(ret)}</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-[12px]">{t.is_open ? "—" : t.exit_reason || "—"}</td>
                     <td className="px-3 py-2.5 text-[12px] text-text-muted">{t.target || "—"}</td>
@@ -369,6 +389,7 @@ function DayTrades({
       <ul className="divide-y divide-border-subtle/40 md:hidden">
         {sorted.map((t) => {
           const open = expandedId === t.id;
+          const ret = pctReturn(t);
           return (
             <li key={t.id}>
               <button
@@ -389,10 +410,15 @@ function DayTrades({
                     {(t.note || t.has_image) && <span className="text-[10px]">{t.has_image ? "🖼" : "📝"}</span>}
                     {t.is_open && (<span className="rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">open</span>)}
                   </div>
-                  <span
-                    className={`shrink-0 font-mono font-semibold ${t.is_open ? "text-text-faint" : t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
-                  >
-                    {t.is_open ? "open" : usd(t.pnl)}
+                  <span className="shrink-0 text-right">
+                    <span
+                      className={`font-mono font-semibold ${t.is_open ? "text-text-faint" : t.pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}
+                    >
+                      {t.is_open ? "open" : usd(t.pnl)}
+                    </span>
+                    {ret !== null && (
+                      <span className="block font-mono text-[10px] text-text-faint">{pctStr(ret)}</span>
+                    )}
                   </span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-text-faint">
@@ -517,6 +543,7 @@ export default function DailyTargetPage() {
   const [openSetup, setOpenSetup] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null); // full-screen chart image src
   const [openBookOpen, setOpenBookOpen] = useState(false); // expand the open-positions allocation breakdown
+  const formRef = useRef<HTMLFormElement>(null); // "Close" in the open book scrolls you here
 
   // Editing a trade opens the form (and scrolls it into view via the auto-expand).
   useEffect(() => {
@@ -680,6 +707,20 @@ export default function DailyTargetPage() {
         /* ignore */
       }
     }
+  };
+
+  // Close a position from the open book: load it into the form, flip it out of "still holding",
+  // and clear the placeholder 0 P/L so the auto-calc fills in once you type the exit. You still
+  // confirm the exit price + reason and hit save — this just removes the hunt for the trade.
+  const startClose = async (t: DailyTradeRow) => {
+    await startEdit(t);
+    setIsOpen(false);
+    setExit("");
+    setPnl("");
+    setPnlEdited(false);
+    setExitReason(EXIT_REASONS[0]);
+    setLogOpen(true);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
   const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -989,6 +1030,13 @@ export default function DailyTargetPage() {
                         </div>
                         <span className="w-24 text-right font-mono text-text-secondary">{usd(size)}</span>
                         <span className="w-10 text-right text-text-faint">{pct}%</span>
+                        <button
+                          onClick={() => startClose(t)}
+                          className="shrink-0 rounded-md border border-border-subtle px-2 py-1 text-[11px] font-semibold text-text-secondary hover:border-accent hover:text-accent"
+                          title="Log the exit and close this position"
+                        >
+                          Close
+                        </button>
                       </div>
                     );
                   })}
@@ -999,6 +1047,7 @@ export default function DailyTargetPage() {
 
         {/* Log / edit a trade — collapsed by default (tap to open); auto-opens when editing */}
         <form
+          ref={formRef}
           onSubmit={submitTrade}
           onDragOver={(e) => {
             e.preventDefault();
