@@ -386,6 +386,27 @@ function collapsedLabel(reason?: string | null): string | null {
   return null;
 }
 
+// True if the alert fired OUTSIDE US regular hours (before 9:30 or at/after 16:00 ET, or a weekend) —
+// i.e. pre/post-market. Used by the Off-hours feed tab (equities only; crypto is 24/7 and excluded there).
+function isOffHoursET(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hourCycle: "h23",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(d);
+  const wd = parts.find((p) => p.type === "weekday")?.value;
+  const hh = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const mm = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  const mins = hh * 60 + mm;
+  if (wd === "Sat" || wd === "Sun") return true;
+  return mins < 570 || mins >= 960; // outside 9:30 (570) – 16:00 (960) ET
+}
+
 function SignalFeedTab({
   alerts,
   alertsError,
@@ -446,7 +467,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing">("day");
+  const [view, setView] = useState<"day" | "swing" | "offhours">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -524,7 +545,11 @@ function SignalFeedTab({
   // folded away (fourh_* → day_trade, weekly/monthly_rc → swing on the backend).
   const dayAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade");
   const swingAlerts = feedAllRaw.filter((a) => ((a as { style?: string }).style ?? "day_trade") !== "day_trade");
-  const feedAlerts = view === "day" ? dayAlerts : swingAlerts;
+  // Off-hours (equities only): fired outside US regular hours (pre/post-market or weekend). Crypto is 24/7 → excluded.
+  const offHoursAlerts = feedAllRaw.filter(
+    (a) => !(a.symbol || "").toUpperCase().endsWith("-USD") && isOffHoursET(a.created_at),
+  );
+  const feedAlerts = view === "day" ? dayAlerts : view === "swing" ? swingAlerts : offHoursAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -630,16 +655,21 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
+          {([["day", "Day"], ["swing", "Swing"], ["offhours", "Off-hrs"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
               title={id === "day"
                 ? "Day trades — you must SELL the same day at some point (out by the close). 4H reactions (reclaim / rejection / break, 15m-confirmed) + gap-and-go."
-                : "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."}
+                : id === "swing"
+                  ? "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."
+                  : "Off-hours — STOCK signals fired pre/post-market (extended session). Crypto is 24/7 and stays in Day/Swing. Thin liquidity — verify before acting."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
-              {label} <span className="opacity-70 font-normal">{id === "day" ? dayAlerts.length : swingAlerts.length}</span>
+              {label}{" "}
+              <span className="opacity-70 font-normal">
+                {id === "day" ? dayAlerts.length : id === "swing" ? swingAlerts.length : offHoursAlerts.length}
+              </span>
             </button>
           ))}
         </div>
@@ -676,7 +706,9 @@ function SignalFeedTab({
       <div className="px-3 pb-1 -mt-0.5 text-[10px] text-text-faint shrink-0">
         {view === "day"
           ? "Day trade — sell it the same session at some point (out by the close)."
-          : "Swing — hold multiple days, as long as the thesis stays good."}
+          : view === "swing"
+            ? "Swing — hold multiple days, as long as the thesis stays good."
+            : "Off-hours — stock signals fired pre/post-market. Thin liquidity, so verify before acting."}
       </div>
 
       {/* Row 2 — Search (primary) + one Filters popover (asset · grade · types) */}
