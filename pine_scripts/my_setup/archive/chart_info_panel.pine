@@ -1,0 +1,64 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart Info panel — a tiny corner dashboard for whatever symbol you're viewing,
+// on ANY timeframe, so you don't have to keep flipping charts:
+//   • 4H close   — the last COMPLETED 4h candle's close (▲/▼ = current price above/below)
+//   • Wk value   — the weekly fair-value basis + %B (mirrors the FV Swing indicator:
+//                  50% = at fair value, ≥80 = rich/upper band, ≤20 = cheap/lower band)
+//   • From ATH   — % below the all-time high
+// Overlay, visual only — no alerts. Add it to any chart; it re-reads per symbol.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Chart Info · 4H close · Wk value · % from ATH", "chart-info", overlay = true)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+gP      = "Panel"
+posIn   = input.string("Top Right", "Position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = gP)
+szIn    = input.string("Normal", "Text size", options = ["Tiny", "Small", "Normal", "Large"], group = gP)
+gFV     = "Weekly fair value (mirrors FV Swing)"
+maLen   = input.int(20, "Weekly MA length (basis)", minval = 5, group = gFV)
+maType  = input.string("SMA", "Weekly MA type", options = ["SMA", "EMA"], group = gFV)
+sigma   = input.float(2.0, "Band width (σ)", minval = 0.5, group = gFV, tooltip = "Match your FV Swing 'Band width (σ)'. %B = where price sits in the ±σ band: 50 = at the basis (fair value), ≥80 = rich (upper band), ≤20 = cheap (lower band).")
+
+// ── data ─────────────────────────────────────────────────────────────────────
+// 4H close = last COMPLETED 4h candle (settled, non-repainting).
+c4h   = request.security(syminfo.tickerid, "240", close[1], lookahead = barmerge.lookahead_on)
+
+// Weekly fair value = the LIVE current-week basis + ±σ band (matches the FV Swing readout).
+// Panel renders only on the last bar, so the developing-week value is exactly what we want.
+_basis = maType == "EMA" ? ta.ema(close, maLen) : ta.sma(close, maLen)
+_dev   = ta.stdev(close, maLen) * sigma
+basis  = request.security(syminfo.tickerid, "W", _basis)
+basisP = request.security(syminfo.tickerid, "W", _basis[1])
+dev    = request.security(syminfo.tickerid, "W", _dev)
+upper  = not na(basis) and not na(dev) ? basis + dev : na
+lower  = not na(basis) and not na(dev) ? basis - dev : na
+pctB   = not na(upper) and not na(lower) and upper > lower ? (close - lower) / (upper - lower) * 100 : na
+fvState = na(pctB) ? "" : pctB >= 80 ? "rich" : pctB <= 20 ? "cheap" : "at value"
+wkTrend = not na(basis) and not na(basisP) ? (basis >= basisP ? "▲" : "▼") : ""
+
+// all-time high — running max over loaded history (true ATH on Daily/Weekly; recent high on intraday)
+var float ath = na
+ath := na(ath) ? high : math.max(ath, high)
+athPct = not na(ath) and ath > 0 ? (ath - close) / ath * 100 : na
+
+f_n(float v) => na(v) ? "—" : str.tostring(v, format.mintick)
+
+// ── panel ────────────────────────────────────────────────────────────────────
+_pos = posIn == "Top Right" ? position.top_right : posIn == "Top Left" ? position.top_left : posIn == "Bottom Right" ? position.bottom_right : position.bottom_left
+_sz  = szIn == "Tiny" ? size.tiny : szIn == "Small" ? size.small : szIn == "Large" ? size.large : size.normal
+_lbl = color.new(color.gray, 0)
+_neu = color.new(color.white, 0)
+_up  = color.new(#26A69A, 0)
+_dn  = color.new(#EF5350, 0)
+_amb = color.new(#EAB308, 0)
+
+var table t = na
+if barstate.islast
+    if na(t)
+        t := table.new(_pos, 2, 3, bgcolor = color.new(#1E222D, 15), border_width = 1, border_color = color.new(color.gray, 60), frame_width = 1, frame_color = color.new(color.gray, 40))
+    table.cell(t, 0, 0, " 4H close ", text_color = _lbl, text_size = _sz, text_halign = text.align_left)
+    table.cell(t, 1, 0, f_n(c4h) + (na(c4h) ? "" : close >= c4h ? " ▲ " : " ▼ "), text_color = na(c4h) ? _neu : close >= c4h ? _up : _dn, text_size = _sz, text_halign = text.align_right)
+    table.cell(t, 0, 1, " Wk value ", text_color = _lbl, text_size = _sz, text_halign = text.align_left)
+    table.cell(t, 1, 1, f_n(basis) + (na(pctB) ? "  " : "  " + str.tostring(pctB, "#") + "% ") + fvState + " " + wkTrend + " ", text_color = fvState == "rich" ? _dn : fvState == "cheap" ? _up : _neu, text_size = _sz, text_halign = text.align_right)
+    table.cell(t, 0, 2, " From ATH ", text_color = _lbl, text_size = _sz, text_halign = text.align_left)
+    table.cell(t, 1, 2, na(athPct) ? "—" : "-" + str.tostring(athPct, "#.#") + "% ", text_color = na(athPct) ? _neu : athPct <= 5 ? _up : athPct <= 20 ? _amb : _dn, text_size = _sz, text_halign = text.align_right)

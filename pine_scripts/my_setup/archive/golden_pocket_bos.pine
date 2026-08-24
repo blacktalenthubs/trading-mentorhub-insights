@@ -1,0 +1,39 @@
+//@version=5
+// =============================================================================
+// GOLDEN POCKET · Auto (recent range) — 2026-07-31
+// =============================================================================
+// Fib the recent high & low, highlight the golden pocket. Uses the HIGHEST HIGH and
+// LOWEST LOW over a recent window (not confirmed pivots — those lag, so KOSPI/INTU's
+// recent swings weren't picked up and the zone got stuck on an old one).
+//   • Institutional Buy Zone = golden pocket 0.618 → 0.786 (blue)
+//   • Smart Money Zone       = deeper best-price slice 0.786 → ~0.85 (purple)
+// One dial: `Recent window` — bigger grabs a wider/older range, smaller a tighter swing.
+indicator("Golden Pocket · Auto", "GP Auto", overlay = true, max_boxes_count = 4, max_labels_count = 4)
+
+lookback = input.int(40, "Recent window (bars)", minval = 5, maxval = 500, tooltip = "Golden pocket = the highest high & lowest low over this many recent bars. On a weekly chart ~30–52 captures the recent big swing; tune per chart/timeframe.")
+gF       = "Fib zones"
+fGpLo    = input.float(0.618, "Golden Pocket — low (.618)",  group = gF, step = 0.001)
+fGpHi    = input.float(0.786, "Golden Pocket — high (.786)", group = gF, step = 0.001)
+fSm      = input.float(0.85,  "Smart Money floor (deepest)", group = gF, step = 0.01)
+gV       = "Style"
+colInst  = input.color(color.new(color.blue,   80), "Institutional Buy Zone", group = gV)
+colSm    = input.color(color.new(color.purple, 60), "Smart Money Zone",       group = gV)
+txtCol   = input.color(color.new(color.white,  0),  "Zone text", group = gV)
+extBars  = input.int(30, "Extend right (bars)", group = gV, minval = 0, maxval = 500)
+
+sh = ta.highest(high, lookback)   // recent high
+sl = ta.lowest(low, lookback)     // recent low
+
+var box iBox = na
+var box sBox = na
+if barstate.islast and not na(sh) and not na(sl) and sh > sl
+    box.delete(iBox)
+    box.delete(sBox)
+    rng  = sh - sl
+    p618 = sh - fGpLo * rng
+    p786 = sh - fGpHi * rng
+    pSm  = sh - fSm   * rng
+    lb = bar_index - lookback
+    rb = bar_index + extBars
+    iBox := box.new(lb, math.max(p618, p786), rb, math.min(p618, p786), border_color = color.new(color.blue, 45), bgcolor = colInst, text = "Institutional Buy Zone", text_color = txtCol, text_size = size.normal, text_halign = text.align_center, text_valign = text.align_center)
+    sBox := box.new(lb, math.max(p786, pSm),  rb, math.min(p786, pSm),  border_color = color.new(color.purple, 30), bgcolor = colSm, text = "Smart Money Zone", text_color = txtCol, text_size = size.small, text_halign = text.align_center, text_valign = text.align_center)

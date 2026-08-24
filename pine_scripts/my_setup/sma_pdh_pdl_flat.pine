@@ -1,0 +1,80 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// SMA + PDH/PDL — FLAT LEVELS. Draws the 8 / 21 / 50 / 100 / 200 SMA (daily by default) plus the
+// prior-day HIGH and LOW as FLAT horizontal lines at their current settled values. Role-colored:
+// green = SUPPORT (price is ABOVE the level), red = RESISTANCE (price is BELOW it). Each level is
+// tagged SUPPORT / RESIST. EVERYTHING is drawn — no proximity gating, no merging, all flat.
+// RTH-accurate (regular session, so extended-hours prints don't leak) and non-repainting (settled
+// [1] + lookahead → the daily value is fixed for the session). Bind on any intraday timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("SMA + PDH/PDL — flat", "SMA·PDHL", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+// ── style ──
+supCol  = input.color(#26A69A, "Support (price above)",    inline = "c")
+resCol  = input.color(#EF5350, "Resistance (price below)", inline = "c")
+wLine   = input.int(2,  "Line thickness", minval = 1, maxval = 6)
+lineLen = input.int(80, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff  = input.int(8,  "Label offset (bars right)", minval = 0, maxval = 50)
+lblSize = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"])
+
+// ── SMAs (flat, settled daily values) ──
+gM    = "Moving averages"
+maTf  = input.timeframe("D", "MA timeframe", group = gM, tooltip = "Which timeframe's SMAs to plot as flat levels (default Daily = the structural 8/21/50/100/200-day SMAs). Blank = the chart's own timeframe.")
+en8   = input.bool(true, "8 SMA",   inline = "m1", group = gM)
+en21  = input.bool(true, "21 SMA",  inline = "m1", group = gM)
+en50  = input.bool(true, "50 SMA",  inline = "m2", group = gM)
+en100 = input.bool(true, "100 SMA", inline = "m2", group = gM)
+en200 = input.bool(true, "200 SMA", inline = "m2", group = gM)
+
+// ── PDH / PDL ──
+gP    = "Prior day"
+enPdh = input.bool(true, "PDH — prior-day high", group = gP)
+enPdl = input.bool(true, "PDL — prior-day low",  group = gP)
+
+_sz = lblSize == "Tiny" ? size.tiny : lblSize == "Normal" ? size.normal : size.small
+
+// ── RTH ticker so extended-hours prints never leak. Use the CURRENT daily SMA (no [1]) + lookahead_off —
+//    exactly like proximity_levels_pure.pine — so the value INCLUDES today's close and matches the standard
+//    SMA indicator. (Reading [1] showed YESTERDAY's SMA — one bar behind, the "off by a shy".) lookahead_off
+//    keeps it non-repainting: no future leak; the developing daily value is redrawn flat on the last bar. ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+f_ma(int len) => request.security(rthTid, maTf, ta.sma(close, len), lookahead = barmerge.lookahead_off)
+sma8   = f_ma(8)
+sma21  = f_ma(21)
+sma50  = f_ma(50)
+sma100 = f_ma(100)
+sma200 = f_ma(200)
+[pdh, pdl] = request.security(rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ── flat role-colored draw — green SUPPORT (price above) / red RESIST (price below). Fully shown,
+//    no proximity gate, no merge. Rebuilt on the last bar so the lines track today's role. ──
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+f_flat(float v, string nm) =>
+    if not na(v) and v > 0
+        _c    = close > v ? supCol : resCol
+        _role = close > v ? "  ▲ SUPPORT" : "  ▼ RESIST"
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _c, width = wLine))
+        array.push(_lb, label.new(bar_index + tagOff, v, nm + _role + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = _c, textcolor = color.white, size = _sz))
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    if en8
+        f_flat(sma8,   "8 SMA")
+    if en21
+        f_flat(sma21,  "21 SMA")
+    if en50
+        f_flat(sma50,  "50 SMA")
+    if en100
+        f_flat(sma100, "100 SMA")
+    if en200
+        f_flat(sma200, "200 SMA")
+    if enPdh
+        f_flat(pdh, "PDH")
+    if enPdl
+        f_flat(pdl, "PDL")

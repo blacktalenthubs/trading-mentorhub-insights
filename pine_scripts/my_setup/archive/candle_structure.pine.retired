@@ -1,0 +1,331 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// CANDLE STRUCTURE — numbers each candle of the day and tags its market structure vs the
+// candle before it, so you can read TREND vs CHOP at a glance. Built for the 2H chart (a
+// US session ≈ 3–4 2h candles), but works on any timeframe.
+//
+// Each candle is compared to the prior one on TWO axes:
+//   • its HIGH → Higher-High (HH) or Lower-High (LH)
+//   • its LOW  → Higher-Low  (HL) or Lower-Low  (LL)
+// The four combinations:
+//   HH + HL = ▲ trending UP        (both extremes stepping up)
+//   LH + LL = ▼ trending DOWN      (both stepping down)
+//   LH + HL = ◇ INSIDE / chop      (range compressing inside the prior candle)
+//   HH + LL = ✦ OUTSIDE / expansion(engulfs the prior range — volatile)
+//
+// Label under each candle = "<seq>  <tag>". The sequence numbers candles 1..~8 across a `blockDays`
+// window (default 2 days), so the TWO-day trend reads as one run instead of restarting each session.
+//
+// TREND is a state machine over CONSECUTIVE same-direction legs (inside/outside candles are neutral
+// pauses — they neither add to nor reset a run). The trend flips once a run reaches `switchLegs`:
+//   • switchLegs = 2 (default) → waits one confirming leg, filtering a single bounce candle (cleaner).
+//   • switchLegs = 1 → the SWITCH marks the EXACT flip candle (LH·LL → HH·HL, or the reverse) — noisier.
+//   • "SWITCH ▲/▼" prints only on a genuine up↔down flip (the first trend of the chart isn't a switch).
+//   • Corner HUD: UP · continuation / DOWN · continuation / forming, plus the current run length.
+// No alerts — visual only.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Candle Structure", "Candle Struct", overlay = true, max_labels_count = 500, max_lines_count = 100)
+
+// ── inputs ─────────────────────────────────────────────────────────────────────
+gL       = "Labels"
+showLbl  = input.bool(true,  "Show a structure tag on each candle", group = gL)
+tagTop   = input.bool(true,  "Put the tags ABOVE the candle (off = below)", group = gL)
+showNum  = input.bool(false, "Include the day-sequence number (1..N)", group = gL)
+showCode = input.bool(true,  "Show the structure symbol (▲ up · ▼ down · ◇ inside · ✦ outside)", group = gL)
+codeFull = input.bool(false, "  …with the full text (HH·HL / LH·LL) instead of just the symbol", group = gL)
+recentD  = input.int(6, "Only label the last N days (0 = all)", minval = 0, maxval = 60, group = gL)
+blockDays= input.int(2, "Number candles across N days (2 = number 1..~8 over two days)", minval = 1, maxval = 5, group = gL)
+lblSize  = input.string("Tiny", "Label size", options = ["Tiny", "Small", "Normal"], group = gL)
+
+gC       = "Colors"
+upCol    = input.color(#26A69A, "Trending up (HH·HL)",      group = gC)
+dnCol    = input.color(#EF5350, "Trending down (LH·LL)",    group = gC)
+inCol    = input.color(#F59E0B, "Inside / chop (LH·HL)",    group = gC)
+exCol    = input.color(#2962FF, "Outside / expansion (HH·LL)", group = gC)
+
+gH       = "Trend / continuation verdict"
+showHud  = input.bool(true, "Show the TREND / CONTINUATION / CHOP verdict in a corner", group = gH)
+hudPos   = input.string("Top center", "Corner", options = ["Top center", "Top right", "Bottom right", "Bottom left"], group = gH)
+switchLegs = input.int(2, "Legs to confirm a switch — 2 = one confirming leg (fewer, cleaner), 1 = the exact flip candle", minval = 1, maxval = 4, group = gH)
+
+_sz = lblSize == "Tiny" ? size.tiny : lblSize == "Normal" ? size.normal : size.small
+
+// ── new-session flag + a 2-day BLOCK counter — the numbering runs 1..~8 across `blockDays` days,
+//    resetting only at the start of each new block (so the two-day trend reads as one sequence).
+newDay = ta.change(time("D")) != 0
+var int _dayIdx = 0
+if newDay
+    _dayIdx := _dayIdx + 1
+_blockStart = newDay and (_dayIdx % blockDays == 1)   // first day of a new N-day block
+var int seq = 0
+seq := _blockStart ? 1 : seq + 1
+
+// ── structure vs the prior candle ──────────────────────────────────────────────
+// HH/HL use >= so an equal extreme counts as "held up" (every bar lands in exactly one bucket).
+hh = high >= high[1]
+hl = low  >= low[1]
+_up = hh and hl               // higher high + higher low  → trending up
+_dn = (not hh) and (not hl)   // lower high  + lower low    → trending down
+_in = (not hh) and hl         // lower high  + higher low   → inside (compression / chop)
+_ex = hh and (not hl)         // higher high + lower low    → outside (expansion)
+
+_code = codeFull ? (_up ? "HH·HL ▲" : _dn ? "LH·LL ▼" : _in ? "inside ◇" : "outside ✦") : (_up ? "▲" : _dn ? "▼" : _in ? "◇" : "✦")
+_col  = _up ? upCol : _dn ? dnCol : _in ? inCol : exCol
+
+// ── trend STATE MACHINE — counts CONSECUTIVE same-direction legs (HH·HL up / LH·LL down). INSIDE and
+//    OUTSIDE candles are neutral PAUSES: they don't add to a run but don't reset it either — only an
+//    opposite leg resets. The trend flips as soon as a run reaches `switchLegs` — so the switch marks
+//    where structure actually breaks, not after a slow 3-count.
+_valid = not na(high[1])
+var int _dir   = 0     // current structural trend: +1 up · -1 down · 0 undetermined
+var int _upRun = 0     // consecutive up legs (pauses allowed)
+var int _dnRun = 0     // consecutive down legs
+_swUp = false
+_swDn = false
+if barstate.isconfirmed and _valid
+    _upRun := _up ? _upRun + 1 : (_dn ? 0 : _upRun)   // a down leg resets the up-run; inside/outside hold it
+    _dnRun := _dn ? _dnRun + 1 : (_up ? 0 : _dnRun)
+    if _upRun >= switchLegs and _dir != 1
+        _swUp := _dir == -1        // a SWITCH only if we were in a DOWNTREND (not the first trend of the chart)
+        _dir  := 1
+    if _dnRun >= switchLegs and _dir != -1
+        _swDn := _dir == 1
+        _dir  := -1
+// run in the current trend direction; 0 = the trend has paused → CONSOLIDATION (a range / coil, not a trend)
+_run     = _dir == 1 ? _upRun : _dir == -1 ? _dnRun : 0
+_verdict = _run == 0 ? "CONSOLIDATION ◇" : _dir == 1 ? "UP · continuation ▲" : "DOWN · continuation ▼"
+_vCol    = _run == 0 ? inCol : _dir == 1 ? upCol : dnCol
+
+// ── per-candle label (below the bar) — one per confirmed bar, within the recent window ──
+_inWin = recentD == 0 or (timenow - time) <= recentD * 86400000
+if showLbl and barstate.isconfirmed and not na(high[1]) and _inWin
+    _txt = (showNum ? str.tostring(seq) : "") + (showNum and showCode ? "  " : "") + (showCode ? _code : "")
+    if str.length(_txt) > 0
+        label.new(bar_index, na, _txt, yloc = tagTop ? yloc.abovebar : yloc.belowbar, style = label.style_none, textcolor = _col, size = _sz)
+
+// ── TREND-SWITCH markers — the candle where the multi-day trend flipped to the opposite direction ──
+gS       = "Trend-switch markers"
+enSwitch = input.bool(true, "Mark the candle where the trend SWITCHES (up↔down)", group = gS)
+plotshape(enSwitch and _swUp and barstate.isconfirmed, "Switch → Long",  style = shape.labelup,   location = location.belowbar, color = upCol, textcolor = color.white, text = "Long",  size = size.normal)
+plotshape(enSwitch and _swDn and barstate.isconfirmed, "Switch → Short", style = shape.labeldown, location = location.abovebar, color = dnCol, textcolor = color.white, text = "Short", size = size.normal)
+
+// ── trend / continuation verdict HUD (corner) ────────────────────────────────────
+_hudPosC = hudPos == "Top center" ? position.top_center : hudPos == "Bottom right" ? position.bottom_right : hudPos == "Bottom left" ? position.bottom_left : position.top_right
+var table _hud = table.new(_hudPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if showHud and barstate.islast
+    table.cell(_hud, 0, 0, _verdict, bgcolor = _vCol, text_color = color.white, text_size = size.normal)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PDH / PDL — role-aware levels + reactions. Each level is SUPPORT when price is ABOVE it and
+// RESISTANCE when price is BELOW it (either can be both, on different days). The line is colored by its
+// current role (green = support · red = resistance). Reactions on the bar CLOSE, fired ONCE per level
+// per direction per day (the FIRST qualifying touch — not every candle, so it stays clean):
+//   • LONG  (support defended)   = wick BELOW then close back above (reclaim) OR a touch from above that HELD.
+//   • SHORT (resistance defended)= wick ABOVE then close back below (reject) OR a touch from below that held.
+// ═══════════════════════════════════════════════════════════════════════════
+gPD      = "PDH / PDL levels + reactions"
+enPD     = input.bool(true, "Show PDH / PDL + LONG / SHORT reactions", group = gPD)
+onceDay  = input.bool(true, "Fire each level's LONG/SHORT once per day (keeps it clean)", group = gPD)
+touchTol = input.float(0.0, "Touch tolerance % (0 = the candle must actually reach the level)", minval = 0.0, maxval = 1.0, step = 0.05, group = gPD) / 100.0
+pdLen    = input.int(60, "Level line length (bars back)", minval = 10, maxval = 500, group = gPD)
+pdW      = input.int(3,  "PDH / PDL line thickness", minval = 1, maxval = 8, group = gPD)
+enOpen   = input.bool(true, "Mark today's open (subtle dotted line)", group = gPD)
+openCol  = input.color(color.new(#EAB308, 0), "Open line", group = gPD)
+openW    = input.int(2, "Open line thickness", minval = 1, maxval = 8, group = gPD)
+
+_rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdh, pdl] = request.security(_rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+dayOpen = request.security(_rthTid, "D", open, lookahead = barmerge.lookahead_on)
+
+// LONG at a support level: reclaim (wick below, close above) OR touch-and-hold from above (green close).
+f_long(float L)  => not na(L) and low  <= L * (1 + touchTol) and close > L    // low REACHED the level (touch or wick), closed back above
+// SHORT at a resistance level: reject (wick above, close below) OR touch-and-hold under (red close).
+f_short(float L) => not na(L) and high >= L * (1 - touchTol) and close < L    // high REACHED the level (touch or wick), closed back below
+
+// once-per-day latches (per level, per direction) — reset at each new session
+var bool _pdhLd = false
+var bool _pdhSd = false
+var bool _pdlLd = false
+var bool _pdlSd = false
+if newDay
+    _pdhLd := false
+    _pdhSd := false
+    _pdlLd := false
+    _pdlSd := false
+_pdhLong  = false
+_pdhShort = false
+_pdlLong  = false
+_pdlShort = false
+if enPD and barstate.isconfirmed
+    if f_long(pdh)  and (not onceDay or not _pdhLd)
+        _pdhLong  := true
+        _pdhLd    := true
+    if f_short(pdh) and (not onceDay or not _pdhSd)
+        _pdhShort := true
+        _pdhSd    := true
+    if f_long(pdl)  and (not onceDay or not _pdlLd)
+        _pdlLong  := true
+        _pdlLd    := true
+    if f_short(pdl) and (not onceDay or not _pdlSd)
+        _pdlShort := true
+        _pdlSd    := true
+
+// small text (no arrow): LONG below the bar (green) at a defended support · SHORT above (red) at resistance
+// same label-bubble look as the trend switch: colored pill, white title-case text, normal size
+// pill labels carry the LEVEL VALUE it fired at (so a prior-day fire reads clearly vs today's drawn line),
+// and only within the recent window (recentD) so old reactions don't clutter.
+if _pdhLong and _inWin
+    label.new(bar_index, na, "PDH Long "  + str.tostring(pdh, format.mintick), yloc = yloc.belowbar, style = label.style_label_up,   color = upCol, textcolor = color.white, size = size.normal)
+if _pdhShort and _inWin
+    label.new(bar_index, na, "PDH Short " + str.tostring(pdh, format.mintick), yloc = yloc.abovebar, style = label.style_label_down, color = dnCol, textcolor = color.white, size = size.normal)
+if _pdlLong and _inWin
+    label.new(bar_index, na, "PDL Long "  + str.tostring(pdl, format.mintick), yloc = yloc.belowbar, style = label.style_label_up,   color = upCol, textcolor = color.white, size = size.normal)
+if _pdlShort and _inWin
+    label.new(bar_index, na, "PDL Short " + str.tostring(pdl, format.mintick), yloc = yloc.abovebar, style = label.style_label_down, color = dnCol, textcolor = color.white, size = size.normal)
+
+// role-colored flat lines (support = green when price above · resistance = red when below) + today's open,
+// redrawn on the last bar, tiny labels.
+var line  _lnPdh = na
+var line  _lnPdl = na
+var line  _lnOpen = na
+var label _lbPdh = na
+var label _lbPdl = na
+var label _lbOpen = na
+if barstate.islast
+    line.delete(_lnPdh)
+    line.delete(_lnPdl)
+    line.delete(_lnOpen)
+    label.delete(_lbPdh)
+    label.delete(_lbPdl)
+    label.delete(_lbOpen)
+    if enPD and not na(pdh)
+        _cH = close > pdh ? upCol : dnCol
+        _lnPdh := line.new(bar_index - pdLen, pdh, bar_index + 6, pdh, color = _cH, width = pdW)
+        _lbPdh := label.new(bar_index + 6, pdh, "PDH " + str.tostring(pdh, format.mintick) + (close > pdh ? "  ▲ SUPPORT" : "  ▼ RESIST"), style = label.style_label_left, color = _cH, textcolor = color.white, size = size.tiny)
+    if enPD and not na(pdl)
+        _cL = close > pdl ? upCol : dnCol
+        _lnPdl := line.new(bar_index - pdLen, pdl, bar_index + 6, pdl, color = _cL, width = pdW)
+        _lbPdl := label.new(bar_index + 6, pdl, "PDL " + str.tostring(pdl, format.mintick) + (close > pdl ? "  ▲ SUPPORT" : "  ▼ RESIST"), style = label.style_label_left, color = _cL, textcolor = color.white, size = size.tiny)
+    if enOpen and not na(dayOpen)
+        // context — where the open sits relative to PDL / PDH (nearest support below ↔ nearest resistance above)
+        _oUp = 1.0e18
+        _oDn = -1.0
+        _oUpNm = "—"
+        _oDnNm = "—"
+        _ov = array.from(pdh, pdl)
+        _on = array.from("PDH", "PDL")
+        for _oi = 0 to 1
+            _ovv = array.get(_ov, _oi)
+            if not na(_ovv)
+                if _ovv > dayOpen and _ovv < _oUp
+                    _oUp := _ovv
+                    _oUpNm := array.get(_on, _oi)
+                if _ovv < dayOpen and _ovv > _oDn
+                    _oDn := _ovv
+                    _oDnNm := array.get(_on, _oi)
+        _octx = "  ·  between  " + (_oDn > 0 ? _oDnNm + " " + str.tostring(_oDn, format.mintick) : "—") + "  ↔  " + (_oUp < 1.0e17 ? _oUpNm + " " + str.tostring(_oUp, format.mintick) : "—")
+        _lnOpen := line.new(bar_index - pdLen, dayOpen, bar_index + 6, dayOpen, color = openCol, width = openW, style = line.style_dotted)
+        _lbOpen := label.new(bar_index + 6, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _octx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DISCIPLINE GUARD — a gentle nudge to stay on your plan timeframe. It appears ONLY when the chart drops
+// BELOW your plan (e.g. you zoomed to 15m off a 2h plan); on the 2h and above it stays invisible. Not
+// advice — just friction against the reflex to over-zoom. Visual only.
+// ═══════════════════════════════════════════════════════════════════════════
+gG       = "Discipline guard"
+enGuard  = input.bool(true, "Warn when the chart drops below your plan timeframe", group = gG)
+planTf   = input.timeframe("120", "Your plan timeframe (2h = 120)", group = gG)
+guardPos = input.string("Bottom center", "Corner", options = ["Bottom center", "Top right", "Top center", "Bottom right"], group = gG)
+guardCol = input.color(color.new(#EF5350, 0), "Warning color", group = gG)
+
+_belowPlan = timeframe.in_seconds() < timeframe.in_seconds(planTf)
+_gPosC = guardPos == "Top right" ? position.top_right : guardPos == "Bottom center" ? position.bottom_center : guardPos == "Bottom right" ? position.bottom_right : position.top_center
+var table _guard = table.new(_gPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if enGuard and barstate.islast
+    if _belowPlan
+        table.cell(_guard, 0, 0, "⚠  below your plan — you're on " + timeframe.period + "m, trade the " + planTf + "m", bgcolor = guardCol, text_color = color.white, text_size = size.normal)
+    else
+        table.cell(_guard, 0, 0, "", bgcolor = color.new(color.black, 100))
+
+// ── trend pill ON the chart — a small colored label above the price (same style as the PDL/switch pills,
+//    one size smaller) so the current trend is always in view, reinforcing the bias without a corner HUD.
+gT2         = "Trend pill (on chart)"
+enTrendPill = input.bool(false, "Show the trend as a small pill above the price", group = gT2)
+_hh30 = ta.highest(high, 30)   // anchor above recent highs (ta.* must run every bar → global scope)
+var label _trPill = na
+if enTrendPill and barstate.islast
+    label.delete(_trPill)
+    _pillTxt = _run == 0 ? "◇ Consolidation" : _dir == 1 ? "▲ Uptrend" : "▼ Downtrend"
+    _trPill := label.new(bar_index, _hh30, _pillTxt, style = label.style_label_down, color = _vCol, textcolor = color.white, size = size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSOLIDATION LEVELS — where several 2h candles TOP OUT (equal highs → a ceiling) or BOTTOM OUT
+// (equal lows → a floor) at the same price. The more candles clustered at a price, the stronger the
+// level. Highlights consolidation zones, tops, and bottoms. Scans the last `consLook` bars on the last bar.
+// ═══════════════════════════════════════════════════════════════════════════
+gCons     = "Consolidation levels (equal highs / lows)"
+enCons    = input.bool(true, "Draw a line where 2h candles cluster at a similar high / low", group = gCons)
+consLook  = input.int(8, "Lookback — recent candles to scan (8 = ~2 days of 2h)", minval = 4, maxval = 100, group = gCons)
+consTol   = input.float(0.15, "Cluster tolerance % (how close counts as 'the same')", minval = 0.02, maxval = 2.0, step = 0.01, group = gCons) / 100.0
+consMin   = input.int(3, "Min candles at the level to draw it", minval = 2, maxval = 8, group = gCons)
+consW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = gCons)
+consHiCol = input.color(color.new(#EF5350, 0), "Resistance — price is BELOW the level", group = gCons)
+consLoCol = input.color(color.new(#26A69A, 0), "Support — price is ABOVE the level",    group = gCons)
+
+// gather clustered price levels (sorted, grouped within tol; a cluster of >= consMin members = a level).
+// Returns [levels, counts]. useHigh = scan highs (ceilings) else lows (floors).
+f_levels(bool useHigh) =>
+    _vals = array.new_float()
+    _lookN = math.min(consLook, bar_index)
+    if _lookN > 0
+        for _i = 0 to _lookN - 1
+            array.push(_vals, useHigh ? high[_i] : low[_i])
+    array.sort(_vals, order.ascending)
+    _lvls = array.new_float()
+    _cnts = array.new_int()
+    _n = array.size(_vals)
+    _i = 0
+    while _i < _n
+        _base = array.get(_vals, _i)
+        _sum  = _base
+        _cnt  = 1
+        _j    = _i + 1
+        _cont = true
+        while _cont and _j < _n
+            _v = array.get(_vals, _j)
+            if _v <= _base * (1 + consTol)
+                _sum := _sum + _v
+                _cnt := _cnt + 1
+                _j   := _j + 1
+            else
+                _cont := false
+        if _cnt >= consMin
+            array.push(_lvls, _sum / _cnt)
+            array.push(_cnts, _cnt)
+        _i := _j
+
+    [_lvls, _cnts]
+
+var line[]  _consLn = array.new_line()
+var label[] _consLb = array.new_label()
+if enCons and barstate.islast
+    for x in _consLn
+        line.delete(x)
+    for y in _consLb
+        label.delete(y)
+    array.clear(_consLn)
+    array.clear(_consLb)
+    [_hL, _hC] = f_levels(true)
+    if array.size(_hL) > 0
+        for _k = 0 to array.size(_hL) - 1
+            _v = array.get(_hL, _k)
+            _cCol = close > _v ? consLoCol : consHiCol   // role: green when price is above (support), red when below (resistance)
+            array.push(_consLn, line.new(bar_index - consLook, _v, bar_index + 6, _v, color = _cCol, width = consW))
+            array.push(_consLb, label.new(bar_index + 6, _v, "Ceiling ×" + str.tostring(array.get(_hC, _k)) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _cCol, textcolor = color.white, size = size.tiny))
+    [_lL, _lC] = f_levels(false)
+    if array.size(_lL) > 0
+        for _k = 0 to array.size(_lL) - 1
+            _v = array.get(_lL, _k)
+            _cCol = close > _v ? consLoCol : consHiCol   // role: green when price is above (support), red when below (resistance)
+            array.push(_consLn, line.new(bar_index - consLook, _v, bar_index + 6, _v, color = _cCol, width = consW))
+            array.push(_consLb, label.new(bar_index + 6, _v, "Floor ×" + str.tostring(array.get(_lC, _k)) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _cCol, textcolor = color.white, size = size.tiny))

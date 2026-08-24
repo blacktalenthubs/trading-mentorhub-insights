@@ -1,0 +1,39 @@
+//@version=5
+// =============================================================================
+// FAIR VALUE BASIS — the THT "fair value" line, on its own (2026-07-31)
+// =============================================================================
+// The single line from THT Fair value bands = a 33-period SMA of OHLC4 (the average of
+// each bar's open/high/low/close — smoother than a close SMA, so it tracks price cleanly).
+// Colored by slope: green when rising, red when falling (the ▲/▼ in THT). Optional HTF lock.
+indicator("Fair Value Basis · SMA(OHLC4)", "FV Basis", overlay = true)
+
+len   = input.int(33, "Length", minval = 2)
+src   = input.source(ohlc4, "Source", tooltip = "THT uses OHLC4 (the (O+H+L+C)/4 bar average). Change to close for a plain SMA.")
+maTyp = input.string("SMA", "MA type", options = ["SMA","EMA","WMA","RMA"])
+htf   = input.timeframe("W", "Lock to timeframe", tooltip = "Default W = weekly basis on any chart. Blank = chart TF. D = daily.")
+upCol = input.color(#26A69A, "Rising", inline = "c")
+dnCol = input.color(#EF5350, "Falling", inline = "c")
+wLine = input.int(2, "Width", minval = 1, maxval = 5)
+showLbl = input.bool(true, "Show value label")
+gD      = "Display"
+showSlope = input.bool(true,  "Sloping line (tracks price — the THT look)", group = gD)
+showFlat  = input.bool(false, "Flat horizontal ray at the current value", group = gD, tooltip = "Draws ONE flat line at the latest basis value, like a level (PDL-style). Turn the sloping line off to see it alone.")
+flatLen   = input.int(120, "Flat ray length (bars back)", group = gD, minval = 10, maxval = 500)
+
+f_ma(float s, int n) => maTyp == "EMA" ? ta.ema(s, n) : maTyp == "WMA" ? ta.wma(s, n) : maTyp == "RMA" ? ta.rma(s, n) : ta.sma(s, n)
+
+_basisChart = f_ma(src, len)
+basis = htf == "" ? _basisChart : request.security(syminfo.tickerid, htf, f_ma(src, len), lookahead = barmerge.lookahead_on)
+col = basis >= basis[1] ? upCol : dnCol
+plot(showSlope ? basis : na, "Fair Value Basis", color = col, linewidth = wLine)
+
+// Flat horizontal ray at the current basis value (a level, not an MA)
+var line flatLn = na
+if showFlat and barstate.islast
+    line.delete(flatLn)
+    flatLn := line.new(bar_index - flatLen, basis, bar_index + 4, basis, color = col, width = wLine)
+
+var label tag = na
+if showLbl and barstate.islast
+    label.delete(tag)
+    tag := label.new(bar_index + 4, basis, "FV " + str.tostring(basis, format.mintick), style = label.style_label_left, color = color.new(col, 20), textcolor = color.white, size = size.small)

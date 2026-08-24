@@ -1,0 +1,191 @@
+// @version=5
+//
+// MLV — Monthly Levels · v4 DIRECTIONAL. The last N COMPLETED monthly candles as
+// rails (H/L) + body bands (open↔close) + body lines (O/C), PLUS the ONE signal we
+// actually trade: the directional SUPPORT RECLAIM.
+//
+//   ▲ SUPPORT RECLAIM (long) — the day OPENED ABOVE a monthly level (so it's support),
+//     price wicked BELOW it, and CLOSED back above. Fires once per level per day, on
+//     H/L AND the body O/C alike. A rally UP into a level from below (open < level) is
+//     RESISTANCE and is NOT marked — we are support buyers, not breakout chasers.
+//     (Replaces the old rail-flip ▲▼ / band ● / fake-break ✕ marks, which fired on
+//      breakouts INCLUDING rallies-into-resistance — the opposite of this rule.)
+//
+//   Rails: highs red / lows teal · body band green = up month, red = down month ·
+//   body lines dotted · recency fade on lines, tags at the line ends.
+//
+// The level and the day-open gate are TF-independent (M/D security), so the reclaim
+// granularity follows the CHART TF: load on 1h for the neat set, 5m for the noisy one.
+// Completed months only — nothing repaints.
+//
+indicator("MLV · Monthly Levels (directional)", "MLV", overlay = true, max_lines_count = 40, max_labels_count = 500, max_boxes_count = 10)
+
+gS = "Levels"
+nMon     = input.int(1, "Completed months to draw + scan (1 = prior month only)", minval = 1, maxval = 6, group = gS)
+showTag  = input.bool(true, "Month + price tags at the line ends", group = gS)
+showBody = input.bool(true, "Body band — open↔close zone per month", group = gS)
+showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per month (dotted)", group = gS)
+colHi    = input.color(color.new(color.red, 0),  "Month highs", group = gS, inline = "c")
+colLo    = input.color(color.new(color.teal, 0), "Month lows",  group = gS, inline = "c")
+colBUp   = input.color(color.new(color.green, 88), "Body · up month",   group = gS, inline = "b")
+colBDn   = input.color(color.new(color.red, 88),   "Body · down month", group = gS, inline = "b")
+nearN    = input.int(4, "Declutter: draw only the N nearest levels ABOVE + BELOW price (0 = all)", minval = 0, maxval = 12, group = gS)
+
+gX = "Signal — directional support reclaim (long only)"
+showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
+minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
+colUp       = input.color(color.lime, "▲ reclaim", group = gX)
+showBelow   = input.bool(true, "△ also mark GAP-and-go (opened above the level after the prior day closed under it, held above)", group = gX)
+colBelow    = input.color(color.aqua, "△ gap-and-go", group = gX)
+markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
+_msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
+only1h  = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — RC pine owns the alerts)", group = gX)
+tfOK = not only1h or timeframe.period == "60"
+
+// ── The last 6 completed monthly candles (constant offsets — no repaint) ──────
+tid = syminfo.tickerid
+mh1 = request.security(tid, "M", high[1], lookahead = barmerge.lookahead_on)
+ml1 = request.security(tid, "M", low[1],  lookahead = barmerge.lookahead_on)
+mt1 = request.security(tid, "M", time[1], lookahead = barmerge.lookahead_on)
+mh2 = request.security(tid, "M", high[2], lookahead = barmerge.lookahead_on)
+ml2 = request.security(tid, "M", low[2],  lookahead = barmerge.lookahead_on)
+mt2 = request.security(tid, "M", time[2], lookahead = barmerge.lookahead_on)
+mh3 = request.security(tid, "M", high[3], lookahead = barmerge.lookahead_on)
+ml3 = request.security(tid, "M", low[3],  lookahead = barmerge.lookahead_on)
+mt3 = request.security(tid, "M", time[3], lookahead = barmerge.lookahead_on)
+mh4 = request.security(tid, "M", high[4], lookahead = barmerge.lookahead_on)
+ml4 = request.security(tid, "M", low[4],  lookahead = barmerge.lookahead_on)
+mt4 = request.security(tid, "M", time[4], lookahead = barmerge.lookahead_on)
+mh5 = request.security(tid, "M", high[5], lookahead = barmerge.lookahead_on)
+ml5 = request.security(tid, "M", low[5],  lookahead = barmerge.lookahead_on)
+mt5 = request.security(tid, "M", time[5], lookahead = barmerge.lookahead_on)
+mh6 = request.security(tid, "M", high[6], lookahead = barmerge.lookahead_on)
+ml6 = request.security(tid, "M", low[6],  lookahead = barmerge.lookahead_on)
+mt6 = request.security(tid, "M", time[6], lookahead = barmerge.lookahead_on)
+mo1 = request.security(tid, "M", open[1],  lookahead = barmerge.lookahead_on)
+mc1 = request.security(tid, "M", close[1], lookahead = barmerge.lookahead_on)
+mo2 = request.security(tid, "M", open[2],  lookahead = barmerge.lookahead_on)
+mc2 = request.security(tid, "M", close[2], lookahead = barmerge.lookahead_on)
+mo3 = request.security(tid, "M", open[3],  lookahead = barmerge.lookahead_on)
+mc3 = request.security(tid, "M", close[3], lookahead = barmerge.lookahead_on)
+mo4 = request.security(tid, "M", open[4],  lookahead = barmerge.lookahead_on)
+mc4 = request.security(tid, "M", close[4], lookahead = barmerge.lookahead_on)
+mo5 = request.security(tid, "M", open[5],  lookahead = barmerge.lookahead_on)
+mc5 = request.security(tid, "M", close[5], lookahead = barmerge.lookahead_on)
+mo6 = request.security(tid, "M", open[6],  lookahead = barmerge.lookahead_on)
+mc6 = request.security(tid, "M", close[6], lookahead = barmerge.lookahead_on)
+
+monH(int i) => i == 1 ? mh1 : i == 2 ? mh2 : i == 3 ? mh3 : i == 4 ? mh4 : i == 5 ? mh5 : mh6
+monL(int i) => i == 1 ? ml1 : i == 2 ? ml2 : i == 3 ? ml3 : i == 4 ? ml4 : i == 5 ? ml5 : ml6
+monT(int i) => i == 1 ? mt1 : i == 2 ? mt2 : i == 3 ? mt3 : i == 4 ? mt4 : i == 5 ? mt5 : mt6
+monO(int i) => i == 1 ? mo1 : i == 2 ? mo2 : i == 3 ? mo3 : i == 4 ? mo4 : i == 5 ? mo5 : mo6
+monC(int i) => i == 1 ? mc1 : i == 2 ? mc2 : i == 3 ? mc3 : i == 4 ? mc4 : i == 5 ? mc5 : mc6
+
+// Nearest-N declutter — is level L among the N closest levels on ITS side of the current
+// close (above/below)? Keeps a compressed lower-TF chart readable: only the relevant band
+// around price draws. nearN = 0 → draw everything. Counts across all nMon months' H/L/O/C.
+nearOK(float L) =>
+    bool _ok = true
+    if nearN > 0 and not na(L)
+        bool _above = L >= close
+        int _closer = 0
+        for _i = 1 to nMon
+            for _t = 0 to 3
+                float _o = _t == 0 ? monH(_i) : _t == 1 ? monL(_i) : _t == 2 ? monO(_i) : monC(_i)
+                if not na(_o) and ((_o >= close) == _above) and math.abs(_o - close) < math.abs(L - close)
+                    _closer += 1
+        _ok := _closer < nearN
+    _ok
+
+// ── DIRECTIONAL SUPPORT-RECLAIM SIGNAL (▲) ──────────────────────────────────────
+// A monthly level is SUPPORT only when price OPENED above it (day_open > L). The entry
+// is the wick-below-and-reclaim on the CHART bar: low ≤ L and close > L, with a minimum
+// penetration so a penny-kiss doesn't count. Scans H/L AND body O/C of the last nMon
+// months (up to 24 levels). Long only · once per level per day. A rally UP into a level
+// from below (open < L) is resistance and is NOT marked.
+day_open   = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+day_pclose = request.security(tid, "D", close[1], lookahead = barmerge.lookahead_on)  // prior-day close — the "was below" reference for GAP-and-go
+
+var bool[] mlvFired = array.new_bool(24, false)
+var bool[] mlvSwept = array.new_bool(24, false)
+newDay = ta.change(time("D")) != 0
+if newDay
+    for k = 0 to 23
+        array.set(mlvFired, k, false)
+        array.set(mlvSwept, k, false)
+
+// Mirrors the day_trade.pine alert exactly: a RECLAIM is open-agnostic (price dipped >= minPen
+// below the level today and CLOSED back above it — the dip and the reclaim may be different bars,
+// so the sweep is latched), OR a GAP-and-go (the day OPENED above the level after the prior day
+// CLOSED at/below it and held above). Long only · once per level per day.
+if showReclaim and tfOK and barstate.isconfirmed and not na(day_open)
+    for k = 0 to nMon * 4 - 1
+        int m  = int(k / 4) + 1
+        int ty = k % 4
+        float L = ty == 0 ? monH(m) : ty == 1 ? monL(m) : ty == 2 ? monO(m) : monC(m)
+        if not na(L) and low <= L * (1.0 - minPen)
+            array.set(mlvSwept, k, true)
+        bool swept = array.get(mlvSwept, k)
+        bool gap   = showBelow and not na(L) and not na(day_pclose) and day_open > L and day_pclose <= L
+        if not na(L) and (swept or gap) and close > L and not array.get(mlvFired, k)
+            array.set(mlvFired, k, true)
+            string mn   = str.format("{0,date,MMM}", int(monT(m)))
+            string ty_s = ty == 0 ? "H" : ty == 1 ? "L" : ty == 2 ? "O" : "C"
+            label.new(bar_index, low, (swept ? "▲" : "△") + mn + " " + ty_s, style = label.style_label_up, color = swept ? colUp : colBelow, textcolor = swept ? color.black : color.white, size = _msz, tooltip = mn + " " + ty_s + " " + str.tostring(L, format.mintick) + (swept ? " · reclaim (swept below & closed above)" : " · gap-and-go (opened above & held)") + " · stop " + str.tostring(low, format.mintick))
+
+// ── Draw the rails/bands once, keep updated on the last bar ───────────────────
+var line[]  lns  = array.new_line()
+var label[] lbls = array.new_label()
+var box[]   bxs  = array.new_box()
+
+if barstate.islast
+    for l in lns
+        line.delete(l)
+    for lb in lbls
+        label.delete(lb)
+    for b in bxs
+        box.delete(b)
+    array.clear(lns)
+    array.clear(lbls)
+    array.clear(bxs)
+    for i = 1 to nMon
+        float h = monH(i)
+        float l = monL(i)
+        int   t = int(monT(i))
+        if not na(h) and not na(l)
+            float o = monO(i)
+            float c = monC(i)
+            bool okH = nearOK(h)
+            bool okL = nearOK(l)
+            bool okO = nearOK(o)
+            bool okC = nearOK(c)
+            if showBody and not na(o) and not na(c) and (okO or okC)
+                array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
+            int fade = math.min(45, (i - 1) * 12)
+            color ch = color.new(colHi, fade)
+            color cl = color.new(colLo, fade)
+            int w = i == 1 ? 3 : 2
+            if okH
+                array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            if okL
+                array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
+            if showTag
+                string mn = str.format("{0,date,MMM}", t)
+                if okH
+                    array.push(lbls, label.new(bar_index + 1, h, mn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.normal))
+                if okL
+                    array.push(lbls, label.new(bar_index + 1, l, mn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.normal))
+            // Body EDGES as flat lines (dotted) — the monthly OPEN and CLOSE, colored by
+            // up/down month (green up · red down), so the body reads as two rails like H/L.
+            if showBodyLn and not na(o) and not na(c)
+                color cb = color.new(c >= o ? color.green : color.red, math.min(55, fade + 10))
+                if okO
+                    array.push(lns, line.new(t, o, time, o, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if okC
+                    array.push(lns, line.new(t, c, time, c, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if showTag
+                    string mnb = str.format("{0,date,MMM}", t)
+                    if okO
+                        array.push(lbls, label.new(bar_index + 1, o, mnb + " O " + str.tostring(o, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
+                    if okC
+                        array.push(lbls, label.new(bar_index + 1, c, mnb + " C " + str.tostring(c, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))

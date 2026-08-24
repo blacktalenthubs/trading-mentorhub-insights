@@ -1,0 +1,99 @@
+//@version=5
+// =============================================================================
+// FAIR VALUE BANDS (THT mirror) — basis + threshold ribbon + X1/X2 deviation bands
+// =============================================================================
+// Our own version of THT Fair Value bands so we OWN every level and can wire alerts to
+// them later. Components (all exposed as named series):
+//   • BASIS         = SMA(OHLC4, 33) — the mean / fair value (green rising, red falling)
+//   • THRESHOLD fill = a narrow "at fair value" ribbon around the basis
+//   • X1 bands (tan) = basis ± 1× the average high/low stretch  → normal extension
+//   • X2 bands (red) = basis ± 2× that                          → extreme / overextended
+// Weekly by default (validated: reversion-to-basis is a real support/exit on trending names;
+// stretched-above does NOT reliably revert on 4wk — the bands are a STRETCH gauge + target,
+// not a fade). alertcondition() hooks included for the obvious events. (user 2026-07-31)
+indicator("Fair Value Bands · THT mirror", "FV Bands", overlay = true, max_labels_count = 10)
+
+// ── Basis & bands ────────────────────────────────────────────────────────────
+gB     = "Basis & bands"
+len    = input.int(33, "Basis length (SMA of source)", group = gB, minval = 2)
+src    = input.source(ohlc4, "Basis source", group = gB, tooltip = "THT uses OHLC4 (bar average).")
+maTyp  = input.string("SMA", "MA type", options = ["SMA","EMA","WMA","RMA"], group = gB)
+htf    = input.timeframe("W", "Lock to timeframe", group = gB, tooltip = "W = weekly on any chart. Blank = chart TF. D = daily.")
+devLen = input.int(70, "Deviation lookback (σ over N bars)", group = gB, minval = 5, tooltip = "Bars over which the standard deviation of the source is measured (the '70' in THT).")
+devW   = input.float(1.7, "Deviation band width (× σ)", group = gB, step = 0.1, minval = 0.1, tooltip = "X1 = basis ± this×σ, X2 = basis ± 2×this×σ. 1.7 matches THT (X1≈+1.7σ, X2≈+3.4σ). Nudge to overlay his exactly.")
+thFrac = input.float(0.3, "Threshold ribbon (× σ)", group = gB, step = 0.05, minval = 0.05, maxval = 1.5)
+
+// ── Style ────────────────────────────────────────────────────────────────────
+gV     = "Style"
+upCol  = input.color(#26A69A, "Basis rising", group = gV, inline = "b")
+dnCol  = input.color(#EF5350, "Basis falling", group = gV, inline = "b")
+x1Col  = input.color(#C9A227, "X1 deviation (tan)", group = gV)
+x2Col  = input.color(#EF5350, "X2 deviation (red)", group = gV)
+fillUp = input.color(color.new(#26A69A, 72), "Threshold fill — up",   group = gV, inline = "f")
+fillDn = input.color(color.new(#EF5350, 72), "Threshold fill — down", group = gV, inline = "f")
+wLine  = input.int(2, "Basis width", group = gV, minval = 1, maxval = 5)
+// The FAIR VALUE BASIS is the entry/exit level (reclaim = in, close-below = out). The deviation
+// bands are TARGETS / extensions only — OFF by default; flip on when you want a run-target
+// (upper) or a washout reference (lower).
+show1xUp = input.bool(false, "X1 up (1×) — target",   group = gV, inline = "x1")
+show1xDn = input.bool(false, "X1 down",               group = gV, inline = "x1")
+show2xUp = input.bool(false, "X2 up (2×) — extension", group = gV, inline = "x2")
+show2xDn = input.bool(false, "X2 down",               group = gV, inline = "x2")
+showFill = input.bool(true, "Show threshold ribbon", group = gV)
+showLbl  = input.bool(true, "Show FV label", group = gV)
+
+f_ma(float s, int n) => maTyp == "EMA" ? ta.ema(s, n) : maTyp == "WMA" ? ta.wma(s, n) : maTyp == "RMA" ? ta.rma(s, n) : ta.sma(s, n)
+
+// basis + STANDARD DEVIATION of the source over the lookback (Bollinger-style around the
+// OHLC4 SMA — matches THT's band widths, e.g. AMZN X1≈basis+1.7σ, X2≈basis+3.4σ). Symmetric
+// and smooth, unlike the earlier avg high/low stretch which ran ~half as wide.
+f_fv() =>
+    b  = f_ma(src, len)
+    dv = ta.stdev(src, devLen)
+    [b, dv, dv]
+
+// (a ?: can't return a tuple — resolve the timeframe first, then one security call. On the
+//  chart TF, request.security just returns the direct values, so blank htf = chart TF.)
+_tf = htf == "" ? timeframe.period : htf
+[basis, upDev, dnDev] = request.security(syminfo.tickerid, _tf, f_fv(), lookahead = barmerge.lookahead_on)
+
+col = basis >= basis[1] ? upCol : dnCol
+rising = basis >= basis[1]
+
+// ── Levels (named — hang alerts on these) ────────────────────────────────────
+x1u = basis + devW * upDev
+x1l = basis - devW * dnDev
+x2u = basis + 2.0 * devW * upDev
+x2l = basis - 2.0 * devW * dnDev
+thu = basis + thFrac * upDev
+thl = basis - thFrac * dnDev
+
+// ── Plots ────────────────────────────────────────────────────────────────────
+pThu = plot(showFill ? thu : na, "Threshold up", color = color.new(color.white, 100))
+pThl = plot(showFill ? thl : na, "Threshold dn", color = color.new(color.white, 100))
+fill(pThu, pThl, color = rising ? fillUp : fillDn, title = "Threshold ribbon")
+plot(basis, "Fair Value basis", color = col, linewidth = wLine)
+plot(show1xUp ? x1u : na, "X1 upper", color = x1Col)
+plot(show1xDn ? x1l : na, "X1 lower", color = x1Col)
+plot(show2xUp ? x2u : na, "X2 upper", color = color.new(x2Col, 20))
+plot(show2xDn ? x2l : na, "X2 lower", color = color.new(x2Col, 20))
+
+var label tag = na
+if showLbl and barstate.islast
+    label.delete(tag)
+    tag := label.new(bar_index + 3, basis, "FV " + str.tostring(basis, format.mintick), style = label.style_label_left, color = color.new(col, 20), textcolor = color.white, size = size.small)
+
+// ── Alert building blocks (native TV alerts now; webhook emits can be added later) ──
+reclaimBasis = ta.crossover(close, basis)
+loseBasis    = ta.crossunder(close, basis)
+tagX1up = ta.crossover(high, x1u)
+tagX1dn = ta.crossunder(low, x1l)
+tagX2up = ta.crossover(high, x2u)
+tagX2dn = ta.crossunder(low, x2l)
+plotshape(reclaimBasis, "FV reclaim", style = shape.triangleup,   location = location.belowbar, color = color.new(#26A69A, 0), size = size.tiny)
+plotshape(loseBasis,    "FV lost",    style = shape.triangledown, location = location.abovebar, color = color.new(#EF5350, 0), size = size.tiny)
+alertcondition(reclaimBasis, "FV reclaim (close back above basis)", "{{ticker}} reclaimed fair value {{close}}")
+alertcondition(loseBasis,    "FV lost (close below basis)",         "{{ticker}} lost fair value {{close}}")
+alertcondition(tagX1up,      "Tagged X1 upper (extended)",          "{{ticker}} tagged the X1 deviation band")
+alertcondition(tagX2up,      "Tagged X2 upper (overextended)",      "{{ticker}} tagged the X2 band — maximally stretched high")
+alertcondition(tagX2dn,      "Tagged X2 lower (washed out)",        "{{ticker}} tagged the lower X2 band — washed out")

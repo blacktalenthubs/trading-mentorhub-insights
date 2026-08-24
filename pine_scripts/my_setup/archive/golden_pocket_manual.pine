@@ -1,0 +1,44 @@
+//@version=5
+// =============================================================================
+// GOLDEN POCKET · Manual (drag 2 lines) — 2026-07-31
+// =============================================================================
+// You set the leg, it draws the zones — reliable (his leg is discretionary). Two DRAGGABLE
+// price lines appear on add; drag them onto your SWING HIGH and SWING LOW and the golden
+// pocket renders instantly (no click-to-confirm flow that hangs):
+//   • Institutional Buy Zone = golden pocket 0.618 → 0.786 (blue)
+//   • Smart Money Zone       = deeper best-price slice 0.786 → ~0.85 (purple)
+// Works on any timeframe — match his chart, drag the two lines to his leg.
+indicator("Golden Pocket · Manual", "GP Manual", overlay = true, max_boxes_count = 4, max_labels_count = 4)
+
+gA  = "Leg — drag these two lines to your swing high & low"
+hiP = input.price(700.0, "① Swing High", group = gA)
+loP = input.price(300.0, "② Swing Low",  group = gA)
+
+gF    = "Fib zones"
+fGpLo = input.float(0.618, "Golden Pocket — low (.618)",  group = gF, step = 0.001)
+fGpHi = input.float(0.786, "Golden Pocket — high (.786)", group = gF, step = 0.001)
+fSm   = input.float(0.85,  "Smart Money floor (deepest)", group = gF, step = 0.01)
+
+gV      = "Style"
+colInst = input.color(color.new(color.blue,   80), "Institutional Buy Zone", group = gV)
+colSm   = input.color(color.new(color.purple, 60), "Smart Money Zone",       group = gV)
+txtCol  = input.color(color.new(color.white,  0),  "Zone text", group = gV)
+legBack = input.int(90, "Leg width (bars back)", group = gV, minval = 5, maxval = 1000)
+extBars = input.int(30, "Extend right (bars)",   group = gV, minval = 0, maxval = 500)
+
+sh   = math.max(hiP, loP)
+sl   = math.min(hiP, loP)
+rng  = sh - sl
+p618 = sh - fGpLo * rng
+p786 = sh - fGpHi * rng
+pSm  = sh - fSm   * rng
+
+var box iBox = na
+var box sBox = na
+if barstate.islast and rng > 0
+    box.delete(iBox)
+    box.delete(sBox)
+    lb = bar_index - legBack
+    rb = bar_index + extBars
+    iBox := box.new(lb, math.max(p618, p786), rb, math.min(p618, p786), border_color = color.new(color.blue, 45), bgcolor = colInst, text = "Institutional Buy Zone", text_color = txtCol, text_size = size.normal, text_halign = text.align_center, text_valign = text.align_center)
+    sBox := box.new(lb, math.max(p786, pSm),  rb, math.min(p786, pSm),  border_color = color.new(color.purple, 30), bgcolor = colSm, text = "Smart Money Zone", text_color = txtCol, text_size = size.small, text_halign = text.align_center, text_valign = text.align_center)

@@ -1,0 +1,174 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly + Monthly Levels · Confluence — PWH/PWL + PMH/PML in ONE study, with a
+// tunable confluence merge. The merged sibling of PDH/PDL · 5 Days.
+// ─────────────────────────────────────────────────────────────────────────────
+// Draws the HIGH & LOW of each of the last N completed weeks (W-1…) AND months (M-1…)
+// as FLAT horizontal levels — the current building week/month is excluded unless you
+// turn it on. RTH-accurate (regular session, so extended-hours prints don't leak the
+// weekly/monthly range) and non-repainting (settled [n] offsets + lookahead).
+//
+// CONFLUENCE (the point of the merge): levels sitting within `confPct` of each other
+// collapse into ONE amber KEY ZONE — a faint band across the cluster's range + a bold
+// center line + a label that NAMES every constituent (◆ PMH M-3 · PWH W-3  1702.60).
+// You keep the context (which levels formed it) AND get the one line stocks react to.
+// Set confPct = 0 to disable merging and draw every level standalone. A lone level
+// still draws as its own flat, role-colored line — nothing is ever dropped.
+// Bind on any timeframe; the levels are always the weekly/monthly H/L.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Weekly + Monthly Levels · Confluence", "wm-levels", overlay = true, max_lines_count = 40, max_labels_count = 40, max_boxes_count = 40)
+
+// ── sources ────────────────────────────────────────────────────────────────────
+grpSrc  = "Sources"
+showWk  = input.bool(true,  "Weekly highs/lows (PWH/PWL)", group = grpSrc)
+nWeeks  = input.int(4, "  Prior weeks", minval = 1, maxval = 8, tooltip = "Completed weeks back to draw (W-1 = last week … W-8). Current building week excluded unless included below.", group = grpSrc)
+inclWk  = input.bool(false, "  Include this (building) week", group = grpSrc)
+showMo  = input.bool(true,  "Monthly highs/lows (PMH/PML)", group = grpSrc)
+nMonths = input.int(3, "  Prior months", minval = 1, maxval = 6, tooltip = "Completed months back to draw (M-1 = last month … M-6). Current building month excluded unless included below.", group = grpSrc)
+inclMo  = input.bool(false, "  Include this (building) month", group = grpSrc)
+enNear  = input.bool(true, "Only show levels near price", group = grpSrc, tooltip = "A level only draws when price is within the % below — far weekly/monthly levels stay hidden so this works cleanly on LOWER timeframes without stretching the axis. They reappear as price approaches. Off = always show all in-window levels.")
+nearPct = input.float(5.0, "  Near = within (%)", minval = 0.5, maxval = 50, step = 0.5, group = grpSrc, tooltip = "How close price must be to a weekly/monthly level for it to draw. Tighten for intraday charts, widen to see the fuller structure.") / 100.0
+
+// ── confluence ───────────────────────────────────────────────────────────────
+grpConf = "Confluence"
+confPct = input.float(0.35, "Merge distance (%)", minval = 0.0, maxval = 5.0, step = 0.05, tooltip = "Levels within this % of each other collapse into ONE key zone (the band stocks react to). 0 = disable merging, draw every level standalone.", group = grpConf)
+confCol = input.color(#F2B01E, "Confluence zone", group = grpConf)
+zoneOp  = input.int(88, "  Zone fill transparency", minval = 50, maxval = 95, group = grpConf)
+confW   = input.int(3, "  Confluence line thickness", minval = 1, maxval = 6, group = grpConf)
+
+// ── style ──────────────────────────────────────────────────────────────────────
+grpSty  = "Style"
+roleCol = input.bool(true, "Color singles by role vs price", tooltip = "On: a single level BELOW price is green (support), ABOVE is red (resistance). Off: highs red, lows green.", group = grpSty)
+colHi   = input.color(#EF5350, "High / resistance", inline = "c", group = grpSty)
+colLo   = input.color(#26A69A, "Low / support",    inline = "c", group = grpSty)
+wLine   = input.int(2, "Single line thickness", minval = 1, maxval = 6, group = grpSty)
+lineLen = input.int(180, "Line length (bars back)", minval = 10, maxval = 2000, group = grpSty)
+tagOff  = input.int(8, "Label offset (bars right)", minval = 0, maxval = 50, group = grpSty)
+showLbl = input.bool(true, "Show labels", group = grpSty)
+fadeOld = input.bool(true, "Fade older levels", group = grpSty)
+
+// ── RTH-accurate weekly & monthly H/L (settled offsets, non-repainting) ─────────
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[wh0, wl0, wh1, wl1, wh2, wl2, wh3, wl3, wh4, wl4, wh5, wl5, wh6, wl6, wh7, wl7, wh8, wl8] = request.security(rthTid, "W", [high, low, high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5], high[6], low[6], high[7], low[7], high[8], low[8]], lookahead = barmerge.lookahead_on)
+[mh0, ml0, mh1, ml1, mh2, ml2, mh3, ml3, mh4, ml4, mh5, ml5, mh6, ml6] = request.security(rthTid, "M", [high, low, high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5], high[6], low[6]], lookahead = barmerge.lookahead_on)
+
+// ── one prior level: price, tag, high/low, and its fade (freshness) ─────────────
+type Lvl
+    float  price
+    string tag
+    bool   isHigh
+    int    fade
+
+// ── drawing pools (rebuilt on the last bar) ─────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var box[]   _bx = array.new_box()
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    for b in _bx
+        box.delete(b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_bx)
+
+    // 1) gather every in-window level (weekly + monthly), UNFILTERED
+    _all = array.new<Lvl>()
+    whs = array.from(wh0, wh1, wh2, wh3, wh4, wh5, wh6, wh7, wh8)
+    wls = array.from(wl0, wl1, wl2, wl3, wl4, wl5, wl6, wl7, wl8)
+    mhs = array.from(mh0, mh1, mh2, mh3, mh4, mh5, mh6)
+    mls = array.from(ml0, ml1, ml2, ml3, ml4, ml5, ml6)
+    if showWk
+        _s = inclWk ? 0 : 1
+        for a = _s to nWeeks
+            _tag = a == 0 ? "wk0" : "W-" + str.tostring(a)
+            _fd  = fadeOld ? int(math.min(65, a * 14)) : 0
+            _h = array.get(whs, a)
+            _l = array.get(wls, a)
+            if not na(_h)
+                array.push(_all, Lvl.new(_h, "PWH " + _tag, true, _fd))
+            if not na(_l)
+                array.push(_all, Lvl.new(_l, "PWL " + _tag, false, _fd))
+    if showMo
+        _s = inclMo ? 0 : 1
+        for a = _s to nMonths
+            _tag = a == 0 ? "mo0" : "M-" + str.tostring(a)
+            _fd  = fadeOld ? int(math.min(65, a * 16)) : 0
+            _h = array.get(mhs, a)
+            _l = array.get(mls, a)
+            if not na(_h)
+                array.push(_all, Lvl.new(_h, "PMH " + _tag, true, _fd))
+            if not na(_l)
+                array.push(_all, Lvl.new(_l, "PML " + _tag, false, _fd))
+
+    // 2) nearest level ABOVE and BELOW price — the next-resistance / next-support bracket, ALWAYS kept
+    _brkUp = float(na)
+    _brkDn = float(na)
+    for lv in _all
+        if lv.price > close and (na(_brkUp) or lv.price < _brkUp)
+            _brkUp := lv.price
+        if lv.price < close and (na(_brkDn) or lv.price > _brkDn)
+            _brkDn := lv.price
+
+    // 3) final bag: proximity-filtered, but the two bracketing levels are always in (so you never lose the next R/S)
+    levels = array.new<Lvl>()
+    for lv in _all
+        _keep = (not enNear) or (math.abs(close - lv.price) / close <= nearPct) or lv.price == _brkUp or lv.price == _brkDn
+        if _keep
+            array.push(levels, lv)
+
+    // 4) sort by price, then sweep into clusters (chain within confPct)
+    n = array.size(levels)
+    if n > 0
+        prices = array.new_float()
+        for lv in levels
+            array.push(prices, lv.price)
+        ord = array.sort_indices(prices, order.ascending)
+
+        i = 0
+        while i < n
+            startIdx = array.get(ord, i)
+            lvS = array.get(levels, startIdx)
+            cLo = lvS.price
+            cHi = lvS.price
+            cMinFade = lvS.fade
+            members = array.new_string()
+            array.push(members, lvS.tag)
+            j = i + 1
+            while j < n
+                lvJ = array.get(levels, array.get(ord, j))
+                if confPct > 0 and lvJ.price <= cHi * (1.0 + confPct / 100.0)
+                    cHi := lvJ.price
+                    cMinFade := int(math.min(cMinFade, lvJ.fade))
+                    array.push(members, lvJ.tag)
+                    j := j + 1
+                else
+                    break
+
+            cnt = array.size(members)
+            center = (cLo + cHi) / 2.0
+
+            // 3a) lone level — its own flat, role-colored line (nothing lost)
+            if cnt == 1
+                _base = roleCol ? (center >= close ? colHi : colLo) : (lvS.isHigh ? colHi : colLo)
+                _col  = color.new(_base, cMinFade)
+                array.push(_ln, line.new(bar_index - lineLen, center, bar_index + tagOff, center, color = _col, width = wLine, extend = extend.left))
+                if showLbl
+                    array.push(_lb, label.new(bar_index + tagOff, center, array.get(members, 0) + "  " + str.tostring(center, format.mintick), style = label.style_label_left, color = color.new(_base, 82), textcolor = _base, size = size.small))
+            // 3b) confluence — amber key zone + bold center + label naming every member
+            else
+                _nm = ""
+                _mx = cnt < 3 ? cnt : 3
+                for k = 0 to _mx - 1
+                    _nm := _nm + (k > 0 ? " · " : "") + array.get(members, k)
+                if cnt > 3
+                    _nm := _nm + " +" + str.tostring(cnt - 3)
+                _zcol = color.new(confCol, cMinFade)
+                array.push(_bx, box.new(bar_index - lineLen, cHi, bar_index + tagOff, cLo, border_color = color.new(confCol, int(math.min(92, cMinFade + 10))), bgcolor = color.new(confCol, zoneOp), extend = extend.left))
+                array.push(_ln, line.new(bar_index - lineLen, center, bar_index + tagOff, center, color = _zcol, width = confW, extend = extend.left))
+                if showLbl
+                    array.push(_lb, label.new(bar_index + tagOff, center, "◆ " + _nm + "  " + str.tostring(center, format.mintick), style = label.style_label_left, color = color.new(confCol, 78), textcolor = confCol, size = size.small))
+            i := j

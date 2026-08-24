@@ -1,0 +1,293 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// LEVELS + SIGNALS · flat  —  a VISUAL merge of rc.pine (Reclaim 4h/D/Wk/Mo) and
+// ma-ema-daily (MA bounce / rejection / reclaim). ARROWS + FLAT LEVELS ONLY — NO
+// alert() calls, nothing routes to the backend. For eyeballing setups on one chart.
+//
+// What it draws:
+//   • Daily MA flat S/R lines — 8/21/50/100/200 EMA + 50/100/200 SMA (settled
+//     [1]+lookahead_on, role-colored: green = support below price, red = resistance).
+//   • Prior-period levels — PDH/PDL (solid) · PWH/PWL (dashed) · PMH/PML (dotted) ·
+//     CML (orange) · ORH/ORL (opening range). All role-colored flats.
+//   • 10w / 30w weekly MA flat lines.
+//   • ARROWS (markers only):
+//       – MA bounce ▲ (green) / rejection ▼ (red) / reclaim RC (aqua)   [ma-ema-daily]
+//       – RC reclaim: 4h ▲ (lime=low, teal=high) · 4h reject ▼ (red) · daily ● [rc.pine]
+//       – weekly 10w↑ / 30w↑ reclaim·hold · wRC diamond                  [rc.pine]
+//       – pullback-continuation ▲ (lime)                                 [ma-ema-daily]
+//       – PDH/PDL confluence ◆                                            [ma-ema-daily]
+//
+// Computations copied VERBATIM from the two source pines — settled daily values via
+// ta.<ma>(close,len)[1] + lookahead_on (flat, identical on every chart TF, no repaint).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Levels + Signals · flat", "Levels+Sig", overlay = true, max_labels_count = 500, max_lines_count = 120)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════
+gShow = "Show / hide sections"
+show_mas   = input.bool(true, "Daily MA flat lines (8/21/50/100/200 EMA + 50/100/200 SMA)", group = gShow)
+show_lvl   = input.bool(true, "Prior levels — PDH/PDL · PWH/PWL · PMH/PML · CML",           group = gShow)
+show_wma   = input.bool(true, "Weekly 10w / 30w MA lines",                                  group = gShow)
+show_or    = input.bool(true, "Opening-range ORH / ORL lines",                              group = gShow)
+show_arrows= input.bool(true, "Signal arrows (MA bounce + RC reclaim + pullback)",          group = gShow)
+
+gMA = "Daily MA lines"
+en8   = input.bool(true, "EMA 8",   group = gMA, inline = "e1")
+en21  = input.bool(true, "EMA 21",  group = gMA, inline = "e1")
+en50  = input.bool(true, "EMA 50",  group = gMA, inline = "e2")
+en100 = input.bool(true, "EMA 100", group = gMA, inline = "e2")
+en200 = input.bool(true, "EMA 200", group = gMA, inline = "e2")
+es50  = input.bool(true, "SMA 50",  group = gMA, inline = "s1")
+es100 = input.bool(true, "SMA 100", group = gMA, inline = "s1")
+es200 = input.bool(true, "SMA 200", group = gMA, inline = "s1")
+ma_near = input.float(6.0, "Draw an MA only within % of price (0 = always)", minval = 0, maxval = 50, step = 0.5, group = gMA, tooltip = "A far MA (e.g. the 200 on a high-priced name) drawn as a flat line drags the price axis down to reach it, squashing the candles and making them jump on zoom. This hides an MA until price is within the % — the near 8/21/50 stay visible, the far 100/200 reappear as price approaches. 0 = always draw all (expect the axis to stretch).")
+
+gStyle = "Style"
+col_sup = input.color(#26A69A, "Support (price above the level)",    group = gStyle, inline = "c")
+col_res = input.color(#EF5350, "Resistance (price below the level)", group = gStyle, inline = "c")
+col_cml = input.color(#FFA726, "CML",                                group = gStyle)
+lvl_bars = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gStyle)
+
+gArr = "Arrows"
+en_ma_arrows = input.bool(true, "MA bounce / rejection / reclaim arrows", group = gArr)
+en_rc_arrows = input.bool(true, "RC reclaim arrows (4h / daily)",         group = gArr)
+en_wk_arrows = input.bool(true, "Weekly 10w/30w + wRC signs",             group = gArr)
+en_pb_arrows = input.bool(true, "Pullback-continuation arrows",           group = gArr)
+en_conf      = input.bool(true, "PDH/PDL confluence diamonds",            group = gArr)
+rc_gate_hrec = input.bool(true, "RC-H needs daily UPTREND (above rising daily EMA)",           group = gArr)
+rc_gate_low  = input.bool(true, "RC-low needs uptrend OR support confluence (no naked knives)", group = gArr)
+ma_touch_tol = input.float(0.0, "MA touch tolerance %", minval = 0.0, step = 0.05, group = gArr) / 100.0
+
+gOR = "Opening range"
+rl_orMin = input.int(15, "Opening-range minutes", minval = 5, group = gOR)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// VALUES — settled daily / weekly / monthly, non-repainting (copied from sources)
+// ═══════════════════════════════════════════════════════════════════════════
+tid    = syminfo.tickerid
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+
+// Daily MAs — settled yesterday value ([1]) + lookahead_on → flat on every chart TF (ma-ema-daily pattern)
+ema8   = request.security(tid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(tid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(tid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(tid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(tid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(tid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(tid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(tid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// Prior completed period H/L — LOCKED (high[1]/low[1] + lookahead_on), identical on every chart TF (rc.pine)
+[h4p, l4p] = request.security(tid, "240", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hDp, lDp] = request.security(tid, "D",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hWp, lWp] = request.security(tid, "W",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[hMp, lMp] = request.security(tid, "M",   [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// developing-period low (undercut check) — lookahead_off so it never leaks the future
+l4d = request.security(tid, "240", low, lookahead = barmerge.lookahead_off)
+lDd = request.security(tid, "D",   low, lookahead = barmerge.lookahead_off)
+lWd = request.security(tid, "W",   low, lookahead = barmerge.lookahead_off)
+lMd = request.security(tid, "M",   low, lookahead = barmerge.lookahead_off)
+// CML — current-month low, regular session + lookahead_on
+cml = request.security(rthTid, "M", low, lookahead = barmerge.lookahead_on)
+// today's daily open — the MA-bounce role decider (ma-ema-daily): support only if the day opened above it
+day_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+
+// Weekly 10w/30w MA + reclaim·hold signs (rc.pine f_wk — one tuple on the weekly, lookahead_on)
+f_wk() =>
+    _m10  = ta.sma(close, 10)
+    _m30  = ta.sma(close, 30)
+    _h10  = (close > _m10) and (low <= _m10 * 1.005) and (low >= _m10)
+    _r10  = (close > _m10) and (low < _m10)
+    _h30  = (close > _m30) and (low <= _m30 * 1.005) and (low >= _m30)
+    _r30  = (close > _m30) and (low < _m30)
+    _wrc  = (low < low[1]) and (close > low[1]) and ((close > open) or (close - low >= (high - low) * 0.5))
+    [_m10, _m30, _h10, _r10, _h30, _r30, _wrc]
+[w10, w30, h10, r10, h30, r30, wrc] = request.security(tid, "W", f_wk(), lookahead = barmerge.lookahead_on)
+
+// Daily trend reference for RC quality gates (rc.pine) — price above a RISING daily EMA = uptrend
+f_dtrend(int len, int lb) =>
+    _e = ta.ema(close, len)
+    [_e, _e > _e[lb]]
+[d_ema, d_rising] = request.security(tid, "D", f_dtrend(20, 3), lookahead = barmerge.lookahead_off)
+uptrend = (not na(d_ema)) and (close > d_ema) and d_rising
+near_lvl(float a, float b) => not na(a) and not na(b) and b != 0 and (math.abs(a - b) / b * 100.0 <= 0.5)
+
+// Opening range (minute-based → TF-agnostic), for ORH/ORL lines (rc.pine)
+nD = ta.change(time("D")) != 0
+rl_orBars = math.max(1, math.round(rl_orMin / math.max(1.0, timeframe.in_seconds() / 60.0)))
+var int rl_sbar = 0
+rl_sbar := nD ? 0 : rl_sbar + 1
+var float rl_orh = na
+var float rl_orl = na
+if nD
+    rl_orh := high
+    rl_orl := low
+else if rl_sbar < rl_orBars
+    rl_orh := math.max(rl_orh, high)
+    rl_orl := math.min(rl_orl, low)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RC ENGINE (visual) — sweep & reclaim of a prior level, once per period (rc.pine)
+// ═══════════════════════════════════════════════════════════════════════════
+n4 = ta.change(time("240")) != 0
+nW = ta.change(time("W"))   != 0
+nM = ta.change(time("M"))   != 0
+ok4 = not na(h4p) and not na(l4p)
+okD = not na(hDp) and not na(lDp)
+okW = not na(hWp) and not na(lWp)
+okM = not na(hMp) and not na(lMp)
+
+// sweep_reclaim: (1) armed above level, (2) undercut it, (3) close back above = fire once
+sweep_reclaim(float level, bool en, bool ok, bool newper) =>
+    var bool armed = false
+    var bool swept = false
+    var bool fired = false
+    if newper
+        armed := false
+        swept := false
+        fired := false
+    if ok and (close > level)
+        armed := true
+    if armed and ok and (low < level)
+        swept := true
+    bool fire = en and ok and swept and (close > level) and not fired
+    if fire
+        fired := true
+    fire
+
+// 4h quality gates (rc.pine): RC-H needs uptrend; RC-low needs uptrend OR support confluence
+l4_at_support = near_lvl(l4p, lDp) or near_lvl(l4p, lWp) or near_lvl(l4p, lMp) or near_lvl(l4p, w10) or near_lvl(l4p, w30)
+gate4_long = (not rc_gate_low)  or uptrend or l4_at_support
+gate4_hrec = (not rc_gate_hrec) or uptrend
+rc4_long = sweep_reclaim(l4p, en_rc_arrows and gate4_long, ok4, n4)
+rc4_hrec = sweep_reclaim(h4p, en_rc_arrows and gate4_hrec, ok4, n4)
+rcD_long = sweep_reclaim(lDp, en_rc_arrows, okD, nD)
+rcD_hrec = sweep_reclaim(hDp, en_rc_arrows, okD, nD)
+// 4h rejection short — poke above prior 4h high, close back below (once per 4h)
+var bool f4_short = false
+if n4
+    f4_short := false
+rc4_short = en_rc_arrows and ok4 and (high > h4p) and (close < h4p) and not f4_short
+if rc4_short
+    f4_short := true
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MA BOUNCE ENGINE (visual) — S0 position-relative, day-open decider (ma-ema-daily)
+// ═══════════════════════════════════════════════════════════════════════════
+// bounce: day opened ABOVE the MA (support beneath), dipped to it, closed back above
+strict_long(float ma)  => not na(ma) and day_open > ma and low  <= ma * (1.0 + ma_touch_tol) and close > ma
+// rejection: day opened BELOW the MA (resistance above), rallied into it, closed back below
+strict_short(float ma) => not na(ma) and day_open < ma and high >= ma * (1.0 - ma_touch_tol) and close < ma
+// reclaim (visual heads-up): opened below the MA, closed back above it
+reclaim_long(float ma) => not na(ma) and day_open < ma and open <= ma and close > ma
+
+fire_e8   = strict_long(ema8)
+fire_e21  = strict_long(ema21)
+fire_e50  = strict_long(ema50)
+fire_e100 = strict_long(ema100)
+fire_e200 = strict_long(ema200)
+fire_s50  = strict_long(sma50)
+fire_s100 = strict_long(sma100)
+fire_s200 = strict_long(sma200)
+sfire_e8   = strict_short(ema8)
+sfire_e21  = strict_short(ema21)
+sfire_e50  = strict_short(ema50)
+sfire_e100 = strict_short(ema100)
+sfire_e200 = strict_short(ema200)
+sfire_s50  = strict_short(sma50)
+sfire_s100 = strict_short(sma100)
+sfire_s200 = strict_short(sma200)
+any_long    = fire_e8 or fire_e21 or fire_e50 or fire_e100 or fire_e200 or fire_s50 or fire_s100 or fire_s200
+any_short   = sfire_e8 or sfire_e21 or sfire_e50 or sfire_e100 or sfire_e200 or sfire_s50 or sfire_s100 or sfire_s200
+any_reclaim = reclaim_long(ema8) or reclaim_long(ema21) or reclaim_long(ema50) or reclaim_long(ema100) or reclaim_long(ema200) or reclaim_long(sma50) or reclaim_long(sma100) or reclaim_long(sma200)
+
+// PDH/PDL confluence — a bounce that tags the PDL / a rejection that tags the PDH (ma-ema-daily)
+conf_buf = nz(ta.atr(14)[1], close * 0.005) * 0.5
+near_pdl = not na(lDp) and math.abs(low  - lDp) <= conf_buf
+near_pdh = not na(hDp) and math.abs(high - hDp) <= conf_buf
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PULLBACK CONTINUATION (visual) — steep uptrend, shallow dip, green resume (ma-ema-daily)
+// ═══════════════════════════════════════════════════════════════════════════
+pb_uptrend = not na(ema8) and not na(ema21) and close > ema8 and ema8 > ema21
+pb_down = 0
+for pb_i = 1 to 3
+    if close[pb_i] < close[pb_i + 1]
+        pb_down := pb_down + 1
+pb_resume = close > open and not na(high[1]) and close > high[1]
+fire_pullback = pb_uptrend and (pb_down >= 2) and pb_resume
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKERS (arrows) — every plotshape on ONE line (Pine v5 multi-line calls fail)
+// ═══════════════════════════════════════════════════════════════════════════
+_arr = show_arrows
+// MA bounce / rejection / reclaim
+plotshape(_arr and en_ma_arrows and any_long,    title = "MA bounce",   style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.tiny)
+plotshape(_arr and en_ma_arrows and any_short,   title = "MA reject",   style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),   size = size.tiny)
+plotshape(_arr and en_ma_arrows and any_reclaim, title = "MA reclaim",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.aqua, 0),  size = size.small, text = "RC")
+// PDH/PDL confluence
+plotshape(_arr and en_conf and any_long  and near_pdl, title = "LONG @ PDL",  style = shape.diamond, location = location.belowbar, color = color.new(color.yellow, 0), size = size.small)
+plotshape(_arr and en_conf and any_short and near_pdh, title = "SHORT @ PDH", style = shape.diamond, location = location.abovebar, color = color.new(color.purple, 0), size = size.small)
+// RC reclaim — 4h (triangles) + daily (circles)
+plotshape(_arr and en_rc_arrows and rc4_long,  title = "4h RC",    style = shape.triangleup,   location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "4hL")
+plotshape(_arr and en_rc_arrows and rc4_hrec,  title = "4h RC-H",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "4hH")
+plotshape(_arr and en_rc_arrows and rc4_short, title = "4h reject",style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),  size = size.tiny)
+plotshape(_arr and en_rc_arrows and rcD_long,  title = "D RC",     style = shape.circle,       location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny)
+plotshape(_arr and en_rc_arrows and rcD_hrec,  title = "D RC-H",   style = shape.circle,       location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny)
+// Weekly 10w/30w reclaim·hold + wRC
+plotshape(_arr and en_wk_arrows and (h10 or r10) and not (h10[1] or r10[1]), title = "10w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.tiny, text = "10w")
+plotshape(_arr and en_wk_arrows and (h30 or r30) and not (h30[1] or r30[1]), title = "30w reclaim/hold", style = shape.triangleup, location = location.belowbar, color = color.new(color.teal, 0), size = size.tiny, text = "30w")
+plotshape(_arr and en_wk_arrows and wrc and not wrc[1], title = "Weekly RC", style = shape.diamond, location = location.belowbar, color = color.new(#2962FF, 0), size = size.tiny, text = "wRC")
+// Pullback continuation
+plotshape(_arr and en_pb_arrows and fire_pullback, title = "Pullback", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FLAT LEVEL LINES — role-colored, redrawn on the last bar (rc.pine + ma-ema-daily)
+// ═══════════════════════════════════════════════════════════════════════════
+is_support(float lvl) => not na(lvl) and close > lvl
+// proximity gate for the MA lines — hide a far MA so it can't drag the price axis (candles jumping on zoom)
+f_near(float v) => ma_near == 0 or (not na(v) and close != 0 and math.abs(close - v) / close * 100.0 <= ma_near)
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+// draw one flat, role-colored level. sty: 0 solid · 1 dashed · 2 dotted. col_ovr = na → auto role color.
+draw_lvl(float lvl, string nm, int sty, int loff, bool show, color col_ovr) =>
+    if show and not na(lvl)
+        _c   = not na(col_ovr) ? col_ovr : (is_support(lvl) ? col_sup : col_res)
+        _sty = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        _tag = is_support(lvl) ? "  SUPPORT  " : "  RESIST  "
+        array.push(_ln, line.new(bar_index - lvl_bars, lvl, bar_index + loff, lvl, color = _c, width = 2, style = _sty, extend = extend.left))
+        array.push(_lb, label.new(bar_index + loff, lvl, nm + _tag + str.tostring(lvl, format.mintick), style = label.style_label_left, color = _c, textcolor = color.white, size = size.small))
+
+if barstate.islast
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    // daily MAs — solid EMA, dotted SMA
+    draw_lvl(ema8,   "EMA 8",   0, 4,  show_mas and en8   and f_near(ema8),   na)
+    draw_lvl(ema21,  "EMA 21",  0, 8,  show_mas and en21  and f_near(ema21),  na)
+    draw_lvl(ema50,  "EMA 50",  0, 12, show_mas and en50  and f_near(ema50),  na)
+    draw_lvl(ema100, "EMA 100", 0, 16, show_mas and en100 and f_near(ema100), na)
+    draw_lvl(ema200, "EMA 200", 0, 20, show_mas and en200 and f_near(ema200), na)
+    draw_lvl(sma50,  "SMA 50",  2, 24, show_mas and es50  and f_near(sma50),  na)
+    draw_lvl(sma100, "SMA 100", 2, 28, show_mas and es100 and f_near(sma100), na)
+    draw_lvl(sma200, "SMA 200", 2, 32, show_mas and es200 and f_near(sma200), na)
+    // prior levels — PDH/PDL solid · PWH/PWL dashed · PMH/PML dotted · CML orange
+    draw_lvl(hDp, "PDH", 0, 4,  show_lvl, na)
+    draw_lvl(lDp, "PDL", 0, 8,  show_lvl, na)
+    draw_lvl(hWp, "PWH", 1, 12, show_lvl, na)
+    draw_lvl(lWp, "PWL", 1, 16, show_lvl, na)
+    draw_lvl(hMp, "PMH", 2, 20, show_lvl, na)
+    draw_lvl(lMp, "PML", 2, 24, show_lvl, na)
+    draw_lvl(cml, "CML", 2, 28, show_lvl, col_cml)
+    // weekly 10w/30w MA
+    draw_lvl(w10, "10w", 0, 10, show_wma, na)
+    draw_lvl(w30, "30w", 0, 14, show_wma, na)
+    // opening range
+    draw_lvl(rl_orh, "ORH", 0, 30, show_or and not na(rl_orh), na)
+    draw_lvl(rl_orl, "ORL", 0, 34, show_or and not na(rl_orl), na)

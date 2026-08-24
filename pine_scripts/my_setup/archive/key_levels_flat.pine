@@ -1,0 +1,95 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// KEY LEVELS — flat. PDH / PDL (PDL = the Redler stop) + prior week / month / quarter
+// H/L + 50 & 200 SMA. Everything is a FLAT horizontal line, role-colored (green = support /
+// price above, red = resistance / price below), labeled. RTH-accurate (regular session, so
+// extended-hours prints don't leak the H/L). Same-price labels fan right so they stay readable.
+// No alerts — purely visual. Bind on any timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("key-levels-daily", "key-levels-daily", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+// ── which levels ──────────────────────────────────────────────────────────────
+gL     = "Levels"
+enPD   = input.bool(true,  "Prior day — PDH / PDL (PDL = STOP)", group = gL)
+enPW   = input.bool(true,  "Prior week — PWH / PWL",             group = gL)
+enPM   = input.bool(true,  "Prior month — PMH / PML",            group = gL)
+enPQ   = input.bool(false, "Prior quarter — PQH / PQL",          group = gL)
+en50   = input.bool(true,  "50 SMA (daily)",                     group = gL)
+en200  = input.bool(true,  "200 SMA (daily)",                    group = gL)
+lockTf = input.timeframe("D", "SMA lock timeframe (flat)",       group = gL)
+
+// ── style ─────────────────────────────────────────────────────────────────────
+gS      = "Style"
+supCol  = input.color(#26A69A, "Support (price above)",    group = gS)
+resCol  = input.color(#EF5350, "Resistance (price below)", group = gS)
+pdlCol  = input.color(color.new(#EF5350, 25), "PDL stop line", group = gS)
+wLine   = input.int(2,  "Line width", group = gS, minval = 1, maxval = 5)
+lineLen = input.int(60, "Line length (bars back)", group = gS, minval = 10, maxval = 500)
+tagOff  = input.int(6,  "Label offset (bars right)", group = gS, minval = 0, maxval = 50)
+showLbl = input.bool(true, "Show labels", group = gS)
+lblGap  = input.float(0.4, "Stagger labels closer than ± % (so overlaps stay readable)", group = gS, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep = input.int(3, "Label stagger step (bars per collision)", group = gS, minval = 1, maxval = 40)
+
+// ── values — RTH-accurate, settled [1] + lookahead → flat, non-repainting ──────
+tid    = syminfo.tickerid
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdh, pdl] = request.security(rthTid, "D",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pqh, pql] = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+sma50  = request.security(tid, lockTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma200 = request.security(tid, lockTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// ── draw (rebuilt on the last bar) ────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var float[] _lblY = array.new_float()   // prices already labeled this bar (collision stagger)
+f_xoff(float v) =>
+    _c = 0
+    if array.size(_lblY) > 0
+        for _k = 0 to array.size(_lblY) - 1
+            if math.abs(array.get(_lblY, _k) - v) / v <= lblGap
+                _c := _c + 1
+    array.push(_lblY, v)
+    tagOff + math.min(_c, 4) * lblStep   // cap so a colliding label can't shoot off-screen
+f_flat(float v, string nm, bool show, bool stop) =>
+    if show and not na(v)
+        _col = stop ? pdlCol : (v >= close ? resCol : supCol)
+        _st  = stop ? line.style_dashed : line.style_solid
+        _w   = stop ? 1 : wLine
+        _txt = stop ? nm + "  " + str.tostring(v, format.mintick) + "  · 🛑 STOP — exit if lost" : nm + "  " + str.tostring(v, format.mintick)
+        _xo  = f_xoff(v)
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = _col, width = _w, style = _st))
+        if showLbl
+            array.push(_lb, label.new(bar_index + _xo, v, _txt, style = label.style_label_left, color = color.new(_col, 82), textcolor = _col, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_lblY)
+    f_flat(pdh,    "PDH",     enPD,  false)
+    f_flat(pdl,    "PDL",     enPD,  true)    // the stop line
+    f_flat(pwh,    "PWH",     enPW,  false)
+    f_flat(pwl,    "PWL",     enPW,  false)
+    f_flat(pmh,    "PMH",     enPM,  false)
+    f_flat(pml,    "PML",     enPM,  false)
+    f_flat(pqh,    "PQH",     enPQ,  false)
+    f_flat(pql,    "PQL",     enPQ,  false)
+    f_flat(sma50,  "50 SMA",  en50,  false)
+    f_flat(sma200, "200 SMA", en200, false)
+
+// ── reaction arrows — reclaim (defended from above) / reject (failed from below) on the CLOSE,
+//    at ANY enabled level. Visual only, no alerts. ▲ below the bar = reclaim (bullish), ▼ above = reject.
+gR      = "Reaction arrows"
+enArrow = input.bool(true, "Show reclaim / reject arrows (on the bar close)", group = gR)
+rc_below(float L, float Lp) => not na(L) and close[1] > nz(Lp, L) and low  < L and close > L   // wick below, close back above
+rj_above(float L, float Lp) => not na(L) and close[1] < nz(Lp, L) and high > L and close < L   // poke above, close back below
+_rcAny = (enPD and rc_below(pdh, pdh[1])) or (enPD and rc_below(pdl, pdl[1])) or (enPW and rc_below(pwh, pwh[1])) or (enPW and rc_below(pwl, pwl[1])) or (enPM and rc_below(pmh, pmh[1])) or (enPM and rc_below(pml, pml[1])) or (enPQ and rc_below(pqh, pqh[1])) or (enPQ and rc_below(pql, pql[1])) or (en50 and rc_below(sma50, sma50[1])) or (en200 and rc_below(sma200, sma200[1]))
+_rjAny = (enPD and rj_above(pdh, pdh[1])) or (enPD and rj_above(pdl, pdl[1])) or (enPW and rj_above(pwh, pwh[1])) or (enPW and rj_above(pwl, pwl[1])) or (enPM and rj_above(pmh, pmh[1])) or (enPM and rj_above(pml, pml[1])) or (enPQ and rj_above(pqh, pqh[1])) or (enPQ and rj_above(pql, pql[1])) or (en50 and rj_above(sma50, sma50[1])) or (en200 and rj_above(sma200, sma200[1]))
+_conf = barstate.isconfirmed
+plotshape(enArrow and _conf and _rcAny, "Reclaim", style = shape.arrowup,   location = location.belowbar, color = supCol, size = size.small, text = "RC")
+plotshape(enArrow and _conf and _rjAny, "Reject",  style = shape.arrowdown, location = location.abovebar, color = resCol, size = size.small, text = "RJ")

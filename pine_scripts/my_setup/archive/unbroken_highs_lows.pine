@@ -1,0 +1,85 @@
+//@version=5
+// =============================================================================
+// UNBROKEN HIGHS & LOWS — swing highs/lows not yet taken out — 2026-07-31
+// =============================================================================
+// Marks every swing HIGH that no later bar has traded ABOVE (standing resistance — the
+// staircase of lower highs in a downtrend) and, optionally, every swing LOW not yet
+// traded BELOW (standing support). A level's line extends right until price takes it out,
+// then it's deleted. Deterministic — no discretion.
+indicator("Unbroken Highs & Lows", "Unbroken", overlay = true, max_lines_count = 120, max_labels_count = 120)
+
+pvLen   = input.int(2, "Swing strength (bars each side)", minval = 1, maxval = 20, tooltip = "Bars that must be lower/higher on each side for a swing to count. Lower = MORE swings marked (2 catches the finer lower highs; 1 = every micro-swing; 3-5 = only the major ones).")
+enHi    = input.bool(true,  "Highs not taken out (resistance)")
+enLo    = input.bool(false, "Lows not taken out (support)")
+brkMode = input.string("Wick (high/low)", "Taken out by", options = ["Wick (high/low)","Close"], tooltip = "Wick = any trade through the level removes it. Close = only a close through removes it.")
+maxKeep = input.int(25, "Max levels each side", minval = 1, maxval = 60)
+colHi   = input.color(color.new(#EF5350, 0), "High color", inline = "c")
+colLo   = input.color(color.new(#26A69A, 0), "Low color",  inline = "c")
+showLbl = input.bool(true, "Label the price")
+wLine   = input.int(1, "Line width", minval = 1, maxval = 3)
+
+ph = ta.pivothigh(pvLen, pvLen)
+pl = ta.pivotlow(pvLen, pvLen)
+
+var line[]  hL = array.new_line()
+var float[] hV = array.new_float()
+var label[] hLab = array.new_label()
+var line[]  lL = array.new_line()
+var float[] lV = array.new_float()
+var label[] lLab = array.new_label()
+
+f_add(line[] L, float[] V, label[] Lab, float price, color col, bool lblOn) =>
+    array.push(L, line.new(bar_index - pvLen, price, bar_index, price, color = col, width = wLine))
+    array.push(V, price)
+    array.push(Lab, lblOn ? label.new(bar_index, price, str.tostring(price, format.mintick), style = label.style_label_left, color = color.new(col, 100), textcolor = col, size = size.tiny) : na)
+    if array.size(V) > maxKeep
+        line.delete(array.shift(L))
+        array.shift(V)
+        _l = array.shift(Lab)
+        if not na(_l)
+            label.delete(_l)
+
+if enHi and not na(ph)
+    f_add(hL, hV, hLab, ph, colHi, showLbl)
+if enLo and not na(pl)
+    f_add(lL, lV, lLab, pl, colLo, showLbl)
+
+brkClose = brkMode == "Close"
+
+// HIGHS: drop any that got taken out, extend the survivors to the current bar
+if array.size(hV) > 0
+    for i = array.size(hV) - 1 to 0
+        _broke = brkClose ? close > array.get(hV, i) : high > array.get(hV, i)
+        if _broke
+            line.delete(array.get(hL, i))
+            array.remove(hL, i)
+            array.remove(hV, i)
+            _l = array.get(hLab, i)
+            if not na(_l)
+                label.delete(_l)
+            array.remove(hLab, i)
+    if array.size(hL) > 0
+        for i = 0 to array.size(hL) - 1
+            line.set_x2(array.get(hL, i), bar_index)
+            _lb = array.get(hLab, i)
+            if not na(_lb)
+                label.set_x(_lb, bar_index)
+
+// LOWS: same, taken out by a break below
+if array.size(lV) > 0
+    for i = array.size(lV) - 1 to 0
+        _broke = brkClose ? close < array.get(lV, i) : low < array.get(lV, i)
+        if _broke
+            line.delete(array.get(lL, i))
+            array.remove(lL, i)
+            array.remove(lV, i)
+            _l = array.get(lLab, i)
+            if not na(_l)
+                label.delete(_l)
+            array.remove(lLab, i)
+    if array.size(lL) > 0
+        for i = 0 to array.size(lL) - 1
+            line.set_x2(array.get(lL, i), bar_index)
+            _lb = array.get(lLab, i)
+            if not na(_lb)
+                label.set_x(_lb, bar_index)
