@@ -87,6 +87,12 @@ MORNING_FOCUS_TOP       = int(os.environ.get("MORNING_FOCUS_TOP", "5"))
 # judge accuracy). Switch to 'high_only' once the agent is trusted.
 POST_MODE       = os.environ.get("TRIAGE_POST_MODE", "all").lower()
 
+# AI narration. DEFAULT OFF (2026-08-24) — the AI verdict/commentary is no longer wanted, and its
+# hard dependency on the Anthropic API silently blackholed all alerts when credits ran out. OFF =
+# deliver the raw alert straight to Telegram (no Anthropic call, no cost, no single point of failure).
+# Set AI_NARRATION_ENABLED=true to bring the narrated verdict back.
+AI_NARRATION_ENABLED = os.environ.get("AI_NARRATION_ENABLED", "false").lower() == "true"
+
 # Mute NOTICE-direction alerts. Default FALSE — NOTICEs reach Telegram
 # (SPY/QQQ only — non-index NOTICEs filtered separately, see process_alert).
 # Set to true to mute NOTICEs entirely; the per-session cap still applies
@@ -419,34 +425,22 @@ def process_alert(alert_id, budget, dry_run=False):
         save_cursor(alert_id)
         return
 
-    try:
-        result = triage_mod.triage(dict(alert), user_id=USER_ID)
-    except Exception:
-        # RESILIENCE (2026-08-24): the AI narration is down (e.g. Anthropic credits exhausted / API
-        # outage). Do NOT blackhole the alert — that silently killed Telegram delivery for weeks. Deliver
-        # a PLAIN, un-narrated alert instead so a triage failure can never stop delivery again. Forced
-        # mode="all" so the fallback always sends during an outage, regardless of the configured POST_MODE.
-        logger.exception("triage threw for alert #%s — sending FALLBACK plain alert", alert_id)
-        fb_ok = None
+    # Build the `result` that drives delivery. Narration OFF (default) = deliver the raw alert with no
+    # Anthropic call. Narration ON = AI verdict, but a triage failure still degrades to a PLAIN alert
+    # (never blackhole delivery — that killed Telegram for weeks when credits ran out).
+    if AI_NARRATION_ENABLED:
         try:
-            if not dry_run:
-                fb_ok = telegram_post.send_verdict(
-                    alert,
-                    {"verdict": "NORMAL", "reason": "⚠ AI triage unavailable — plain alert (verify)"},
-                    mode="all",
-                )
+            result = triage_mod.triage(dict(alert), user_id=USER_ID)
+            budget.charge(result.get("steps_used", 1), model=triage_mod.MODEL)
         except Exception:
-            logger.exception("FALLBACK telegram send ALSO failed for #%s", alert_id)
-        write_audit({"alert_id": alert_id, "verdict": "FALLBACK",
-                     "reason": "triage exception — plain alert delivered",
-                     "telegram_sent": fb_ok})
-        save_cursor(alert_id)
-        return
+            logger.exception("triage threw for alert #%s — degrading to PLAIN alert", alert_id)
+            result = {"verdict": "NORMAL", "reason": "⚠ AI triage unavailable — plain alert (verify)", "steps_used": 0}
+    else:
+        # Raw delivery — no AI, no cost. verdict NORMAL so POST_MODE='all' delivers it.
+        result = {"verdict": "NORMAL", "reason": "", "steps_used": 0}
 
-    cost = budget.charge(result.get("steps_used", 1), model=triage_mod.MODEL)
-    logger.info("triaged #%s %s -> %s  (steps=%d, $%.4f spent today)",
-                alert_id, alert["symbol"], result["verdict"],
-                result.get("steps_used", 0), budget.spent)
+    logger.info("processed #%s %s -> %s  (narration=%s, $%.4f spent today)",
+                alert_id, alert["symbol"], result.get("verdict"), AI_NARRATION_ENABLED, budget.spent)
 
     route(alert, result, dry_run=dry_run)
     save_cursor(alert_id)
