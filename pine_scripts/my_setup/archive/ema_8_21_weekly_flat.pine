@@ -1,0 +1,46 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// 8 / 21 EMA — locked to the WEEKLY, drawn FLAT & non-repainting.
+// ─────────────────────────────────────────────────────────────────────────────
+// The 8- and 21-period EMA computed on the WEEKLY timeframe and pulled onto whatever
+// chart you bind (15m / 1h / daily). Uses the SETTLED weekly value ([1] + lookahead_on),
+// so each level is FLAT for the whole current week and only STEPS when the week closes —
+// no intrabar wiggle, no repaint. That's the point: a daily/intraday SMA signal that keeps
+// flip-flopping on intraday noise is filtered by asking one clean question — is price above
+// or below the WEEKLY 8/21? (Redler's short-term trend spine, but on the higher timeframe.)
+//
+// REGIME read (optional): bull = close above BOTH weekly EMAs · bear = below both · mixed =
+// between. Use it as the gate for your daily SMA reclaims — only take longs in a bull regime.
+// Bind on any intraday/daily chart; the EMAs are weekly regardless of the chart timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("8/21 EMA · Weekly (flat)", "8/21W", overlay = true, max_labels_count = 8)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+lockTf  = input.timeframe("W", "Lock timeframe", tooltip = "The EMAs are computed on THIS timeframe and held flat on your chart. Default Weekly. Set to D for a daily-locked version.")
+len1    = input.int(8,  "Fast EMA", minval = 1)
+len2    = input.int(21, "Slow EMA", minval = 1)
+col8    = input.color(#2962FF, "Fast (8) EMA")
+col21   = input.color(#FF6D00, "Slow (21) EMA")
+wLine   = input.int(2, "Line width", minval = 1, maxval = 5)
+showFill = input.bool(true,  "Shade the 8↔21 band")
+showRgm  = input.bool(true,  "Regime tint (bull/bear vs both EMAs)")
+showLbl  = input.bool(true,  "Right-edge value labels")
+
+// ── settled weekly EMAs ([1] + lookahead → FLAT within the week, non-repainting) ─────────────
+e8  = request.security(syminfo.tickerid, lockTf, ta.ema(close, len1)[1], lookahead = barmerge.lookahead_on)
+e21 = request.security(syminfo.tickerid, lockTf, ta.ema(close, len2)[1], lookahead = barmerge.lookahead_on)
+
+// ── plot (flat per week, steps at each weekly close) ──────────────────────────
+p8  = plot(e8,  "8 EMA (W)",  color = color.new(col8,  0), linewidth = wLine, style = plot.style_linebr)
+p21 = plot(e21, "21 EMA (W)", color = color.new(col21, 0), linewidth = wLine, style = plot.style_linebr)
+fill(p8, p21, color = showFill ? color.new(e8 >= e21 ? col8 : col21, 88) : na)
+
+// ── regime: bull above BOTH, bear below BOTH, else mixed ──────────────────────
+bull = not na(e8) and not na(e21) and close > e8 and close > e21
+bear = not na(e8) and not na(e21) and close < e8 and close < e21
+bgcolor(showRgm ? (bull ? color.new(color.green, 92) : bear ? color.new(color.red, 92) : na) : na)
+
+// ── right-edge value labels (current weekly EMAs) ─────────────────────────────
+if showLbl and barstate.islast
+    label.new(bar_index + 3, e8,  "8 EMA (W) "  + str.tostring(e8,  format.mintick), style = label.style_label_left, color = color.new(col8,  80), textcolor = col8,  size = size.small)
+    label.new(bar_index + 3, e21, "21 EMA (W) " + str.tostring(e21, format.mintick), style = label.style_label_left, color = color.new(col21, 80), textcolor = col21, size = size.small)

@@ -1,0 +1,55 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Gap-and-Go (equity) — the simplest version (user 2026-07-27):
+//   • the session OPENS above the prior high (PDH, or the highest of the last N days = "all prior high")
+//   • and STAYS above it — a confirmed 15m close back above the open, still above the gap ref
+//   • STOP = the morning low (the session's lowest low so far)
+// Fires ONE long per day. Equity only (a 24/7 crypto has no session gap). Bind on 15m; emits the
+// platform JSON (rule "gap_and_go") to the webhook. Invalidates on a 15m close back below the gap ref.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Gap-and-Go (equity) — open > prior high, morning-low stop", "gap-go", overlay = true, max_labels_count = 20)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+refDays  = input.int(1, "Gap reference — highest high of the last N days (1 = PDH)", minval = 1, maxval = 20, tooltip = "1 = opens above the prior-day high (PDH). Higher = must open above the highest high of the last N days ('above all prior high').")
+minGap   = input.float(0.0, "Min gap over the reference (%)", minval = 0.0, maxval = 10, tooltip = "0 = any amount above the reference counts. Raise to require a bigger breakaway gap.")
+enAl     = input.bool(true, "Fire the alert (on the 15m close)")
+enMk     = input.bool(true, "Show the ▲ marker + gap ref / morning-low lines")
+colGo    = input.color(#26A69A, "Marker / line color")
+
+// ── equity + session ─────────────────────────────────────────────────────────
+isEquity = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
+newDay   = ta.change(time("D")) != 0
+
+// gap reference = highest high of the last refDays COMPLETED days (settled, non-repainting)
+gapRef = request.security(syminfo.tickerid, "D", ta.highest(high, refDays)[1], lookahead = barmerge.lookahead_on)
+
+// session open (first bar of the day) + running morning low, reset each new day
+var float sessOpen = na
+var float mornLow  = na
+if newDay
+    sessOpen := open
+    mornLow  := low
+else
+    mornLow  := math.min(nz(mornLow, low), low)
+
+// ── setup + trigger ──────────────────────────────────────────────────────────
+gapUp   = isEquity and not na(gapRef) and not na(sessOpen) and sessOpen > gapRef * (1.0 + minGap / 100.0)
+conf    = barstate.isconfirmed
+holdGo  = gapUp and close > sessOpen and close > gapRef        // opened above the ref AND going (closing above the open), still above the ref
+var bool firedToday = false
+if newDay
+    firedToday := false
+trigger = enAl and conf and holdGo and not firedToday
+if trigger
+    firedToday := true
+
+// ── alert (platform JSON — rule "gap_and_go", BUY, stop = morning low) ────────
+g_note = "Gap-and-Go — opened above " + str.tostring(gapRef, format.mintick) + " (prior high) and holding. Stop = morning low " + str.tostring(mornLow, format.mintick) + " · invalid on a 15m close below " + str.tostring(gapRef, format.mintick)
+g_pay  = '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"gap_and_go","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(mornLow, format.mintick) + '","note":"' + g_note + '","nearby_levels":"4h|' + str.tostring(gapRef, format.mintick) + '|Prior High"}'
+if trigger
+    alert(g_pay, alert.freq_once_per_bar_close)
+
+// ── visuals ──────────────────────────────────────────────────────────────────
+plotshape(enMk and trigger, "Gap-and-Go", style = shape.triangleup, location = location.belowbar, color = colGo, size = size.small, text = "G&G")
+plot(enMk and gapUp ? gapRef : na, "Gap ref (prior high)", color = color.new(colGo, 30), style = plot.style_linebr, linewidth = 1)
+plot(enMk and not na(mornLow) and (gapUp or firedToday) ? mornLow : na, "Morning low (stop)", color = color.new(#EF5350, 30), style = plot.style_linebr, linewidth = 1)

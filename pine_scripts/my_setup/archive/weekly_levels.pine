@@ -1,0 +1,154 @@
+// @version=5
+//
+// WLV — Weekly Levels · directional. The last 4 COMPLETED weekly candles as rails (H/L)
+// + body bands (open↔close) + body lines (O/C), PLUS the one signal we trade: the
+// directional SUPPORT RECLAIM. Same grammar as MLV (monthly_levels.pine), for weeks.
+//
+//   ▲ SUPPORT RECLAIM (long) — the day OPENED ABOVE a weekly level (so it's support),
+//     price wicked BELOW it, and CLOSED back above. Fires once per level per day, on
+//     H/L AND the body O/C alike. A rally UP into a level from below (open < level) is
+//     RESISTANCE and is NOT marked — we are support buyers.
+//   △ RECLAIM-FROM-BELOW — opened under a level, a candle closed back above it (intraday
+//     acceptance). Distinct colour so you judge it separately.
+//
+//   Rails: highs red / lows teal · body band green = up week, red = down week · body
+//   lines dotted · recency fade · tags at the line ends · nearest-N declutter.
+//
+// The level + day-open gate are TF-independent (W/D security), so the reclaim granularity
+// follows the CHART TF (1h/4h). Completed weeks only — nothing repaints. 4 weeks of
+// H/L/O/C = 16 levels. Replaces the prior-week-only weekly tracking.
+indicator("WLV · Weekly Levels (directional)", "WLV", overlay = true, max_lines_count = 30, max_labels_count = 300, max_boxes_count = 8)
+
+gS = "Levels"
+nWk      = input.int(1, "Completed weeks to draw + scan (1 = prior week only)", minval = 1, maxval = 4, group = gS)
+showTag  = input.bool(true, "Week + price tags at the line ends", group = gS)
+showBody = input.bool(true, "Body band — open↔close zone per week", group = gS)
+showBodyLn = input.bool(true, "Body lines — flat OPEN & CLOSE level per week (dotted)", group = gS)
+colHi    = input.color(color.new(color.red, 0),  "Week highs", group = gS, inline = "c")
+colLo    = input.color(color.new(color.teal, 0), "Week lows",  group = gS, inline = "c")
+colBUp   = input.color(color.new(color.green, 88), "Body · up week",   group = gS, inline = "b")
+colBDn   = input.color(color.new(color.red, 88),   "Body · down week", group = gS, inline = "b")
+nearN    = input.int(4, "Declutter: draw only the N nearest levels ABOVE + BELOW price (0 = all)", minval = 0, maxval = 12, group = gS)
+
+gX = "Signal — directional support reclaim (long only)"
+showReclaim = input.bool(true, "▲ mark support reclaims (open>level · wick below · close back above)", group = gX)
+minPen      = input.float(0.15, "Min wick penetration below the level (%)", minval = 0.0, step = 0.05, group = gX) / 100.0
+colUp       = input.color(color.lime, "▲ reclaim", group = gX)
+showBelow   = input.bool(true, "△ also mark GAP-and-go (opened above the level after the prior day closed under it, held above)", group = gX)
+colBelow    = input.color(color.aqua, "△ gap-and-go", group = gX)
+markSz      = input.string("tiny", "Mark text size", options = ["tiny", "small", "normal"], group = gX)
+_msz = markSz == "small" ? size.small : markSz == "normal" ? size.normal : size.tiny
+only1h  = input.bool(true, "Lock the reclaim MARKS to the 1h timeframe (visual only — RC pine owns the alerts)", group = gX)
+tfOK = not only1h or timeframe.period == "60"
+
+// ── The last 4 completed weekly candles (constant offsets, lookahead_on — no repaint) ──
+tid = syminfo.tickerid
+[wh1, wl1, wo1, wc1, wt1] = request.security(tid, "W", [high[1], low[1], open[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
+[wh2, wl2, wo2, wc2, wt2] = request.security(tid, "W", [high[2], low[2], open[2], close[2], time[2]], lookahead = barmerge.lookahead_on)
+[wh3, wl3, wo3, wc3, wt3] = request.security(tid, "W", [high[3], low[3], open[3], close[3], time[3]], lookahead = barmerge.lookahead_on)
+[wh4, wl4, wo4, wc4, wt4] = request.security(tid, "W", [high[4], low[4], open[4], close[4], time[4]], lookahead = barmerge.lookahead_on)
+
+wkH(int i) => i == 1 ? wh1 : i == 2 ? wh2 : i == 3 ? wh3 : wh4
+wkL(int i) => i == 1 ? wl1 : i == 2 ? wl2 : i == 3 ? wl3 : wl4
+wkT(int i) => i == 1 ? wt1 : i == 2 ? wt2 : i == 3 ? wt3 : wt4
+wkO(int i) => i == 1 ? wo1 : i == 2 ? wo2 : i == 3 ? wo3 : wo4
+wkC(int i) => i == 1 ? wc1 : i == 2 ? wc2 : i == 3 ? wc3 : wc4
+
+// Nearest-N declutter — is level L among the N closest levels on its side of the current
+// close? Keeps a compressed lower-TF chart readable. nearN = 0 → draw everything.
+nearOK(float L) =>
+    bool _ok = true
+    if nearN > 0 and not na(L)
+        bool _above = L >= close
+        int _closer = 0
+        for _i = 1 to nWk
+            for _t = 0 to 3
+                float _o = _t == 0 ? wkH(_i) : _t == 1 ? wkL(_i) : _t == 2 ? wkO(_i) : wkC(_i)
+                if not na(_o) and ((_o >= close) == _above) and math.abs(_o - close) < math.abs(L - close)
+                    _closer += 1
+        _ok := _closer < nearN
+    _ok
+
+// ── DIRECTIONAL SUPPORT-RECLAIM SIGNAL ──────────────────────────────────────────
+day_open   = request.security(tid, "D", open, lookahead = barmerge.lookahead_off)
+day_pclose = request.security(tid, "D", close[1], lookahead = barmerge.lookahead_on)  // prior-day close — the "was below" reference for GAP-and-go
+
+var bool[] wlvFired = array.new_bool(16, false)
+var bool[] wlvSwept = array.new_bool(16, false)
+newDay = ta.change(time("D")) != 0
+if newDay
+    for k = 0 to 15
+        array.set(wlvFired, k, false)
+        array.set(wlvSwept, k, false)
+
+// Mirrors day_trade.pine: RECLAIM open-agnostic (dipped >= minPen below, closed back above — sweep
+// latched across bars) OR GAP-and-go (opened above the level after the prior day closed under it).
+if showReclaim and tfOK and barstate.isconfirmed and not na(day_open)
+    for k = 0 to nWk * 4 - 1
+        int wi = int(k / 4) + 1
+        int ty = k % 4
+        float L = ty == 0 ? wkH(wi) : ty == 1 ? wkL(wi) : ty == 2 ? wkO(wi) : wkC(wi)
+        if not na(L) and low <= L * (1.0 - minPen)
+            array.set(wlvSwept, k, true)
+        bool swept = array.get(wlvSwept, k)
+        bool gap   = showBelow and not na(L) and not na(day_pclose) and day_open > L and day_pclose <= L
+        if not na(L) and (swept or gap) and close > L and not array.get(wlvFired, k)
+            array.set(wlvFired, k, true)
+            string wn   = str.format("{0,date,MMM d}", int(wkT(wi)))
+            string ty_s = ty == 0 ? "H" : ty == 1 ? "L" : ty == 2 ? "O" : "C"
+            label.new(bar_index, low, (swept ? "▲" : "△") + wn + " " + ty_s, style = label.style_label_up, color = swept ? colUp : colBelow, textcolor = swept ? color.black : color.white, size = _msz, tooltip = "wk " + wn + " " + ty_s + " " + str.tostring(L, format.mintick) + (swept ? " · reclaim (swept below & closed above)" : " · gap-and-go (opened above & held)") + " · stop " + str.tostring(low, format.mintick))
+
+// ── Draw the rails/bands/body-lines once, on the last bar ───────────────────────
+var line[]  lns  = array.new_line()
+var label[] lbls = array.new_label()
+var box[]   bxs  = array.new_box()
+
+if barstate.islast
+    for l in lns
+        line.delete(l)
+    for lb in lbls
+        label.delete(lb)
+    for b in bxs
+        box.delete(b)
+    array.clear(lns)
+    array.clear(lbls)
+    array.clear(bxs)
+    for i = 1 to nWk
+        float h = wkH(i)
+        float l = wkL(i)
+        int   t = int(wkT(i))
+        if not na(h) and not na(l)
+            float o = wkO(i)
+            float c = wkC(i)
+            bool okH = nearOK(h)
+            bool okL = nearOK(l)
+            bool okO = nearOK(o)
+            bool okC = nearOK(c)
+            if showBody and not na(o) and not na(c) and (okO or okC)
+                array.push(bxs, box.new(t, math.max(o, c), time, math.min(o, c), xloc = xloc.bar_time, border_color = na, bgcolor = c >= o ? colBUp : colBDn))
+            int fade = math.min(45, (i - 1) * 12)
+            color ch = color.new(colHi, fade)
+            color cl = color.new(colLo, fade)
+            int w = i == 1 ? 3 : 2
+            if okH
+                array.push(lns, line.new(t, h, time, h, xloc = xloc.bar_time, color = ch, width = w))
+            if okL
+                array.push(lns, line.new(t, l, time, l, xloc = xloc.bar_time, color = cl, width = w))
+            if showTag
+                string wn = str.format("{0,date,MMM d}", t)
+                if okH
+                    array.push(lbls, label.new(bar_index + 1, h, wn + " H " + str.tostring(h, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colHi, size = size.small))
+                if okL
+                    array.push(lbls, label.new(bar_index + 1, l, wn + " L " + str.tostring(l, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = colLo, size = size.small))
+            if showBodyLn and not na(o) and not na(c)
+                color cb = color.new(c >= o ? color.green : color.red, math.min(55, fade + 10))
+                if okO
+                    array.push(lns, line.new(t, o, time, o, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if okC
+                    array.push(lns, line.new(t, c, time, c, xloc = xloc.bar_time, color = cb, width = 1, style = line.style_dotted))
+                if showTag
+                    string wnb = str.format("{0,date,MMM d}", t)
+                    if okO
+                        array.push(lbls, label.new(bar_index + 1, o, wnb + " O " + str.tostring(o, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))
+                    if okC
+                        array.push(lbls, label.new(bar_index + 1, c, wnb + " C " + str.tostring(c, format.mintick), style = label.style_label_left, color = color.new(color.black, 100), textcolor = cb, size = size.small))

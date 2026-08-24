@@ -1,0 +1,106 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Weekly / Monthly / Quarterly H-L — the prior period's HIGH & LOW, flat on the daily.
+// ─────────────────────────────────────────────────────────────────────────────
+// Draws the PRIOR week / month / quarter High & Low (PWH/PWL, PMH/PML, PQH/PQL) as FLAT
+// horizontal lines, RTH-accurate (regular session, no extended-hours leak), settled ([1] +
+// lookahead_on) so they're non-repainting. Role-colored: green = support (below price),
+// red = resistance (above). Coincident levels merge into one "CONF ×N" line.
+//
+// ARROWS (user 2026-08-06): ▲ below a bar = bullish level interaction (dipped to a level and closed
+// back above it, OR closed up through it) — the SPCX-on-PWL reclaim + breakups. ▼ above a bar =
+// bearish (spiked to a level and closed below, OR closed down through it) — rejections + breakdowns.
+// No "open above" gate. Visual only (eyeball first, then we wire it). Bind on the DAILY chart.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Weekly / Monthly / Quarterly H-L", "wmq-hl", overlay = true, max_lines_count = 12, max_labels_count = 60)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+enW      = input.bool(true, "Prior WEEK H/L (PWH / PWL)")
+enM      = input.bool(true, "Prior MONTH H/L (PMH / PML)")
+enQ      = input.bool(true, "Prior QUARTER H/L (PQH / PQL)")
+colHi    = input.color(#EF5350, "Resistance (above price)", inline = "c")
+colLo    = input.color(#26A69A, "Support (below price)",    inline = "c")
+wLine    = input.int(2,  "Line thickness", minval = 1, maxval = 6)
+lineLen  = input.int(80, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff   = input.int(8,  "Label offset (bars right)", minval = 0, maxval = 50)
+mergePct = input.float(0.5, "Merge coincident levels within (%)", minval = 0, maxval = 5, step = 0.05)
+showLbl  = input.bool(true, "Show labels")
+enMk      = input.bool(true, "Level-interaction arrows (▲ up / ▼ down)", group = "Arrows")
+markHi    = input.bool(true, "Also arrow the HIGHS (PWH/PMH/PQH) — breakups through resistance", group = "Arrows")
+touchPct  = input.float(0.5, "Touch tolerance (%) — how close a wick must get to 'test' a level", group = "Arrows", minval = 0, maxval = 2, step = 0.05) / 100.0
+
+// ── levels — RTH-accurate, settled [1], non-repainting ─────────────────────────
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pwh, pwl] = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pqh, pql] = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ── level-interaction arrows — visual only ─────────────────────────────────────
+//   ▲ up  (below bar) = bullish: price dipped to a level and closed back ABOVE it (reclaim / defended),
+//                       OR closed UP THROUGH a level it was under last bar (breakup).
+//   ▼ down (above bar) = bearish: price spiked to a level and closed back BELOW it (reject),
+//                       OR closed DOWN THROUGH a level it was over last bar (breakdown).
+//   No "open above" gate — any bar that ENDS on the bullish/bearish side of a level it touched counts.
+f_up(float L) => not na(L) and ((low  <= L * (1.0 + touchPct) and close > L) or (close > L and close[1] <= L))
+f_dn(float L) => not na(L) and ((high >= L * (1.0 - touchPct) and close < L) or (close < L and close[1] >= L))
+_up = (enW and f_up(pwl)) or (enM and f_up(pml)) or (enQ and f_up(pql))
+_dn = (enW and f_dn(pwl)) or (enM and f_dn(pml)) or (enQ and f_dn(pql))
+_up := markHi and ((enW and f_up(pwh)) or (enM and f_up(pmh)) or (enQ and f_up(pqh))) ? true : _up
+_dn := markHi and ((enW and f_dn(pwh)) or (enM and f_dn(pmh)) or (enQ and f_dn(pqh))) ? true : _dn
+plotshape(enMk and _up, "Up · reclaim / breakup",    location = location.belowbar, style = shape.triangleup,   color = colLo, size = size.tiny)
+plotshape(enMk and _dn, "Down · reject / breakdown", location = location.abovebar, style = shape.triangledown, color = colHi, size = size.tiny)
+
+// ── draw flat lines (role-colored, coincident levels merged) — rebuilt on the last bar ─────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+f_draw(float v, string nm, bool isConf) =>
+    if not na(v)
+        _col = v >= close ? colHi : colLo
+        _w   = isConf ? wLine + 1 : wLine
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w, extend = extend.left))
+        if showLbl
+            array.push(_lb, label.new(bar_index + tagOff, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_col, 82), textcolor = _col, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    _V = array.new_float()
+    _T = array.new_string()
+    if enW and not na(pwh)
+        array.push(_V, pwh)
+        array.push(_T, "PWH")
+    if enW and not na(pwl)
+        array.push(_V, pwl)
+        array.push(_T, "PWL")
+    if enM and not na(pmh)
+        array.push(_V, pmh)
+        array.push(_T, "PMH")
+    if enM and not na(pml)
+        array.push(_V, pml)
+        array.push(_T, "PML")
+    if enQ and not na(pqh)
+        array.push(_V, pqh)
+        array.push(_T, "PQH")
+    if enQ and not na(pql)
+        array.push(_V, pql)
+        array.push(_T, "PQL")
+    _U = array.new_bool(array.size(_V), false)
+    if array.size(_V) > 0
+        for _i = 0 to array.size(_V) - 1
+            if not array.get(_U, _i)
+                _v   = array.get(_V, _i)
+                _lbl = array.get(_T, _i)
+                _cnt = 1
+                if _i < array.size(_V) - 1
+                    for _j = _i + 1 to array.size(_V) - 1
+                        if not array.get(_U, _j) and mergePct > 0 and math.abs(array.get(_V, _j) - _v) / _v * 100.0 <= mergePct
+                            array.set(_U, _j, true)
+                            _lbl := _lbl + " + " + array.get(_T, _j)
+                            _cnt := _cnt + 1
+                array.set(_U, _i, true)
+                _nm = _cnt > 1 ? "CONF ×" + str.tostring(_cnt) + " · " + _lbl : _lbl
+                f_draw(_v, _nm, _cnt > 1)

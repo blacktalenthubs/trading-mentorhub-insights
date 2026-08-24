@@ -1,0 +1,850 @@
+//@version=5
+// =============================================================================
+// PROXIMITY LEVELS · PURE — structural levels ONLY (no SMA/EMA). PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL/PQC
+// =============================================================================
+// The levels-only sibling of Proximity Levels — nothing but the horizontal battle lines a level
+// trader reacts to. EVERYTHING is a FLAT line (green = SUPPORT / price above, red = RESISTANCE /
+// price below), labeled. RTH-accurate (regular session, so extended-hours prints don't leak the
+// H/L) and non-repainting (settled [1] + lookahead).
+//
+// Two show-rules keep the chart clean yet never blind:
+//   1. ALWAYS show the N nearest levels ABOVE price and N nearest BELOW (the bracket, default 2 each) —
+//      even if far, so after a break you still keep sight of the next resistances up and supports down.
+//   2. ALSO show any level within a proximity band (default ±1.5%) — catches clusters near price.
+// CONFLUENCE: levels stacked within ±0.4% (tunable) merge into ONE thicker line whose label lists
+// all members + a ·×N count (e.g. "PWH + PMH ·×2") — a wall reads at a glance.
+// DAY OPEN: the open is marked (dotted) and the level it opened ABOVE (today's support) / BELOW
+// (today's resistance) is tagged — the open sets each level's role for the session.
+// Levels/context ONLY: no MAs. DAY-DIRECTION SIGNALS — ONE live position from the OPEN's two neighbors (no
+// counter-trading). Entries: UPPER resistance → break-above=LONG / wick-reject=SHORT · LOWER support →
+// wick-reclaim=LONG / break-below=SHORT · plus a GAP-AND-GO that enters at the open when price gaps PAST the
+// prior-day range (never touches a neighbor). Stop = the entry candle's own extreme; break it and the position
+// FLIPS to the other side (LONG⇄SHORT). 15m close, RTH-only by default. Alerts optional (off).
+indicator("Proximity Levels · Pure", "Prox Pure", overlay = true, max_lines_count = 100, max_labels_count = 500, max_boxes_count = 5)
+
+// ── proximity band + confluence ────────────────────────────────────────────────
+gN      = "Proximity"
+nBracket  = input.int(3, "Show this many NEAREST levels above & below price", group = gN, minval = 1, maxval = 8, tooltip = "The consistent rule: always draw the N closest levels ABOVE price and the N closest BELOW — so EVERY stock shows the same-size, near-price set. A % band can't do this (5% is a $50 range on a $1000 stock and $1.50 on a $30 one, so it over-shows some and under-shows others). SMAs/EMAs inside that same window draw too.")
+farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5, tooltip = "Safety cap: if the nearest level is far enough to compress the axis, this hides anything beyond ± this %. 0 = off (always show the nearest N, whatever the distance).") / 100.0
+confPct = input.float(0.4, "Confluence — merge levels within ± % into one", group = gN, minval = 0.05, maxval = 3, step = 0.05) / 100.0
+showAll = input.bool(false, "Show ALL levels (ignore proximity — will compress the scale)", group = gN, tooltip = "OFF (default) = only levels within the proximity % draw. ON = draw every enabled level regardless of distance (squashes the scale).")
+
+// ── which structural levels ─────────────────────────────────────────────────────
+gC    = "Levels (uncheck any one to hide it)"
+enPDH = input.bool(true, "PDH", group = gC, inline = "pd")
+enPDL = input.bool(true, "PDL", group = gC, inline = "pd")
+enPWH = input.bool(true, "PWH", group = gC, inline = "pw")
+enPWL = input.bool(true, "PWL", group = gC, inline = "pw")
+enPWC = input.bool(true, "PWC", group = gC, inline = "pw")
+enPMH = input.bool(true, "PMH", group = gC, inline = "pm")
+enPML = input.bool(true, "PML", group = gC, inline = "pm")
+enPMC = input.bool(true, "PMC", group = gC, inline = "pm")
+enPQH = input.bool(true, "PQH", group = gC, inline = "pq")
+enPQL = input.bool(true, "PQL", group = gC, inline = "pq")
+enPQC = input.bool(true, "PQC", group = gC, inline = "pq")
+en4h  = input.bool(true, "Yesterday's INNER 4h high / low (the two that aren't PDH/PDL)", group = gC, tooltip = "Yesterday's two RTH 4h candles give 4 levels. The outer high = PDH and outer low = PDL (already shown). This adds the INNER high (lower of the two 4h highs) and INNER low (higher of the two 4h lows) — the mid-range 4h reaction levels. Labeled 4H H / 4H L, role-colored.")
+
+// ── pivot break (O'Neil base high) — the base-high pivot as a level + a breakout marker ──────────
+gPV      = "Pivot break (O'Neil base high)"
+enPivot  = input.bool(true, "Pivot line + breakout marker", group = gPV, tooltip = "Draws the base-high pivot (the highest high of the last N pivot-TF bars) as a flat role-colored level, and prints a BO triangle when price CLOSES up through it. Green BO = on a volume surge (confirmed O'Neil breakout), orange = weak volume.")
+pivotTf  = input.timeframe("W", "Pivot timeframe", group = gPV, tooltip = "Base high (pivot) pulled from this timeframe, drawn flat. Weekly = the O'Neil base.")
+baseLen  = input.int(7, "Base length (bars of the pivot TF)", group = gPV, minval = 3, maxval = 40)
+volSurge = input.float(1.4, "Breakout volume surge (× avg)", group = gPV, minval = 1.0, maxval = 3.0, step = 0.1)
+volAvgLen= input.int(20, "Volume average length", group = gPV, minval = 5, maxval = 60)
+
+// ── moving averages — daily-locked FLAT levels, proximity-gated + merged (ported from yesterday-4h) ──
+gMA        = "Moving averages (flat levels)"
+enSma      = input.bool(true, "Show SMAs / EMAs as flat levels", group = gMA, tooltip = "Each MA drawn as a FLAT dotted horizontal line at its current value (green = price above / support, red = below / resistance). Proximity-gated + merged so far MAs stay hidden and the axis never compresses — same handling as yesterday-4h.")
+smaTf      = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs (default Daily = the 8/20/50/100/200-day structural MAs). Blank = chart timeframe.")
+maMergePct = input.float(0.20, "Merge MAs within (%)", group = gMA, minval = 0.0, maxval = 2, step = 0.05, tooltip = "MAs within this % of each other collapse into ONE line naming all (e.g. '50 SMA · 200 EMA'). 0 = draw each separately.") / 100.0
+// (MAs use the SAME proximity as levels — the single 'Show levels within ± %' up top governs both.)
+en8    = input.bool(true, "8 SMA",   inline = "ma1", group = gMA)
+en20   = input.bool(true, "20 SMA",  inline = "ma1", group = gMA)
+en50   = input.bool(true, "50 SMA",  inline = "ma2", group = gMA)
+en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
+en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
+en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
+en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
+en200e = input.bool(true, "200 EMA", inline = "ma3", group = gMA)
+
+// ── style ──────────────────────────────────────────────────────────────────────
+gV     = "Style"
+supCol = input.color(#26A69A, "Support (price above)",    group = gV)
+resCol = input.color(#EF5350, "Resistance (price below)", group = gV)
+wLine  = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
+lineLen= input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV, tooltip = "OFF (default) = finite lines that all terminate at the same right edge (equal length; 'Line length' bars back). ON = every line extends both directions and spans the chart at any zoom.")
+labelX  = input.int(8, "Tag column — bars right of the last bar (tags align to this x)", group = gV, minval = 2, maxval = 40, tooltip = "Tags are pinned to this x-column so they line up. When two levels sit too close in price, the newer tag FANS right (see below) so the text doesn't overlap.")
+lblGap  = input.float(0.5, "Fan tags apart when levels are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05, tooltip = "When a level's price is within this % of one already tagged, its tag is nudged to the right so the two don't overlap. Raise to fan more aggressively, lower to keep tags in one column.") / 100.0
+lblStep = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── day open — mark it + tag the level it opened above (day support) / below (day resistance)
+gO      = "Day open"
+enOpen  = input.bool(true, "Mark the day's open + tag the levels it bracketed", group = gO, tooltip = "Where price OPENED sets each level's role for the day: the nearest level BELOW the open = today's SUPPORT (opened above it), the nearest ABOVE = today's RESISTANCE (opened below it).")
+openCol = input.color(color.new(#EAB308, 0), "Open line", group = gO)
+enPdlStop  = input.bool(true, "Flag PDL as the 🛑 STOP in its label (Redler: lose it, you're out)", group = gO, tooltip = "PDL draws as a normal role-colored horizontal line like every other level — this just appends a 🛑 STOP note to its label so you never forget it's the line in the sand.")
+
+// ── take-profit warning — a subtle nudge when price rallies UP INTO the nearest resistance above ──
+gTP    = "Take-profit into resistance"
+enTp   = input.bool(true, "Warn when price reaches the nearest resistance above (take profit)", group = gTP, tooltip = "When price rallies to within the band below the nearest DRAWN level above it, a subtle amber tag says 'into <level> — take profit'. The reminder to book gains at the wall instead of holding into it.")
+tpBand = input.float(0.30, "Warn within this % below the resistance", group = gTP, minval = 0.05, maxval = 3, step = 0.05) / 100.0
+tpCol  = input.color(#F2811D, "Warning tag", group = gTP)
+
+// ── range box — shade the nearest support↔resistance as a faint box, so a range reads at a glance (no text) ──
+gRng      = "Range box (nearest support ↔ resistance)"
+enRange   = input.bool(true, "Shade the nearest range as a faint box", group = gRng, tooltip = "Draws a faint box between the nearest DRAWN level below price (support) and above it (resistance) — levels AND MAs. A range reads instantly: buy the lower edge, sell the upper, skip the middle. Only when price is bracketed and the box is wider than the min below.")
+rngMinPct = input.float(0.30, "  Min box width (%) to shade", group = gRng, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+rngMaxPct = input.float(4.0, "  Max box width (%) — wider = not a range, no box", group = gRng, minval = 0.5, maxval = 30, step = 0.5, tooltip = "Only shade a box when the range is TIGHT enough to actually be a range. Wider than this (a breakout / open air / trend day, like HOOD after a gap) = NO box — the absence of a box tells you it isn't a range to fade.") / 100.0
+rngCol    = input.color(#787B86, "Range shade", group = gRng)
+
+// ── daily RSI reminder — a corner HUD so you never forget to check it ───────────
+gR      = "Daily RSI (reminder HUD)"
+enRsi   = input.bool(true, "Show daily RSI in a corner", group = gR)
+rsiLen  = input.int(14, "RSI length", group = gR, minval = 2)
+rsiOS   = input.float(30, "RSI level — LOSE it = oversold, RECLAIM it = entry", group = gR, minval = 5, maxval = 50)
+rsiOB   = input.float(70, "Overbought ≥ (red)", group = gR, minval = 50, maxval = 95)
+rsiPos  = input.string("top_right", "HUD corner", options = ["top_right", "top_center", "bottom_right", "bottom_left"], group = gR)
+
+// ── values — RTH-accurate (regular-session ticker so extended-hours prints don't leak), non-repainting
+tid    = syminfo.tickerid
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+f_rth(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
+pdh = f_rth("D", high[1])
+pdl = f_rth("D", low[1])
+pwh = f_rth("W",  high[1])
+pwl = f_rth("W",  low[1])
+pwc = f_rth("W",  close[1])
+pmh = f_rth("M",  high[1])
+pml = f_rth("M",  low[1])
+pmc = f_rth("M",  close[1])
+pqh = f_rth("3M", high[1])
+pql = f_rth("3M", low[1])
+pqc = f_rth("3M", close[1])
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+// ── yesterday's last TWO 4h candles (RTH), frozen at each new session so they stay yesterday's all day.
+//    Outer high = PDH, outer low = PDL (already drawn). We keep only the INNER high/low (the non-PDH/PDL pair).
+_isEq4h  = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
+_newBlk4h = ta.change(time(_isEq4h ? "D" : "480")) != 0
+[_ph1, _pl1, _ph2, _pl2] = request.security(rthTid, "240", [high[1], low[1], high[2], low[2]], lookahead = barmerge.lookahead_on)
+var float _yh1 = na
+var float _yl1 = na
+var float _yh2 = na
+var float _yl2 = na
+if na(_yh1) or _newBlk4h
+    _yh1 := _ph1
+    _yl1 := _pl1
+    _yh2 := _ph2
+    _yl2 := _pl2
+innerHigh = not na(_yh1) and not na(_yh2) ? math.min(_yh1, _yh2) : na   // lower of the two 4h highs (not PDH)
+innerLow  = not na(_yl1) and not na(_yl2) ? math.max(_yl1, _yl2) : na   // higher of the two 4h lows  (not PDL)
+// only show an inner level when it is meaningfully off PDH/PDL (degenerate day = both 4h highs equal → skip dup)
+_show4hH = en4h and not na(innerHigh) and (na(pdh) or math.abs(innerHigh - pdh) / pdh > 0.0005)
+_show4hL = en4h and not na(innerLow)  and (na(pdl) or math.abs(innerLow  - pdl) / pdl > 0.0005)
+rsiD    = request.security(tid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)   // today's DAILY RSI
+rsiRc   = not na(rsiD) and rsiD > rsiOS and nz(rsiD[1], rsiD) <= rsiOS   // reclaim of the oversold level (HUD only)
+// pivot = base high (highest high of the last baseLen pivot-TF bars), settled/flat. Breakout = a close THROUGH it.
+pivot    = f_rth(pivotTf, ta.highest(high, baseLen)[1])
+_pvAvg   = ta.sma(volume, volAvgLen)
+pvVolOk  = not na(_pvAvg) and _pvAvg > 0 and volume > _pvAvg * volSurge
+brkPivot = enPivot and not na(pivot) and not na(close[1]) and close > pivot and close[1] <= pivot   // fresh close THROUGH the pivot
+// MA values — daily-locked (lookahead off → live developing value, no future leak), same as yesterday-4h
+sma8v   = enSma and en8   ? request.security(rthTid, smaTf, ta.sma(close, 8),   lookahead = barmerge.lookahead_off) : na
+sma20v  = enSma and en20  ? request.security(rthTid, smaTf, ta.sma(close, 20),  lookahead = barmerge.lookahead_off) : na
+sma50v  = enSma and en50  ? request.security(rthTid, smaTf, ta.sma(close, 50),  lookahead = barmerge.lookahead_off) : na
+sma100v = enSma and en100 ? request.security(rthTid, smaTf, ta.sma(close, 100), lookahead = barmerge.lookahead_off) : na
+sma200v = enSma and en200 ? request.security(rthTid, smaTf, ta.sma(close, 200), lookahead = barmerge.lookahead_off) : na
+ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50),  lookahead = barmerge.lookahead_off) : na
+ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
+ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200), lookahead = barmerge.lookahead_off) : na
+
+// ── the OPEN's two NEIGHBORS — nearest enabled level ABOVE (resistance) and BELOW (support) the day's open.
+//    These two, and ONLY these two, drive the day-direction signals. Computed here so the open label names them.
+_nbVals  = array.from(enPDH ? pdh : na, enPDL ? pdl : na, enPWH ? pwh : na, enPWL ? pwl : na, enPWC ? pwc : na, enPMH ? pmh : na, enPML ? pml : na, enPMC ? pmc : na, enPQH ? pqh : na, enPQL ? pql : na, enPQC ? pqc : na)
+_nbNames = array.from("PDH", "PDL", "PWH", "PWL", "PWC", "PMH", "PML", "PMC", "PQH", "PQL", "PQC")
+oUp   = 1.0e18                            // nearest level ABOVE the open (the day's resistance neighbor)
+oDn   = -1.0                             // nearest level BELOW the open (the day's support neighbor)
+oUpNm = ""
+oDnNm = ""
+if not na(dayOpen)
+    for _i = 0 to array.size(_nbVals) - 1
+        _v = array.get(_nbVals, _i)
+        if not na(_v) and _v > 0
+            if _v > dayOpen and _v < oUp
+                oUp   := _v
+                oUpNm := array.get(_nbNames, _i)
+            if _v < dayOpen and _v > oDn
+                oDn   := _v
+                oDnNm := array.get(_nbNames, _i)
+
+// ── collection + flat-line drawing (with confluence clustering) ─────────────────
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _cv = array.new_float()   // ALL candidate levels (for the bracket calc + draw filter)
+var string[] _cn = array.new_string()
+var bool[]   _ca = array.new_bool()    // always-draw? (PDH/PDL — never filtered by proximity)
+var float[]  _dv = array.new_float()   // what will actually be drawn
+var string[] _dn = array.new_string()
+var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18   // Nth-nearest of {levels + MAs} ABOVE price — the ONE combined bracket top
+var float    _brkLo = -1.0     // Nth-nearest of {levels + MAs} BELOW price — the combined bracket bottom
+var box      _rngBox = na      // faint shaded box between the nearest support and resistance
+// ALL lines are the SAME length (bar_index-lineLen → bar_index+8). Only a CONFLUENCE level reaches FURTHER
+// right (a finite extra length, never infinite) so a stacked wall stands out. LABEL fans right (xoff) on a collision.
+// tag x-position: the shared labelX column, fanned RIGHT when a level is within lblGap% of one already tagged.
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+f_draw(float lvl, string nm, int w, bool isConf) =>
+    sup = close > lvl
+    col = sup ? supCol : resCol
+    _xo = f_xoff(lvl)
+    // the line TERMINATES at its tag (bar_index + _xo). Tags align at labelX and only fan on a price collision,
+    // so line ends are equal except where two levels sit too close to share the column.
+    array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + _xo, lvl, color = col, width = w, extend = extendAll ? extend.both : extend.none))
+    array.push(_lb, label.new(bar_index + _xo, lvl, nm + (sup ? "  ▲ " : "  ▼ ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+f_cand(float v, string nm, bool show, bool always) =>
+    if show and not na(v) and v > 0
+        array.push(_cv, v)
+        array.push(_cn, nm)
+        array.push(_ca, always)
+f_add(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_dv, v)
+        array.push(_dn, nm)
+// ── MA flat-draw + merge machinery (proximity-gated, dotted, ported from yesterday-4h) ──
+var float[]  _maV = array.new_float()
+var string[] _maN = array.new_string()
+var float[]  _anchors = array.new_float()   // drawn LEVEL prices — a MA sitting on one folds into that label, no dup line
+// which MAs sit within confPct of price p → their names, to FOLD into a level's confluence label (no separate MA line)
+f_maTag(float p) =>
+    s = ""
+    if enSma and not na(p) and p > 0
+        s := (not na(sma8v)   and math.abs(p - sma8v)   / p <= confPct) ? s + " · 8SMA"   : s
+        s := (not na(sma20v)  and math.abs(p - sma20v)  / p <= confPct) ? s + " · 20SMA"  : s
+        s := (not na(sma50v)  and math.abs(p - sma50v)  / p <= confPct) ? s + " · 50SMA"  : s
+        s := (not na(sma100v) and math.abs(p - sma100v) / p <= confPct) ? s + " · 100SMA" : s
+        s := (not na(sma200v) and math.abs(p - sma200v) / p <= confPct) ? s + " · 200SMA" : s
+        s := (not na(ema50v)  and math.abs(p - ema50v)  / p <= confPct) ? s + " · 50EMA"  : s
+        s := (not na(ema100v) and math.abs(p - ema100v) / p <= confPct) ? s + " · 100EMA" : s
+        s := (not na(ema200v) and math.abs(p - ema200v) / p <= confPct) ? s + " · 200EMA" : s
+    s
+f_sma(float v, string nm) =>
+    // the SHORT MAs (8 / 20 / 50 SMA) always draw — they're the core entry references (8 SMA reclaim, 50 SMA support),
+    // so they bypass the proximity bracket. The longer MAs (100/200 SMA·EMA) stay bracket-gated so they don't compress the axis.
+    _alwaysMa = str.contains(nm, "8 SMA") or str.contains(nm, "20 SMA") or str.contains(nm, "50 SMA")
+    if not na(v) and v > 0 and (showAll or _alwaysMa or (v <= _brkHi and v >= _brkLo and (farCapPct <= 0 or math.abs(close - v) / close <= farCapPct)))
+        _mc = close > v ? supCol : resCol
+        _mxo = f_xoff(v)
+        // same weight/color as the structural levels (just dotted, so a MA still reads as a MA), tag equally solid.
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _mxo, v, color = _mc, width = wLine, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _mxo, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = _mc, textcolor = color.white, size = size.small))
+f_addMa(float v, string nm) =>
+    if not na(v) and v > 0                        // collect ALL enabled MAs; the nearest-N bracket below picks which draw
+        _onAnchor = false
+        if array.size(_anchors) > 0
+            for _ai = 0 to array.size(_anchors) - 1
+                if math.abs(array.get(_anchors, _ai) - v) / v <= confPct
+                    _onAnchor := true
+        if not _onAnchor                          // a MA that lines up with a level is folded into that level (f_maTag), no dup line
+            array.push(_maV, v)
+            array.push(_maN, nm)
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_cv)
+    array.clear(_cn)
+    array.clear(_ca)
+    array.clear(_dv)
+    array.clear(_dn)
+    array.clear(_maV)
+    array.clear(_maN)
+    array.clear(_anchors)
+    array.clear(_drawnY)
+    // candidates — PDH/PDL ALWAYS draw (never proximity-filtered); the rest obey the near/bracket rules
+    f_cand(pdh, "PDH", enPDH, true)
+    f_cand(pdl, "PDL", enPDL, true)
+    f_cand(pwh, "PWH", enPWH, false)
+    f_cand(pwl, "PWL", enPWL, false)
+    f_cand(pwc, "PWC", enPWC, false)
+    f_cand(pmh, "PMH", enPMH, false)
+    f_cand(pml, "PML", enPML, false)
+    f_cand(pmc, "PMC", enPMC, false)
+    f_cand(pqh, "PQH", enPQH, false)
+    f_cand(pql, "PQL", enPQL, false)
+    f_cand(pqc, "PQC", enPQC, false)
+    f_cand(pivot, "PIVOT", enPivot, false)   // O'Neil base-high pivot — bracket-gated (a far weekly base shouldn't compress the axis)
+    f_cand(innerHigh, "4H H", _show4hH, false)   // yesterday's inner 4h high (not PDH) — mid-range resistance
+    f_cand(innerLow,  "4H L", _show4hL, false)   // yesterday's inner 4h low  (not PDL) — mid-range support
+    // ── NEAREST-N bracket: the N closest levels ABOVE price and N below (adaptive to every stock, so the set
+    //    is consistent everywhere); an optional far-cap hides a lone far level that would compress the axis. ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            if v > close
+                array.push(_ab, v)
+            else if v < close
+                array.push(_bl, v)
+    // ONE combined bracket — the SMAs/EMAs share the SAME nearest-N pool as the levels, so "3 above / 3 below"
+    // counts BOTH. A far level no longer lets every MA through, and levels+MAs never double the count.
+    if enSma
+        _mvals = array.from(sma8v, sma20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+        for _mi2 = 0 to array.size(_mvals) - 1
+            _mval = array.get(_mvals, _mi2)
+            if not na(_mval) and _mval > 0
+                if _mval > close
+                    array.push(_ab, _mval)
+                else if _mval < close
+                    array.push(_bl, _mval)
+    array.sort(_ab, order.ascending)    // nearest-above first
+    array.sort(_bl, order.descending)   // nearest-below first
+    _brkHi := array.size(_ab) > 0 ? array.get(_ab, math.min(nBracket, array.size(_ab)) - 1) : 1.0e18   // Nth above
+    _brkLo := array.size(_bl) > 0 ? array.get(_bl, math.min(nBracket, array.size(_bl)) - 1) : -1.0      // Nth below
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            v = array.get(_cv, _i)
+            _inBr = (v > close and v <= _brkHi) or (v < close and v >= _brkLo)
+            _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
+            if showAll or array.get(_ca, _i) or (_inBr and _cap)   // PDH/PDL (always-flag) draw no matter what
+                f_add(v, array.get(_cn, _i))
+    // day-open bracket — the drawn level nearest BELOW the open (day support) & nearest ABOVE (day resist)
+    oSupV = -1.0
+    oResV = 1.0e18
+    if enOpen and not na(dayOpen) and array.size(_dv) > 0
+        for _i = 0 to array.size(_dv) - 1
+            v = array.get(_dv, _i)
+            if v < dayOpen and v > oSupV
+                oSupV := v
+            if v > dayOpen and v < oResV
+                oResV := v
+    // ── CONFLUENCE — group levels within confPct into ONE thicker line, label lists all members
+    if array.size(_dv) > 0
+        _used = array.new_bool(array.size(_dv), false)
+        for _i = 0 to array.size(_dv) - 1
+            if not array.get(_used, _i)
+                vi     = array.get(_dv, _i)
+                nm     = array.get(_dn, _i)
+                _isPd  = str.contains(nm, "PDH") or str.contains(nm, "PDL")   // day rails / stop — NEVER merge, keep EXACT price
+                cnt    = 1
+                isOS   = vi == oSupV
+                isOR   = vi == oResV
+                _near  = vi                          // the merged line sits on the REAL member NEAREST price
+                _nearD = math.abs(close - vi)        //   (never a fabricated average that lands on none of them)
+                array.set(_used, _i, true)
+                if not _isPd and _i < array.size(_dv) - 1
+                    for _j = _i + 1 to array.size(_dv) - 1
+                        _vj  = array.get(_dv, _j)
+                        _nmj = array.get(_dn, _j)
+                        _jPd = str.contains(_nmj, "PDH") or str.contains(_nmj, "PDL")   // never absorb PDH/PDL into a cluster either
+                        if not array.get(_used, _j) and not _jPd and math.abs(_vj - vi) / vi <= confPct
+                            nm   := nm + " + " + _nmj
+                            cnt  := cnt + 1
+                            isOS := isOS or _vj == oSupV
+                            isOR := isOR or _vj == oResV
+                            if math.abs(close - _vj) < _nearD
+                                _near  := _vj
+                                _nearD := math.abs(close - _vj)
+                            array.set(_used, _j, true)
+                base = cnt > 1 ? nm + "  ·×" + str.tostring(cnt) : nm
+                tag  = isOS ? "  ⊙ opened ABOVE (day support)" : isOR ? "  ⊙ opened BELOW (day resist)" : ""
+                tag  := (enPdlStop and str.contains(nm, "PDL")) ? tag + "  · 🛑 STOP" : tag   // PDL is the Redler stop
+                _maT = f_maTag(_near)                     // any SMA/EMA sitting on this level → fold its name in, no dup line
+                _hasC = isOS or isOR or cnt > 1 or str.length(_maT) > 0
+                array.push(_anchors, _near)               // register so f_addMa skips a MA that folded in here
+                f_draw(_near, base + tag + _maT, _hasC ? wLine + 2 : wLine, cnt > 1 or str.length(_maT) > 0)
+    // ── the day's OPEN — drawn LAST (on top) so its label is never hidden; staggered off any coinciding level.
+    if enOpen and not na(dayOpen)
+        _bias   = not na(pdh) and dayOpen > pdh ? " ▲ strong" : not na(pdl) and dayOpen < pdl ? " ▼ weak" : ""
+        _nbUp   = oUp < 1.0e17 ? oUpNm + " " + str.tostring(oUp, format.mintick) : "—"
+        _nbDn   = oDn > 0      ? oDnNm + " " + str.tostring(oDn, format.mintick) : "—"
+        _openCtx = _bias + "  ·  between  S " + _nbDn + "  ↔  R " + _nbUp
+        _oxo = f_xoff(dayOpen)
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _openCtx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
+    // ── auto MAs — proximity-gated, then MERGED so stacked MAs collapse into ONE line naming all of them ──
+    if enSma
+        f_addMa(sma8v,   "8 SMA")
+        f_addMa(sma20v,  "20 SMA")
+        f_addMa(sma50v,  "50 SMA")
+        f_addMa(sma100v, "100 SMA")
+        f_addMa(sma200v, "200 SMA")
+        f_addMa(ema50v,  "50 EMA")
+        f_addMa(ema100v, "100 EMA")
+        f_addMa(ema200v, "200 EMA")
+        _mmn = array.size(_maV)
+        if _mmn > 0
+            _mord = array.sort_indices(_maV, order.ascending)
+            _mmi = 0
+            while _mmi < _mmn
+                _mms  = array.get(_mord, _mmi)
+                _mmlo = array.get(_maV, _mms)
+                _mmhi = _mmlo
+                _mmnm = array.get(_maN, _mms)
+                _mmj  = _mmi + 1
+                while _mmj < _mmn
+                    _mmvj = array.get(_maV, array.get(_mord, _mmj))
+                    if maMergePct > 0 and _mmvj <= _mmhi * (1.0 + maMergePct)
+                        _mmhi := _mmvj
+                        _mmnm := _mmnm + " · " + array.get(_maN, array.get(_mord, _mmj))
+                        _mmj  := _mmj + 1
+                    else
+                        break
+                f_sma((_mmlo + _mmhi) / 2.0, _mmnm)
+                _mmi := _mmj
+    // ── TAKE-PROFIT warning — nearest DRAWN level above price; when price rallies within tpBand of it,
+    //    a subtle amber tag above price says "into <level> — take profit" (book gains at the wall).
+    if enTp and array.size(_dv) > 0
+        _rUp = 1.0e18
+        _rNm = ""
+        for _i = 0 to array.size(_dv) - 1
+            _vv = array.get(_dv, _i)
+            if _vv > close and _vv < _rUp
+                _rUp := _vv
+                _rNm := array.get(_dn, _i)
+        if _rUp < 1.0e17 and close >= _rUp * (1 - tpBand)
+            array.push(_lb, label.new(bar_index, high, "⚠ into " + _rNm + " " + str.tostring(_rUp, format.mintick) + " — take profit", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(tpCol, 10), textcolor = color.white, size = size.small))
+    // ── RANGE BOX — shade the nearest support↔resistance so a range reads at a glance (buy the lower edge,
+    //    sell the upper, skip the middle). S = nearest drawn level below price, R = nearest above (levels + MAs). ──
+    box.delete(_rngBox)                        // clear the prior box each rebuild (and if the range is now invalid)
+    if enRange
+        _rgS = -1.0
+        _rgR = 1.0e18
+        if array.size(_dv) > 0
+            for _rgi = 0 to array.size(_dv) - 1
+                _rgv = array.get(_dv, _rgi)
+                if _rgv < close and _rgv > _rgS
+                    _rgS := _rgv
+                if _rgv > close and _rgv < _rgR
+                    _rgR := _rgv
+        if enSma
+            _rgm = array.from(sma8v, sma20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+            for _rgj = 0 to array.size(_rgm) - 1
+                _rgmv = array.get(_rgm, _rgj)
+                if not na(_rgmv) and _rgmv >= _brkLo and _rgmv <= _brkHi
+                    if _rgmv < close and _rgmv > _rgS
+                        _rgS := _rgmv
+                    if _rgmv > close and _rgmv < _rgR
+                        _rgR := _rgmv
+        _rgW = (_rgR - _rgS) / close
+        if _rgS > 0 and _rgR < 1.0e17 and _rgW >= rngMinPct and _rgW <= rngMaxPct
+            _rngBox := box.new(bar_index - lineLen, _rgR, bar_index + labelX, _rgS, border_color = color.new(rngCol, 70), border_width = 1, bgcolor = color.new(rngCol, 92))
+            box.set_text(_rngBox, "range")
+            box.set_text_color(_rngBox, color.new(rngCol, 30))
+            box.set_text_size(_rngBox, size.tiny)
+            box.set_text_halign(_rngBox, text.align_right)
+            box.set_text_valign(_rngBox, text.align_top)
+
+// ── daily RSI HUD — fixed corner readout. Green = at/under oversold (swing-buy watch), red = overbought.
+_rsiPosC = rsiPos == "top_center" ? position.top_center : rsiPos == "bottom_right" ? position.bottom_right : rsiPos == "bottom_left" ? position.bottom_left : position.top_right
+var table _rsiT = table.new(_rsiPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if barstate.islast
+    table.set_position(_rsiT, _rsiPosC)
+    if enRsi and not na(rsiD)
+        _rcol = (rsiRc or rsiD <= rsiOS) ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
+        _rst  = rsiRc ? "🎯 SWING — reclaimed " + str.tostring(rsiOS, "#") : rsiD <= rsiOS ? "oversold ↑ watch" : rsiD >= rsiOB ? "overbought" : "neutral"
+        table.cell(_rsiT, 0, 0, "RSI-D " + str.tostring(rsiD, "#.0") + " · " + _rst, bgcolor = _rcol, text_color = color.white, text_size = size.normal)
+    else
+        table.cell(_rsiT, 0, 0, "")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DAY-DIRECTION SIGNALS (accuracy test) — the FIRST 15m close that breaks a NEIGHBOR
+// of the day's OPEN sets the direction: break the level ABOVE the open = LONG (day up),
+// break the level BELOW the open = SHORT (day down). ONE signal per day (the first break).
+// Neighbors anchor to the OPEN — so a gap above PDH makes PDH the lower neighbor (the line
+// to hold) and the next level up the target. Bind on 15m to test. Alerts optional (off).
+// ═══════════════════════════════════════════════════════════════════════════════
+gSig    = "Day-direction signals (bind on 15m)"
+enSig   = input.bool(true, "Show LONG / SHORT signal tags", group = gSig, tooltip = "Open's neighbors = nearest enabled level ABOVE the open and nearest BELOW. The FIRST 15m close that reacts at a neighbor sets the day's direction (one per day).")
+enReject = input.bool(true, "Include rejections & reclaims (not just breaks)", group = gSig, tooltip = "ON = also fire on a REJECT (poke the upper neighbor, close back below → SHORT) and a RECLAIM (dip to the lower neighbor, close back above → LONG) — the earlier, tighter-stop entries. OFF = breakouts/breakdowns only.")
+touchTol = input.float(0.10, "Level touch tolerance (%)", group = gSig, minval = 0.0, maxval = 1.0, step = 0.05, tooltip = "How close the wick must get to a level to count as 'touched' for a reject/reclaim — sellers/buyers often front-run the exact price. 0.10% means within a tenth of a percent counts. 0 = must literally tag the level.") / 100.0
+enGap   = input.bool(true, "Gap-and-go: enter at the open on a gap past the prior range", group = gSig, tooltip = "A true gap-and-go opens ABOVE resistance (or below support) and runs — it never wicks a neighbor, so reject/reclaim/break can't fire. This enters at the open when price gaps beyond the prior-day range by the % below: gap ABOVE PDH → LONG, gap BELOW PDL → SHORT. Stop = the open bar's own extreme. Small gaps (below the threshold) are left to the normal level reactions.")
+gapMinPct = input.float(1.5, "  Min gap size (% past PDH/PDL)", group = gSig, minval = 0.1, maxval = 15, step = 0.1, tooltip = "How far past the prior-day high/low the open must be to count as a gap-and-go (vs a small gap that just fills back to the level). Bigger = only the strong runners.") / 100.0
+sigUp   = input.color(color.new(#26A69A, 0), "LONG tag",  inline = "sg", group = gSig)
+sigDn   = input.color(color.new(#EF5350, 0), "SHORT tag", inline = "sg", group = gSig)
+rthOnly = input.bool(true, "Signals during regular hours only", group = gSig, tooltip = "Ignore pre/post-market bars so a thin extended-hours print can't fire the day's signal. Turn off if your chart is RTH-only anyway.")
+enSigAl = input.bool(true, "Fire an alert on the signal", group = gSig)   // ON by default (signal validated 2026-08-19)
+// oUp / oDn (the open's two neighbors) are computed once, up top, and drive EVERY signal below — strictly.
+
+// SINGLE DAY POSITION — no counter-trading. One direction at a time: the first trigger sets it, and the
+// ONLY thing that can produce the opposite side is the current entry being INVALIDATED (its own entry-candle
+// extreme breached on a 15m close), which FLIPS it. While a short is live we ignore longs entirely, and vice
+// versa. Triggers (from either open-neighbor): LONG = break above upper (gap-and-go) OR reclaim of lower;
+// SHORT = reject at upper OR breakdown of lower. Stop = entry candle's extreme (long→LOW, short→HIGH).
+newDay = ta.change(time("D")) != 0
+var int   pos     = 0                     // 0 flat · +1 long · -1 short
+var float posStop = na                    // current entry candle's stop extreme (long→entry LOW, short→entry HIGH)
+var bool  gapDone = false                  // the open-bar gap-and-go only gets ONE shot (the first RTH bar)
+if newDay
+    pos     := 0
+    posStop := na
+    gapDone := false
+_inRth = not rthOnly or session.ismarket
+_cf    = enSig and barstate.isconfirmed and _inRth
+_upOk  = oUp < 1.0e17
+_dnOk  = oDn > 0
+// raw triggers at the two open-neighbors (only consulted when FLAT)
+_upBrk = _upOk and close > oUp and nz(close[1], oUp) <= oUp                 // gap-and-go LONG
+_upRej = enReject and _upOk and high >= oUp * (1 - touchTol) and close < oUp  // reject SHORT (near-touch; a close BELOW the level is the rejection, any color)
+_dnBrk = _dnOk and close < oDn and nz(close[1], oDn) >= oDn                 // breakdown SHORT
+_dnRc  = enReject and _dnOk and low <= oDn * (1 + touchTol) and close > oDn   // reclaim LONG (wick below support, close back above — any color)
+_longTrig  = _upBrk or _dnRc
+_shortTrig = _upRej or _dnBrk
+// gap-and-go — opened PAST the prior-day range and running; it never touches a neighbor, so catch it at the open
+_gapUp = enGap and not na(pdh) and dayOpen > pdh * (1 + gapMinPct)          // gapped ABOVE PDH → LONG
+_gapDn = enGap and not na(pdl) and dayOpen < pdl * (1 - gapMinPct)          // gapped BELOW PDL → SHORT
+eLong  = false                            // LONG entry (fresh)
+eShort = false                            // SHORT entry (fresh)
+iShort = false                            // the live SHORT was invalidated → flips LONG
+iLong  = false                            // the live LONG was invalidated → flips SHORT
+trigLvl  = float(na)                      // level that triggered a fresh entry (for the alert)
+flipStop = float(na)                      // the stop that was breached on a flip (for the alert)
+if _cf
+    _firstBar = not gapDone               // the first confirmed RTH bar of the day
+    gapDone := true
+    if pos == 0                                                            // FLAT — take the first trigger only
+        if _firstBar and _gapUp                                            // GAP-AND-GO LONG (opened above the range)
+            eLong   := true
+            trigLvl := pdh
+            posStop := low
+            pos     := 1
+        else if _firstBar and _gapDn                                       // GAP-AND-GO SHORT (opened below the range)
+            eShort  := true
+            trigLvl := pdl
+            posStop := high
+            pos     := -1
+        else if _longTrig and not _shortTrig
+            eLong   := true
+            trigLvl := _upBrk ? oUp : oDn
+            posStop := low
+            pos     := 1
+        else if _shortTrig and not _longTrig
+            eShort  := true
+            trigLvl := _upRej ? oUp : oDn
+            posStop := high
+            pos     := -1
+    else if pos == -1 and not na(posStop) and close > posStop              // SHORT invalidated → flip LONG
+        iShort   := true
+        eLong    := true
+        flipStop := posStop
+        posStop  := low
+        pos      := 1
+    else if pos == 1 and not na(posStop) and close < posStop               // LONG invalidated → flip SHORT
+        iLong    := true
+        eShort   := true
+        flipStop := posStop
+        posStop  := high
+        pos      := -1
+// ── markers — fresh entries say LONG / SHORT; a stop-and-reverse says FLIP LONG / FLIP SHORT ──
+// (a FLIP means the prior opposite trade just stopped out — its entry-candle extreme was breached).
+plotshape(eLong  and not iShort, "LONG entry",  style = shape.arrowup,   location = location.belowbar, color = sigUp, textcolor = color.white, text = "LONG",  size = size.tiny)
+plotshape(eShort and not iLong,  "SHORT entry", style = shape.arrowdown, location = location.abovebar, color = sigDn, textcolor = color.white, text = "SHORT", size = size.tiny)
+plotshape(iShort, "FLIP LONG (short stopped)",  style = shape.arrowup,   location = location.belowbar, color = sigUp, textcolor = color.white, text = "FLIP LONG",  size = size.tiny)
+plotshape(iLong,  "FLIP SHORT (long stopped)",  style = shape.arrowdown, location = location.abovebar, color = sigDn, textcolor = color.white, text = "FLIP SHORT", size = size.tiny)
+// pivot breakout marker (visual) — a fresh close through the base-high pivot. Green = volume surge (confirmed
+// O'Neil breakout), orange = weak volume (unconfirmed). Visual only — NOT wired into the open_bracket alert.
+plotshape(brkPivot, "Pivot break", style = shape.triangleup, location = location.belowbar, color = pvVolOk ? color.new(color.green, 0) : color.new(color.orange, 0), size = size.normal, text = "BO")
+// ── alerts — emit the PLATFORM JSON payload (rule "open_bracket") so the webhook parses/routes it, same shape
+//    as the 4h day pine. ONE rule for the whole signal; direction BUY/SHORT. The two open-neighbors ride as
+//    nearby_levels so the backend can set targets. One live position; the opposite fires only as a flip.
+f_nl_ob() => (oDn > 0 ? "day|" + str.tostring(oDn, format.mintick) + "|" + oDnNm + " S," : "") + (oUp < 1.0e17 ? "day|" + str.tostring(oUp, format.mintick) + "|" + oUpNm + " R" : "")
+ob_pay(string dir, float stp, string lvlNm, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"open_bracket","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl_ob() + '"}'
+if enSigAl and eLong and not iShort
+    alert(ob_pay("BUY",   posStop, str.tostring(trigLvl, format.mintick), "LONG at open-neighbor "  + str.tostring(trigLvl, format.mintick) + " · stop below " + str.tostring(posStop, format.mintick) + " (entry-candle low)"), alert.freq_once_per_bar_close)
+if enSigAl and eShort and not iLong
+    alert(ob_pay("SHORT", posStop, str.tostring(trigLvl, format.mintick), "SHORT at open-neighbor " + str.tostring(trigLvl, format.mintick) + " · stop above " + str.tostring(posStop, format.mintick) + " (entry-candle high)"), alert.freq_once_per_bar_close)
+if enSigAl and iShort
+    alert(ob_pay("BUY",   posStop, str.tostring(oUp, format.mintick), "FLIP LONG — short invalidated (reclaimed " + str.tostring(flipStop, format.mintick) + ") · stop below " + str.tostring(posStop, format.mintick)), alert.freq_once_per_bar_close)
+if enSigAl and iLong
+    alert(ob_pay("SHORT", posStop, str.tostring(oDn, format.mintick), "FLIP SHORT — long invalidated (lost " + str.tostring(flipStop, format.mintick) + ") · stop above " + str.tostring(posStop, format.mintick)), alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STRUCTURAL BREAKOUT — visual markers for the BIG-WALL entries at a MAJOR level (PDH/PWH/PMH/PQH/PIVOT for
+// longs · PDL/PWL/PML/PQL for shorts). Three ways price takes a wall, each with a clean level-based stop:
+//   GAP     the day OPENS past the level (gap over the wall) and runs → fires at the open (intrabar), stop = the level.
+//   BREAK   a fresh CLOSE through the level (was below, closes above) → fires on the CLOSE, stop = the level.
+//   RECLAIM opens ABOVE the level, wicks to it, price back above → fires the MOMENT it reclaims (intrabar), stop = the wick.
+// TIMING: reclaim + gap are ENTRIES, so they fire live (freq_once_per_bar) — waiting for the close misses the fill.
+// Only a break waits for the close (a break is defined as a close through). One mark per level per session.
+// ═══════════════════════════════════════════════════════════════════════════════
+gST      = "Structural breakout (major levels)"
+enStruct = input.bool(true, "Mark GAP / BREAK / RECLAIM of major levels", group = gST, tooltip = "The big-wall entries: a fresh close THROUGH a major level (BREAK), the day OPENING past it and running (GAP), or opening above → wicking to it → closing back above (RECLAIM). Longs on the highs (PDH/PWH/PMH/PQH/PIVOT), shorts on the lows (PDL/PWL/PML/PQL). Uses each level's own show-toggle. Visual only — the open_bracket alert is untouched.")
+stGap    = input.float(0.15, "  Gap-and-go: open at least this % past the level", group = gST, minval = 0.0, maxval = 5, step = 0.05) / 100.0
+stRec    = input.float(0.10, "  Reclaim: how far BELOW the level the wick must dip (%)", group = gST, minval = 0.0, maxval = 1, step = 0.05, tooltip = "A reclaim requires price to actually LOSE the level — the wick must trade at least this % BELOW it, then close back above (a real bear trap, not a bounce from above). 0.10% filters a 1-tick poke; raise it to demand a deeper flush before the reclaim counts.") / 100.0
+stUp     = input.color(color.new(#26A69A, 0), "Long",  group = gST, inline = "stc")
+stDn     = input.color(color.new(#EF5350, 0), "Short", group = gST, inline = "stc")
+enStructAl = input.bool(true, "Fire an alert on the structural trigger (this becomes the day signal)", group = gST, tooltip = "ON = emit the platform alert (rule structural_breakout) on each gap/break/reclaim so the backend routes it to your watchlist — the replacement for open_bracket. Bind ONE watchlist alert on this study, 'Any alert() function call', webhook on.")
+stDailyGap = input.bool(false, "  Also GAP-signal the daily levels PDH/PDL", group = gST, tooltip = "OFF (default) = no gap signal on PDH/PDL. In a trend, price opens past yesterday's high/low almost every day, so 'gap PDL' fires daily = noise. Their BREAK and RECLAIM still fire (those are meaningful). The bigger walls — PWH/PMH/PQH/pivot and PWL/PML/PQL — always gap-signal, since a gap across a weekly+/quarterly level is a rare, real event. ON = allow PDH/PDL gaps too.")
+enMaRcl  = input.bool(true, "  Also mark SMA/EMA reclaims (a bounce off a moving average)", group = gST, tooltip = "A moving-average reclaim: price OPENS above the MA, wicks DOWN to it, and CLOSES back above (a defended bounce, e.g. the 50 EMA reclaim) → LONG. Uses the MA display toggles above (uncheck a MA to silence its reclaim). Intrabar, once per MA per day, stop = the wick low.")
+// platform JSON payload (rule structural_breakout) — same shape the webhook parses/routes, like open_bracket.
+sb_pay(string dir, string lvlNm, string trig, float stp, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"structural_breakout","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":""}'
+// the major-level set (value · name · its show-toggle · is-a-high→long): highs = long walls, lows = short walls
+_stLv   = array.from(pdh, pwh, pmh, pqh, pivot,  pdl, pwl, pml, pql)
+_stNm   = array.from("PDH", "PWH", "PMH", "PQH", "PIVOT",  "PDL", "PWL", "PML", "PQL")
+_stEn   = array.from(enPDH, enPWH, enPMH, enPQH, enPivot,  enPDL, enPWL, enPML, enPQL)
+_stLong = array.from(true, true, true, true, true,  false, false, false, false)
+_stDaily = array.from(true, false, false, false, false,  true, false, false, false)   // PDH / PDL are the DAILY levels (gaps on them are noise unless stDailyGap)
+var bool[] _stMkL = array.new_bool(9, false)   // LONG signal already fired this session? (per level)
+var bool[] _stMkS = array.new_bool(9, false)   // SHORT signal already fired this session? (per level) — SEPARATE from long
+var bool[] _maMkL = array.new_bool(8, false)   // SMA/EMA reclaim already fired this session? (per MA)
+if newDay                                      //   so a breakdown (short) doesn't consume the slot and block a later reclaim (long)
+    for _si = 0 to 8
+        array.set(_stMkL, _si, false)
+        array.set(_stMkS, _si, false)
+    for _mj = 0 to 7
+        array.set(_maMkL, _mj, false)
+// RECLAIM + GAP fire the MOMENT they happen (intrabar, freq_once_per_bar) — a reclaim is an ENTRY, so waiting for the bar
+// close misses the fill; the stop is set the instant it triggers. Only a BREAK waits for the close (a break IS a close
+// through). LONG and SHORT latch INDEPENDENTLY per level, so a level can be lost (short) AND reclaimed (long) the same day.
+if enStruct
+    _stCf = barstate.isconfirmed
+    for _si = 0 to 8
+        _stL = array.get(_stLv, _si)
+        if array.get(_stEn, _si) and not na(_stL)
+            _stnm = array.get(_stNm, _si)
+            _stDy = array.get(_stDaily, _si)
+            _longDone  = array.get(_stMkL, _si)
+            _shortDone = array.get(_stMkS, _si)
+            if array.get(_stLong, _si)
+                _tRec = open > _stL and low < _stL * (1 - stRec) and close > _stL       // opened above → wick BELOW it → back above (bear trap, INTRABAR)
+                _tGap = newDay and open > _stL * (1 + stGap) and nz(close[1], 1.0e18) <= _stL and (stDailyGap or not _stDy)   // FRESH gap ACROSS (INTRABAR, at the open); daily levels skip gaps unless stDailyGap
+                _tBrk = _stCf and close > _stL and nz(close[1], _stL) <= _stL            // fresh CLOSE up through — a break waits for the close
+                if not _longDone and _tRec
+                    array.set(_stMkL, _si, true)
+                    label.new(bar_index, low, "▲ reclaim " + _stnm, yloc = yloc.belowbar, style = label.style_label_up, color = stUp, textcolor = color.white, size = size.tiny)
+                    if enStructAl
+                        alert(sb_pay("BUY", _stnm, "reclaim", low, "reclaim of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · LONG · stop below wick " + str.tostring(low, format.mintick)), alert.freq_once_per_bar)
+                else if not _longDone and (_tGap or _tBrk)
+                    array.set(_stMkL, _si, true)
+                    _trg = _tGap ? "gap" : "break"
+                    label.new(bar_index, low, "▲ " + _trg + " " + _stnm, yloc = yloc.belowbar, style = label.style_label_up, color = stUp, textcolor = color.white, size = size.tiny)
+                    if enStructAl and _tGap
+                        alert(sb_pay("BUY", _stnm, "gap", _stL, "gap of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · LONG · stop below " + str.tostring(_stL, format.mintick)), alert.freq_once_per_bar)
+                    if enStructAl and _tBrk and not _tGap
+                        alert(sb_pay("BUY", _stnm, "break", _stL, "break of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · LONG · stop below " + str.tostring(_stL, format.mintick)), alert.freq_once_per_bar_close)
+            else
+                // a LOW is SUPPORT. RECLAIM = price back ABOVE after being BELOW — this candle wicked below (bear trap) OR the
+                // PRIOR candle CLOSED below and price is back above (recovered a LOST level). Fires INTRABAR. stop = wick / level.
+                _tRcl = close > _stL and (low < _stL * (1 - stRec) or nz(close[1], _stL) < _stL)
+                _tGpd = newDay and open < _stL * (1 - stGap) and nz(close[1], -1.0) >= _stL and (stDailyGap or not _stDy)   // FRESH gap ACROSS (INTRABAR, at the open) → SHORT; daily levels skip gaps unless stDailyGap
+                _tBkd = _stCf and close < _stL and nz(close[1], _stL) >= _stL            // fresh CLOSE down through → SHORT — a breakdown waits for the close
+                _rcStp = math.min(low, _stL)                                            // stop under the wick (trap) or under the level (recovery)
+                if not _longDone and _tRcl
+                    array.set(_stMkL, _si, true)
+                    label.new(bar_index, low, "▲ reclaim " + _stnm, yloc = yloc.belowbar, style = label.style_label_up, color = stUp, textcolor = color.white, size = size.tiny)
+                    if enStructAl
+                        alert(sb_pay("BUY", _stnm, "reclaim", _rcStp, "reclaim of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · LONG (bear trap) · stop below " + str.tostring(_rcStp, format.mintick)), alert.freq_once_per_bar)
+                else if not _shortDone and (_tGpd or _tBkd)
+                    array.set(_stMkS, _si, true)
+                    _trgd = _tGpd ? "gap" : "break"
+                    label.new(bar_index, high, "▼ " + _trgd + " " + _stnm, yloc = yloc.abovebar, style = label.style_label_down, color = stDn, textcolor = color.white, size = size.tiny)
+                    if enStructAl and _tGpd
+                        alert(sb_pay("SHORT", _stnm, "gap", high, "gap of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · SHORT · stop above " + str.tostring(high, format.mintick)), alert.freq_once_per_bar)
+                    if enStructAl and _tBkd and not _tGpd
+                        alert(sb_pay("SHORT", _stnm, "break", high, "break of " + _stnm + " " + str.tostring(_stL, format.mintick) + " · SHORT · stop above " + str.tostring(high, format.mintick)), alert.freq_once_per_bar_close)
+    // ── SMA / EMA RECLAIMS — a bounce off a moving average (opened ABOVE → wicked DOWN to it → closed back above) = LONG.
+    //    Uses the MA display toggles (na when a MA is unchecked → skipped). Intrabar, once per MA per day, stop = wick low.
+    if enMaRcl
+        _maRv = array.from(sma8v, sma20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+        _maRn = array.from("8SMA", "20SMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA")
+        for _mi = 0 to 7
+            _mv = array.get(_maRv, _mi)
+            if not na(_mv) and not array.get(_maMkL, _mi) and open > _mv and low <= _mv and close > _mv
+                array.set(_maMkL, _mi, true)
+                _mnm = array.get(_maRn, _mi)
+                label.new(bar_index, low, "▲ reclaim " + _mnm, yloc = yloc.belowbar, style = label.style_label_up, color = stUp, textcolor = color.white, size = size.tiny)
+                if enStructAl
+                    alert(sb_pay("BUY", _mnm, "reclaim", low, "reclaim of " + _mnm + " " + str.tostring(_mv, format.mintick) + " · LONG · stop below wick " + str.tostring(low, format.mintick)), alert.freq_once_per_bar)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CANDLE STRUCTURE (merged from candle_structure.pine) — reads TREND vs CHOP from the chart's
+// own candles. Each bar is tagged vs the prior one: HH·HL ▲ up · LH·LL ▼ down · LH·HL ◇ inside ·
+// HH·LL ✦ outside. A state machine over CONSECUTIVE same-direction legs (inside/outside are neutral
+// pauses) gives the UP / DOWN / CONSOLIDATION verdict + a Long/Short marker on a flip. Consolidation
+// scans recent candles for equal highs (Ceiling) / lows (Floor). Reads the CHART timeframe — view on
+// 2h for the 2h read. VISUAL ONLY — no alert() here, so the open_bracket signal above is untouched.
+// (PDH/PDL role lines, reactions, and the open line already live above — not re-added.)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── per-candle structure tags ───────────────────────────────────────────────────
+gL        = "Candle structure — per-bar tags"
+showLbl   = input.bool(true,  "Show a structure tag on each candle", group = gL)
+tagTop    = input.bool(true,  "Put the tags ABOVE the candle (off = below)", group = gL)
+showNum   = input.bool(false, "Include the day-sequence number (1..N)", group = gL)
+showCode  = input.bool(true,  "Show the structure symbol (▲ up · ▼ down · ◇ inside · ✦ outside)", group = gL)
+codeFull  = input.bool(false, "  …with the full text (HH·HL / LH·LL) instead of just the symbol", group = gL)
+recentD   = input.int(6, "Only label the last N days (0 = all)", minval = 0, maxval = 60, group = gL)
+blockDays = input.int(2, "Number candles across N days (2 = number 1..~8 over two days)", minval = 1, maxval = 5, group = gL)
+lblSize   = input.string("Tiny", "Label size", options = ["Tiny", "Small", "Normal"], group = gL)
+
+gCS   = "Candle structure — colors"
+upCol = input.color(#26A69A, "Trending up (HH·HL)",          group = gCS)
+dnCol = input.color(#EF5350, "Trending down (LH·LL)",        group = gCS)
+inCol = input.color(#F59E0B, "Inside / chop (LH·HL)",        group = gCS)
+exCol = input.color(#2962FF, "Outside / expansion (HH·LL)",  group = gCS)
+
+gH         = "Candle structure — trend verdict"
+showHud    = input.bool(true, "Show the TREND / CONTINUATION / CHOP verdict in a corner", group = gH)
+hudPos     = input.string("Top center", "Corner", options = ["Top center", "Top right", "Bottom right", "Bottom left"], group = gH)
+switchLegs = input.int(2, "Legs to confirm a switch — 2 = one confirming leg (fewer, cleaner), 1 = the exact flip candle", minval = 1, maxval = 4, group = gH)
+
+_sz = lblSize == "Tiny" ? size.tiny : lblSize == "Normal" ? size.normal : size.small
+
+// 2-day BLOCK counter — numbering runs 1..~8 across `blockDays` days (reuses newDay from the signal section)
+var int _dayIdx = 0
+if newDay
+    _dayIdx := _dayIdx + 1
+_blockStart = newDay and (_dayIdx % blockDays == 1)
+var int seq = 0
+seq := _blockStart ? 1 : seq + 1
+
+// structure vs the prior candle (>= so an equal extreme counts as "held")
+hh  = high >= high[1]
+hl  = low  >= low[1]
+_up = hh and hl
+_sDn = (not hh) and (not hl)
+_ins= (not hh) and hl
+_ex = hh and (not hl)
+_code = codeFull ? (_up ? "HH·HL ▲" : _sDn ? "LH·LL ▼" : _ins ? "inside ◇" : "outside ✦") : (_up ? "▲" : _sDn ? "▼" : _ins ? "◇" : "✦")
+_col  = _up ? upCol : _sDn ? dnCol : _ins ? inCol : exCol
+
+// trend STATE MACHINE — consecutive same-direction legs; inside/outside are neutral pauses; flip at switchLegs
+_valid = not na(high[1])
+var int _dir   = 0
+var int _upRun = 0
+var int _dnRun = 0
+_swUp = false
+_swDn = false
+if barstate.isconfirmed and _valid
+    _upRun := _up ? _upRun + 1 : (_sDn ? 0 : _upRun)
+    _dnRun := _sDn ? _dnRun + 1 : (_up ? 0 : _dnRun)
+    if _upRun >= switchLegs and _dir != 1
+        _swUp := _dir == -1
+        _dir  := 1
+    if _dnRun >= switchLegs and _dir != -1
+        _swDn := _dir == 1
+        _dir  := -1
+_run     = _dir == 1 ? _upRun : _dir == -1 ? _dnRun : 0
+_verdict = _run == 0 ? "CONSOLIDATION ◇" : _dir == 1 ? "UP · continuation ▲" : "DOWN · continuation ▼"
+_vCol    = _run == 0 ? inCol : _dir == 1 ? upCol : dnCol
+
+// recent-window gate + per-candle label
+_inWin = recentD == 0 or (timenow - time) <= recentD * 86400000
+if showLbl and barstate.isconfirmed and not na(high[1]) and _inWin
+    _txt = (showNum ? str.tostring(seq) : "") + (showNum and showCode ? "  " : "") + (showCode ? _code : "")
+    if str.length(_txt) > 0
+        label.new(bar_index, na, _txt, yloc = tagTop ? yloc.abovebar : yloc.belowbar, style = label.style_none, textcolor = _col, size = _sz)
+
+// TREND-SWITCH markers — the candle where the trend flips (Long ↑ / Short ↓)
+gSw      = "Candle structure — switch markers"
+enSwitch = input.bool(true, "Mark the candle where the trend SWITCHES (up↔down)", group = gSw)
+plotshape(enSwitch and _swUp and barstate.isconfirmed, "Switch → Long",  style = shape.labelup,   location = location.belowbar, color = upCol, textcolor = color.white, text = "Long",  size = size.normal)
+plotshape(enSwitch and _swDn and barstate.isconfirmed, "Switch → Short", style = shape.labeldown, location = location.abovebar, color = dnCol, textcolor = color.white, text = "Short", size = size.normal)
+
+// trend verdict HUD (corner)
+_hudPosC = hudPos == "Top center" ? position.top_center : hudPos == "Bottom right" ? position.bottom_right : hudPos == "Bottom left" ? position.bottom_left : position.top_right
+var table _hud = table.new(_hudPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if showHud and barstate.islast
+    table.cell(_hud, 0, 0, _verdict, bgcolor = _vCol, text_color = color.white, text_size = size.normal)
+
+// trend pill ON the chart (off by default) — small colored label above price
+gT2         = "Candle structure — trend pill (on chart)"
+enTrendPill = input.bool(false, "Show the trend as a small pill above the price", group = gT2)
+_hh30 = ta.highest(high, 30)
+var label _trPill = na
+if enTrendPill and barstate.islast
+    label.delete(_trPill)
+    _pillTxt = _run == 0 ? "◇ Consolidation" : _dir == 1 ? "▲ Uptrend" : "▼ Downtrend"
+    _trPill := label.new(bar_index, _hh30, _pillTxt, style = label.style_label_down, color = _vCol, textcolor = color.white, size = size.small)
+
+// DISCIPLINE GUARD — warns ONLY when the chart drops BELOW your plan timeframe (e.g. zoomed to 15m off a 2h plan)
+gG       = "Candle structure — discipline guard"
+enGuard  = input.bool(true, "Warn when the chart drops below your plan timeframe", group = gG)
+planTf   = input.timeframe("120", "Your plan timeframe (2h = 120)", group = gG)
+guardPos = input.string("Bottom center", "Corner", options = ["Bottom center", "Top right", "Top center", "Bottom right"], group = gG)
+guardCol = input.color(color.new(#EF5350, 0), "Warning color", group = gG)
+_belowPlan = timeframe.in_seconds() < timeframe.in_seconds(planTf)
+_gPosC = guardPos == "Top right" ? position.top_right : guardPos == "Bottom center" ? position.bottom_center : guardPos == "Bottom right" ? position.bottom_right : position.top_center
+var table _guard = table.new(_gPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if enGuard and barstate.islast
+    if _belowPlan
+        table.cell(_guard, 0, 0, "⚠  below your plan — you're on " + timeframe.period + "m, trade the " + planTf + "m", bgcolor = guardCol, text_color = color.white, text_size = size.normal)
+    else
+        table.cell(_guard, 0, 0, "", bgcolor = color.new(color.black, 100))
+
+// ── CONSOLIDATION LEVELS — equal highs (Ceiling) / equal lows (Floor) among recent candles ──
+gCons     = "Candle structure — consolidation (equal highs / lows)"
+enCons    = input.bool(true, "Draw a line where candles cluster at a similar high / low", group = gCons)
+consLook  = input.int(8, "Lookback — recent candles to scan (8 = ~2 days of 2h)", minval = 4, maxval = 100, group = gCons)
+consTol   = input.float(0.15, "Cluster tolerance % (how close counts as 'the same')", minval = 0.02, maxval = 2.0, step = 0.01, group = gCons) / 100.0
+consMin   = input.int(3, "Min candles at the level to draw it", minval = 2, maxval = 8, group = gCons)
+consW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = gCons)
+consHiCol = input.color(color.new(#EF5350, 0), "Resistance — price is BELOW the level", group = gCons)
+consLoCol = input.color(color.new(#26A69A, 0), "Support — price is ABOVE the level",    group = gCons)
+
+// gather clustered price levels (sorted, grouped within tol; a cluster of >= consMin members = a level).
+// Returns [levels, counts]. useHigh = scan highs (ceilings) else lows (floors).
+f_levels(bool useHigh) =>
+    _vals = array.new_float()
+    _lookN = math.min(consLook, bar_index)
+    if _lookN > 0
+        for _i = 0 to _lookN - 1
+            array.push(_vals, useHigh ? high[_i] : low[_i])
+    array.sort(_vals, order.ascending)
+    _lvls = array.new_float()
+    _cnts = array.new_int()
+    _n = array.size(_vals)
+    _i = 0
+    while _i < _n
+        _base = array.get(_vals, _i)
+        _sum  = _base
+        _cnt  = 1
+        _j    = _i + 1
+        _cont = true
+        while _cont and _j < _n
+            _v = array.get(_vals, _j)
+            if _v <= _base * (1 + consTol)
+                _sum := _sum + _v
+                _cnt := _cnt + 1
+                _j   := _j + 1
+            else
+                _cont := false
+        if _cnt >= consMin
+            array.push(_lvls, _sum / _cnt)
+            array.push(_cnts, _cnt)
+        _i := _j
+    [_lvls, _cnts]
+
+var line[]  _consLn = array.new_line()
+var label[] _consLb = array.new_label()
+if enCons and barstate.islast
+    for x in _consLn
+        line.delete(x)
+    for y in _consLb
+        label.delete(y)
+    array.clear(_consLn)
+    array.clear(_consLb)
+    [_hLc, _hCc] = f_levels(true)
+    if array.size(_hLc) > 0
+        for _k = 0 to array.size(_hLc) - 1
+            _v = array.get(_hLc, _k)
+            _cCol = close > _v ? consLoCol : consHiCol   // role: green above (support) · red below (resistance)
+            array.push(_consLn, line.new(bar_index - consLook, _v, bar_index + labelX, _v, color = _cCol, width = consW, extend = extendAll ? extend.both : extend.none))
+            array.push(_consLb, label.new(bar_index + labelX, _v, "Ceiling ×" + str.tostring(array.get(_hCc, _k)) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _cCol, textcolor = color.white, size = size.tiny))
+    [_lLc, _lCc] = f_levels(false)
+    if array.size(_lLc) > 0
+        for _k = 0 to array.size(_lLc) - 1
+            _v = array.get(_lLc, _k)
+            _cCol = close > _v ? consLoCol : consHiCol
+            array.push(_consLn, line.new(bar_index - consLook, _v, bar_index + labelX, _v, color = _cCol, width = consW, extend = extendAll ? extend.both : extend.none))
+            array.push(_consLb, label.new(bar_index + labelX, _v, "Floor ×" + str.tostring(array.get(_lCc, _k)) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _cCol, textcolor = color.white, size = size.tiny))

@@ -1,0 +1,36 @@
+//@version=5
+// SMA 5 / 10 — FLAT horizontal lines, role-colored (green = support / price above,
+// red = resistance / price below). Never sloping. Optional HTF lock so a higher-TF
+// 5/10 stays flat while you trade intraday.
+indicator("SMA 5/10 — flat", overlay = true, max_lines_count = 4, max_labels_count = 4)
+
+len1   = input.int(5,  "Fast SMA", minval = 1)
+len2   = input.int(10, "Slow SMA", minval = 1)
+useLock= input.bool(true, "Lock to a higher timeframe (stay flat intraday)")
+lockTf = input.timeframe("D", "Lock timeframe")
+supCol = input.color(#26A69A, "Support (price above)")
+resCol = input.color(#EF5350, "Resistance (price below)")
+lineW  = input.int(2,  "Line width", minval = 1, maxval = 5)
+lenBk  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500)
+
+// settled value [1] + lookahead → non-repainting when locked
+tid  = syminfo.tickerid
+sma1 = useLock ? request.security(tid, lockTf, ta.sma(close, len1)[1], lookahead = barmerge.lookahead_on) : ta.sma(close, len1)
+sma2 = useLock ? request.security(tid, lockTf, ta.sma(close, len2)[1], lookahead = barmerge.lookahead_on) : ta.sma(close, len2)
+
+var line[]  _ln = array.new_line(0)
+var label[] _lb = array.new_label(0)
+f_flat(float v, string nm) =>
+    if not na(v)
+        _c = v >= close ? resCol : supCol
+        array.push(_ln, line.new(bar_index - lenBk, v, bar_index + 6, v, color = _c, width = lineW, extend = extend.left))
+        array.push(_lb, label.new(bar_index + 6, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
+if barstate.islast
+    for _x in _ln
+        line.delete(_x)
+    for _y in _lb
+        label.delete(_y)
+    array.clear(_ln)
+    array.clear(_lb)
+    f_flat(sma1, str.tostring(len1) + " SMA")
+    f_flat(sma2, str.tostring(len2) + " SMA")

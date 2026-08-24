@@ -1,0 +1,44 @@
+//@version=5
+// =============================================================================
+// 50 EMA + 50 SMA — FLAT (daily, stepped S/R) and/or REGULAR (current TF, sloping)
+// =============================================================================
+// FLAT    = the DAILY 50 EMA/SMA (settled [1]) plotted as a STEPLINE. It's flat within
+//           each day, steps at the daily roll, and — being a normal plot() — it spans ALL
+//           past bars automatically (answers "can flat run into more past data": yes, the
+//           whole history). Use it like PDH/PDL — a horizontal level price reacts to.
+// REGULAR = the 50 EMA/SMA on the CURRENT chart timeframe, drawn as the usual sloping line.
+// Toggle either or both. (user 2026-07-29)
+indicator("50 EMA + 50 SMA · flat/regular", overlay = true)
+
+len      = input.int(50, "MA length", minval = 1)
+gD       = "Display"
+showFlat = input.bool(true,  "FLAT — daily MA as a stepped S/R level (spans all history)", group = gD)
+showReg  = input.bool(false, "REGULAR — current-TF MA (sloping)", group = gD)
+flatTf   = input.timeframe("D", "Flat timeframe", group = gD, tooltip = "The flat line uses THIS timeframe's settled MA (default Daily). On an intraday chart it renders flat and steps once per period, across all past bars.")
+
+gC     = "Style"
+emaCol = input.color(#EAB308, "50 EMA color", group = gC, inline = "e")
+smaCol = input.color(#3B82F6, "50 SMA color", group = gC, inline = "e")
+wFlat  = input.int(2, "Flat width",    group = gC, minval = 1, maxval = 4, inline = "w")
+wReg   = input.int(2, "Regular width", group = gC, minval = 1, maxval = 4, inline = "w")
+
+tid = syminfo.tickerid
+
+// ── FLAT — daily (settled) MA, stepped, over the full history ────────────────
+flatEma = request.security(tid, flatTf, ta.ema(close, len)[1], lookahead = barmerge.lookahead_on)
+flatSma = request.security(tid, flatTf, ta.sma(close, len)[1], lookahead = barmerge.lookahead_on)
+plot(showFlat ? flatEma : na, "50 EMA (flat)", color = emaCol, linewidth = wFlat, style = plot.style_stepline)
+plot(showFlat ? flatSma : na, "50 SMA (flat)", color = smaCol, linewidth = wFlat, style = plot.style_stepline)
+
+// ── REGULAR — current-TF MA, normal sloping line ─────────────────────────────
+regEma = ta.ema(close, len)
+regSma = ta.sma(close, len)
+plot(showReg ? regEma : na, "50 EMA (reg)", color = color.new(emaCol, 25), linewidth = wReg)
+plot(showReg ? regSma : na, "50 SMA (reg)", color = color.new(smaCol, 25), linewidth = wReg)
+
+// ── Current flat values in a small corner readout ────────────────────────────
+var label tag = na
+if showFlat and barstate.islast
+    label.delete(tag)
+    txt = "50 EMA (flat) " + str.tostring(flatEma, format.mintick) + "\n50 SMA (flat) " + str.tostring(flatSma, format.mintick)
+    tag := label.new(bar_index + 3, flatEma, txt, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.small)

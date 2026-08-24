@@ -1,0 +1,127 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// REDLER EMAs — flat. The Scott Redler stack (8 / 21 / 50 / 100 / 200 EMA) drawn as FLAT horizontal
+// levels — a level to react to, not a sloping plot. Green = SUPPORT (below current price), red =
+// RESISTANCE (above). Optional 50/200 SMA + PDH/PDL rails + today's open. Daily-locked by default so
+// you see the DAILY EMAs on any intraday chart. Non-repainting. No signals, no alerts — just the levels.
+// EMA computation is identical to yesterday_4h.pine (RTH ticker, chosen TF, lookahead_off).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Redler EMAs — flat", "Redler EMA", overlay = true, max_lines_count = 30, max_labels_count = 30)
+
+// ── which EMAs ──────────────────────────────────────────────────────────────────
+gE    = "EMAs (Redler stack)"
+en8   = input.bool(true, "8 EMA",   group = gE, inline = "a")
+en21  = input.bool(true, "21 EMA",  group = gE, inline = "a")
+en50  = input.bool(true, "50 EMA",  group = gE, inline = "b")
+en100 = input.bool(true, "100 EMA", group = gE, inline = "b")
+en200 = input.bool(true, "200 EMA", group = gE, inline = "b")
+maTf  = input.timeframe("D", "MA timeframe (flat)", group = gE, tooltip = "Which timeframe's EMAs/SMAs to plot as flat levels. Default Daily = the structural daily EMAs, viewable on any intraday chart.")
+
+// ── optional SMAs ────────────────────────────────────────────────────────────────
+gS    = "SMAs (optional)"
+en50s = input.bool(true, "50 SMA",  group = gS, inline = "s")
+en200s= input.bool(true, "200 SMA", group = gS, inline = "s")
+
+// ── style ─────────────────────────────────────────────────────────────────────────
+supCol  = input.color(#26A69A, "Support (below price)",    group = "Style", inline = "c")
+resCol  = input.color(#EF5350, "Resistance (above price)", group = "Style", inline = "c")
+lineW   = input.int(2,  "EMA line width", group = "Style", minval = 1, maxval = 6)
+lineLen = input.int(80, "Line length (bars back)", group = "Style", minval = 10, maxval = 500)
+tagOff  = input.int(8,  "Label offset (bars right)", group = "Style", minval = 0, maxval = 50)
+showLbl = input.bool(true, "Show labels", group = "Style")
+lblGap  = input.float(0.4, "Stagger labels closer than ± %", group = "Style", minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep = input.int(3, "Label stagger step (bars)", group = "Style", minval = 1, maxval = 40)
+
+// ── PDH / PDL rails (Redler stop = PDL) ────────────────────────────────────────────
+gR      = "Prior-day rails (PDH / PDL)"
+enPdl   = input.bool(true, "PDL — the STOP line (Redler)", group = gR, tooltip = "Yesterday's LOW: the line in the sand — never hold a long that closes below it.")
+enPdh   = input.bool(true, "PDH — the trigger line",       group = gR)
+pdlCol  = input.color(color.new(#EF5350, 25), "PDL", group = gR, inline = "p")
+pdhCol  = input.color(color.new(#26A69A, 25), "PDH", group = gR, inline = "p")
+
+// ── today's open ───────────────────────────────────────────────────────────────────
+enOpen  = input.bool(true, "Mark today's open (dotted) + tag vs PDH/PDL", group = "Day open")
+openCol = input.color(color.new(#EAB308, 0), "Open line", group = "Day open")
+
+// ── proximity declutter ─────────────────────────────────────────────────────────────
+gP      = "Proximity (declutter)"
+showAll = input.bool(false, "Always show all EMAs & SMAs", group = gP, tooltip = "OFF (default) = an MA only draws when price is within the % below, so a far 100/200 EMA can't stretch the axis (important for high-priced momentum names like MU). ON = draw the whole stack regardless of distance — expect the axis to stretch on names with a big 200-EMA gap. PDH/PDL/open always draw.")
+nearPct = input.float(5.0, "  Only show an MA within (%) of price", group = gP, minval = 0.25, maxval = 40, step = 0.25) / 100.0
+
+// ── values — SETTLED daily MAs, the exact pattern from ma-ema-daily / rc.pine:
+//    ta.ema(close, len)[1] + lookahead_on = yesterday's confirmed value, flat & identical on every chart TF,
+//    non-repainting (no developing-bar leak). This is what makes MU's 21 EMA read ~916 everywhere.
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+f_ema(int len, bool on) => on ? request.security(syminfo.tickerid, maTf, ta.ema(close, len)[1], lookahead = barmerge.lookahead_on) : na
+f_sma(int len, bool on) => on ? request.security(syminfo.tickerid, maTf, ta.sma(close, len)[1], lookahead = barmerge.lookahead_on) : na
+e8   = f_ema(8,   en8)
+e21  = f_ema(21,  en21)
+e50  = f_ema(50,  en50)
+e100 = f_ema(100, en100)
+e200 = f_ema(200, en200)
+s50  = f_sma(50,  en50s)
+s200 = f_sma(200, en200s)
+// prior-day high & low (settled [1] on the RTH daily, lookahead_on → yesterday's, rolls at the open, non-repainting)
+[pdh, pdl] = request.security(rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+dayOpen    = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+
+// ── draw (rebuilt on the last bar) ────────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var float[] _lblY = array.new_float()
+f_xoff(float v) =>
+    _c = 0
+    if array.size(_lblY) > 0
+        for _k = 0 to array.size(_lblY) - 1
+            if math.abs(array.get(_lblY, _k) - v) / v <= lblGap
+                _c := _c + 1
+    array.push(_lblY, v)
+    tagOff + math.min(_c, 4) * lblStep
+// role vs CURRENT price (like yesterday_4h): below price = green support, above = red resistance
+f_role(float v) => close > v ? supCol : resCol
+// an EMA/SMA — proximity-gated unless "always show" is on
+f_ma(float v, string nm, int w) =>
+    if not na(v) and v > 0 and (showAll or math.abs(close - v) / close <= nearPct)
+        _c  = f_role(v)
+        _xo = f_xoff(v)
+        _r  = close > v ? "  ▲ SUPPORT  " : "  ▼ RESISTANCE  "
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = _c, width = w))
+        if showLbl
+            array.push(_lb, label.new(bar_index + _xo, v, nm + _r + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_lblY)
+    // the Redler EMA stack
+    f_ma(e8,   "8 EMA",   lineW)
+    f_ma(e21,  "21 EMA",  lineW)
+    f_ma(e50,  "50 EMA",  lineW)
+    f_ma(e100, "100 EMA", lineW)
+    f_ma(e200, "200 EMA", lineW)
+    // optional SMAs
+    f_ma(s50,  "50 SMA",  lineW)
+    f_ma(s200, "200 SMA", lineW)
+    // PDL — the Redler stop (dashed, always drawn)
+    if enPdl and not na(pdl)
+        _pxo = f_xoff(pdl)
+        array.push(_ln, line.new(bar_index - lineLen, pdl, bar_index + _pxo, pdl, color = pdlCol, width = 1, style = line.style_dashed))
+        if showLbl
+            array.push(_lb, label.new(bar_index + _pxo, pdl, "PDL " + str.tostring(pdl, format.mintick) + "  · 🛑 STOP — exit if lost (Redler)", style = label.style_label_left, color = color.new(pdlCol, 82), textcolor = pdlCol, size = size.small))
+    // PDH — yesterday's high (dashed, always drawn)
+    if enPdh and not na(pdh)
+        _hxo = f_xoff(pdh)
+        array.push(_ln, line.new(bar_index - lineLen, pdh, bar_index + _hxo, pdh, color = pdhCol, width = 1, style = line.style_dashed))
+        if showLbl
+            array.push(_lb, label.new(bar_index + _hxo, pdh, "PDH " + str.tostring(pdh, format.mintick) + "  · ▲ trigger — close above = continuation", style = label.style_label_left, color = color.new(pdhCol, 82), textcolor = pdhCol, size = size.small))
+    // today's open — subtle dotted, tagged vs yesterday's PDH/PDL
+    if enOpen and not na(dayOpen)
+        _ctx = not na(pdh) and dayOpen > pdh ? "  · above PDH ▲ (strong)" : not na(pdl) and dayOpen < pdl ? "  · below PDL ▼ (weak)" : (not na(pdh) and not na(pdl) ? "  · inside PDH–PDL" : "")
+        _oxo = f_xoff(dayOpen)
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = color.new(openCol, 20), width = 1, style = line.style_dotted))
+        if showLbl
+            array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _ctx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))

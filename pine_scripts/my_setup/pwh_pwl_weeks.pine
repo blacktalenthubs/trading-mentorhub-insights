@@ -1,0 +1,61 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PWH / PWL · Weeks — the WEEKLY High & Low of each of the last N completed weeks. Clean & standalone.
+// ─────────────────────────────────────────────────────────────────────────────
+// The weekly sibling of PDH/PDL · 5 Days. Draws the high & low of each of the last N *completed* weeks
+// (default 4) as FLAT horizontal lines, tagged W-1 … W-4 — the CURRENT building week is excluded (its
+// range isn't set yet). Optionally include the developing week too. RTH-accurate (regular session, so
+// extended-hours prints don't leak the weekly H/L). Optionally colored by ROLE vs the current price
+// (green = support below · red = resistance above), faded by age. No confluence, no merge — every level
+// stands on its own. Bind on any timeframe; the levels are always the weekly H/L.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("PWH/PWL · Weeks", "pwh-pwl-wk", overlay = true, max_lines_count = 20, max_labels_count = 20)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+nWeeks    = input.int(4, "Prior weeks (PWH/PWL)", minval = 1, maxval = 8, tooltip = "How many COMPLETED weeks back to draw (W-1 = last week … W-8). The current building week is excluded unless you turn it on below.")
+inclThis  = input.bool(false, "Include this week's developing H/L", tooltip = "Also draw the CURRENT week's high & low so far (tagged 'this wk'). Off = completed weeks only (W-1..W-N).")
+roleCol   = input.bool(true, "Color by role vs price", tooltip = "On: a level BELOW price draws green (support), ABOVE draws red (resistance). Off: highs always red, lows always green.")
+colHi     = input.color(#EF5350, "High / resistance", inline = "c")
+colLo     = input.color(#26A69A, "Low / support",    inline = "c")
+wLine     = input.int(2, "Line thickness", minval = 1, maxval = 6)
+lineLen   = input.int(120, "Line length (bars back)", minval = 10, maxval = 1000)
+tagOff    = input.int(8, "Label offset (bars right)", minval = 0, maxval = 50)
+lblSide   = input.string("Right", "Label side", options = ["Left", "Right"])
+showLbl   = input.bool(true, "Show labels")
+fadeOld   = input.bool(true, "Fade older weeks")
+
+// ── RTH-accurate weekly H/L for this week + the last 8 weeks (settled offsets, non-repainting) ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[wh0, wl0, wh1, wl1, wh2, wl2, wh3, wl3, wh4, wl4, wh5, wl5, wh6, wl6, wh7, wl7, wh8, wl8] = request.security(rthTid, "W", [high, low, high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5], high[6], low[6], high[7], low[7], high[8], low[8]], lookahead = barmerge.lookahead_on)
+
+// ── draw (rebuilt on the last bar) ────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+
+// draw one flat, role-colored level — each on its own line, no merging
+f_draw(float v, string nm, int age, bool isHigh) =>
+    if not na(v)
+        _base = roleCol ? (v >= close ? colHi : colLo) : (isHigh ? colHi : colLo)
+        _fade = fadeOld ? math.min(65, age * 14) : 0        // this wk / W-1 solid, each older week fainter
+        _col  = color.new(_base, _fade)
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = wLine, extend = extend.left))
+        if showLbl
+            _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
+            _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
+            array.push(_lb, label.new(_lx, v, nm + "  " + str.tostring(v, format.mintick), style = _ls, color = color.new(_base, 82), textcolor = _base, size = size.small))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    // each in-window weekly H/L, drawn on its own (0 = this week, 1 = W-1 …). All draw regardless of distance.
+    _hs = array.from(wh0, wh1, wh2, wh3, wh4, wh5, wh6, wh7, wh8)
+    _ls = array.from(wl0, wl1, wl2, wl3, wl4, wl5, wl6, wl7, wl8)
+    _start = inclThis ? 0 : 1
+    for _a = _start to nWeeks
+        _lab = _a == 0 ? "this wk" : "W-" + str.tostring(_a)
+        f_draw(array.get(_hs, _a), "PWH " + _lab, _a, true)
+        f_draw(array.get(_ls, _a), "PWL " + _lab, _a, false)

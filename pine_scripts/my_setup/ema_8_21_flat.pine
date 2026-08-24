@@ -1,0 +1,38 @@
+//@version=5
+// EMA 8 / 21 / 50 — FLAT horizontal lines, role-colored (green = support / price above,
+// red = resistance / price below). Never sloping. Daily-locked by default so you can
+// view the daily 8/21/50 while trading a lower timeframe.
+indicator("EMA 8/21/50 — flat", overlay = true, max_lines_count = 6, max_labels_count = 6)
+
+len1   = input.int(8,  "Fast EMA", minval = 1)
+len2   = input.int(21, "Slow EMA", minval = 1)
+len3   = input.int(50, "50 EMA",   minval = 1)
+useLock= input.bool(true, "Lock to a higher timeframe (stay flat intraday)")
+lockTf = input.timeframe("D", "Lock timeframe")
+supCol = input.color(#26A69A, "Support (price above)")
+resCol = input.color(#EF5350, "Resistance (price below)")
+lineW  = input.int(2,  "Line width", minval = 1, maxval = 5)
+lenBk  = input.int(60, "Line length (bars back)", minval = 10, maxval = 500)
+
+tid  = syminfo.tickerid
+ema1 = useLock ? request.security(tid, lockTf, ta.ema(close, len1), lookahead = barmerge.lookahead_off) : ta.ema(close, len1)
+ema2 = useLock ? request.security(tid, lockTf, ta.ema(close, len2), lookahead = barmerge.lookahead_off) : ta.ema(close, len2)
+ema3 = useLock ? request.security(tid, lockTf, ta.ema(close, len3), lookahead = barmerge.lookahead_off) : ta.ema(close, len3)
+
+var line[]  _ln = array.new_line(0)
+var label[] _lb = array.new_label(0)
+f_flat(float v, string nm) =>
+    if not na(v)
+        _c = v >= close ? resCol : supCol
+        array.push(_ln, line.new(bar_index - lenBk, v, bar_index + 6, v, color = _c, width = lineW, extend = extend.left))
+        array.push(_lb, label.new(bar_index + 6, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
+if barstate.islast
+    for _x in _ln
+        line.delete(_x)
+    for _y in _lb
+        label.delete(_y)
+    array.clear(_ln)
+    array.clear(_lb)
+    f_flat(ema1, str.tostring(len1) + " EMA")
+    f_flat(ema2, str.tostring(len2) + " EMA")
+    f_flat(ema3, str.tostring(len3) + " EMA")

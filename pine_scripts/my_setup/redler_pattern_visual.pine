@@ -1,0 +1,153 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// REDLER PATTERN — visual. A standalone, VISUAL-ONLY read of the daily MA structure.
+// NO alerts, NO webhook payload — nothing here can touch the ma/ema alert engine. Draws:
+//   • Daily MA flat S/R lines — 8/21/50/100/200 EMA + 50/100/200 SMA (settled [1]+lookahead_on),
+//     role-colored (green = support below price, red = resistance above).
+//   • PDH / PDL flat lines.
+//   • Proximity bracket around the OPEN — only the N nearest levels each side draw (far 200s hide).
+//   • Today's OPEN line + its two neighbors (first support ↔ first resistance it battles).
+//   • Tiny PDH/PDL signal text — break (PDH↑) · reclaim (PDL↑) · reject (PDH↓).
+// Non-repainting (settled daily values). Bind on any intraday TF.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Redler Pattern · visual", "Redler·vis", overlay = true, max_labels_count = 500, max_lines_count = 60)
+
+// ── MA lines ────────────────────────────────────────────────────────────────
+show_lines = input.bool(true, "Show daily MA flat lines (master)")
+show_ema8   = input.bool(true, "  · EMA 8",   group = "MA lines", inline = "e1")
+show_ema21  = input.bool(true, "  · EMA 21",  group = "MA lines", inline = "e1")
+show_ema50  = input.bool(true, "  · EMA 50",  group = "MA lines", inline = "e2")
+show_ema100 = input.bool(true, "  · EMA 100", group = "MA lines", inline = "e2")
+show_ema200 = input.bool(true, "  · EMA 200", group = "MA lines", inline = "e2")
+show_sma50  = input.bool(true, "  · SMA 50",  group = "MA lines", inline = "s1")
+show_sma100 = input.bool(true, "  · SMA 100", group = "MA lines", inline = "s1")
+show_sma200 = input.bool(true, "  · SMA 200", group = "MA lines", inline = "s1")
+show_pdh    = input.bool(true, "  · PDH — prior-day high", group = "MA lines")
+show_pdl    = input.bool(true, "  · PDL — prior-day low",  group = "MA lines")
+maTf        = input.timeframe("D", "MA timeframe", group = "MA lines")
+
+// ── style ─────────────────────────────────────────────────────────────────────
+flat_sup_col = input.color(#26A69A, "Support (price above)",    group = "Style", inline = "c")
+flat_res_col = input.color(#EF5350, "Resistance (price below)", group = "Style", inline = "c")
+flat_len     = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Style")
+
+// ── proximity bracket around the open ───────────────────────────────────────────
+flat_prox = input.bool(true, "Proximity: only the N nearest levels above/below the OPEN", group = "Proximity", tooltip = "Draws only the N nearest levels ABOVE the open and N BELOW — a far 200 EMA/SMA stays hidden until price approaches it, so it can't clutter or stretch the chart. Off = draw every enabled level.")
+flat_nbr  = input.int (3, "  Neighbors each side of the open", minval = 1, maxval = 9, group = "Proximity")
+
+// ── today's open ─────────────────────────────────────────────────────────────────
+show_open = input.bool(true, "Mark today's open + its two neighbors (S ↔ R)", group = "Day open")
+open_col  = input.color(color.new(#EAB308, 0), "Open line", group = "Day open")
+open_w    = input.int  (2, "Open line thickness", minval = 1, maxval = 6, group = "Day open")
+
+// ── PDH/PDL signal text ─────────────────────────────────────────────────────────
+show_sig  = input.bool(true, "Show PDH/PDL signal text (break · reclaim · reject)", group = "PDH/PDL signals")
+
+// ── values — SETTLED daily MAs ([1]+lookahead_on), non-repainting, flat on any chart TF ──
+tid = syminfo.tickerid
+ema8   = request.security(tid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(tid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(tid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(tid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(tid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(tid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(tid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(tid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+// RTH-accurate prior-day H/L + TODAY's open — settled, non-repainting (matches yesterday_4h / rc.pine).
+// day_open uses lookahead_ON: the open is fixed at the start of the day, so this reads TODAY's 9:30 open
+// immediately with no future leak. lookahead_OFF (the old value) lagged it to the PRIOR day's open.
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+pdh = request.security(rthTid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(rthTid, "D", low[1],  lookahead = barmerge.lookahead_on)
+day_open = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+
+// ── flat level lines (rebuilt on the last bar) ────────────────────────────────
+is_support(float lvl) => not na(lvl) and close > lvl
+collect_lvl(float[] up, float[] dn, float v, bool show, float ref) =>
+    if show and not na(v)
+        if v > ref
+            array.push(up, v)
+        else if v < ref
+            array.push(dn, v)
+in_bracket(float v, float ref, float aCut, float bCut, bool on) => not on or na(v) or (v >= ref and v <= aCut) or (v <= ref and v >= bCut)
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+flat_draw(float lvl, string nm, bool dotted, bool show) =>
+    if show and not na(lvl)
+        sup = is_support(lvl)
+        col = sup ? flat_sup_col : flat_res_col
+        ln  = line.new(bar_index - flat_len, lvl, bar_index + 6, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
+        lb  = label.new(bar_index + 6, lvl, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(_ln, ln)
+        array.push(_lb, lb)
+
+if show_lines and barstate.islast
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    // proximity bracket around the open
+    _popen = na(day_open) ? close : day_open
+    _up = array.new_float()
+    _dn = array.new_float()
+    collect_lvl(_up, _dn, ema8,   show_ema8,   _popen)
+    collect_lvl(_up, _dn, ema21,  show_ema21,  _popen)
+    collect_lvl(_up, _dn, ema50,  show_ema50,  _popen)
+    collect_lvl(_up, _dn, ema100, show_ema100, _popen)
+    collect_lvl(_up, _dn, ema200, show_ema200, _popen)
+    collect_lvl(_up, _dn, sma50,  show_sma50,  _popen)
+    collect_lvl(_up, _dn, sma100, show_sma100, _popen)
+    collect_lvl(_up, _dn, sma200, show_sma200, _popen)
+    collect_lvl(_up, _dn, pdh,    show_pdh,    _popen)
+    collect_lvl(_up, _dn, pdl,    show_pdl,    _popen)
+    array.sort(_up, order.ascending)
+    array.sort(_dn, order.descending)
+    _aCut = array.size(_up) > 0 ? array.get(_up, math.min(flat_nbr, array.size(_up)) - 1) : 1e18
+    _bCut = array.size(_dn) > 0 ? array.get(_dn, math.min(flat_nbr, array.size(_dn)) - 1) : -1.0
+    flat_draw(ema8,   "EMA 8",   false, show_ema8   and in_bracket(ema8,   _popen, _aCut, _bCut, flat_prox))
+    flat_draw(ema21,  "EMA 21",  false, show_ema21  and in_bracket(ema21,  _popen, _aCut, _bCut, flat_prox))
+    flat_draw(ema50,  "EMA 50",  false, show_ema50  and in_bracket(ema50,  _popen, _aCut, _bCut, flat_prox))
+    flat_draw(ema100, "EMA 100", false, show_ema100 and in_bracket(ema100, _popen, _aCut, _bCut, flat_prox))
+    flat_draw(ema200, "EMA 200", false, show_ema200 and in_bracket(ema200, _popen, _aCut, _bCut, flat_prox))
+    flat_draw(sma50,  "SMA 50",  true,  show_sma50  and in_bracket(sma50,  _popen, _aCut, _bCut, flat_prox))
+    flat_draw(sma100, "SMA 100", true,  show_sma100 and in_bracket(sma100, _popen, _aCut, _bCut, flat_prox))
+    flat_draw(sma200, "SMA 200", true,  show_sma200 and in_bracket(sma200, _popen, _aCut, _bCut, flat_prox))
+    flat_draw(pdh, "PDH", false, show_pdh and in_bracket(pdh, _popen, _aCut, _bCut, flat_prox))
+    flat_draw(pdl, "PDL", false, show_pdl and in_bracket(pdl, _popen, _aCut, _bCut, flat_prox))
+    // today's OPEN + its two neighbors (nearest support below ↔ nearest resistance above)
+    if show_open and not na(day_open)
+        _ov = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma200, pdh, pdl)
+        _on = array.from("8E", "21E", "50E", "100E", "200E", "50S", "200S", "PDH", "PDL")
+        _oUp = 1e18
+        _oDn = -1.0
+        _oUpNm = "—"
+        _oDnNm = "—"
+        for _oi = 0 to array.size(_ov) - 1
+            _ovv = array.get(_ov, _oi)
+            if not na(_ovv)
+                if _ovv > day_open and _ovv < _oUp
+                    _oUp := _ovv
+                    _oUpNm := array.get(_on, _oi)
+                if _ovv < day_open and _ovv > _oDn
+                    _oDn := _ovv
+                    _oDnNm := array.get(_on, _oi)
+        _lbT = "Open " + str.tostring(day_open, format.mintick) + "  ·  between  " + (_oDn > 0 ? _oDnNm + " " + str.tostring(_oDn, format.mintick) : "—") + "  ↔  " + (_oUp < 1e17 ? _oUpNm + " " + str.tostring(_oUp, format.mintick) : "—")
+        _oln = line.new(bar_index - flat_len, day_open, bar_index + 6, day_open, color = open_col, width = open_w, style = line.style_dashed)
+        _olb = label.new(bar_index + 6, day_open, _lbT, style = label.style_label_left, color = color.new(open_col, 15), textcolor = color.black, size = size.small)
+        array.push(_ln, _oln)
+        array.push(_lb, _olb)
+
+// ── PDH/PDL signal text — very small, fires once on the event bar ──────────────
+sig_brk_pdh = not na(pdh) and close > pdh and nz(close[1], pdh) <= pdh   // first close above PDH  = break
+sig_rc_pdl  = not na(pdl) and low  < pdl  and close > pdl                // wick below PDL, close back above = reclaim
+sig_rej_pdh = not na(pdh) and high > pdh  and close < pdh                // poke above PDH, close back below = reject
+if show_sig and sig_brk_pdh
+    label.new(bar_index, na, "PDH↑", yloc = yloc.belowbar, style = label.style_none, textcolor = color.new(color.green, 0), size = size.tiny)
+if show_sig and sig_rc_pdl
+    label.new(bar_index, na, "PDL↑", yloc = yloc.belowbar, style = label.style_none, textcolor = color.new(color.green, 0), size = size.tiny)
+if show_sig and sig_rej_pdh
+    label.new(bar_index, na, "PDH↓", yloc = yloc.abovebar, style = label.style_none, textcolor = color.new(color.red, 0), size = size.tiny)

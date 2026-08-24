@@ -1,0 +1,45 @@
+//@version=5
+// PQ Levels (visual only) — the prior QUARTER's High, Low, and Close as three flat
+// horizontal reference lines. No alerts, no reactions — pure context for the eye
+// (quarterly S/R + the last quarter's settlement). Prior quarter = the last COMPLETED
+// 3M bar (via [1] offset), so the lines are fixed until the quarter rolls. (user 2026-07-28)
+indicator("PQ Levels (visual)", "PQ H/L/C", overlay = true, max_lines_count = 12, max_labels_count = 12)
+
+// ── Inputs ──
+g       = "PQ levels"
+showH   = input.bool(true, "Prior-Quarter High",  group = g)
+showL   = input.bool(true, "Prior-Quarter Low",   group = g)
+showC   = input.bool(true, "Prior-Quarter Close", group = g)
+colH    = input.color(#EF5350, "High color",  group = g, inline = "c1")
+colL    = input.color(#26A69A, "Low color",   group = g, inline = "c1")
+colC    = input.color(#B0BEC5, "Close color", group = g, inline = "c1")
+lineW   = input.int(2,   "Line width",             group = g, minval = 1, maxval = 4)
+lineLen = input.int(120, "Line length (bars back)", group = g, minval = 10)
+tagOff  = input.int(4,   "Label offset (bars right)", group = g, minval = 0)
+
+// ── Prior QUARTER H/L/C — the last completed 3M bar ──
+tid = syminfo.tickerid
+[pqh, pql, pqc] = request.security(tid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+// ── Draw — clear + redraw once on the last bar so the lines stay a single flat ray ──
+var line[]  _ln = array.new_line(0)
+var label[] _lb = array.new_label(0)
+
+f_draw(float v, string nm, color col, bool show, int sty) =>
+    if show and not na(v)
+        lst = sty == 2 ? line.style_dotted : sty == 1 ? line.style_dashed : line.style_solid
+        ln = line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = col, width = lineW, style = lst)
+        lb = label.new(bar_index + tagOff, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
+        array.push(_ln, ln)
+        array.push(_lb, lb)
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    f_draw(pqh, "PQ High",  colH, showH, 0)   // solid
+    f_draw(pql, "PQ Low",   colL, showL, 0)   // solid
+    f_draw(pqc, "PQ Close", colC, showC, 2)   // dotted — the settlement, distinct from the H/L edges

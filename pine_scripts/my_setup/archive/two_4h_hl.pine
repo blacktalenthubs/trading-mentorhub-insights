@@ -1,0 +1,254 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Two 4H H/L (session-anchored, confluence zones) — YESTERDAY's last two completed 4h
+// candles + TODAY's first completed 4h, with nearby same-side levels grouped into zones.
+// ─────────────────────────────────────────────────────────────────────────────
+// The day-trade map: going into today you trade off YESTERDAY's 4h levels, then today's
+// FIRST 4h close (≈13:30 ET) gives a fresh intraday reference. So this tracks:
+//   • 4H-1  (solid)  — yesterday's LAST completed 4h candle (13:30–16:00 prior session)
+//   • 4H-2  (dashed) — yesterday's FIRST completed 4h candle (09:30–13:30 prior session)
+//   • 4H-T  (dotted) — TODAY's first completed 4h candle (appears at ~13:30 ET)
+// Each completed 4h is tagged by its OWN session date (from the bar's open time), so the
+// pair stays on YESTERDAY even mid-today. Locked / non-repainting (240 + lookahead_on, [1]).
+//
+// CONFLUENCE ZONES (2026-08-05): levels within `zonePct` of each other AND on the SAME side of
+// price (both resistance above / both support below) collapse into ONE shaded zone with a single
+// "CONF ×N" label listing the members + the range — e.g. two 4h highs a few % apart = one
+// resistance zone; the two lows = one support zone. Resistance and support never cross-merge.
+// A lone level draws as a single line. Fixes both the unreadable label overlap AND flags stacked
+// 4h levels as a confluence even when they're a few % apart.
+//
+// AUTO PDH/PDL (optional): the next prior-day level OUTSIDE the 4h band (nearest above the top /
+// below the bottom) — where price may head next. CONFLUENCE tag: appends · PDH/PWL/PMH… when a
+// level lines up with a prior day/week/month level (those are computed but NEVER drawn).
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Two 4H H/L", "2x4h", overlay = true, max_lines_count = 16, max_labels_count = 12, max_boxes_count = 8)
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+show2   = input.bool(true, "Show yesterday's 2nd (older) 4h — 4H-2, dashed")
+enToday = input.bool(true, "Show today's first closed 4h — 4H-T, dotted")
+colHi   = input.color(#EF5350, "Resistance (above price)", inline = "c")
+colLo   = input.color(#26A69A, "Support (below price)",   inline = "c")
+wLine   = input.int(2,  "Line thickness", minval = 1, maxval = 6)
+lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500)
+tagOff  = input.int(6,  "Label offset (bars right)", minval = 0, maxval = 50)
+showLbl = input.bool(true, "Show labels")
+zonePct = input.float(0.2, "Confluence zone within (%)", minval = 0, maxval = 5, step = 0.05, tooltip = "Same-side levels (both above price, or both below) within this % of each other GROUP into ONE shaded confluence zone with a single 'CONF ×N' label. Only near-stacked levels group at 0.2%; raise it to cluster wider. 0 = never group. Resistance and support never merge with each other.")
+enConf  = input.bool(true,  "Tag confluence with PDH/PDL/PWH/PWL/PMH/PML", group = "Confluence")
+confPct = input.float(0.25, "Confluence band (%)", minval = 0.02, maxval = 2, step = 0.01, group = "Confluence", tooltip = "A drawn level within this % of a prior day/week/month high or low gets that level's tag appended. The HTF level is NEVER drawn, so it can't affect the price scale.")
+enBias  = input.bool(true,  "Show short/long BIAS on each level (mental construct)", group = "Bias")
+nearPct = input.float(0.6, "  \"Near\" band (%) — emphasize when price is right at the level", minval = 0.05, maxval = 5, step = 0.05, group = "Bias") / 100.0
+enAuto   = input.bool(false, "Auto PDH/PDL — nearest prior-day level OUTSIDE the 4h band", group = "Auto PDH/PDL")
+autoDays = input.int(5, "Prior days to search", minval = 1, maxval = 5, group = "Auto PDH/PDL", tooltip = "Nearest prior-day HIGH above the 4h band's top (next resistance) + nearest LOW below its bottom (next support). Only those two — nearest = near price, so no compression.")
+
+// ── last completed 4h candle: H / L / open-time (settled [1] + lookahead → non-repainting) ──
+[h4, l4, t4] = request.security(syminfo.tickerid, "240", [high[1], low[1], time[1]], lookahead = barmerge.lookahead_on)
+
+f_dnum(int t) => na(t) ? int(na) : year(t) * 10000 + month(t) * 100 + dayofmonth(t)
+
+// ── forward-accumulate every DISTINCT completed 4h candle (H, L, open-time), keyed on t4 ───────
+var float[] aH = array.new_float()
+var float[] aL = array.new_float()
+var int[]   aT = array.new_int()
+if not na(h4) and not na(l4) and not na(t4)
+    _push = array.size(aT) == 0
+    if not _push
+        _push := array.get(aT, array.size(aT) - 1) != t4
+    if _push
+        array.push(aH, h4)
+        array.push(aL, l4)
+        array.push(aT, t4)
+        if array.size(aT) > 40
+            array.shift(aH)
+            array.shift(aL)
+            array.shift(aT)
+
+// ── HTF levels for CONFLUENCE TAGGING ONLY — RTH-accurate, settled, non-repainting. NOT drawn. ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdh, pdl] = request.security(rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(rthTid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(rthTid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[dh1, dl1, dh2, dl2, dh3, dl3, dh4, dl4, dh5, dl5] = request.security(rthTid, "D", [high[1], low[1], high[2], low[2], high[3], low[3], high[4], low[4], high[5], low[5]], lookahead = barmerge.lookahead_on)
+
+f_conf(float v) =>
+    s = ""
+    if enConf and not na(v) and v > 0
+        _b = confPct / 100.0
+        s := (not na(pdh) and math.abs(v - pdh) / v <= _b) ? s + " · PDH" : s
+        s := (not na(pdl) and math.abs(v - pdl) / v <= _b) ? s + " · PDL" : s
+        s := (not na(pwh) and math.abs(v - pwh) / v <= _b) ? s + " · PWH" : s
+        s := (not na(pwl) and math.abs(v - pwl) / v <= _b) ? s + " · PWL" : s
+        s := (not na(pmh) and math.abs(v - pmh) / v <= _b) ? s + " · PMH" : s
+        s := (not na(pml) and math.abs(v - pml) / v <= _b) ? s + " · PML" : s
+    s
+
+// standing directional BIAS for a level vs price (mental construct — user 2026-08-06): a level ABOVE
+// price is overhead RESISTANCE → SHORT until it breaks; a level BELOW is SUPPORT → LONG until it's lost.
+// Emphasized (caps) when price is sitting right AT the level (within nearPct) so you don't talk yourself
+// into a break that isn't there (MU under PWH). It's a bias construct, not a fired signal.
+f_bias(float v) =>
+    _s = ""
+    if enBias and not na(v) and v > 0
+        _near = math.abs(v - close) / close <= nearPct
+        if v >= close
+            _s := _near ? "  ▼ AT RESIST — SHORT until broken" : "  ▼ short-side (reject until broken)"
+        else
+            _s := _near ? "  ▲ AT SUPPORT — long / lose = short" : "  ▲ long-side (hold or lose)"
+    _s
+
+f_add(float[] V, string[] N, color[] C, string[] S, float v, string nm, color c, string st) =>
+    if not na(v)
+        array.push(V, v)
+        array.push(N, nm)
+        array.push(C, c)
+        array.push(S, st)
+
+// ── draw (rebuilt on the last bar) ─────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var box[]   _bx = array.new_box()
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    for z in _bx
+        box.delete(z)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_bx)
+
+    today = f_dnum(time)
+    int yday = 0
+    if array.size(aT) > 0
+        for i = 0 to array.size(aT) - 1
+            _d = f_dnum(array.get(aT, i))
+            if _d < today and _d > yday
+                yday := _d
+    int y_recent = -1
+    int y_prev   = -1
+    int t_first  = -1
+    if array.size(aT) > 0
+        for i = 0 to array.size(aT) - 1
+            _d = f_dnum(array.get(aT, i))
+            if _d == yday
+                y_prev   := y_recent
+                y_recent := i
+            if _d == today and t_first < 0
+                t_first := i
+
+    // ── collect candidate levels ──
+    cV = array.new_float()
+    cN = array.new_string()
+    cC = array.new_color()
+    cS = array.new_string()
+    if y_recent >= 0
+        f_add(cV, cN, cC, cS, array.get(aH, y_recent), "4H-1 H", colHi, line.style_solid)
+        f_add(cV, cN, cC, cS, array.get(aL, y_recent), "4H-1 L", colLo, line.style_solid)
+    if show2 and y_prev >= 0
+        f_add(cV, cN, cC, cS, array.get(aH, y_prev), "4H-2 H", colHi, line.style_dashed)
+        f_add(cV, cN, cC, cS, array.get(aL, y_prev), "4H-2 L", colLo, line.style_dashed)
+    if enToday and t_first >= 0
+        f_add(cV, cN, cC, cS, array.get(aH, t_first), "4H-T H", colHi, line.style_dotted)
+        f_add(cV, cN, cC, cS, array.get(aL, t_first), "4H-T L", colLo, line.style_dotted)
+
+    // ── AUTO PDH/PDL — next level OUTSIDE the 4h band ──
+    if enAuto
+        float bandHi = na
+        float bandLo = na
+        if y_recent >= 0
+            bandHi := na(bandHi) ? array.get(aH, y_recent) : math.max(bandHi, array.get(aH, y_recent))
+            bandLo := na(bandLo) ? array.get(aL, y_recent) : math.min(bandLo, array.get(aL, y_recent))
+        if show2 and y_prev >= 0
+            bandHi := na(bandHi) ? array.get(aH, y_prev) : math.max(bandHi, array.get(aH, y_prev))
+            bandLo := na(bandLo) ? array.get(aL, y_prev) : math.min(bandLo, array.get(aL, y_prev))
+        if enToday and t_first >= 0
+            bandHi := na(bandHi) ? array.get(aH, t_first) : math.max(bandHi, array.get(aH, t_first))
+            bandLo := na(bandLo) ? array.get(aL, t_first) : math.min(bandLo, array.get(aL, t_first))
+        float _top = na(bandHi) ? close : bandHi
+        float _bot = na(bandLo) ? close : bandLo
+        _vals = array.from(dh1, dl1, dh2, dl2, dh3, dl3, dh4, dl4, dh5, dl5)
+        _lbls = array.from("PDH D-1", "PDL D-1", "PDH D-2", "PDL D-2", "PDH D-3", "PDL D-3", "PDH D-4", "PDL D-4", "PDH D-5", "PDL D-5")
+        float resV = na
+        string resN = ""
+        float supV = na
+        string supN = ""
+        _lim = math.min(autoDays * 2, array.size(_vals))
+        if _lim > 0
+            for i = 0 to _lim - 1
+                _v2 = array.get(_vals, i)
+                if not na(_v2)
+                    if _v2 > _top and (na(resV) or _v2 < resV)
+                        resV := _v2
+                        resN := array.get(_lbls, i)
+                    if _v2 < _bot and (na(supV) or _v2 > supV)
+                        supV := _v2
+                        supN := array.get(_lbls, i)
+        f_add(cV, cN, cC, cS, resV, resN + " (next R)", colHi, line.style_solid)
+        f_add(cV, cN, cC, cS, supV, supN + " (next S)", colLo, line.style_solid)
+
+    // ── SORT candidates ascending by value (selection sort — few candidates) ──
+    n = array.size(cV)
+    if n > 1
+        for a = 0 to n - 2
+            _mi = a
+            for b = a + 1 to n - 1
+                if array.get(cV, b) < array.get(cV, _mi)
+                    _mi := b
+            if _mi != a
+                float _tv = array.get(cV, a)
+                array.set(cV, a, array.get(cV, _mi))
+                array.set(cV, _mi, _tv)
+                string _tn = array.get(cN, a)
+                array.set(cN, a, array.get(cN, _mi))
+                array.set(cN, _mi, _tn)
+                color _tc = array.get(cC, a)
+                array.set(cC, a, array.get(cC, _mi))
+                array.set(cC, _mi, _tc)
+                string _ts = array.get(cS, a)
+                array.set(cS, a, array.get(cS, _mi))
+                array.set(cS, _mi, _ts)
+
+    // ── CLUSTER same-side (both above / both below price) neighbours within zonePct → zones ──
+    _zb = zonePct / 100.0
+    int i2 = 0
+    if n > 0
+        while i2 < n
+            _lo    = array.get(cV, i2)
+            _hi    = _lo
+            _names = array.get(cN, i2)
+            _cnt   = 1
+            int j2 = i2 + 1
+            _cont  = true
+            while _cont and j2 < n
+                _prev = array.get(cV, j2 - 1)
+                _cur  = array.get(cV, j2)
+                _same = (_cur >= close) == (_prev >= close)          // same side of price
+                if _same and _zb > 0 and (_cur - _prev) / _prev <= _zb
+                    _hi    := _cur
+                    _names := _names + " + " + array.get(cN, j2)
+                    _cnt   := _cnt + 1
+                    j2     := j2 + 1
+                else
+                    _cont := false
+            // side/colour: a resistance sits above price (red), a support below (green)
+            _mid  = (_lo + _hi) / 2.0
+            _side = _mid >= close ? colHi : colLo
+            if _cnt >= 2
+                array.push(_bx, box.new(bar_index - lineLen, _hi, bar_index + tagOff, _lo, border_color = color.new(_side, 55), bgcolor = color.new(_side, 90), border_width = 1))
+                for k = i2 to j2 - 1
+                    array.push(_ln, line.new(bar_index - lineLen, array.get(cV, k), bar_index + tagOff, array.get(cV, k), color = color.new(_side, 25), width = 1, extend = extend.left))
+                if showLbl
+                    _rng = str.tostring(_lo, format.mintick) + "–" + str.tostring(_hi, format.mintick)
+                    array.push(_lb, label.new(bar_index + tagOff, _hi, "CONF ×" + str.tostring(_cnt) + " · " + _names + f_conf(_mid) + "  " + _rng + f_bias(_mid), style = label.style_label_left, color = color.new(_side, 82), textcolor = _side, size = size.small))
+            else
+                _v   = _lo
+                _col = array.get(cC, i2)
+                _st  = array.get(cS, i2)
+                _tag = f_conf(_v)
+                _w   = str.length(_tag) > 0 ? wLine + 1 : wLine
+                array.push(_ln, line.new(bar_index - lineLen, _v, bar_index + tagOff, _v, color = _col, width = _w, style = _st, extend = extend.left))
+                if showLbl
+                    array.push(_lb, label.new(bar_index + tagOff, _v, array.get(cN, i2) + _tag + "  " + str.tostring(_v, format.mintick) + f_bias(_v), style = label.style_label_left, color = color.new(_col, 82), textcolor = _col, size = size.small))
+            i2 := j2

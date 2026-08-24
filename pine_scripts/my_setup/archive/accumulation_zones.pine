@@ -1,0 +1,163 @@
+//@version=5
+// =============================================================================
+// AUTO SUPPLY / DEMAND ZONES v8 — multi-timeframe + centered SUPPLY/DEMAND labels
+// =============================================================================
+// v8 (2026-07-29):
+//  • MULTI-TIMEFRAME: optionally overlay HIGHER-TIMEFRAME zones (e.g. weekly on a daily
+//    chart) in their own colors, so daily+weekly agreement = premium confluence (the
+//    streamer's "IBZ Weekly" green boxes). Detection logic shared via f_zoneSig().
+//  • Labels CENTERED in the box and read "DEMAND" / "SUPPLY" (+ the HTF tag on MTF zones),
+//    instead of a right-edge tag.
+//  • Still: impulse-validated zones, SM band (value third), range-overlap reject, far-zone
+//    prune (clean scale), demand/supply hold+reject markers.
+indicator("Auto Supply/Demand Zones v8", overlay = true, max_boxes_count = 80, max_labels_count = 80)
+
+// --- Inputs ------------------------------------------------------------------
+consolidationLen = input.int(6,   "Base window (bars)", minval = 3, maxval = 30)
+rangeAtrMax      = input.float(3.0,"Max base size (× ATR)", minval = 0.5, maxval = 10.0, step = 0.5)
+volMult          = input.float(0.8,"Min base volume (× average)", minval = 0.3, maxval = 3.0, step = 0.1)
+volAvgLen        = input.int(20,  "Volume average length", minval = 5, maxval = 100)
+atrLen           = input.int(14,  "ATR length", minval = 5, maxval = 50)
+requireImpulse   = input.bool(true,"Require an impulse move out of the base")
+impulseLen       = input.int(3,   "Impulse window (bars out of base)", minval = 1, maxval = 12)
+impulseAtrMin    = input.float(1.5,"Min impulse move (× ATR)", minval = 0.3, maxval = 10.0, step = 0.1)
+maxZones         = input.int(8,   "Max zones to keep (current + HTF)", minval = 1, maxval = 30)
+overlapAtrGap    = input.float(0.4,"Min gap between zones (× ATR)", minval = 0.0, maxval = 5.0, step = 0.1)
+smartMoneyPct    = input.float(30, "Smart Money band = % of zone", minval = 10, maxval = 50, step = 5)
+keepPct          = input.float(40, "Only keep zones within % of price", minval = 5, maxval = 300, step = 5)
+rightExt         = input.int(8,   "Extend zones (bars past last)", minval = 0, maxval = 40)
+
+gH = "Higher timeframe overlay"
+showHtf = input.bool(true, "Overlay higher-timeframe zones", group = gH)
+htfTf   = input.timeframe("W", "Higher timeframe", group = gH, tooltip = "Draw zones from this timeframe on the current chart (e.g. W on a daily chart). Daily + weekly overlap = premium confluence.")
+htfWidth= input.int(80, "HTF zone width (bars back)", group = gH, minval = 10, maxval = 400)
+
+buyCol   = input.color(color.new(color.blue,   85), "Demand band (current TF)")
+buySmCol = input.color(color.new(color.purple, 80), "Demand Smart Money")
+sellCol  = input.color(color.new(color.red,    85), "Supply band (current TF)")
+sellSmCol= input.color(color.new(color.maroon, 78), "Supply Smart Money")
+buyHtfCol= input.color(color.new(color.green,  85), "Demand band (HTF)")
+buyHtfSm = input.color(color.new(color.teal,   78), "Demand SM (HTF)")
+sellHtfCol=input.color(color.new(color.orange, 85), "Supply band (HTF)")
+sellHtfSm= input.color(color.new(color.orange, 68), "Supply SM (HTF)")
+showLabels = input.bool(true, "Show zone labels")
+
+// --- Detection (shared by current TF + request.security for HTF) -------------
+// Returns [newDemand, newSupply, baseHigh, baseLow] on whatever timeframe it runs on.
+f_zoneSig() =>
+    _bh  = ta.highest(high, consolidationLen)[impulseLen]
+    _bl  = ta.lowest(low,   consolidationLen)[impulseLen]
+    _atr = ta.atr(atrLen)[impulseLen]
+    _rng = _bh - _bl
+    _comp = not na(_atr) and _atr > 0 and _rng <= rangeAtrMax * _atr
+    _va  = ta.sma(volume, volAvgLen)[impulseLen]
+    _bv  = ta.sma(volume, consolidationLen)[impulseLen]
+    _hv  = not na(_va) and _va > 0 and _bv >= volMult * _va
+    _ok  = _comp and _hv and not na(_atr)
+    _net = close - close[impulseLen]
+    _dem = _ok and (requireImpulse ? _net >=  impulseAtrMin * _atr : _net >= 0)
+    _sup = _ok and (requireImpulse ? _net <= -impulseAtrMin * _atr : _net <  0)
+    [_dem and not _dem[1], _sup and not _sup[1], _bh, _bl]
+
+[curNewDem, curNewSup, curBH, curBL] = f_zoneSig()
+[htfNd, htfNs, htfBH, htfBL] = request.security(syminfo.tickerid, htfTf, f_zoneSig(), lookahead = barmerge.lookahead_off)
+htfNewDem = showHtf and htfNd and not htfNd[1]     // rising edge on the current chart = one draw per HTF zone
+htfNewSup = showHtf and htfNs and not htfNs[1]
+
+// --- Storage (parallel arrays, lock-step) ------------------------------------
+var box[]   instBoxes  = array.new_box(0)
+var box[]   smBoxes    = array.new_box(0)
+var label[] zoneLabels = array.new_label(0)
+var float[] zoneHighs  = array.new_float(0)
+var float[] zoneLows   = array.new_float(0)
+var int[]   zoneTypes  = array.new_int(0)      // 1 = demand, 0 = supply
+
+f_tooClose(float nLow, float nHigh) =>
+    res = false
+    if array.size(zoneHighs) > 0 and not na(ta.atr(atrLen))
+        gap = overlapAtrGap * ta.atr(atrLen)
+        for i = 0 to array.size(zoneHighs) - 1
+            if nLow <= array.get(zoneHighs, i) + gap and nHigh >= array.get(zoneLows, i) - gap
+                res := true
+    res
+
+// --- Draw one zone (demand/supply, current/HTF) ------------------------------
+f_addZone(float zH, float zL, bool isDem, bool isHtf) =>
+    smPct = smartMoneyPct / 100.0
+    split = isDem ? zL + (zH - zL) * smPct : zH - (zH - zL) * smPct
+    instTop = isDem ? zH : split
+    instBot = isDem ? split : zL
+    smTop   = isDem ? split : zH
+    smBot   = isDem ? zL : split
+    instC = isDem ? (isHtf ? buyHtfCol : buyCol) : (isHtf ? sellHtfCol : sellCol)
+    smC   = isDem ? (isHtf ? buyHtfSm : buySmCol) : (isHtf ? sellHtfSm : sellSmCol)
+    leftBar = isHtf ? bar_index - htfWidth : bar_index - impulseLen - consolidationLen + 1
+    rightBar = bar_index + rightExt
+    ib = box.new(leftBar, instTop, rightBar, instBot, border_color = color.new(instC, 40), bgcolor = instC)
+    sb = box.new(leftBar, smTop,   rightBar, smBot,   border_color = color.new(smC, 40),   bgcolor = smC)
+    array.push(instBoxes, ib)
+    array.push(smBoxes, sb)
+    array.push(zoneHighs, zH)
+    array.push(zoneLows, zL)
+    array.push(zoneTypes, isDem ? 1 : 0)
+    if showLabels
+        word = (isDem ? "DEMAND" : "SUPPLY") + (isHtf ? " · " + htfTf : "")
+        txt = word + "  " + str.tostring(zL, format.mintick) + "–" + str.tostring(zH, format.mintick)
+        lc = isDem ? (isHtf ? color.new(color.green, 15) : color.new(color.blue, 15)) : (isHtf ? color.new(color.orange, 12) : color.new(color.red, 15))
+        cx = int((leftBar + rightBar) / 2)
+        lb = label.new(cx, (zH + zL) / 2.0, txt, style = label.style_label_center, color = lc, textcolor = color.white, size = size.normal)
+        array.push(zoneLabels, lb)
+    if array.size(instBoxes) > maxZones
+        box.delete(array.shift(instBoxes))
+        box.delete(array.shift(smBoxes))
+        array.shift(zoneHighs)
+        array.shift(zoneLows)
+        array.shift(zoneTypes)
+        if showLabels and array.size(zoneLabels) > 0
+            label.delete(array.shift(zoneLabels))
+
+// --- Create zones (current TF first, then HTF) -------------------------------
+if curNewDem and not f_tooClose(curBL, curBH)
+    f_addZone(curBH, curBL, true, false)
+else if curNewSup and not f_tooClose(curBL, curBH)
+    f_addZone(curBH, curBL, false, false)
+if htfNewDem and not f_tooClose(htfBL, htfBH)
+    f_addZone(htfBH, htfBL, true, true)
+else if htfNewSup and not f_tooClose(htfBL, htfBH)
+    f_addZone(htfBH, htfBL, false, true)
+
+// --- On the last bar: PRUNE far zones, then extend + re-center labels ---------
+if barstate.islast and array.size(instBoxes) > 0
+    for i = array.size(instBoxes) - 1 to 0
+        zMid = (array.get(zoneHighs, i) + array.get(zoneLows, i)) / 2.0
+        if close > 0 and math.abs(close - zMid) / close * 100.0 > keepPct
+            box.delete(array.get(instBoxes, i))
+            box.delete(array.get(smBoxes, i))
+            array.remove(instBoxes, i)
+            array.remove(smBoxes, i)
+            array.remove(zoneHighs, i)
+            array.remove(zoneLows, i)
+            array.remove(zoneTypes, i)
+            if showLabels and array.size(zoneLabels) > i
+                label.delete(array.get(zoneLabels, i))
+                array.remove(zoneLabels, i)
+    if array.size(instBoxes) > 0
+        for i = 0 to array.size(instBoxes) - 1
+            _rb = bar_index + rightExt
+            box.set_right(array.get(instBoxes, i), _rb)
+            box.set_right(array.get(smBoxes,   i), _rb)
+            if showLabels and array.size(zoneLabels) > i
+                label.set_x(array.get(zoneLabels, i), int((box.get_left(array.get(instBoxes, i)) + _rb) / 2))
+
+// --- Highlight price interacting with a zone ---------------------------------
+inDemand = false
+inSupply = false
+if array.size(zoneHighs) > 0
+    for i = 0 to array.size(zoneHighs) - 1
+        if low <= array.get(zoneHighs, i) and high >= array.get(zoneLows, i)
+            if array.get(zoneTypes, i) == 1
+                inDemand := true
+            else
+                inSupply := true
+plotshape(inDemand and close > open, title = "Holding demand",  location = location.belowbar, color = color.new(color.green, 0), style = shape.triangleup,   size = size.tiny)
+plotshape(inSupply and close < open, title = "Rejecting supply", location = location.abovebar, color = color.new(color.red, 0),   style = shape.triangledown, size = size.tiny)

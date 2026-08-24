@@ -1,0 +1,265 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Day Trade Levels — the ONE intraday pine. VISUAL ONLY (no alerts).
+// ─────────────────────────────────────────────────────────────────────────────
+// Everything you trade against on a lower-TF chart, locked flat via
+// request.security so nothing moves when you flip 5m ↔ 15m ↔ 1h:
+//   • 1-hour OPENING RANGE  — ORH / ORL + the OR box, with the ORL/ORH RECLAIM
+//     arrow (the signal: undercut & reclaim the OR low = bounce; break & reclaim
+//     the OR high = retest). Load on an RTH chart so the OR anchors at 9:30.
+//   • PRIOR DAY  — PDH / PDL.
+//   • LAST 4h CANDLE — the most-recently CLOSED 4h high/low, rolling forward as
+//     each new 4h bar completes (never the whole day, only the last one).
+//   • DAILY EMAs — three configurable EMAs (default 5 / 10 / 20), pinned flat.
+// 4h H/L + EMAs are role-colored (green = support / price above · red = overhead).
+// Right-edge labels name each level + print its value.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Day Trade Levels · ORB + PDH/PDL + 4h H/L + Daily EMAs", "DT-Levels", overlay = true, max_lines_count = 200, max_labels_count = 500, max_boxes_count = 60)
+
+// ── Display toggles ──────────────────────────────────────────────────────────
+gV = "Display"
+showOR  = input.bool(true, "ORH / ORL lines + box", group = gV)
+showPD  = input.bool(true, "PDH / PDL / PDC lines", group = gV)
+show4h  = input.bool(true, "Last 4h candle H / L", group = gV)
+showEMA = input.bool(true, "Daily EMA lines", group = gV)
+showLbl = input.bool(true, "Right-edge value labels (OR / PD)", group = gV)
+
+// ── 1-hour opening range ─────────────────────────────────────────────────────
+gS = "Opening range (1-hour, locked to 1h bars)"
+orMin   = input.int(60,  "Opening-range minutes", minval = 60, maxval = 240, step = 60, group = gS)
+showBox = input.bool(true, "Draw the OR box (per session)", group = gS)
+
+// ── 4-hour range ─────────────────────────────────────────────────────────────
+g4 = "Last 4h candle"
+use_cur4 = input.bool(false, "Use the CURRENT (developing) 4h bar instead of the last closed", group = g4)
+
+// ── Daily EMAs — three configurable lengths, anchored to the daily ───────────
+gE = "Daily EMAs (flat)"
+emaTF = input.timeframe("D", "Anchor timeframe (D = daily · blank = chart)", group = gE)
+len1  = input.int(5,  "EMA 1 length", minval = 1, group = gE)
+len2  = input.int(20, "EMA 2 length", minval = 1, group = gE)
+len3  = input.int(50, "EMA 3 length", minval = 1, group = gE)
+
+// ── Colors / line style ──────────────────────────────────────────────────────
+gC = "Colors & line style"
+colORH  = input.color(color.new(color.teal, 0),  "ORH", group = gC, inline = "or")
+colORL  = input.color(color.new(#0E7490, 0),     "ORL", group = gC, inline = "or")
+colPDH  = input.color(color.new(color.red, 0),   "PDH", group = gC, inline = "pd")
+colPDL  = input.color(color.new(color.green, 0), "PDL", group = gC, inline = "pd")
+colPDC  = input.color(color.new(#FDD835, 0),     "PDC (prior close — pivot)", group = gC, inline = "pdc")
+colBox  = input.color(color.new(color.teal, 90), "OR box fill", group = gC)
+colSup  = input.color(#26A69A, "4h support (price above)", group = gC, inline = "role")
+colRes  = input.color(#EF5350, "4h resistance (price below)", group = gC, inline = "role")
+colE1   = input.color(#42A5F5, "EMA 1", group = gC, inline = "ema")
+colE2   = input.color(#AB47BC, "EMA 2", group = gC, inline = "ema")
+colE3   = input.color(#FFA726, "EMA 3", group = gC, inline = "ema")
+lineLen = input.int(60, "Flat line length (bars back) — 4h/EMA", minval = 10, maxval = 500, group = gC)
+tagOff  = input.int(4,  "Tag offset (bars past last bar) — 4h/EMA", minval = 1, maxval = 60, group = gC)
+wLvl    = input.int(2,  "Line thickness — ALL level lines (ORB / PD / 4h / EMA)", minval = 1, maxval = 6, group = gC)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FETCHES — every level locked to its source TF (lookahead_on + [1] = no repaint)
+// ══════════════════════════════════════════════════════════════════════════════
+[pdh, pdl, pdc] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+// last COMPLETED 4h candle (or the current developing one) — rolls forward each 4h close
+h4 = use_cur4 ? request.security(syminfo.tickerid, "240", high,    lookahead = barmerge.lookahead_off) : request.security(syminfo.tickerid, "240", high[1], lookahead = barmerge.lookahead_on)
+l4 = use_cur4 ? request.security(syminfo.tickerid, "240", low,     lookahead = barmerge.lookahead_off) : request.security(syminfo.tickerid, "240", low[1],  lookahead = barmerge.lookahead_on)
+
+// daily EMAs (yesterday's settled value via [1] — flat intraday), one bundled call
+ema1_raw = ta.ema(close, len1)
+ema2_raw = ta.ema(close, len2)
+ema3_raw = ta.ema(close, len3)
+ema1 = emaTF == "" ? ema1_raw : request.security(syminfo.tickerid, emaTF, ema1_raw, lookahead = barmerge.lookahead_on)
+ema2 = emaTF == "" ? ema2_raw : request.security(syminfo.tickerid, emaTF, ema2_raw, lookahead = barmerge.lookahead_on)
+ema3 = emaTF == "" ? ema3_raw : request.security(syminfo.tickerid, emaTF, ema3_raw, lookahead = barmerge.lookahead_on)
+
+// ── 1-hour opening range — first ceil(orMin/60) 1h bars of the RTH session ──
+f_or60() =>
+    var float _h = na
+    var float _l = na
+    var int   _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(orMin / 60.0))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[orh, orl] = request.security(syminfo.tickerid, "60", f_or60(), lookahead = barmerge.lookahead_on)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORB + PDH/PDL — true flat horizontals (fresh line per session so they don't
+// connect across days), with the OR box + right-edge value labels.
+// ══════════════════════════════════════════════════════════════════════════════
+nD = ta.change(time("D")) != 0
+
+f_flat(line ln, bool show, float y, color col, int w, bool newDay) =>
+    line _ln = ln
+    if show and not na(y)
+        if na(_ln) or newDay
+            _ln := line.new(bar_index, y, bar_index, y, color = col, width = w)
+        else
+            line.set_y1(_ln, y)
+            line.set_y2(_ln, y)
+            line.set_x2(_ln, bar_index)
+    _ln
+
+var line lnORH = na
+var line lnORL = na
+var line lnPDH = na
+var line lnPDL = na
+var line lnPDC = na
+lnORH := f_flat(lnORH, showOR, orh, colORH, wLvl, nD)
+lnORL := f_flat(lnORL, showOR, orl, colORL, wLvl, nD)
+lnPDH := f_flat(lnPDH, showPD, pdh, colPDH, wLvl, nD)
+lnPDL := f_flat(lnPDL, showPD, pdl, colPDL, wLvl, nD)
+lnPDC := f_flat(lnPDC, showPD, pdc, colPDC, wLvl, nD)
+
+// OR box — one per session, shaded between ORH/ORL across the RTH day
+barsPerDay = math.round(390 / math.max(1.0, timeframe.in_seconds() / 60.0))
+var box orBox = na
+if showBox and showOR and nD and not na(orh) and not na(orl)
+    orBox := box.new(bar_index, orh, bar_index + barsPerDay, orl, border_color = color.new(color.teal, 60), bgcolor = colBox)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// THE SIGNAL — a RECLAIM of the 1h OR low or high (sweep-&-reclaim, once/session).
+// ══════════════════════════════════════════════════════════════════════════════
+gA = "Reclaim signal (arrows)"
+en_orl_rc = input.bool(true, "ORL reclaim — undercut & reclaim the OR LOW (bounce)", group = gA)
+en_orh_rc = input.bool(true, "ORH reclaim — broke & reclaimed the OR HIGH (retest)", group = gA)
+showRc    = input.bool(true, "Show reclaim arrows", group = gA)
+
+f_reclaim(float level, bool en, bool arm_break) =>
+    var bool _armed = false
+    var bool _swept = false
+    var bool _fired = false
+    if ta.change(time("D")) != 0
+        _armed := false
+        _swept := false
+        _fired := false
+    bool _fire = false
+    if not na(level)
+        if (close > level) or (arm_break and high > level)
+            _armed := true
+        if _armed and low < level
+            _swept := true
+        _fire := en and _swept and close > level and not _fired
+        if _fire
+            _fired := true
+    _fire
+
+orl_rc = f_reclaim(orl, en_orl_rc, false)
+orh_rc = f_reclaim(orh, en_orh_rc, true)
+plotshape(showRc and orl_rc, "ORL reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORL, 0), size = size.small, text = "RC-L")
+plotshape(showRc and orh_rc, "ORH reclaim", style = shape.triangleup, location = location.belowbar, color = color.new(colORH, 0), size = size.small, text = "RC-H")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BREAKDOWN markers (▼) — the mirror of the reclaim arrows, fired ON THE CANDLE
+// where the event happens (same basis as the RC-L/RC-H reclaim). REJECTION = the
+// candle wicked UP into an overhead level (PDH / ORH / 4h-high) & closed back below
+// on a red bar (the bounce died); BREAK = the candle closed BELOW a support level
+// (PDL / ORL / 4h-low — the shelf gave way). Confirmed close, once per session per
+// level. On a 1h chart each candle IS an hour → clean + hourly; drop to 15m/5m and
+// the ▼ lands on the ACTUAL break/rejection candle (not an hour later).
+// ══════════════════════════════════════════════════════════════════════════════
+gB = "Breakdown markers (▼)"
+enBrk = input.bool(true, "Show ▼ rejection (overhead) + break (support)", group = gB)
+
+f_reject(float level) =>
+    var bool _f = false
+    if ta.change(time("D")) != 0
+        _f := false
+    bool _fire = barstate.isconfirmed and not na(level) and not _f and high >= level and close < level and close < open
+    if _fire
+        _f := true
+    _fire
+
+f_break(float level) =>
+    var bool _f = false
+    if ta.change(time("D")) != 0
+        _f := false
+    bool _fire = barstate.isconfirmed and not na(level) and not na(close[1]) and not _f and close < level and close[1] >= level
+    if _fire
+        _f := true
+    _fire
+
+rj_pdh = f_reject(pdh)
+rj_orh = f_reject(orh)
+rj_4hh = f_reject(h4)
+bk_pdl = f_break(pdl)
+bk_orl = f_break(orl)
+bk_4hl = f_break(l4)
+plotshape(enBrk and rj_pdh, "PDH rejection", style = shape.triangledown, location = location.abovebar, color = colRes, size = size.tiny, text = "RJ-PDH")
+plotshape(enBrk and rj_orh, "ORH rejection", style = shape.triangledown, location = location.abovebar, color = colRes, size = size.tiny, text = "RJ-ORH")
+plotshape(enBrk and rj_4hh, "4h-high rejection", style = shape.triangledown, location = location.abovebar, color = colRes, size = size.tiny, text = "RJ-4H")
+plotshape(enBrk and bk_pdl, "PDL break", style = shape.triangledown, location = location.belowbar, color = colRes, size = size.tiny, text = "BRK-PDL")
+plotshape(enBrk and bk_orl, "ORL break", style = shape.triangledown, location = location.belowbar, color = colRes, size = size.tiny, text = "BRK-ORL")
+plotshape(enBrk and bk_4hl, "4h-low break", style = shape.triangledown, location = location.belowbar, color = colRes, size = size.tiny, text = "BRK-4H")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LIQUIDITY-GRAB arrows — a candle WICKED THROUGH a level but CLOSED BACK on the
+// origin side = the level swept the stops resting past it and rejected price. Fires
+// on the CONFIRMED close (on a 15m chart = a 15m grab), at ANY level (PDH/PDL/ORH/
+// ORL/4h-H/4h-L), both directions, EVERY time it happens (not once/session). No tag,
+// just the arrow. ▼ = grab ABOVE (wick over the level, closed below → bearish sweep);
+// ▲ = grab BELOW (wick under the level, closed above → bullish sweep). EVERY tracked
+// level counts — PDH/PDL, ORH/ORL, 4h-H/4h-L, AND the 5/20/50 EMAs.
+// ══════════════════════════════════════════════════════════════════════════════
+gL = "Liquidity-grab arrows"
+enLiq  = input.bool(true, "Draw ▲/▼ liquidity grabs (wick through a level, close back)", group = gL)
+colLqU = input.color(color.new(#26A69A, 0), "Grab BELOW — bullish ▲", group = gL, inline = "lq")
+colLqD = input.color(color.new(#EF5350, 0), "Grab ABOVE — bearish ▼", group = gL, inline = "lq")
+
+grab_above(float L) => not na(L) and high > L and close < L
+grab_below(float L) => not na(L) and low  < L and close > L
+
+liq_up = enLiq and barstate.isconfirmed and (grab_below(pdh) or grab_below(pdl) or grab_below(pdc) or grab_below(orh) or grab_below(orl) or grab_below(h4) or grab_below(l4) or grab_below(ema1) or grab_below(ema2) or grab_below(ema3))
+liq_dn = enLiq and barstate.isconfirmed and (grab_above(pdh) or grab_above(pdl) or grab_above(pdc) or grab_above(orh) or grab_above(orl) or grab_above(h4) or grab_above(l4) or grab_above(ema1) or grab_above(ema2) or grab_above(ema3))
+plotshape(liq_dn, "Liquidity grab above", style = shape.arrowdown, location = location.abovebar, color = colLqD, size = size.tiny)
+plotshape(liq_up, "Liquidity grab below", style = shape.arrowup,   location = location.belowbar, color = colLqU, size = size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 4h H/L + Daily EMAs — flat role-colored lines, redrawn on the last bar, tags at
+// the right end (green = price above/support · red = price below/resistance).
+// EMA 1 solid · EMA 2 dashed · EMA 3 dotted, each its OWN fixed color, and each
+// tag STEPPED further right (loff) so labels never overlap when the levels cluster.
+// 4h H/L stay role-colored (green above / red below); EMAs use their fixed color.
+// ══════════════════════════════════════════════════════════════════════════════
+var line[]  fLines = array.new_line()
+var label[] fLbls  = array.new_label()
+f_flat2(float lvl, string nm, int styl, bool use, bool roleCol, color fixed, int loff) =>
+    if use and not na(lvl)
+        col = roleCol ? (close > lvl ? colSup : colRes) : fixed
+        lst = styl == 2 ? line.style_dotted : styl == 1 ? line.style_dashed : line.style_solid
+        array.push(fLines, line.new(bar_index - lineLen, lvl, bar_index + tagOff, lvl, color = col, width = wLvl, style = lst))
+        array.push(fLbls, label.new(bar_index + tagOff + loff, lvl, nm + "  " + str.tostring(lvl, format.mintick), style = label.style_label_left, color = color.new(col, 80), textcolor = col, size = size.small))
+
+emaPfx = emaTF == "" ? "" : emaTF + " "
+if barstate.islast
+    for l in fLines
+        line.delete(l)
+    for lb in fLbls
+        label.delete(lb)
+    array.clear(fLines)
+    array.clear(fLbls)
+    f_flat2(h4, "4H-H", 0, show4h, true, colSup, 0)
+    f_flat2(l4, "4H-L", 0, show4h, true, colSup, 0)
+    f_flat2(ema1, emaPfx + str.tostring(len1) + " EMA", 0, showEMA, false, colE1, 0)
+    f_flat2(ema2, emaPfx + str.tostring(len2) + " EMA", 1, showEMA, false, colE2, 2)
+    f_flat2(ema3, emaPfx + str.tostring(len3) + " EMA", 0, showEMA, false, colE3, 4)
+
+// ── Right-edge value labels for the OR / PD levels (moved to the last bar) ─────
+f_lbl(bool cond, float y, string txt, color col) =>
+    var label _lb = na
+    label.delete(_lb)
+    _lb := cond and not na(y) ? label.new(bar_index, y, txt + " " + str.tostring(y, format.mintick), style = label.style_label_left, color = color.new(col, 85), textcolor = col, size = size.small) : na
+    _lb
+f_lbl(showLbl and showOR, orh, "ORH", colORH)
+f_lbl(showLbl and showOR, orl, "ORL", colORL)
+f_lbl(showLbl and showPD, pdh, "PDH", colPDH)
+f_lbl(showLbl and showPD, pdl, "PDL", colPDL)
+f_lbl(showLbl and showPD, pdc, "PDC", colPDC)
