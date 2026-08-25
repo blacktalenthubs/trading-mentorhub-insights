@@ -23,10 +23,11 @@
 // which one ("⟲ 8 SMA · 20 EMA" when it takes several at once). Confirmed bars only — it never
 // paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
 //
-// HUD (top center): daily RSI (overbought / oversold at a glance) + WHERE THE DAY OPENED relative to
-// the whole MA stack. NAMES ONLY, no prices — the prices are already on the lines, and the point of
-// this row is the one thing worth remembering: what is OVERHEAD. "Open between 20 SMA and 50 SMA"
-// tells you the 50 SMA is the ceiling to respect and not get carried away above. Boxed by two MAs —
+// HUD (top center): daily RSI ONLY — one line, overbought / oversold at a glance.
+//
+// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD: "Open 106.86 · between
+// 20 SMA and 50 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
+// Boxed by two MAs —
 // that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
 // means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
 // (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
@@ -151,7 +152,7 @@ f_collect(float v, string nm) =>
         array.push(_maN, nm)
 
 _hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
-var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
+var table _hudT = table.new(_hudPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
 
 if barstate.islast
     for _l in _ln
@@ -267,16 +268,10 @@ if barstate.islast
     if enHud
         _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
         _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
-        // boxed by two MAs = that pair IS the day's range. Outside the stack = no MA in the way,
-        // so the range has to come from the structural levels instead.
-        _oTxt = na(dayOpen) ? "Open —" : _boxed ? "Open between " + _oDnN + " and " + _oUpN : _hasDn ? "Open above all MAs · " + _lvlTxt : _hasUp ? "Open below all MAs · " + _lvlTxt : "Open — no MAs enabled"
-        _oCol = _boxed ? color.new(color.gray, 10) : _hasDn ? color.new(#0E7490, 0) : color.new(#7C2D12, 0)
         table.set_position(_hudT, _hudPosC)
         table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = size.normal)
-        table.cell(_hudT, 0, 1, _oTxt, bgcolor = _oCol, text_color = color.white, text_size = size.small)
     else
         table.cell(_hudT, 0, 0, "")
-        table.cell(_hudT, 0, 1, "")
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
