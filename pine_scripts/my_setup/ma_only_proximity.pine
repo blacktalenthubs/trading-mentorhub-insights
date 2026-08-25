@@ -19,8 +19,12 @@
 // same idiom as active/ma_ema_daily.pine. That's yesterday's closed daily MA, which is what a flat
 // structural line should be; lookahead_off reads the developing value and shifts intrabar.
 //
+// RECLAIM MARKER: a small ⟲ tag under the bar that CLOSES back above a MA it was beneath, naming
+// which one ("⟲ 8 SMA · 20 EMA" when it takes several at once). Confirmed bars only — it never
+// paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
+//
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 30, max_labels_count = 30)
+indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 30, max_labels_count = 500)
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
@@ -42,6 +46,15 @@ nBracket  = input.int(3, "Show this many NEAREST MAs above & below price", group
 alwaysShort = input.bool(true, "Always show 8 / 20 / 50 SMA (ignore the bracket)", group = gN, tooltip = "ON (default) = the three short SMAs draw at any distance — they're the entry references you never want hidden. The 100/200 SMA·EMA stay bracket-gated so they can't compress the axis.")
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
+
+// ── reclaim marker ──────────────────────────────────────────────────────────────
+gR      = "Reclaim marker"
+enRc    = input.bool(true,  "Mark the bar that CLOSES back ABOVE a MA (reclaim)", group = gR, tooltip = "A small ⟲ tag under the bar, naming every MA reclaimed on that close. This is the trigger side — price taking back a level it was trading under.")
+enLost  = input.bool(false, "Also mark the bar that CLOSES back BELOW a MA (lost)", group = gR, tooltip = "The mirror: a ▽ tag above the bar when price loses a MA it was holding. That's the exit side. OFF by default so the chart only shows reclaims.")
+rcConf  = input.bool(true,  "Confirmed bars only (never paint on the live bar)", group = gR, tooltip = "ON = the tag appears only once the bar CLOSES, so it can't appear mid-bar and then disappear. OFF = marks intrabar the moment price crosses (repaints).")
+rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
+rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
+rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
 
 // ── style ───────────────────────────────────────────────────────────────────────
 gV        = "Style"
@@ -153,3 +166,54 @@ if barstate.islast
                     break
             f_draw((_lo + _hi) / 2.0, _nm)
             _i := _j
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
+// Every ta.crossover/crossunder is evaluated on EVERY bar at global scope (they're stateful —
+// calling them conditionally makes them miss crosses), then the names are assembled for the tag.
+// ═══════════════════════════════════════════════════════════════════════════════
+_up8    = ta.crossover(close, sma8v)
+_up20   = ta.crossover(close, sma20v)
+_up50   = ta.crossover(close, sma50v)
+_up100  = ta.crossover(close, sma100v)
+_up200  = ta.crossover(close, sma200v)
+_up20e  = ta.crossover(close, ema20v)
+_up50e  = ta.crossover(close, ema50v)
+_up100e = ta.crossover(close, ema100v)
+_up200e = ta.crossover(close, ema200v)
+_dn8    = ta.crossunder(close, sma8v)
+_dn20   = ta.crossunder(close, sma20v)
+_dn50   = ta.crossunder(close, sma50v)
+_dn100  = ta.crossunder(close, sma100v)
+_dn200  = ta.crossunder(close, sma200v)
+_dn20e  = ta.crossunder(close, ema20v)
+_dn50e  = ta.crossunder(close, ema50v)
+_dn100e = ta.crossunder(close, ema100v)
+_dn200e = ta.crossunder(close, ema200v)
+f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
+_rcTxt = ""
+_rcTxt := f_join(_rcTxt, _up8,    "8 SMA")
+_rcTxt := f_join(_rcTxt, _up20,   "20 SMA")
+_rcTxt := f_join(_rcTxt, _up20e,  "20 EMA")
+_rcTxt := f_join(_rcTxt, _up50,   "50 SMA")
+_rcTxt := f_join(_rcTxt, _up50e,  "50 EMA")
+_rcTxt := f_join(_rcTxt, _up100,  "100 SMA")
+_rcTxt := f_join(_rcTxt, _up100e, "100 EMA")
+_rcTxt := f_join(_rcTxt, _up200,  "200 SMA")
+_rcTxt := f_join(_rcTxt, _up200e, "200 EMA")
+_lsTxt = ""
+_lsTxt := f_join(_lsTxt, _dn8,    "8 SMA")
+_lsTxt := f_join(_lsTxt, _dn20,   "20 SMA")
+_lsTxt := f_join(_lsTxt, _dn20e,  "20 EMA")
+_lsTxt := f_join(_lsTxt, _dn50,   "50 SMA")
+_lsTxt := f_join(_lsTxt, _dn50e,  "50 EMA")
+_lsTxt := f_join(_lsTxt, _dn100,  "100 SMA")
+_lsTxt := f_join(_lsTxt, _dn100e, "100 EMA")
+_lsTxt := f_join(_lsTxt, _dn200,  "200 SMA")
+_lsTxt := f_join(_lsTxt, _dn200e, "200 EMA")
+_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
+_rcOk  = not rcConf or barstate.isconfirmed
+if enRc and _rcOk and str.length(_rcTxt) > 0
+    label.new(bar_index, low, "⟲ " + _rcTxt, yloc = yloc.belowbar, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
+if enLost and _rcOk and str.length(_lsTxt) > 0
+    label.new(bar_index, high, "▽ " + _lsTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
