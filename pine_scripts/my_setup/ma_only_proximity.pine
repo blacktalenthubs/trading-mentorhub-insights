@@ -9,12 +9,10 @@
 // themselves through resistance and give the gains back — this makes that harder to do.
 // Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
 //
-// Two show-rules:
-//   1. The SHORT MAs (8 / 20 / 50 SMA) ALWAYS draw — they're the core entry references (8 SMA
-//      reclaim, 50 SMA support), so they bypass the proximity bracket entirely.
-//   2. Everything else draws only inside the nearest-N bracket: the N closest MAs ABOVE price and
-//      N closest BELOW (default 3 each). A far 200 EMA stays hidden until price approaches, so it
-//      can never stretch the axis.
+// ONE show-rule, no exemptions: a MA draws only inside the nearest-N bracket — the N closest MAs
+// ABOVE price and the N closest BELOW (default 3 each). A far 200 EMA stays hidden until price
+// approaches, so it can never stretch the axis. N means N: nothing bypasses the count and eats a
+// slot, so "3" always puts three lines on each side of price.
 // MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
 //
 // NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
@@ -60,7 +58,6 @@ mergePct = input.float(0.20, "Merge MAs within (%) into one line", group = gMA, 
 // ── proximity ───────────────────────────────────────────────────────────────────
 gN        = "Proximity"
 nBracket  = input.int(3, "Show this many NEAREST MAs above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Always draw the N closest MAs ABOVE price and the N closest BELOW — a count, not a %, so every symbol shows the same-size near-price set.")
-alwaysShort = input.bool(true, "Always show 8 / 20 / 50 SMA (ignore the bracket)", group = gN, tooltip = "ON (default) = the three short SMAs draw at any distance — they're the entry references you never want hidden. The 100/200 SMA·EMA stay bracket-gated so they can't compress the axis.")
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
 
@@ -145,12 +142,11 @@ f_xoff(float price) =>
                 _cnt := _cnt + 1
     array.push(_drawnY, price)
     labelX + math.min(_cnt, 6) * lblStep
-// the SHORT MAs (8/20/50 SMA) bypass the bracket; the long ones stay gated so they can't compress the axis
+// ONE rule, no exemptions: a MA draws when it's inside the nearest-N bracket. N means N.
 f_draw(float v, string nm) =>
-    _core = alwaysShort and (str.contains(nm, "8 SMA") or str.contains(nm, "20 SMA") or str.contains(nm, "50 SMA"))
     _inBr = v <= _brkHi and v >= _brkLo
     _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
-    if not na(v) and v > 0 and (showAll or _core or (_inBr and _cap))
+    if not na(v) and v > 0 and (showAll or (_inBr and _cap))
         col = close > v ? supCol : resCol
         _xo = f_xoff(v)
         array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
