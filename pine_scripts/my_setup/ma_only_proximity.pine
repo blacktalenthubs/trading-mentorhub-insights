@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY MAs · FLAT — 8/20/50/100/200 SMA + 20/50/100/200 EMA as flat levels. NO structural levels.
+// PROXIMITY MAs · FLAT — 8/20/50/100/200 SMA + 5/20/50/100/200 EMA as flat levels. NO structural levels.
 // =============================================================================
 // The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
 // as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
@@ -53,6 +53,7 @@ en20   = input.bool(true, "20 SMA",  inline = "ma1", group = gMA)
 en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
 en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
 en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
+en5e   = input.bool(true, "5 EMA",   inline = "ma3", group = gMA)
 en20e  = input.bool(true, "20 EMA",  inline = "ma3", group = gMA)
 en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
 en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
@@ -111,6 +112,7 @@ sma20v  = en20   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 20)[1]
 sma50v  = en50   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 sma100v = en100  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on) : na
 sma200v = en200  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+ema5v   = en5e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on) : na
 ema20v  = en20e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 20)[1],  lookahead = barmerge.lookahead_on) : na
 ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 ema100v = en100e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on) : na
@@ -210,6 +212,7 @@ if barstate.islast
     f_collect(sma50v,  "50 SMA")
     f_collect(sma100v, "100 SMA")
     f_collect(sma200v, "200 SMA")
+    f_collect(ema5v,   "5 EMA")
     f_collect(ema20v,  "20 EMA")
     f_collect(ema50v,  "50 EMA")
     f_collect(ema100v, "100 EMA")
@@ -326,6 +329,7 @@ _up20   = ta.crossover(close, sma20v)
 _up50   = ta.crossover(close, sma50v)
 _up100  = ta.crossover(close, sma100v)
 _up200  = ta.crossover(close, sma200v)
+_up5e   = ta.crossover(close, ema5v)
 _up20e  = ta.crossover(close, ema20v)
 _up50e  = ta.crossover(close, ema50v)
 _up100e = ta.crossover(close, ema100v)
@@ -335,12 +339,14 @@ _dn20   = ta.crossunder(close, sma20v)
 _dn50   = ta.crossunder(close, sma50v)
 _dn100  = ta.crossunder(close, sma100v)
 _dn200  = ta.crossunder(close, sma200v)
+_dn5e   = ta.crossunder(close, ema5v)
 _dn20e  = ta.crossunder(close, ema20v)
 _dn50e  = ta.crossunder(close, ema50v)
 _dn100e = ta.crossunder(close, ema100v)
 _dn200e = ta.crossunder(close, ema200v)
 f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
 _rcTxt = ""
+_rcTxt := f_join(_rcTxt, _up5e,   "5 EMA")
 _rcTxt := f_join(_rcTxt, _up8,    "8 SMA")
 _rcTxt := f_join(_rcTxt, _up20,   "20 SMA")
 _rcTxt := f_join(_rcTxt, _up20e,  "20 EMA")
@@ -351,6 +357,7 @@ _rcTxt := f_join(_rcTxt, _up100e, "100 EMA")
 _rcTxt := f_join(_rcTxt, _up200,  "200 SMA")
 _rcTxt := f_join(_rcTxt, _up200e, "200 EMA")
 _lsTxt = ""
+_lsTxt := f_join(_lsTxt, _dn5e,   "5 EMA")
 _lsTxt := f_join(_lsTxt, _dn8,    "8 SMA")
 _lsTxt := f_join(_lsTxt, _dn20,   "20 SMA")
 _lsTxt := f_join(_lsTxt, _dn20e,  "20 EMA")
