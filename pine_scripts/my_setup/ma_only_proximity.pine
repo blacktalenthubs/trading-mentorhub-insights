@@ -4,7 +4,8 @@
 // =============================================================================
 // The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
 // as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
-// price is NOW: green ▲ = SUPPORT (price above it), red ▼ = RESISTANCE (price below it).
+// price is NOW: every tag spells it out — "20 SMA ▲ SUPPORT 213.47" (green, price above it) or
+// "20 SMA ▼ RESISTANCE 213.47" (red, price below it). No arrow-decoding.
 // Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
 //
 // Two show-rules:
@@ -147,7 +148,7 @@ f_draw(float v, string nm) =>
         col = close > v ? supCol : resCol
         _xo = f_xoff(v)
         array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
-        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ " : "  ▼ ") + str.tostring(v, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ SUPPORT " : "  ▼ RESISTANCE ") + str.tostring(v, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
         array.push(_maV, v)
@@ -254,12 +255,12 @@ if barstate.islast
             _dxo = f_xoff(_lDn)
             _dc  = close > _lDn ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + _dxo, _lDn, color = _dc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ " : "  ▼ ") + str.tostring(_lDn, format.mintick), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
+            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT " : "  ▼ RESISTANCE ") + str.tostring(_lDn, format.mintick), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
         if _lHasUp
             _uxo = f_xoff(_lUp)
             _uc  = close > _lUp ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + _uxo, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ " : "  ▼ ") + str.tostring(_lUp, format.mintick), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
+            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT " : "  ▼ RESISTANCE ") + str.tostring(_lUp, format.mintick), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
