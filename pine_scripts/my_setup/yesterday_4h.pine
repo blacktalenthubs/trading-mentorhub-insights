@@ -28,13 +28,16 @@ lvlMergePct = input.float(0.10, "Collapse 4h levels within (%) — merge near-eq
 gSma  = "Auto MAs (flat levels)"
 enSma = input.bool(true, "Show MAs as flat levels", group = gSma, tooltip = "Each MA is drawn as a FLAT horizontal line at its CURRENT value (green = below price / support, red = above price / resistance) — a level to react to, not a sloping plot. Proximity-gated + merged so the chart stays clean.")
 smaTf = input.timeframe("D", "MA timeframe", group = gSma, tooltip = "Which timeframe's MAs to plot (default Daily = the structural 8/20/50/100/200-day MAs). Set to blank for the chart's own timeframe.")
-smaNearPct = input.float(2.5, "Only show when price within (%)", minval = 0.25, maxval = 25, step = 0.25, group = gSma, tooltip = "An MA only draws when price is within this % of it — a far-away 200-MA stays hidden so it can't stretch/compress the chart. It reappears as price approaches. Raise to see more, lower to keep the axis tight.") / 100.0
+maUp  = input.int(2, "How many MAs to show ABOVE price", minval = 0, maxval = 8, group = gSma, tooltip = "The N nearest MAs above current price. A count, not a %, so every symbol shows the same-size set — 5% is $50 on a $1000 stock and $1.50 on a $30 one. 0 = none above.")
+maDn  = input.int(2, "How many MAs to show BELOW price", minval = 0, maxval = 8, group = gSma, tooltip = "The N nearest MAs below current price. The 4h H/L lines are NEVER affected by this — they always draw.")
+maCapPct = input.float(0, "  Optional cap — hide anything farther than ± % (0 = off)", minval = 0, maxval = 30, step = 0.5, group = gSma) / 100.0
 maMergePct = input.float(0.20, "Merge MAs within (%)", minval = 0.0, maxval = 2, step = 0.05, group = gSma, tooltip = "MAs sitting within this % of each other collapse into ONE line that NAMES all of them (e.g. '50 SMA · 200 EMA') — fewer lines, no lost identities. An MA that lines up with a yesterday-4h level is folded into that level's label instead of drawing a duplicate. 0 = draw every MA separately.") / 100.0
 en8    = input.bool(true, "8 SMA",   inline = "s1", group = gSma)
 en20   = input.bool(true, "20 SMA",  inline = "s1", group = gSma)
 en50   = input.bool(true, "50 SMA",  inline = "s2", group = gSma)
 en100  = input.bool(true, "100 SMA", inline = "s2", group = gSma)
 en200  = input.bool(true, "200 SMA", inline = "s2", group = gSma)
+en5e   = input.bool(true, "5 EMA",   inline = "s3", group = gSma)
 en50e  = input.bool(true, "50 EMA",  inline = "s3", group = gSma)
 en100e = input.bool(true, "100 EMA", inline = "s3", group = gSma)
 en200e = input.bool(true, "200 EMA", inline = "s3", group = gSma)
@@ -59,6 +62,7 @@ sma20v  = enSma and en20  ? request.security(rthTid, smaTf, ta.sma(close, 20),  
 sma50v  = enSma and en50  ? request.security(rthTid, smaTf, ta.sma(close, 50),  lookahead = barmerge.lookahead_off) : na
 sma100v = enSma and en100 ? request.security(rthTid, smaTf, ta.sma(close, 100), lookahead = barmerge.lookahead_off) : na
 sma200v = enSma and en200 ? request.security(rthTid, smaTf, ta.sma(close, 200), lookahead = barmerge.lookahead_off) : na
+ema5v   = enSma and en5e   ? request.security(rthTid, smaTf, ta.ema(close, 5),   lookahead = barmerge.lookahead_off) : na
 ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50),  lookahead = barmerge.lookahead_off) : na
 ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
 ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200), lookahead = barmerge.lookahead_off) : na
@@ -71,6 +75,7 @@ f_maTag(float v) =>
         s := (not na(sma50v)  and math.abs(v - sma50v)  / v <= confPct) ? s + " · 50SMA"  : s
         s := (not na(sma100v) and math.abs(v - sma100v) / v <= confPct) ? s + " · 100SMA" : s
         s := (not na(sma200v) and math.abs(v - sma200v) / v <= confPct) ? s + " · 200SMA" : s
+        s := (not na(ema5v)   and math.abs(v - ema5v)   / v <= confPct) ? s + " · 5EMA"   : s
         s := (not na(ema50v)  and math.abs(v - ema50v)  / v <= confPct) ? s + " · 50EMA"  : s
         s := (not na(ema100v) and math.abs(v - ema100v) / v <= confPct) ? s + " · 100EMA" : s
         s := (not na(ema200v) and math.abs(v - ema200v) / v <= confPct) ? s + " · 200EMA" : s
@@ -131,10 +136,12 @@ f_draw(float v, string nm) =>
     if showLbl
         array.push(_lb, label.new(bar_index + _xo, v, nm + _tag + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
 
-// one SMA as a FLAT role-colored level — subtle dotted so it sits UNDER the 4h H/L, never crowding them.
-// PROXIMITY-GATED: only drawn when price is within smaNearPct, so a far SMA can't stretch the axis.
+// one MA as a FLAT role-colored level — subtle dotted so it sits UNDER the 4h H/L, never crowding them.
+// The nearest-N gate lives in f_addMa (collection); by here the cluster has already earned its place.
+var float _maHi = 1.0e18   // Nth-nearest MA ABOVE price — bracket top
+var float _maLo = -1.0     // Nth-nearest MA BELOW price — bracket bottom
 f_sma(float v, string nm) =>
-    if not na(v) and v > 0 and math.abs(close - v) / close <= smaNearPct
+    if not na(v) and v > 0
         _c  = close > v ? colLo : colHi
         _xo = f_xoff(v)
         array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = color.new(_c, 30), width = 1, style = line.style_dotted))
@@ -147,7 +154,7 @@ var float[]  _maV     = array.new_float()   // MA values collected for the merge
 var string[] _maN     = array.new_string()  // parallel MA names
 // queue an MA for merging — only if in-proximity AND not already sitting on a 4h level (that one's folded via f_maTag)
 f_addMa(float v, string nm) =>
-    if not na(v) and v > 0 and math.abs(close - v) / close <= smaNearPct
+    if not na(v) and v > 0 and v <= _maHi and v >= _maLo and (maCapPct <= 0 or math.abs(close - v) / close <= maCapPct)
         _onAnchor = false
         if array.size(_anchors) > 0
             for _ai = 0 to array.size(_anchors) - 1
@@ -236,6 +243,23 @@ if barstate.islast
 
     // ── auto MAs — proximity-gated, then MERGED so stacked MAs become ONE line naming all of them ──
     if enSma
+        // ── nearest-N bracket: the maUp closest MAs above price and maDn closest below.
+        //    The 4h H/L lines above are NOT gated by this — they always draw.
+        _mAb = array.new_float()
+        _mBl = array.new_float()
+        _mAll = array.from(ema5v, sma8v, sma20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+        for _mi = 0 to array.size(_mAll) - 1
+            _mv = array.get(_mAll, _mi)
+            if not na(_mv) and _mv > 0
+                if _mv > close
+                    array.push(_mAb, _mv)
+                else if _mv < close
+                    array.push(_mBl, _mv)
+        array.sort(_mAb, order.ascending)
+        array.sort(_mBl, order.descending)
+        _maHi := maUp <= 0 or array.size(_mAb) == 0 ? (maUp <= 0 ? -1.0 : 1.0e18) : array.get(_mAb, math.min(maUp, array.size(_mAb)) - 1)
+        _maLo := maDn <= 0 or array.size(_mBl) == 0 ? (maDn <= 0 ? 1.0e18 : -1.0) : array.get(_mBl, math.min(maDn, array.size(_mBl)) - 1)
+        f_addMa(ema5v,   "5 EMA")
         f_addMa(sma8v,   "8 SMA")
         f_addMa(sma20v,  "20 SMA")
         f_addMa(sma50v,  "50 SMA")
@@ -378,3 +402,66 @@ if enAl and isBu
     alert(fh_pay("fourh_breakup", "BUY",   close, low,  buNm, "4H break-up thru "   + buNm + " " + str.tostring(buLvl, format.mintick) + " · " + f_ctx(buNm, "bu") + " · invalid on a 15m close below " + str.tostring(buLvl, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and isBd
     alert(fh_pay("fourh_breakdn", "SHORT", close, high, bdNm, "4H break-down thru " + bdNm + " " + str.tostring(bdLvl, format.mintick) + " · " + f_ctx(bdNm, "bd") + " · invalid on a 15m close above " + str.tostring(bdLvl, format.mintick)), alert.freq_once_per_bar_close)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TREND / CHOP READ — the whole point of trading off yesterday's four 4h levels: are we
+// MAINTAINING a move through them, or ping-ponging between them? Position answers the first
+// question, crossing-count answers the second.
+//   price above all four  -> TREND UP     (yesterday's whole 4h range is support underneath)
+//   price below all four  -> TREND DOWN   (the entire range is overhead supply)
+//   price inside them     -> RANGE, naming the two that bracket it (upper first)
+//   many crossings today  -> CHOP         (the levels are being cut, not respected)
+// Reads only — changes nothing about the alerts above.
+// ═════════════════════════════════════════════════════════════════════════════
+gT       = "Trend / chop read"
+enTrend  = input.bool(true, "Show the trend / chop state", group = gT)
+trendPos = input.string("top_right", "Position", options = ["top_right", "top_center", "top_left", "bottom_right", "bottom_center"], group = gT)
+chopN    = input.int(4, "Crossings today that mean CHOP", minval = 2, maxval = 20, group = gT, tooltip = "Each time a 15m close cuts through one of the four 4h levels it counts as one crossing. A trend day cuts a level once and holds; a chop day saws the same levels repeatedly. Reaching this many crossings in a session flags CHOP.")
+
+// crossings of ANY of the four levels, reset each session
+var int _xCnt = 0
+if newBlock
+    _xCnt := 0
+if barstate.isconfirmed
+    _x1 = bu_thru(yh1, yh1[1]) or bd_thru(yh1, yh1[1]) ? 1 : 0
+    _x2 = bu_thru(yl1, yl1[1]) or bd_thru(yl1, yl1[1]) ? 1 : 0
+    _x3 = bu_thru(yh2, yh2[1]) or bd_thru(yh2, yh2[1]) ? 1 : 0
+    _x4 = bu_thru(yl2, yl2[1]) or bd_thru(yl2, yl2[1]) ? 1 : 0
+    _xCnt := _xCnt + _x1 + _x2 + _x3 + _x4
+
+_trPosC = trendPos == "top_center" ? position.top_center : trendPos == "top_left" ? position.top_left : trendPos == "bottom_right" ? position.bottom_right : trendPos == "bottom_center" ? position.bottom_center : position.top_right
+var table _trT = table.new(_trPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+if barstate.islast
+    table.set_position(_trT, _trPosC)
+    if enTrend
+        _tv = array.from(yh1,      yl1,      yh2,      yl2)
+        _tn = array.from("4H-1 H", "4H-1 L", "4H-2 H", "4H-2 L")
+        _nAb = 0
+        _nBl = 0
+        _nOk = 0
+        _tUp = 1.0e18
+        _tDn = -1.0
+        _tUpN = ""
+        _tDnN = ""
+        for _ti = 0 to array.size(_tv) - 1
+            _tvv = array.get(_tv, _ti)
+            if not na(_tvv) and _tvv > 0
+                _nOk := _nOk + 1
+                if _tvv > close
+                    _nAb := _nAb + 1
+                    if _tvv < _tUp
+                        _tUp  := _tvv
+                        _tUpN := array.get(_tn, _ti)
+                else
+                    _nBl := _nBl + 1
+                    if _tvv > _tDn
+                        _tDn  := _tvv
+                        _tDnN := array.get(_tn, _ti)
+        _isChop = _xCnt >= chopN
+        _base = _nOk == 0 ? "4H — no data" : _nBl == _nOk ? "TREND UP · above all four 4H levels" : _nAb == _nOk ? "TREND DOWN · below all four 4H levels" : "RANGE · BTW " + (_tUpN == "" ? "—" : _tUpN) + " and " + (_tDnN == "" ? "—" : _tDnN)
+        _txt = (_isChop ? "CHOP · " : "") + _base + "  ·  " + str.tostring(_xCnt) + (_xCnt == 1 ? " crossing" : " crossings")
+        _col = _nOk == 0 ? color.new(color.gray, 20) : _isChop ? color.new(color.orange, 10) : _nBl == _nOk ? color.new(color.green, 10) : _nAb == _nOk ? color.new(color.red, 10) : color.new(color.gray, 10)
+        table.cell(_trT, 0, 0, _txt, bgcolor = _col, text_color = color.white, text_size = size.normal)
+    else
+        table.cell(_trT, 0, 0, "")
+
