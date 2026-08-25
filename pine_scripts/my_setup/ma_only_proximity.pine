@@ -23,6 +23,12 @@
 // which one ("⟲ 8 SMA · 20 EMA" when it takes several at once). Confirmed bars only — it never
 // paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
 //
+// HUD (top center): daily RSI (overbought / oversold at a glance) + WHERE THE DAY OPENED relative to
+// the whole MA stack. "Open 305.20 · between 20 SMA ↔ 20 EMA" means the session is boxed by two MAs —
+// that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
+// means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
+// (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
+//
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
 indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 30, max_labels_count = 500)
 
@@ -56,6 +62,16 @@ rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
 rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
 
+// ── daily RSI + open HUD ────────────────────────────────────────────────────────
+gH      = "Daily RSI + open (HUD)"
+enHud   = input.bool(true, "Show the HUD", group = gH, tooltip = "Two lines: today's DAILY RSI (locked to daily on any chart TF) and where the session OPENED inside the MA stack.")
+hudPos  = input.string("top_center", "HUD position", options = ["top_center", "top_right", "top_left", "bottom_center", "bottom_right"], group = gH)
+rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
+rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
+rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
+enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
+openCol  = input.color(color.new(#EAB308, 55), "Open line", group = gH)
+
 // ── style ───────────────────────────────────────────────────────────────────────
 gV        = "Style"
 supCol    = input.color(#26A69A, "Support (price above)",    group = gV)
@@ -80,6 +96,11 @@ ema20v  = en20e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 20)[1]
 ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 ema100v = en100e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on) : na
 ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+
+// ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
+rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln = array.new_line()
@@ -111,6 +132,9 @@ f_collect(float v, string nm) =>
     if not na(v) and v > 0
         array.push(_maV, v)
         array.push(_maN, nm)
+
+_hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
+var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
 
 if barstate.islast
     for _l in _ln
@@ -166,6 +190,41 @@ if barstate.islast
                     break
             f_draw((_lo + _hi) / 2.0, _nm)
             _i := _j
+    // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
+    _oUp  = 1.0e18
+    _oDn  = -1.0
+    _oUpN = ""
+    _oDnN = ""
+    if not na(dayOpen) and array.size(_maV) > 0
+        for _k = 0 to array.size(_maV) - 1
+            _v = array.get(_maV, _k)
+            if _v > dayOpen and _v < _oUp
+                _oUp  := _v
+                _oUpN := array.get(_maN, _k)
+            if _v < dayOpen and _v > _oDn
+                _oDn  := _v
+                _oDnN := array.get(_maN, _k)
+    _hasUp = _oUp < 1.0e17
+    _hasDn = _oDn > 0
+    // the faint open line — subtle, never competing with the MAs
+    if enOpenLn and not na(dayOpen)
+        _oxo = f_xoff(dayOpen)
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick), style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
+    // ── HUD ──
+    if enHud
+        _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
+        // boxed by two MAs = that pair IS the day's range. Outside the stack = no MA in the way,
+        // so the range has to come from the structural levels instead.
+        _oTxt = na(dayOpen) ? "Open —" : _hasUp and _hasDn ? "Open " + str.tostring(dayOpen, format.mintick) + "  ·  between " + _oDnN + " " + str.tostring(_oDn, format.mintick) + "  ↔  " + _oUpN + " " + str.tostring(_oUp, format.mintick) : _hasDn ? "Open " + str.tostring(dayOpen, format.mintick) + "  ·  ABOVE all MAs → use LEVELS (PDH/PDL · W/M) for the range" : _hasUp ? "Open " + str.tostring(dayOpen, format.mintick) + "  ·  BELOW all MAs → use LEVELS (PDL/PDH · W/M) for the range" : "Open " + str.tostring(dayOpen, format.mintick) + "  ·  no MAs enabled"
+        _oCol = (_hasUp and _hasDn) ? color.new(color.gray, 10) : _hasDn ? color.new(#0E7490, 0) : color.new(#7C2D12, 0)
+        table.set_position(_hudT, _hudPosC)
+        table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = size.normal)
+        table.cell(_hudT, 0, 1, _oTxt, bgcolor = _oCol, text_color = color.white, text_size = size.small)
+    else
+        table.cell(_hudT, 0, 0, "")
+        table.cell(_hudT, 0, 1, "")
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
