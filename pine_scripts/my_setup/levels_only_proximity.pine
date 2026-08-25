@@ -85,7 +85,10 @@ pmc = f_rth("M",  close[1])
 pqh = f_rth("3M", high[1])
 pql = f_rth("3M", low[1])
 pqc = f_rth("3M", close[1])
-dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+// lookahead_OFF for the open — known at the session's first tick, nothing to wait for. lookahead_on
+// hands back the enclosing daily bar's open on bars that precede it, landing the line on a
+// neighbouring session's open. Settled values (high[1]) still use lookahead_on — already closed.
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
 pivot   = f_rth(pivotTf, ta.highest(high, baseLen)[1])
 // yesterday's last TWO 4h candles (RTH), frozen at each new session so they stay YESTERDAY's all day
 _isEq4h   = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"

@@ -57,7 +57,11 @@ f_dnum(int t) => na(t) ? int(na) : year(t) * 10000 + month(t) * 100 + dayofmonth
 [pwh, pwl] = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)   // for confluence TAGGING only — never drawn
 [pmh, pml] = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pqh, pql] = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+// lookahead_OFF for the open — it is known at the session's first tick, so there is nothing to
+// wait for. lookahead_on would hand back the enclosing daily bar's open on bars that precede it,
+// which lands the line on a neighbouring session's open. Settled values (high[1], low[1]) still
+// use lookahead_on: those bars are already closed. Same idiom as active/ma_ema_daily.pine.
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
 pdc = request.security(rthTid, "D", close[1], lookahead = barmerge.lookahead_on)   // yesterday's CLOSE
 // current SMA values from the chosen timeframe (lookahead off → live developing value on the realtime bar, no future leak)
 sma8v   = enSma and en8   ? request.security(rthTid, smaTf, ta.sma(close, 8),   lookahead = barmerge.lookahead_off) : na
