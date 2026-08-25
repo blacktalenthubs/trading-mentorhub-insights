@@ -224,12 +224,30 @@ if barstate.islast
             f_draw((_lo4 + _hi4) / 2.0, _cn4 > 1 ? _nm4 + " ·×" + str.tostring(_cn4) : _nm4)
             _i4 := _j4
 
-    // ── subtle open line (dotted) — where today opened relative to yesterday's PDH / PDL ──
+    // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
+    //    That pair is the cell today started in, and the cell is the range being played.
+    //    Upper name first, so it reads top-down the way the lines sit on the chart.
     if enOpen and not na(dayOpen)
-        _ctx = not na(pdh) and dayOpen > pdh ? "  · above PDH ▲ (strong)" : not na(pdl) and dayOpen < pdl ? "  · below PDL ▼ (weak)" : (not na(pdh) and not na(pdl) ? "  · inside PDH–PDL" : "")
+        _ovUp = 1.0e18
+        _ovDn = -1.0
+        _onUp = ""
+        _onDn = ""
+        if array.size(_lvV) > 0
+            for _oi = 0 to array.size(_lvV) - 1
+                _ov = array.get(_lvV, _oi)
+                if not na(_ov) and _ov > 0
+                    if _ov > dayOpen and _ov < _ovUp
+                        _ovUp := _ov
+                        _onUp := array.get(_lvN, _oi)
+                    if _ov < dayOpen and _ov > _ovDn
+                        _ovDn := _ov
+                        _onDn := array.get(_lvN, _oi)
+        _oHasU = _ovUp < 1.0e17
+        _oHasD = _ovDn > 0
+        _ctx = _oHasU and _oHasD ? "Open BTW " + _onUp + " and " + _onDn : _oHasD ? "Open ABOVE all 4H levels" : _oHasU ? "Open BELOW all 4H levels" : "Open"
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = color.new(openCol, 20), width = 1, style = line.style_dotted))
-        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _ctx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, _ctx, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
 
     // ── yesterday's CLOSE — a subtle dotted neutral line (the gap-from-close reference) ──
     if enPdc and not na(pdc)
