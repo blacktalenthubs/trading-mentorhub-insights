@@ -31,6 +31,9 @@ smaTf = input.timeframe("D", "MA timeframe", group = gSma, tooltip = "Which time
 maUp  = input.int(2, "How many MAs to show ABOVE price", minval = 0, maxval = 8, group = gSma, tooltip = "The N nearest MAs above current price. A count, not a %, so every symbol shows the same-size set — 5% is $50 on a $1000 stock and $1.50 on a $30 one. 0 = none above.")
 maDn  = input.int(2, "How many MAs to show BELOW price", minval = 0, maxval = 8, group = gSma, tooltip = "The N nearest MAs below current price. The 4h H/L lines are NEVER affected by this — they always draw.")
 maCapPct = input.float(0, "  Optional cap — hide anything farther than ± % (0 = off)", minval = 0, maxval = 30, step = 0.5, group = gSma) / 100.0
+maW     = input.int(1, "MA line thickness", minval = 1, maxval = 6, group = gSma, tooltip = "Independent of the 4h H/L thickness above — keep the MAs thinner so they sit UNDER the 4h levels rather than competing with them.")
+maFade  = input.int(55, "MA fade (higher = fainter)", minval = 0, maxval = 95, group = gSma, tooltip = "Transparency of the MA lines. 0 = solid colour, 95 = barely there. The MAs are context; the 4h levels are the trade.")
+maStyle = input.string("dashed", "MA line style", options = ["dashed", "dotted", "solid"], group = gSma)
 maMergePct = input.float(0.20, "Merge MAs within (%)", minval = 0.0, maxval = 2, step = 0.05, group = gSma, tooltip = "MAs sitting within this % of each other collapse into ONE line that NAMES all of them (e.g. '50 SMA · 200 EMA') — fewer lines, no lost identities. An MA that lines up with a yesterday-4h level is folded into that level's label instead of drawing a duplicate. 0 = draw every MA separately.") / 100.0
 en8    = input.bool(true, "8 SMA",   inline = "s1", group = gSma)
 en20   = input.bool(true, "20 SMA",  inline = "s1", group = gSma)
@@ -144,7 +147,8 @@ f_sma(float v, string nm) =>
     if not na(v) and v > 0
         _c  = close > v ? colLo : colHi
         _xo = f_xoff(v)
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = color.new(_c, 30), width = 1, style = line.style_dotted))
+        _mst = maStyle == "solid" ? line.style_solid : maStyle == "dotted" ? line.style_dotted : line.style_dashed
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = color.new(_c, maFade), width = maW, style = _mst))
         if showLbl
             array.push(_lb, label.new(bar_index + _xo, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 88), textcolor = _c, size = size.small))
 
