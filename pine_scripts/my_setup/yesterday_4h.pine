@@ -15,6 +15,7 @@ tagOff  = input.int(6,  "Label offset (bars right)", minval = 0, maxval = 50)
 showLbl = input.bool(true, "Show labels")
 lblGap  = input.float(0.4, "Stagger labels closer than ± % (so confluent lines don't overlap)", minval = 0.05, maxval = 5, step = 0.05) / 100.0
 lblStep = input.int(3, "Label stagger step (bars per collision)", minval = 1, maxval = 40)
+maxC4h  = input.int(2, "How many of yesterday's 4h candles to use (newest first)", minval = 1, maxval = 6, tooltip = "Equity RTH only contains two completed 4h candles, so 2 changes nothing there. A 24h market (BTC) has SIX — all of them is 12 levels and 11 cells, which is noise. 2 keeps the last 8 hours of yesterday, the part price actually just came from; 3 keeps 12 hours.")
 enOpen  = input.bool(true, "Mark today's open (subtle) + tag it vs prior-day PDH/PDL", group = "Day open")
 openCol = input.color(color.new(#EAB308, 0), "Open line", group = "Day open")
 enPdl   = input.bool(true, "Show prior-day LOW as the STOP line (Redler)", group = "Risk — PDL stop (Redler)", tooltip = "Scott Redler's risk rule: yesterday's low (PDL) is the line in the sand — never hold a long that closes below it. Drawn as a subtle dashed line with a STOP note.")
@@ -183,27 +184,13 @@ if barstate.islast
     array.clear(_anchors)
     array.clear(_maV)
     array.clear(_maN)
-    // yesterday's session date = the largest 4h date strictly before today's
-    today = f_dnum(time)
-    int yday = 0
-    if array.size(aT) > 0
-        for i = 0 to array.size(aT) - 1
-            _d = f_dnum(array.get(aT, i))
-            if _d < today and _d > yday
-                yday := _d
-    // collect every completed 4h candle from yesterday (H + L), tagged by its start time
-    _lvV = array.new_float()    // 4h level values
-    _lvN = array.new_string()   // parallel names
-    if array.size(aT) > 0 and yday > 0
-        for i = 0 to array.size(aT) - 1
-            if f_dnum(array.get(aT, i)) == yday
-                _tm = str.format_time(array.get(aT, i), "HH:mm", syminfo.timezone)
-                array.push(_lvV, array.get(aH, i))
-                array.push(_lvN, "4H " + _tm + " H")
-                array.push(_lvV, array.get(aL, i))
-                array.push(_lvN, "4H " + _tm + " L")
-                array.push(_anchors, array.get(aH, i))   // MAs on these fold into the 4h label, no duplicate line
-                array.push(_anchors, array.get(aL, i))
+    // the SAME frozen, capped set the markers / trend read / shading use — one source of truth, so a
+    // line on the chart and a level in the read can never disagree
+    _lvV = array.copy(yV)
+    _lvN = array.copy(yN)
+    if array.size(_lvV) > 0
+        for i = 0 to array.size(_lvV) - 1
+            array.push(_anchors, array.get(_lvV, i))     // MAs on these fold into the 4h label, no duplicate line
     // MERGE 4h levels within lvlMergePct → ONE line naming all members (sort, cluster, draw the cluster midpoint)
     _n4 = array.size(_lvV)
     if _n4 > 0
@@ -346,12 +333,21 @@ if _newDayY or array.size(yV) == 0
             if _dY < _todayY and _dY > _ydayY
                 _ydayY := _dY
         if _ydayY > 0
+            // collect yesterday's candle indices in order, then keep only the NEWEST maxC4h of them —
+            // the ones price just came from. Six 4h candles is 12 levels and 11 cells; that reads as
+            // noise, not structure.
+            _idx = array.new_int()
             for _yi = 0 to array.size(aT) - 1
                 if f_dnum(array.get(aT, _yi)) == _ydayY
-                    _tmY = str.format_time(array.get(aT, _yi), "HH:mm", syminfo.timezone)
-                    array.push(yV, array.get(aH, _yi))
+                    array.push(_idx, _yi)
+            _start = math.max(0, array.size(_idx) - maxC4h)
+            if array.size(_idx) > 0
+                for _k = _start to array.size(_idx) - 1
+                    _ii  = array.get(_idx, _k)
+                    _tmY = str.format_time(array.get(aT, _ii), "HH:mm", syminfo.timezone)
+                    array.push(yV, array.get(aH, _ii))
                     array.push(yN, "4H " + _tmY + " H")
-                    array.push(yV, array.get(aL, _yi))
+                    array.push(yV, array.get(aL, _ii))
                     array.push(yN, "4H " + _tmY + " L")
 
 isEquityType = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
