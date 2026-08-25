@@ -64,6 +64,11 @@ rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
 rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
 
+// ── level fallback — what to say when the MA stack can't bracket the open ───────
+gL       = "Level fallback (open outside the MA stack)"
+enLvl    = input.bool(true, "Name the structural levels that bracket the open", group = gL, tooltip = "When the open is above (or below) EVERY MA, the stack has nothing to say about the day's range — so fall back to PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL and name the two that actually bracket the open. 'Open below all MAs · between PWL and PDL' beats 'below all MAs'.")
+enLvlDraw = input.bool(false, "  Also DRAW those two levels", group = gL, tooltip = "OFF by default: if you also run 'Proximity Levels · Structural' those lines are already on the chart and this would double them. Turn ON if you run this pine alone.")
+
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
 enHud   = input.bool(true, "Show the HUD", group = gH, tooltip = "Two lines: today's DAILY RSI (locked to daily on any chart TF) and where the session OPENED inside the MA stack.")
@@ -103,6 +108,16 @@ ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
 rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+// structural levels — only consulted when the MA stack can't bracket the open. Settled + RTH, same as the levels pine.
+f_lvl(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
+lPdh = f_lvl("D",  high[1])
+lPdl = f_lvl("D",  low[1])
+lPwh = f_lvl("W",  high[1])
+lPwl = f_lvl("W",  low[1])
+lPmh = f_lvl("M",  high[1])
+lPml = f_lvl("M",  low[1])
+lPqh = f_lvl("3M", high[1])
+lPql = f_lvl("3M", low[1])
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln = array.new_line()
@@ -208,11 +223,45 @@ if barstate.islast
                 _oDnN := array.get(_maN, _k)
     _hasUp = _oUp < 1.0e17
     _hasDn = _oDn > 0
+    // ── the MA stack can't bracket the open → fall back to the structural levels ──
+    _lUp  = 1.0e18
+    _lDn  = -1.0
+    _lUpN = ""
+    _lDnN = ""
+    if enLvl and not na(dayOpen)
+        _lv  = array.from(lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+        _lnm = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+        for _k = 0 to array.size(_lv) - 1
+            _v = array.get(_lv, _k)
+            if not na(_v) and _v > 0
+                if _v > dayOpen and _v < _lUp
+                    _lUp  := _v
+                    _lUpN := array.get(_lnm, _k)
+                if _v < dayOpen and _v > _lDn
+                    _lDn  := _v
+                    _lDnN := array.get(_lnm, _k)
+    _lHasUp = _lUp < 1.0e17
+    _lHasDn = _lDn > 0
+    _boxed  = _hasUp and _hasDn
+    // the level phrasing, reused by both the line label and the HUD row
+    _lvlTxt = not enLvl ? "" : _lHasUp and _lHasDn ? "between " + _lDnN + " and " + _lUpN : _lHasUp ? "under " + _lUpN : _lHasDn ? "over " + _lDnN : "no levels yet"
+    // draw the two bracketing levels only when the stack has failed (that's the fallback)
+    if enLvl and enLvlDraw and not _boxed
+        if _lHasDn
+            _dxo = f_xoff(_lDn)
+            _dc  = close > _lDn ? supCol : resCol
+            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + _dxo, _lDn, color = _dc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ " : "  ▼ ") + str.tostring(_lDn, format.mintick), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
+        if _lHasUp
+            _uxo = f_xoff(_lUp)
+            _uc  = close > _lUp ? supCol : resCol
+            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + _uxo, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ " : "  ▼ ") + str.tostring(_lUp, format.mintick), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
-        _oSuf = _hasUp and _hasDn ? "  ·  between " + _oDnN + " and " + _oUpN : _hasDn ? "  ·  above ALL MAs" : _hasUp ? "  ·  below ALL MAs" : ""
+        _oSuf = _boxed ? "  ·  between " + _oDnN + " and " + _oUpN : _hasDn ? "  ·  above all MAs · " + _lvlTxt : _hasUp ? "  ·  below all MAs · " + _lvlTxt : ""
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _oSuf, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
     // ── HUD ──
     if enHud
@@ -220,8 +269,8 @@ if barstate.islast
         _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
         // boxed by two MAs = that pair IS the day's range. Outside the stack = no MA in the way,
         // so the range has to come from the structural levels instead.
-        _oTxt = na(dayOpen) ? "Open —" : _hasUp and _hasDn ? "Open between " + _oDnN + " and " + _oUpN : _hasDn ? "Open above ALL MAs · nothing overhead → LEVELS for targets (PDH · PWH/PMH)" : _hasUp ? "Open below ALL MAs · every MA overhead → LEVELS for support (PDL · PWL/PML)" : "Open — no MAs enabled"
-        _oCol = (_hasUp and _hasDn) ? color.new(color.gray, 10) : _hasDn ? color.new(#0E7490, 0) : color.new(#7C2D12, 0)
+        _oTxt = na(dayOpen) ? "Open —" : _boxed ? "Open between " + _oDnN + " and " + _oUpN : _hasDn ? "Open above all MAs · " + _lvlTxt : _hasUp ? "Open below all MAs · " + _lvlTxt : "Open — no MAs enabled"
+        _oCol = _boxed ? color.new(color.gray, 10) : _hasDn ? color.new(#0E7490, 0) : color.new(#7C2D12, 0)
         table.set_position(_hudT, _hudPosC)
         table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = size.normal)
         table.cell(_hudT, 0, 1, _oTxt, bgcolor = _oCol, text_color = color.white, text_size = size.small)
