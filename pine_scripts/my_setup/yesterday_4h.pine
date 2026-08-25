@@ -5,7 +5,7 @@
 // each tagged by its start time (e.g. "4H 09:30 H"). Nothing else — no PDH/PDL, no
 // confluence, no alerts. Non-repainting (240 settled [1] + lookahead). Bind on any intraday TF.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Yesterday 4H", "Y-4H", overlay = true, max_lines_count = 40, max_labels_count = 100)
+indicator("Yesterday 4H", "Y-4H", overlay = true, max_lines_count = 40, max_labels_count = 100, max_boxes_count = 10)
 
 colHi   = input.color(#EF5350, "Resistance (above price)", inline = "c")
 colLo   = input.color(#26A69A, "Support (below price)",   inline = "c")
@@ -464,4 +464,37 @@ if barstate.islast
         table.cell(_trT, 0, 0, _txt, bgcolor = _col, text_color = color.white, text_size = size.normal)
     else
         table.cell(_trT, 0, 0, "")
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CELL SHADING — four levels sort into THREE cells. Shading them turns the read from "four
+// lines" into "which box am I in", which is the actual question when you're deciding trend
+// vs range. The cell price sits in is highlighted; cells overhead shade as supply, cells
+// underneath as support. Drawn last so the H/L lines and their tags stay on top.
+// ═════════════════════════════════════════════════════════════════════════════
+gZ       = "Cell shading (the 3 cells between the 4 levels)"
+enShade  = input.bool(true, "Shade the cells between yesterday's four 4H levels", group = gZ)
+shNow    = input.color(color.new(#EAB308, 88), "Cell price is IN", inline = "z", group = gZ)
+shUp     = input.color(color.new(#EF5350, 92), "Cells above",      inline = "z", group = gZ)
+shDn     = input.color(color.new(#26A69A, 92), "Cells below",      inline = "z", group = gZ)
+
+var box[] _bx = array.new_box()
+if barstate.islast
+    for _b in _bx
+        box.delete(_b)
+    array.clear(_bx)
+    if enShade
+        _zv = array.from(yh1, yl1, yh2, yl2)
+        _zo = array.new_float()
+        for _zi = 0 to array.size(_zv) - 1
+            _zvv = array.get(_zv, _zi)
+            if not na(_zvv) and _zvv > 0
+                array.push(_zo, _zvv)
+        if array.size(_zo) >= 2
+            array.sort(_zo, order.ascending)
+            for _zj = 0 to array.size(_zo) - 2
+                _zlo = array.get(_zo, _zj)
+                _zhi = array.get(_zo, _zj + 1)
+                _zIn = close >= _zlo and close <= _zhi
+                _zc  = _zIn ? shNow : _zlo > close ? shUp : shDn
+                array.push(_bx, box.new(bar_index - lineLen, _zhi, bar_index + tagOff, _zlo, border_color = color.new(color.gray, 100), bgcolor = _zc))
 
