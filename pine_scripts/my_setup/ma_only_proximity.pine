@@ -29,7 +29,11 @@
 // AND above PDH → the next pair up appears (PDH below, PMH above). Candidates: PDH/PDL · PWH/PWL ·
 // PMH/PML · PQH/PQL. They show up only in that case; inside the MA stack nothing extra is drawn.
 //
-// HUD (top center): daily RSI ONLY — one line, overbought / oversold at a glance.
+// HUD (top center): daily RSI + the 50/200 TREND STATE. The state combines STRUCTURE (50 vs 200)
+// with PRICE POSITION, so a golden cross with price underneath reads as RECLAIM WATCH, not bullish:
+//   50>200 · above both = BULLISH      50>200 · below both = RECLAIM WATCH
+//   50<200 · below both = BEARISH      50<200 · above both = RECOVERY WATCH   between = MIXED
+// It reads its own 50/200, so unticking those MAs hides the lines without blinding the regime read.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, UPPER name
 // first so it reads top-down the way the lines sit: "Open BTW 50 SMA and 20 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
@@ -82,6 +86,7 @@ hudPos  = input.string("top_center", "HUD position", options = ["top_center", "t
 rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
+enState = input.bool(true, "Show the 50/200 trend state (second HUD row)", group = gH, tooltip = "Combines STRUCTURE (50 vs 200) with PRICE POSITION, so a golden cross with price underneath doesn't read as bullish. Uses its own 50/200 values, so it stays correct even if you untick those MAs above.")
 enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
 openCol  = input.color(color.new(#EAB308, 55), "Open line", inline = "ol", group = gH)
 openW    = input.int(1, "width", inline = "ol", group = gH, minval = 1, maxval = 5)
@@ -115,6 +120,37 @@ ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
 rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+// the trend state reads its OWN 50/200 — independent of the display toggles above, so unticking
+// "50 SMA" hides the line without blinding the regime read
+st50  = request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+st200 = request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+f_state() =>
+    string txt = na
+    color  col = na
+    if na(st50) or na(st200)
+        txt := "50/200 — no data"
+        col := color.new(color.gray, 20)
+    else
+        _golden = st50 > st200
+        _above  = close > st50 and close > st200
+        _below  = close < st50 and close < st200
+        if _golden and _above
+            txt := "BULLISH · 50>200 · price above both"
+            col := color.new(color.green, 10)
+        else if _golden and _below
+            txt := "RECLAIM WATCH · 50>200 but price below — wait for the 200 reclaim"
+            col := color.new(color.orange, 10)
+        else if not _golden and _below
+            txt := "BEARISH · 50<200 · price below both"
+            col := color.new(color.red, 10)
+        else if not _golden and _above
+            txt := "RECOVERY WATCH · 50<200 but price above — potential turn"
+            col := color.new(color.blue, 10)
+        else
+            txt := "MIXED · price between the 50 and the 200"
+            col := color.new(color.gray, 10)
+    [txt, col]
+[stateTxt, stateCol] = f_state()
 // structural levels — only consulted when the MA stack can't bracket the open. Settled + RTH, same as the levels pine.
 f_lvl(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
 lPdh = f_lvl("D",  high[1])
@@ -157,7 +193,7 @@ f_collect(float v, string nm) =>
         array.push(_maN, nm)
 
 _hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
-var table _hudT = table.new(_hudPosC, 1, 1, border_width = 1, border_color = color.new(color.gray, 40))
+var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
 
 if barstate.islast
     for _l in _ln
@@ -275,8 +311,10 @@ if barstate.islast
         _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
         table.set_position(_hudT, _hudPosC)
         table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = size.normal)
+        table.cell(_hudT, 0, 1, enState ? stateTxt : "", bgcolor = enState ? stateCol : color.new(color.gray, 100), text_color = color.white, text_size = size.small)
     else
         table.cell(_hudT, 0, 0, "")
+        table.cell(_hudT, 0, 1, "")
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
