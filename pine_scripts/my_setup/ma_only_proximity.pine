@@ -212,7 +212,8 @@ if barstate.islast
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
-        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick), style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
+        _oSuf = _hasUp and _hasDn ? "  ·  between " + _oDnN + " and " + _oUpN : _hasDn ? "  ·  above ALL MAs" : _hasUp ? "  ·  below ALL MAs" : ""
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _oSuf, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
     // ── HUD ──
     if enHud
         _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
