@@ -1,11 +1,12 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// YESTERDAY 4H — dead simple. Draws every completed 4h candle from YESTERDAY's session
+// DAY-TRADE SIGNALS (was "Yesterday 4H") — the 4h levels a day trade is fought over. Yesterday's
+// completed 4h candles
 // as flat H/L lines (green = support / price above, red = resistance / price below),
 // each tagged by its start time (e.g. "4H 09:30 H"). Nothing else — no PDH/PDL, no
 // confluence, no alerts. Non-repainting (240 settled [1] + lookahead). Bind on any intraday TF.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Yesterday 4H", "Y-4H", overlay = true, max_lines_count = 40, max_labels_count = 100, max_boxes_count = 20)
+indicator("day-trade-signals", "day-trade", overlay = true, max_lines_count = 40, max_labels_count = 100, max_boxes_count = 20)
 
 colHi   = input.color(#EF5350, "Resistance (above price)", inline = "c")
 colLo   = input.color(#26A69A, "Support (below price)",   inline = "c")
