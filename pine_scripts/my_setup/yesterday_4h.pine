@@ -489,6 +489,28 @@ if _conf and not _sigDone and array.size(yV) > 0
             else if rj_above(_L, _Lp)                           // poked above, closed back below → SHORT
                 _sigDone := true
                 newShort := true
+// ── FIRST-4H-CLOSE reclaim / loss arrows ──────────────────────────────────────────────
+// The strength line is only worth drawing if you can see the moment it changes hands. A confirmed
+// close back ABOVE it = reclaimed (buyers took it back); a confirmed close BELOW = lost.
+// Crossovers are evaluated on EVERY bar at global scope — they're stateful and miss crosses if
+// called inside a branch. Each direction fires once per session: the first handover is the signal,
+// the rest is the chop the crossing counter already reports.
+_t1cUpX = ta.crossover(close, t1C)
+_t1cDnX = ta.crossunder(close, t1C)
+var bool _t1cUpMk = false
+var bool _t1cDnMk = false
+if ta.change(time("D")) != 0
+    _t1cUpMk := false
+    _t1cDnMk := false
+t1cReclaim = enMk and enT1C and barstate.isconfirmed and not na(t1C) and _t1cUpX and not _t1cUpMk
+t1cLost    = enMk and enT1C and barstate.isconfirmed and not na(t1C) and _t1cDnX and not _t1cDnMk
+if t1cReclaim
+    _t1cUpMk := true
+if t1cLost
+    _t1cDnMk := true
+plotshape(t1cReclaim, "1st 4H close reclaimed", style = shape.arrowup,   location = location.belowbar, color = colUp, textcolor = color.white, text = "4H C reclaim", size = size.tiny)
+plotshape(t1cLost,    "1st 4H close lost",      style = shape.arrowdown, location = location.abovebar, color = colDn, textcolor = color.white, text = "4H C lost",    size = size.tiny)
+
 plotshape(enMk and newLong,  "Long",  style = shape.labelup,   location = location.belowbar, color = colUp, textcolor = color.white, text = "long",  size = size.tiny)
 plotshape(enMk and newShort, "Short", style = shape.labeldown, location = location.abovebar, color = colDn, textcolor = color.white, text = "short", size = size.tiny)
 
