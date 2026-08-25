@@ -120,7 +120,11 @@ ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1
 
 // ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
-dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+// lookahead_OFF for the open — it is known at the session's first tick, so there is nothing to
+// wait for. lookahead_on would hand back the enclosing daily bar's open on bars that precede it,
+// which lands the line on a neighbouring session's open. Settled values (high[1], low[1]) still
+// use lookahead_on: those bars are already closed. Same idiom as active/ma_ema_daily.pine.
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
 rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
 // the trend state reads its OWN 50/200 — independent of the display toggles above, so unticking
 // "50 SMA" hides the line without blinding the regime read
