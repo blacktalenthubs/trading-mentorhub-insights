@@ -25,6 +25,12 @@
 // which one ("⟲ 8 SMA · 20 EMA" when it takes several at once). Confirmed bars only — it never
 // paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
 //
+// LEVEL FALLBACK: when the open is above (or below) EVERY MA, the stack can't define the day — so the
+// two structural levels that DO bracket the open are named AND drawn automatically, right beside the
+// open line. Open above all MAs but inside yesterday's range → PDH and PDL appear. Open above the MAs
+// AND above PDH → the next pair up appears (PDH below, PMH above). Candidates: PDH/PDL · PWH/PWL ·
+// PMH/PML · PQH/PQL. They show up only in that case; inside the MA stack nothing extra is drawn.
+//
 // HUD (top center): daily RSI ONLY — one line, overbought / oversold at a glance.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, UPPER name
@@ -70,7 +76,7 @@ rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"
 // ── level fallback — what to say when the MA stack can't bracket the open ───────
 gL       = "Level fallback (open outside the MA stack)"
 enLvl    = input.bool(true, "Name the structural levels that bracket the open", group = gL, tooltip = "When the open is above (or below) EVERY MA, the stack has nothing to say about the day's range — so fall back to PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL and name the two that actually bracket the open. 'Open below all MAs · between PWL and PDL' beats 'below all MAs'.")
-enLvlDraw = input.bool(false, "  Also DRAW those two levels", group = gL, tooltip = "OFF by default: if you also run 'Proximity Levels · Structural' those lines are already on the chart and this would double them. Turn ON if you run this pine alone.")
+enLvlDraw = input.bool(true, "  DRAW those two levels automatically", group = gL, tooltip = "ON by default: the moment the MA stack can't bracket the open, the two structural levels that DO bracket it are drawn beside the open line — so the day's range is on the chart without you going to find it. They appear ONLY in that case; while the open sits inside the MA stack nothing extra is drawn. Turn OFF if you also run 'Proximity Levels · Structural' and don't want the duplicate lines.")
 
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
