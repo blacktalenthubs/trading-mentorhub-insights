@@ -25,8 +25,9 @@
 //
 // HUD (top center): daily RSI ONLY — one line, overbought / oversold at a glance.
 //
-// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD: "Open 106.86 · between
-// 20 SMA and 50 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
+// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. UPPER name first, then the
+// lower one, so it reads top-down the way the lines sit on the chart: "Open 106.86 · between
+// 50 SMA and 20 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
 // Boxed by two MAs —
 // that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
 // means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
@@ -78,7 +79,8 @@ rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
 enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
-openCol  = input.color(color.new(#EAB308, 55), "Open line", group = gH)
+openCol  = input.color(color.new(#EAB308, 55), "Open line", inline = "ol", group = gH)
+openW    = input.int(1, "width", inline = "ol", group = gH, minval = 1, maxval = 5)
 
 // ── style ───────────────────────────────────────────────────────────────────────
 gV        = "Style"
@@ -245,7 +247,7 @@ if barstate.islast
     _lHasDn = _lDn > 0
     _boxed  = _hasUp and _hasDn
     // the level phrasing, reused by both the line label and the HUD row
-    _lvlTxt = not enLvl ? "" : _lHasUp and _lHasDn ? "between " + _lDnN + " and " + _lUpN : _lHasUp ? "under " + _lUpN : _lHasDn ? "over " + _lDnN : "no levels yet"
+    _lvlTxt = not enLvl ? "" : _lHasUp and _lHasDn ? "between " + _lUpN + " and " + _lDnN : _lHasUp ? "under " + _lUpN : _lHasDn ? "over " + _lDnN : "no levels yet"
     // draw the two bracketing levels only when the stack has failed (that's the fallback)
     if enLvl and enLvlDraw and not _boxed
         if _lHasDn
@@ -261,8 +263,8 @@ if barstate.islast
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
-        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = 1, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
-        _oSuf = _boxed ? "  ·  between " + _oDnN + " and " + _oUpN : _hasDn ? "  ·  above all MAs · " + _lvlTxt : _hasUp ? "  ·  below all MAs · " + _lvlTxt : ""
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = openW, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        _oSuf = _boxed ? "  ·  between " + _oUpN + " and " + _oDnN : _hasDn ? "  ·  above all MAs · " + _lvlTxt : _hasUp ? "  ·  below all MAs · " + _lvlTxt : ""
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _oSuf, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
     // ── HUD ──
     if enHud
