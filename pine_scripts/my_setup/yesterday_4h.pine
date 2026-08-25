@@ -389,36 +389,40 @@ if _pdhLost
     _pdhMk := true
 if _pdlLost
     _pdlMk := true
-if enMk and _pdhLost
-    label.new(bar_index, na, "PDH lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.tiny)
-if enMk and _pdlLost
-    label.new(bar_index, na, "PDL lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.tiny)
+// The "lost" tags and the short marker both want the space directly above the bar, so they
+// collided whenever they fired together. Two fixes: the two lost tags merge into ONE when they
+// fire on the same bar, and the tag is lifted an ATR clear of the candle so the abovebar
+// plotshape keeps its own slot underneath it.
+_lostTxt = _pdhLost and _pdlLost ? "PDH+PDL lost" : _pdhLost ? "PDH lost" : _pdlLost ? "PDL lost" : ""
+_lostOff = nz(ta.atr(14), 0.0) * 0.9
+if enMk and str.length(_lostTxt) > 0
+    label.new(bar_index, high + _lostOff, _lostTxt, yloc = yloc.price, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.tiny)
 // MARKERS — RECLAIM / REJECTION ONLY, and both require a WICK through the level first.
 // A plain close through a level (bu_thru / bd_thru) is NOT marked: momentum carrying price
 // past a line says nothing about whether the line was defended. What earns a marker is price
 // PROBING the level and being pushed back:
 //   long  = wick BELOW the level, close back ABOVE it  (rc_below) — the level held as support
 //   short = poke ABOVE the level, close back BELOW it  (rj_above) — the level held as resistance
-// ONE tag per 4h line per session, either direction — whichever fires first retires that level
-// for the day. A level that keeps getting probed is chop, not a second signal.
-var bool[] _marked = array.new_bool(4, false)   // [yh1, yl1, yh2, yl2] — already tagged this session?
+// ONE signal per SESSION, full stop — not one per level. The first level to give a wick-and-reclaim
+// (or a wick-and-rejection) is the day's read; everything after it is the same story retold, or it's
+// chop, which the crossing counter reports on its own. One decision per day, one mark on the chart.
+var bool _sigDone = false
 if newBlock
-    for _mi = 0 to 3
-        array.set(_marked, _mi, false)
+    _sigDone := false
 _mlv  = array.from(yh1,    yl1,    yh2,    yl2)
 _mlvp = array.from(yh1[1], yl1[1], yh2[1], yl2[1])
 newLong  = false
 newShort = false
-if _conf
+if _conf and not _sigDone
     for _mi = 0 to 3
-        if not array.get(_marked, _mi)
+        if not _sigDone
             _L  = array.get(_mlv,  _mi)
             _Lp = array.get(_mlvp, _mi)
             if rc_below(_L, _Lp)                                // wicked under, closed back above → LONG
-                array.set(_marked, _mi, true)
-                newLong := true
+                _sigDone := true
+                newLong  := true
             else if rj_above(_L, _Lp)                           // poked above, closed back below → SHORT
-                array.set(_marked, _mi, true)
+                _sigDone := true
                 newShort := true
 plotshape(enMk and newLong,  "Long",  style = shape.labelup,   location = location.belowbar, color = colUp, textcolor = color.white, text = "long",  size = size.tiny)
 plotshape(enMk and newShort, "Short", style = shape.labeldown, location = location.abovebar, color = colDn, textcolor = color.white, text = "short", size = size.tiny)
