@@ -29,6 +29,12 @@
 // AND above PDH → the next pair up appears (PDH below, PMH above). Candidates: PDH/PDL · PWH/PWL ·
 // PMH/PML · PQH/PQL. They show up only in that case; inside the MA stack nothing extra is drawn.
 //
+// TREND STATE: one tag on the 50/200 pair — "GOLDEN CROSS · 50 SMA ABOVE 200 SMA · 34 days ago" —
+// sitting on the HIGHER of the two, at the left end of the lines. It runs off its OWN settled 50/200,
+// so it survives the 50/200 lines being toggled off or falling outside the nearest-N bracket. The
+// regime is the one thing you want to know before you trade any of the levels below it. Pin it above
+// the last bar instead (one toggle) when a far-away 200 SMA would otherwise pull the scale.
+//
 // HUD (top center): daily RSI ONLY — one line, overbought / oversold at a glance.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, UPPER name
@@ -74,6 +80,14 @@ rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"
 gL       = "Level fallback (open outside the MA stack)"
 enLvl    = input.bool(true, "Name the structural levels that bracket the open", group = gL, tooltip = "When the open is above (or below) EVERY MA, the stack has nothing to say about the day's range — so fall back to PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL and name the two that actually bracket the open. 'Open below all MAs · between PWL and PDL' beats 'below all MAs'.")
 enLvlDraw = input.bool(true, "  DRAW those two levels automatically", group = gL, tooltip = "ON by default: the moment the MA stack can't bracket the open, the two structural levels that DO bracket it are drawn beside the open line — so the day's range is on the chart without you going to find it. They appear ONLY in that case; while the open sits inside the MA stack nothing extra is drawn. Turn OFF if you also run 'Proximity Levels · Structural' and don't want the duplicate lines.")
+
+// ── trend state — 50 vs 200 SMA (golden / death cross) ──────────────────────────
+gS        = "Trend state (50 / 200 SMA)"
+showState = input.bool(true, "Tag the 50/200 state — GOLDEN CROSS / DEATH CROSS", group = gS, tooltip = "One tag on the pair that defines the regime: 50 SMA above the 200 = GOLDEN CROSS, below = DEATH CROSS. It reads its own settled 50/200 on the MA timeframe, so the tag is there even when the proximity bracket isn't drawing those two lines.")
+stAgeOn   = input.bool(true,  "  Say how long ago the cross happened", group = gS, tooltip = "Appends the age of the current state ('· 34 days ago'). A cross from last week and a cross from last year are not the same trade. Omitted when no cross exists in the loaded history.")
+stAbove   = input.bool(false, "  Pin the tag above the last bar instead of at the 50/200 stack", group = gS, tooltip = "OFF (default) = the tag sits on the higher of the two MAs, at the left end of the lines. That anchors it to the pair it describes, but a 200 SMA far from price will pull the scale toward it. ON = the tag rides above the last bar and never touches the axis.")
+stUpCol   = input.color(#26A69A, "Golden", inline = "st", group = gS)
+stDnCol   = input.color(#EF5350, "Death",  inline = "st", group = gS)
 
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
@@ -125,6 +139,18 @@ lPmh = f_lvl("M",  high[1])
 lPml = f_lvl("M",  low[1])
 lPqh = f_lvl("3M", high[1])
 lPql = f_lvl("3M", low[1])
+
+// ── 50/200 trend state — its OWN settled 50/200, independent of the display toggles ──
+// (so turning the 50 SMA line off, or having it fall outside the nearest-N bracket, never
+//  costs you the regime read. Same [1] + lookahead_on idiom → settled, non-repainting.)
+stS50  = showState ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
+stS200 = showState ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+stAge  = showState and stAgeOn ? request.security(syminfo.tickerid, maTf, ta.barssince(ta.cross(ta.sma(close, 50), ta.sma(close, 200)))[1], lookahead = barmerge.lookahead_on) : na
+stGold = not na(stS50) and not na(stS200) and stS50 > stS200
+_stUnit  = maTf == "D" ? " days ago" : maTf == "W" ? " weeks ago" : maTf == "M" ? " months ago" : " bars ago"
+_stAgeTx = na(stAge) ? "" : "  ·  " + str.tostring(stAge, "#") + _stUnit
+stateTxt = (stGold ? "GOLDEN CROSS" : "DEATH CROSS") + "  ·  50 SMA " + (stGold ? "ABOVE" : "BELOW") + " 200 SMA" + _stAgeTx
+stateCol = stGold ? stUpCol : stDnCol
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln = array.new_line()
@@ -263,6 +289,13 @@ if barstate.islast
             _uc  = close > _lUp ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + _uxo, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
+    // ── the 50/200 state tag — one label on the pair that sets the regime ──
+    // Left end of the lines, on the HIGHER of the two, so it never lands in the right-hand tag column.
+    if showState and not na(stS50) and not na(stS200)
+        if stAbove
+            array.push(_lb, label.new(bar_index, high, stateTxt, yloc = yloc.abovebar, style = label.style_label_down, color = stateCol, textcolor = color.white, size = size.normal))
+        else
+            array.push(_lb, label.new(bar_index - lineLen, math.max(stS50, stS200), stateTxt, style = label.style_label_down, color = stateCol, textcolor = color.white, size = size.normal))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
