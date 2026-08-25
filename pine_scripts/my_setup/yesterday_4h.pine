@@ -5,7 +5,7 @@
 // each tagged by its start time (e.g. "4H 09:30 H"). Nothing else — no PDH/PDL, no
 // confluence, no alerts. Non-repainting (240 settled [1] + lookahead). Bind on any intraday TF.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Yesterday 4H", "Y-4H", overlay = true, max_lines_count = 40, max_labels_count = 100, max_boxes_count = 10)
+indicator("Yesterday 4H", "Y-4H", overlay = true, max_lines_count = 40, max_labels_count = 100, max_boxes_count = 20)
 
 colHi   = input.color(#EF5350, "Resistance (above price)", inline = "c")
 colLo   = input.color(#26A69A, "Support (below price)",   inline = "c")
@@ -329,6 +329,31 @@ colDn = input.color(color.new(#EF5350, 0), "Bearish ▼", group = gA, inline = "
 
 // YESTERDAY's last two completed 4h H/L, FROZEN at each new session so they stay yesterday's
 // all day (once today opens, the "last two completed 4h" ARE yesterday's two RTH 4h candles).
+// ── YESTERDAY's COMPLETE 4h set, rebuilt once per day and frozen. On equity RTH that's the two
+//    completed 4h candles (4 levels). On a 24h market like BTC it's all SIX (12 levels) — the
+//    consumers below must never assume two, or crypto silently reads only the last 8 hours.
+var float[]  yV = array.new_float()
+var string[] yN = array.new_string()
+_newDayY = ta.change(time("D")) != 0
+if _newDayY or array.size(yV) == 0
+    array.clear(yV)
+    array.clear(yN)
+    _todayY = f_dnum(time)
+    int _ydayY = 0
+    if array.size(aT) > 0
+        for _yi = 0 to array.size(aT) - 1
+            _dY = f_dnum(array.get(aT, _yi))
+            if _dY < _todayY and _dY > _ydayY
+                _ydayY := _dY
+        if _ydayY > 0
+            for _yi = 0 to array.size(aT) - 1
+                if f_dnum(array.get(aT, _yi)) == _ydayY
+                    _tmY = str.format_time(array.get(aT, _yi), "HH:mm", syminfo.timezone)
+                    array.push(yV, array.get(aH, _yi))
+                    array.push(yN, "4H " + _tmY + " H")
+                    array.push(yV, array.get(aL, _yi))
+                    array.push(yN, "4H " + _tmY + " L")
+
 isEquityType = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == "dr"
 blockTf  = isEquityType ? "D" : "480"
 newBlock = ta.change(time(blockTf)) != 0
@@ -409,15 +434,13 @@ if enMk and str.length(_lostTxt) > 0
 var bool _sigDone = false
 if newBlock
     _sigDone := false
-_mlv  = array.from(yh1,    yl1,    yh2,    yl2)
-_mlvp = array.from(yh1[1], yl1[1], yh2[1], yl2[1])
 newLong  = false
 newShort = false
-if _conf and not _sigDone
-    for _mi = 0 to 3
+if _conf and not _sigDone and array.size(yV) > 0
+    for _mi = 0 to array.size(yV) - 1
         if not _sigDone
-            _L  = array.get(_mlv,  _mi)
-            _Lp = array.get(_mlvp, _mi)
+            _L  = array.get(yV, _mi)
+            _Lp = _L                       // levels are frozen for the session, so prior == current
             if rc_below(_L, _Lp)                                // wicked under, closed back above → LONG
                 _sigDone := true
                 newLong  := true
@@ -476,8 +499,8 @@ var table _trT = table.new(_trPosC, 1, 1, border_width = 1, border_color = color
 if barstate.islast
     table.set_position(_trT, _trPosC)
     if enTrend
-        _tv = array.from(yh1,      yl1,      yh2,      yl2)
-        _tn = array.from("4H-1 H", "4H-1 L", "4H-2 H", "4H-2 L")
+        _tv = yV
+        _tn = yN
         _nAb = 0
         _nBl = 0
         _nOk = 0
@@ -500,7 +523,7 @@ if barstate.islast
                         _tDn  := _tvv
                         _tDnN := array.get(_tn, _ti)
         _isChop = _xCnt >= chopN
-        _base = _nOk == 0 ? "4H — no data" : _nBl == _nOk ? "TREND UP · above all four 4H levels" : _nAb == _nOk ? "TREND DOWN · below all four 4H levels" : "RANGE · BTW " + (_tUpN == "" ? "—" : _tUpN) + " and " + (_tDnN == "" ? "—" : _tDnN)
+        _base = _nOk == 0 ? "4H — no data" : _nBl == _nOk ? "TREND UP · above all " + str.tostring(_nOk) + " 4H levels" : _nAb == _nOk ? "TREND DOWN · below all " + str.tostring(_nOk) + " 4H levels" : "RANGE · BTW " + (_tUpN == "" ? "—" : _tUpN) + " and " + (_tDnN == "" ? "—" : _tDnN)
         _txt = (_isChop ? "CHOP · " : "") + _base + "  ·  " + str.tostring(_xCnt) + (_xCnt == 1 ? " crossing" : " crossings")
         _col = _nOk == 0 ? color.new(color.gray, 20) : _isChop ? color.new(color.orange, 10) : _nBl == _nOk ? color.new(color.green, 10) : _nAb == _nOk ? color.new(color.red, 10) : color.new(color.gray, 10)
         table.cell(_trT, 0, 0, _txt, bgcolor = _col, text_color = color.white, text_size = size.normal)
@@ -508,7 +531,7 @@ if barstate.islast
         table.cell(_trT, 0, 0, "")
 
 // ═════════════════════════════════════════════════════════════════════════════
-// CELL SHADING — four levels sort into THREE cells. Shading them turns the read from "four
+// CELL SHADING — N levels sort into N-1 cells (3 on equity RTH, 11 on a 24h market). Shading them turns the read from "four
 // lines" into "which box am I in", which is the actual question when you're deciding trend
 // vs range. The cell price sits in is highlighted; cells overhead shade as supply, cells
 // underneath as support. Drawn last so the H/L lines and their tags stay on top.
@@ -525,7 +548,7 @@ if barstate.islast
         box.delete(_b)
     array.clear(_bx)
     if enShade
-        _zv = array.from(yh1, yl1, yh2, yl2)
+        _zv = yV
         _zo = array.new_float()
         for _zi = 0 to array.size(_zv) - 1
             _zvv = array.get(_zv, _zi)
