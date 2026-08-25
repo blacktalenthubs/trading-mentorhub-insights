@@ -20,8 +20,8 @@ lblStep = input.int(3, "Label stagger step (bars per collision)", minval = 1, ma
 // length: equity RTH holds two completed 4h candles, a 24h market holds six. One shared number would
 // either starve stocks or flood crypto, and you'd be editing it every time you switched symbol.
 maxC4hEq = input.int(2, "Equity (RTH) — 4h candles to use", minval = 1, maxval = 2, group = "4h candles", tooltip = "RTH only contains two completed 4h candles, so 2 = all of them = 4 lines.")
-enToday  = input.bool(true, "Add TODAY's first completed 4h candle (H + L)", group = "4h candles", tooltip = "The moment the current session's first 4h candle CLOSES, its high and low join the chart. Yesterday's levels say where price came from; today's first 4h says what this session has actually built so far — and it's the level the rest of the day trades against. Nothing is drawn until that candle closes.")
-enT1C    = input.bool(true, "  + its CLOSE (the strength line)", group = "4h candles", tooltip = "Where the session's opening battle actually SETTLED, not merely where it traded. Holding above it says buyers kept what they took; losing it says the move failed and the first 4h H/L become a range instead. Tagged ▲ held / ▼ lost so the verdict reads without comparing prices.")
+enToday  = input.bool(false, "TODAY's first 4h — HIGH + LOW", group = "4h candles", tooltip = "The moment the current session's first 4h candle CLOSES, its high and low join the chart. Yesterday's levels say where price came from; today's first 4h says what this session has actually built so far — and it's the level the rest of the day trades against. Nothing is drawn until that candle closes.")
+enT1C    = input.bool(true, "TODAY's first 4h — CLOSE (strength line)", group = "4h candles", tooltip = "Where the session's opening battle actually SETTLED, not merely where it traded. Holding above it says buyers kept what they took; losing it says the move failed and the first 4h H/L become a range instead. Tagged ▲ held / ▼ lost so the verdict reads without comparing prices.")
 t1cW     = input.int(2, "  CLOSE line thickness", minval = 1, maxval = 6, group = "4h candles")
 maxC4hCr = input.int(3, "24h market (crypto) — 4h candles to use", minval = 1, maxval = 6, group = "4h candles", tooltip = "A 24h day holds SIX 4h candles. All six is 12 lines and 11 cells — noise. 3 keeps the newest 12 hours of yesterday = 6 lines, matching the weight stocks get from their 4.")
 enOpen  = input.bool(true, "Mark today's open (subtle) + tag it vs prior-day PDH/PDL", group = "Day open")
@@ -277,15 +277,16 @@ if barstate.islast
 
     // ── TODAY's first completed 4h candle — drawn once it closes, named apart from yesterday's
     //    so you always know which session a level belongs to.
-    if enToday and not na(t1H) and not na(t1L) and not na(t1T)
+    // The H/L and the CLOSE are INDEPENDENT toggles. The close is the strength read — where the
+    // session's opening battle actually settled, not merely where it traded — so it stands on its
+    // own, and the H/L can be switched off to keep the chart clean without losing it.
+    if not na(t1T)
         _t1tm = str.format_time(t1T, "HH:mm", syminfo.timezone)
-        f_draw(t1H, "T-4H " + _t1tm + " H")
-        f_draw(t1L, "T-4H " + _t1tm + " L")
-        array.push(_anchors, t1H)
-        array.push(_anchors, t1L)
-        // The CLOSE of that first 4h is the strength read: it's where the session's opening battle
-        // actually settled, not where it merely traded. Price holding above it = buyers kept what
-        // they took; losing it = the move failed to hold and the H/L become a range instead.
+        if enToday and not na(t1H) and not na(t1L)
+            f_draw(t1H, "T-4H " + _t1tm + " H")
+            f_draw(t1L, "T-4H " + _t1tm + " L")
+            array.push(_anchors, t1H)
+            array.push(_anchors, t1L)
         if enT1C and not na(t1C)
             _cc  = close > t1C ? colLo : colHi
             _cxo = f_xoff(t1C)
