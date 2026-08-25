@@ -10,6 +10,8 @@ they live in `../active/` because that's where the deploy tooling looks).
 | File | On the chart | Notes |
 |------|-------------|-------|
 | **`flat_mas_levels.pine`** ← **the one I load** | **EMA + SMA 5/20/50/100/200 · PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL/PQC** — all in ONE pine | Nothing to forget to enable. Flat locked S/R: green = support (price above) / red = resistance (below). EMA solid · SMA dashed; daily solid · weekly dashed · monthly + quarter dotted (PQ thicker = the major rail). **Proximity band** (default 8%) hides far lines so the chart auto-zooms tight on low TFs (no lock-ratio hack); set 0 to draw all. PQ here is VISUAL only — the alert is in swing_trade. |
+| **`ma_only_proximity.pine`** (Prox MAs) | **8/20/50/100/200 SMA + 20/50/100/200 EMA, flat** — only the N nearest above/below price — plus the **50/200 GOLDEN / DEATH CROSS** tag, daily RSI HUD and the open line | The MA half. Pair with `proximity_levels_pure.pine` for the PDH/PDL-type structural lines. |
+| **`sma_50_200_filter.pine`** (50/200) | **Just the 50 + 200 SMA, flat** + the same GOLDEN / DEATH CROSS tag with the age of the cross | The regime filter on its own — load it beside whichever setup pine you're trading to answer "is this a long candidate at all?". State / cross age / % from each MA also go to the data window. |
 | `monthly_levels.pine` (MLV) | **Prior MONTH H/L/O/C** + ▲ reclaim / △ gap-and-go marks | OPTIONAL detail — adds the O/C levels + reclaim marks the one-pine doesn't. Draws the prior month only. |
 | `weekly_levels.pine` (WLV) | **Prior WEEK H/L/O/C** + ▲ reclaim / △ gap-and-go marks | OPTIONAL detail — same, for the prior week. |
 

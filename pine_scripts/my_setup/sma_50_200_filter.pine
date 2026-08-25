@@ -1,0 +1,124 @@
+//@version=5
+// =============================================================================
+// 50 / 200 SMA · TREND FILTER — the two lines that decide whether you take the trade at all
+// =============================================================================
+// The 50/200 half of "Proximity MAs · Flat", on its own, so it can sit on a chart as a pure
+// REGIME FILTER: is this symbol a long candidate today, or not? Nothing else is drawn — no 8/20,
+// no EMAs, no structural levels. Load it beside whichever setup pine you're actually trading.
+//
+// THE TAG: one label on the pair, sitting on the HIGHER of the two —
+//     "GOLDEN CROSS  ·  50 SMA ABOVE 200 SMA  ·  34 days ago"
+// Golden = 50 above 200 (longs are with the tide). Death = 50 below 200 (every long is a
+// counter-trend trade, and it should have to earn it). The age matters: a cross from last week
+// is not the same trade as a cross from last year — fresh crosses whipsaw, old ones are trend.
+//
+// THE LINES: both drawn FLAT at their current value, role-colored by where price is NOW —
+// green ▲ SUPPORT when price is above, red ▼ RESISTANCE when below. Same convention as every
+// other pine in my_setup/, so a wall reads as a wall no matter which one is loaded.
+//
+// NON-REPAINTING: values are the SETTLED higher-TF SMA (ta.sma(close, len)[1] + lookahead_on) —
+// the ma_ema_daily / proximity_levels_pure idiom. That's yesterday's closed daily 50/200, which is
+// what a flat structural line should be. Turn FLAT off to plot the live sloping curves instead.
+//
+// DATA WINDOW (for filtering): state as 1 / 0, bars since the cross, and price's distance to each
+// MA in % — all plotted to the data window only, so they're readable per-symbol without adding a
+// single pixel to the chart, and usable as a source by another indicator.
+//
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook (my_setup/ rule:
+// chart lines live here, anything that fires lives in ../active/).
+indicator("50 / 200 SMA · Trend Filter", "50/200", overlay = true, max_lines_count = 10, max_labels_count = 20)
+
+// ── the two MAs ─────────────────────────────────────────────────────────────────
+gMA      = "The pair"
+len50    = input.int(50,  "Fast SMA length", group = gMA, minval = 2, tooltip = "The classic pair is 50/200. Change both if you run a different regime definition (20/100, 21/200) — the tag names whatever lengths you set.")
+len200   = input.int(200, "Slow SMA length", group = gMA, minval = 3)
+maTf     = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's SMAs. Default Daily = the structural 50/200-day pair, drawn flat so you can read it on any intraday chart.")
+flatMode = input.bool(true, "FLAT — draw the settled higher-TF SMA as a horizontal line", group = gMA, tooltip = "ON (default) = one flat, non-repainting line per MA at the settled value. OFF = plot the live sloping SMA curves instead (they move intrabar).")
+show50   = input.bool(true, "Draw the fast line", inline = "sh", group = gMA)
+show200  = input.bool(true, "Draw the slow line", inline = "sh", group = gMA)
+
+// ── the state tag ───────────────────────────────────────────────────────────────
+gS        = "Trend state"
+showState = input.bool(true, "Tag the state — GOLDEN CROSS / DEATH CROSS", group = gS)
+stAgeOn   = input.bool(true,  "  Say how long ago the cross happened", group = gS, tooltip = "Appends the age of the current state ('· 34 days ago'). Omitted when no cross exists in the loaded history — scroll back far enough and it appears.")
+stAbove   = input.bool(false, "  Pin the tag above the last bar instead of on the pair", group = gS, tooltip = "OFF (default) = the tag sits on the higher of the two MAs, at the left end of the lines. ON = it rides above the last bar, which keeps a far-away slow MA from pulling the price scale toward it.")
+stUpCol   = input.color(#26A69A, "Golden", inline = "st", group = gS)
+stDnCol   = input.color(#EF5350, "Death",  inline = "st", group = gS)
+stSize    = input.string("normal", "Tag size", options = ["small", "normal", "large"], group = gS)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+supCol    = input.color(#26A69A, "Support (price above)",    group = gV)
+resCol    = input.color(#EF5350, "Resistance (price below)", group = gV)
+wLine     = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+dotted    = input.bool(true, "Draw the MAs dotted (so a MA still reads as a MA)", group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan the two tags apart when the MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars)", group = gV, minval = 1, maxval = 40)
+
+// ── values — SETTLED higher-TF SMA ([1] + lookahead_on). Flat, non-repainting. ──
+tid     = syminfo.tickerid
+flat50  = request.security(tid, maTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
+flat200 = request.security(tid, maTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+live50  = ta.sma(close, len50)
+live200 = ta.sma(close, len200)
+sma50   = flatMode ? flat50  : live50
+sma200  = flatMode ? flat200 : live200
+// age of the current state, in MA-timeframe bars, as of the settled bar
+stAge   = stAgeOn ? request.security(tid, maTf, ta.barssince(ta.cross(ta.sma(close, len50), ta.sma(close, len200)))[1], lookahead = barmerge.lookahead_on) : na
+
+stGold   = not na(sma50) and not na(sma200) and sma50 > sma200
+_stUnit  = maTf == "D" ? " days ago" : maTf == "W" ? " weeks ago" : maTf == "M" ? " months ago" : " bars ago"
+_stAgeTx = na(stAge) ? "" : "  ·  " + str.tostring(stAge, "#") + _stUnit
+stateTxt = (stGold ? "GOLDEN CROSS" : "DEATH CROSS") + "  ·  " + str.tostring(len50) + " SMA " + (stGold ? "ABOVE" : "BELOW") + " " + str.tostring(len200) + " SMA" + _stAgeTx
+stateCol = stGold ? stUpCol : stDnCol
+_stSz    = stSize == "small" ? size.small : stSize == "large" ? size.large : size.normal
+
+// ── flat-line drawing — role-colored, tags fanned apart when the pair is tight ──
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var float[] _drawnY = array.new_float()
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 4) * lblStep
+f_draw(float v, string nm, int w) =>
+    if not na(v) and v > 0
+        col = close > v ? supCol : resCol
+        _xo = f_xoff(v)
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = col, width = w, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
+        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_drawnY)
+    if flatMode
+        f_draw(show200 ? sma200 : na, str.tostring(len200) + " SMA", wLine)
+        f_draw(show50  ? sma50  : na, str.tostring(len50)  + " SMA", wLine)
+    if showState and not na(sma50) and not na(sma200)
+        yPos = math.max(sma50, sma200)
+        if stAbove
+            array.push(_lb, label.new(bar_index, high, stateTxt, yloc = yloc.abovebar, style = label.style_label_down, color = stateCol, textcolor = color.white, size = _stSz))
+        else
+            array.push(_lb, label.new(bar_index - lineLen, yPos, stateTxt, style = label.style_label_down, color = stateCol, textcolor = color.white, size = _stSz))
+
+// ── the live sloping curves, when FLAT is off ──────────────────────────────────
+plot(flatMode or not show50  ? na : live50,  "Fast SMA", color = color.new(#EAB308, 0), linewidth = 2)
+plot(flatMode or not show200 ? na : live200, "Slow SMA", color = color.new(#3B82F6, 0), linewidth = 2)
+
+// ── data window only — the numbers you filter on, zero pixels on the chart ─────
+plot(stGold ? 1 : 0, "State (1 = golden · 0 = death)", display = display.data_window)
+plot(stAge,          "Bars since the cross",           display = display.data_window)
+plot(na(sma50)  ? na : (close - sma50)  / sma50  * 100, "% from fast SMA", display = display.data_window)
+plot(na(sma200) ? na : (close - sma200) / sma200 * 100, "% from slow SMA", display = display.data_window)
