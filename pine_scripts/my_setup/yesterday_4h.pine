@@ -364,26 +364,38 @@ if _pdhLost
 if _pdlLost
     _pdlMk := true
 if enMk and _pdhLost
-    label.new(bar_index, na, "PDH lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.normal)
+    label.new(bar_index, na, "PDH lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.tiny)
 if enMk and _pdlLost
-    label.new(bar_index, na, "PDL lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.normal)
-// 4h-level RECLAIM (bullish "long") markers stay as-is — one per 4h level per session
-var bool[] _marked = array.new_bool(4, false)   // [yh1, yl1, yh2, yl2] — already tagged this session?
+    label.new(bar_index, na, "PDL lost", yloc = yloc.abovebar, style = label.style_label_down, color = colDn, textcolor = color.white, size = size.tiny)
+// MARKERS — RECLAIM / REJECTION ONLY, and both require a WICK through the level first.
+// A plain close through a level (bu_thru / bd_thru) is NOT marked: momentum carrying price
+// past a line says nothing about whether the line was defended. What earns a marker is price
+// PROBING the level and being pushed back:
+//   long  = wick BELOW the level, close back ABOVE it  (rc_below) — the level held as support
+//   short = poke ABOVE the level, close back BELOW it  (rj_above) — the level held as resistance
+// One long and one short per level per session, so a level that keeps getting probed only tags once.
+var bool[] _marked  = array.new_bool(4, false)   // [yh1, yl1, yh2, yl2] — long already tagged?
+var bool[] _markedS = array.new_bool(4, false)   // ...short already tagged? (tracked separately)
 if newBlock
     for _mi = 0 to 3
-        array.set(_marked, _mi, false)
+        array.set(_marked,  _mi, false)
+        array.set(_markedS, _mi, false)
 _mlv  = array.from(yh1,    yl1,    yh2,    yl2)
 _mlvp = array.from(yh1[1], yl1[1], yh2[1], yl2[1])
 newLong  = false
+newShort = false
 if _conf
     for _mi = 0 to 3
-        if not array.get(_marked, _mi)
-            _L  = array.get(_mlv,  _mi)
-            _Lp = array.get(_mlvp, _mi)
-            if bu_thru(_L, _Lp)          // CLOSED above the line — level RECLAIMED → long (no wick)
-                array.set(_marked, _mi, true)
-                newLong := true
-plotshape(enMk and newLong,  "Long",  style = shape.labelup,   location = location.belowbar, color = colUp, textcolor = color.white, text = "long",  size = size.normal)
+        _L  = array.get(_mlv,  _mi)
+        _Lp = array.get(_mlvp, _mi)
+        if not array.get(_marked, _mi) and rc_below(_L, _Lp)    // wicked under, closed back above → LONG
+            array.set(_marked, _mi, true)
+            newLong := true
+        if not array.get(_markedS, _mi) and rj_above(_L, _Lp)   // poked above, closed back below → SHORT
+            array.set(_markedS, _mi, true)
+            newShort := true
+plotshape(enMk and newLong,  "Long",  style = shape.labelup,   location = location.belowbar, color = colUp, textcolor = color.white, text = "long",  size = size.tiny)
+plotshape(enMk and newShort, "Short", style = shape.labeldown, location = location.abovebar, color = colDn, textcolor = color.white, text = "short", size = size.tiny)
 
 // nearby_levels = ONLY the two 4h candles' H/L (purely 4h — backend targets off these alone)
 f_nl() =>
