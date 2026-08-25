@@ -1,0 +1,84 @@
+//@version=5
+// =============================================================================
+// DAILY 50/200 SMA — flat lines + 4-STATE trend read (structure + price)
+//   50 > 200 & price above both  -> BULLISH        (trade long freely)
+//   50 > 200 & price below both  -> RECLAIM WATCH  (wait for 200 reclaim)
+//   50 < 200 & price below both  -> BEARISH        (downtrend, avoid/short)
+//   50 < 200 & price above both  -> RECOVERY WATCH (potential turn)
+//   price between the two        -> MIXED
+//
+// Tags spell the ROLE, no price (house style — the price is already on the axis; the word is what
+// has to register). VISUAL ONLY: no alertcondition, nothing emitted to the webhook.
+// =============================================================================
+indicator("Daily 50/200 SMA — Trend State", overlay = true, max_lines_count = 10, max_labels_count = 10)
+
+// --- Inputs ------------------------------------------------------------------
+htf      = input.timeframe("D", "Lock timeframe")
+len50    = input.int(50,  "SMA 1 length", minval = 2)
+len200   = input.int(200, "SMA 2 length", minval = 2)
+supCol   = input.color(#26A69A, "Support color (price above)")
+resCol   = input.color(#EF5350, "Resistance color (price below)")
+wLine    = input.int(3,  "Line width", minval = 1, maxval = 6)
+lineLen  = input.int(80, "Line length (bars back)", minval = 10, maxval = 500)
+showState= input.bool(true, "Show trend state label")
+
+// --- Pull settled daily SMA values (non-repainting via [1]) ------------------
+tid    = syminfo.tickerid
+sma50  = request.security(tid, htf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
+sma200 = request.security(tid, htf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+
+// --- Determine the 4-state trend read ----------------------------------------
+f_state() =>
+    string txt = na
+    color  col = na
+    if na(sma50) or na(sma200)
+        txt := "NO DATA"
+        col := color.gray
+    else
+        goldenStruct = sma50 > sma200
+        aboveBoth = close > sma50 and close > sma200
+        belowBoth = close < sma50 and close < sma200
+        if goldenStruct and aboveBoth
+            txt := "BULLISH  (50>200 · price above both)"
+            col := color.new(color.green, 10)
+        else if goldenStruct and belowBoth
+            txt := "RECLAIM WATCH  (50>200 but price below — wait for 200 reclaim)"
+            col := color.new(color.orange, 10)
+        else if not goldenStruct and belowBoth
+            txt := "BEARISH  (50<200 · price below both)"
+            col := color.new(color.red, 10)
+        else if not goldenStruct and aboveBoth
+            txt := "RECOVERY WATCH  (50<200 but price above — potential turn)"
+            col := color.new(color.blue, 10)
+        else
+            txt := "MIXED  (price between 50 & 200)"
+            col := color.new(color.gray, 10)
+    [txt, col]
+
+[stateTxt, stateCol] = f_state()
+
+// --- Draw flat lines + labels (redraw on last bar only) ----------------------
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+
+f_draw(float lvl, string nm, int w) =>
+    if not na(lvl) and lvl > 0
+        col = close > lvl ? supCol : resCol
+        role = close > lvl ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"
+        array.push(_ln, line.new(bar_index - lineLen, lvl, bar_index + 8, lvl, color = col, width = w, style = line.style_solid))
+        array.push(_lb, label.new(bar_index + 8, lvl, nm + role, style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+
+    f_draw(sma200, str.tostring(len200) + " SMA", wLine)
+    f_draw(sma50,  str.tostring(len50) + " SMA",  wLine)
+
+    if showState and not na(sma50) and not na(sma200)
+        yPos = math.max(sma50, sma200)
+        array.push(_lb, label.new(bar_index - lineLen, yPos, stateTxt, style = label.style_label_down, color = stateCol, textcolor = color.white, size = size.normal))
