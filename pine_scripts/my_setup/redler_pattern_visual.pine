@@ -5,6 +5,8 @@
 //   • Daily MA flat S/R lines — 8/21/50/100/200 EMA + 50/100/200 SMA (settled [1]+lookahead_on),
 //     role-colored (green = support below price, red = resistance above).
 //   • PDH / PDL flat lines — ALWAYS drawn.
+//   • CONFLUENCE MERGE — levels within ±0.20% collapse into ONE line naming every member
+//     ("EMA 21 · SMA 50 · PWH ·×3"), drawn thicker. Identity kept, clutter gone.
 //   • Structural levels (PWH/PWL · PMH/PML · PQH/PQL · PDC) on their OWN neighbour count.
 //   • Proximity bracket around the OPEN — only the N nearest MAs each side draw (far 200s hide),
 //     with separate above/below counts. PDH/PDL are EXEMPT and always draw.
@@ -45,6 +47,7 @@ show_pdc   = input.bool(true,  "  · PDC — prior-day close",     group = gLv)
 flat_sup_col = input.color(#26A69A, "Support (price above)",    group = "Style", inline = "c")
 flat_res_col = input.color(#EF5350, "Resistance (price below)", group = "Style", inline = "c")
 flat_len     = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Style")
+merge_pct    = input.float(0.20, "Merge levels within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = "Style", tooltip = "Levels stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 21 · SMA 50 · PWH ·×3'). You still know exactly which levels are there — you just stop reading three labels printed on top of each other. A merged line draws thicker, because that IS the information: three levels at one price is a wall. 0 = draw every level separately.") / 100.0
 
 // ── proximity bracket around the open ───────────────────────────────────────────
 flat_prox = input.bool(true, "Proximity: only the N nearest MAs above/below the OPEN", group = "Proximity", tooltip = "Applies to the EMA/SMA lines ONLY — a far 200 EMA stays hidden until price approaches it. PDH and PDL are NEVER gated: they're the day's rails and hiding them is the one thing this chart can't afford. Off = draw every enabled MA.")
@@ -96,15 +99,18 @@ collect_lvl(float[] up, float[] dn, float v, bool show, float ref) =>
 in_bracket(float v, float ref, float aCut, float bCut, bool on) => not on or na(v) or (v >= ref and v <= aCut) or (v <= ref and v >= bCut)
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
-flat_draw(float lvl, string nm, bool dotted, bool show) =>
-    if show and not na(lvl)
-        sup = is_support(lvl)
-        col = sup ? flat_sup_col : flat_res_col
-        ln  = line.new(bar_index - flat_len, lvl, bar_index + 6, lvl, color = col, width = 2, style = dotted ? line.style_dotted : line.style_solid)
-        lb  = label.new(bar_index + 6, lvl, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lvl, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
-        array.push(_ln, ln)
-        array.push(_lb, lb)
-
+// everything that survived its bracket is QUEUED here, then merged and drawn in one pass —
+// drawing each level as it's decided is what produced stacks of overlapping labels.
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var bool[]   _qd = array.new_bool()      // dotted? (levels dotted, MAs solid)
+queue_lvl(float v, string nm, bool dotted, bool show) =>
+    if show and not na(v)
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qd, dotted)
+// (flat_draw removed — every level is now queued and drawn by the merge pass below, so a
+//  cluster becomes ONE labelled line instead of a stack of overlapping ones.)
 if show_lines and barstate.islast
     if array.size(_ln) > 0
         for i = 0 to array.size(_ln) - 1
@@ -114,6 +120,9 @@ if show_lines and barstate.islast
         for i = 0 to array.size(_lb) - 1
             label.delete(array.get(_lb, i))
         array.clear(_lb)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qd)
     // proximity bracket around the open
     _popen = na(day_open) ? close : day_open
     _up = array.new_float()
@@ -132,17 +141,17 @@ if show_lines and barstate.islast
     array.sort(_dn, order.descending)
     _aCut = nbr_up <= 0 or array.size(_up) == 0 ? (nbr_up <= 0 ? -1.0 : 1e18) : array.get(_up, math.min(nbr_up, array.size(_up)) - 1)
     _bCut = nbr_dn <= 0 or array.size(_dn) == 0 ? (nbr_dn <= 0 ? 1e18 : -1.0) : array.get(_dn, math.min(nbr_dn, array.size(_dn)) - 1)
-    flat_draw(ema8,   "EMA 8",   false, show_ema8   and in_bracket(ema8,   _popen, _aCut, _bCut, flat_prox))
-    flat_draw(ema21,  "EMA 21",  false, show_ema21  and in_bracket(ema21,  _popen, _aCut, _bCut, flat_prox))
-    flat_draw(ema50,  "EMA 50",  false, show_ema50  and in_bracket(ema50,  _popen, _aCut, _bCut, flat_prox))
-    flat_draw(ema100, "EMA 100", false, show_ema100 and in_bracket(ema100, _popen, _aCut, _bCut, flat_prox))
-    flat_draw(ema200, "EMA 200", false, show_ema200 and in_bracket(ema200, _popen, _aCut, _bCut, flat_prox))
-    flat_draw(sma50,  "SMA 50",  true,  show_sma50  and in_bracket(sma50,  _popen, _aCut, _bCut, flat_prox))
-    flat_draw(sma100, "SMA 100", true,  show_sma100 and in_bracket(sma100, _popen, _aCut, _bCut, flat_prox))
-    flat_draw(sma200, "SMA 200", true,  show_sma200 and in_bracket(sma200, _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(ema8,   "EMA 8",   false, show_ema8   and in_bracket(ema8,   _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(ema21,  "EMA 21",  false, show_ema21  and in_bracket(ema21,  _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(ema50,  "EMA 50",  false, show_ema50  and in_bracket(ema50,  _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(ema100, "EMA 100", false, show_ema100 and in_bracket(ema100, _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(ema200, "EMA 200", false, show_ema200 and in_bracket(ema200, _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(sma50,  "SMA 50",  true,  show_sma50  and in_bracket(sma50,  _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(sma100, "SMA 100", true,  show_sma100 and in_bracket(sma100, _popen, _aCut, _bCut, flat_prox))
+    queue_lvl(sma200, "SMA 200", true,  show_sma200 and in_bracket(sma200, _popen, _aCut, _bCut, flat_prox))
     // the day's rails — ALWAYS drawn, never proximity-gated
-    flat_draw(pdh, "PDH", false, show_pdh)
-    flat_draw(pdl, "PDL", false, show_pdl)
+    queue_lvl(pdh, "PDH", false, show_pdh)
+    queue_lvl(pdl, "PDL", false, show_pdl)
     // ── structural levels — their OWN bracket, computed over only these candidates so the
     //    MA count and the level count never spend each other's slots
     if show_lvls
@@ -159,13 +168,52 @@ if show_lines and barstate.islast
         array.sort(_ldn, order.descending)
         _laCut = lvl_up <= 0 or array.size(_lup) == 0 ? (lvl_up <= 0 ? -1.0 : 1e18) : array.get(_lup, math.min(lvl_up, array.size(_lup)) - 1)
         _lbCut = lvl_dn <= 0 or array.size(_ldn) == 0 ? (lvl_dn <= 0 ? 1e18 : -1.0) : array.get(_ldn, math.min(lvl_dn, array.size(_ldn)) - 1)
-        flat_draw(pwh, "PWH", true, show_pw  and in_bracket(pwh, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pwl, "PWL", true, show_pw  and in_bracket(pwl, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pmh, "PMH", true, show_pm  and in_bracket(pmh, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pml, "PML", true, show_pm  and in_bracket(pml, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pqh, "PQH", true, show_pq  and in_bracket(pqh, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pql, "PQL", true, show_pq  and in_bracket(pql, _popen, _laCut, _lbCut, flat_prox))
-        flat_draw(pdc, "PDC", true, show_pdc and in_bracket(pdc, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pwh, "PWH", true, show_pw  and in_bracket(pwh, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pwl, "PWL", true, show_pw  and in_bracket(pwl, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pmh, "PMH", true, show_pm  and in_bracket(pmh, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pml, "PML", true, show_pm  and in_bracket(pml, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pqh, "PQH", true, show_pq  and in_bracket(pqh, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pql, "PQL", true, show_pq  and in_bracket(pql, _popen, _laCut, _lbCut, flat_prox))
+        queue_lvl(pdc, "PDC", true, show_pdc and in_bracket(pdc, _popen, _laCut, _lbCut, flat_prox))
+    // ── MERGE + DRAW — levels stacked within merge_pct collapse into ONE line that NAMES every
+    //    member. You keep the identity ("EMA 21 · SMA 50 · PWH ·×3") and lose the pile of labels
+    //    printed on top of each other. The merged line sits on the member NEAREST price — a real
+    //    level, never a fabricated average that lands on none of them — and draws thicker, because
+    //    three levels at one price IS the information.
+    _qn2 = array.size(_qv)
+    if _qn2 > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qn2
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qdot = array.get(_qd, _qs)
+            _qcnt = 1
+            _qnear  = _qhi                        // the member closest to price anchors the line
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qn2
+                _qk = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if merge_pct > 0 and _qv2 <= _qhi * (1.0 + merge_pct)
+                    _qhi  := _qv2
+                    _qnm  := _qnm + " · " + array.get(_qn, _qk)
+                    _qdot := _qdot and array.get(_qd, _qk)      // solid wins — an MA in the cluster keeps it solid
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qcol = _qsup ? flat_sup_col : flat_res_col
+            _qw   = _qcnt > 1 ? 3 : 2
+            array.push(_ln, line.new(bar_index - flat_len, _qnear, bar_index + 6, _qnear, color = _qcol, width = _qw, style = _qdot ? line.style_dotted : line.style_solid))
+            array.push(_lb, label.new(bar_index + 6, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESIST  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + "  " + str.tostring(_qnear, format.mintick), style = label.style_label_left, color = _qcol, textcolor = color.white, size = size.small))
+            _qi := _qj
+
     // today's OPEN + its two neighbors (nearest support below ↔ nearest resistance above)
     if show_open and not na(day_open)
         _ov = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma200, pdh, pdl)
