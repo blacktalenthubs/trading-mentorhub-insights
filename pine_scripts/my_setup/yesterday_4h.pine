@@ -254,7 +254,11 @@ f_sma(float v, string nm) =>
         _c  = close > v ? colLo : colHi
         _xo = f_xoff(v)
         _mst = maStyle == "solid" ? line.style_solid : maStyle == "dotted" ? line.style_dotted : line.style_dashed
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = color.new(_c, maFade), width = maW, style = _mst))
+        // the LINE ends at the shared base column so every MA is exactly as long as a clean 4h line.
+        // Only the LABEL fans right on a price collision — MAs are drawn last, so the fan had been
+        // counting every 4h level, the open, PDC and PDL before them and stretching MA lines for
+        // reasons that had nothing to do with confluence.
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = color.new(_c, maFade), width = maW, style = _mst))
         if showLbl
             array.push(_lb, label.new(bar_index + _xo, v, nm + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 88), textcolor = _c, size = size.small))
 
