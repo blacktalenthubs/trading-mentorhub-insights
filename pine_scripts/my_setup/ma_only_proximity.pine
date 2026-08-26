@@ -1,10 +1,10 @@
 //@version=5
 // =============================================================================
-// PROXIMITY MAs · FLAT — 8/20/50/100/200 SMA + 5/20/50/100/200 EMA as flat levels. NO structural levels.
+// PROXIMITY MAs · FLAT — 8/21/50/100/200 SMA + 8/21/50/100/200 EMA as flat levels. NO structural levels.
 // =============================================================================
 // The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
 // as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
-// price is NOW: every tag spells the ROLE, not the price — "20 SMA ▼ RESISTANCE". The price is
+// price is NOW: every tag spells the ROLE, not the price — "21 SMA ▼ RESISTANCE". The price is
 // already on the axis; the word is there so a wall always registers as a wall. Traders talk
 // themselves through resistance and give the gains back — this makes that harder to do.
 // Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
@@ -21,7 +21,7 @@
 // structural line should be; lookahead_off reads the developing value and shifts intrabar.
 //
 // RECLAIM MARKER: a small ⟲ tag under the bar that CLOSES back above a MA it was beneath, naming
-// which one ("⟲ 8 SMA · 20 EMA" when it takes several at once). Confirmed bars only — it never
+// which one ("⟲ 8 SMA · 21 EMA" when it takes several at once). Confirmed bars only — it never
 // paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
 //
 // LEVEL FALLBACK: when the open is above (or below) EVERY MA, the stack can't define the day — so the
@@ -37,7 +37,7 @@
 // It reads its own 50/200, so unticking those MAs hides the lines without blinding the regime read.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, UPPER name
-// first so it reads top-down the way the lines sit: "Open BTW 50 SMA and 20 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
+// first so it reads top-down the way the lines sit: "Open BTW 50 SMA and 21 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
 // Boxed by two MAs —
 // that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
 // means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
@@ -48,14 +48,14 @@ indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count =
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
-maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/20/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
+maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/21/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
 en8    = input.bool(true, "8 SMA",   inline = "ma1", group = gMA)
-en20   = input.bool(true, "20 SMA",  inline = "ma1", group = gMA)
+en21   = input.bool(true, "21 SMA",  inline = "ma1", group = gMA)
 en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
 en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
 en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
-en5e   = input.bool(true, "5 EMA",   inline = "ma3", group = gMA)
-en20e  = input.bool(true, "20 EMA",  inline = "ma3", group = gMA)
+en8e   = input.bool(true, "8 EMA",   inline = "ma3", group = gMA)
+en21e  = input.bool(true, "21 EMA",  inline = "ma3", group = gMA)
 en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
 en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
 en200e = input.bool(true, "200 EMA", inline = "ma3", group = gMA)
@@ -110,12 +110,12 @@ lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval =
 // (each call written out in full — a request.security wrapped in a helper that also branches is the
 //  one shape that bites; this is the exact form proximity_levels_pure / ma_ema_daily already use)
 sma8v   = en8    ? request.security(syminfo.tickerid, maTf, ta.sma(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
-sma20v  = en20   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on) : na
+sma21v  = en21   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 21)[1],  lookahead = barmerge.lookahead_on) : na
 sma50v  = en50   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 sma100v = en100  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on) : na
 sma200v = en200  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
-ema5v   = en5e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on) : na
-ema20v  = en20e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 20)[1],  lookahead = barmerge.lookahead_on) : na
+ema8v   = en8e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
+ema21v  = en21e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on) : na
 ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 ema100v = en100e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on) : na
 ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on) : na
@@ -214,12 +214,12 @@ if barstate.islast
     array.clear(_maN)
     array.clear(_drawnY)
     f_collect(sma8v,   "8 SMA")
-    f_collect(sma20v,  "20 SMA")
+    f_collect(sma21v,  "21 SMA")
     f_collect(sma50v,  "50 SMA")
     f_collect(sma100v, "100 SMA")
     f_collect(sma200v, "200 SMA")
-    f_collect(ema5v,   "5 EMA")
-    f_collect(ema20v,  "20 EMA")
+    f_collect(ema8v,   "8 EMA")
+    f_collect(ema21v,  "21 EMA")
     f_collect(ema50v,  "50 EMA")
     f_collect(ema100v, "100 EMA")
     f_collect(ema200v, "200 EMA")
@@ -332,31 +332,31 @@ if barstate.islast
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
 _up8    = ta.crossover(close, sma8v)
-_up20   = ta.crossover(close, sma20v)
+_up21   = ta.crossover(close, sma21v)
 _up50   = ta.crossover(close, sma50v)
 _up100  = ta.crossover(close, sma100v)
 _up200  = ta.crossover(close, sma200v)
-_up5e   = ta.crossover(close, ema5v)
-_up20e  = ta.crossover(close, ema20v)
+_up8e   = ta.crossover(close, ema8v)
+_up21e  = ta.crossover(close, ema21v)
 _up50e  = ta.crossover(close, ema50v)
 _up100e = ta.crossover(close, ema100v)
 _up200e = ta.crossover(close, ema200v)
 _dn8    = ta.crossunder(close, sma8v)
-_dn20   = ta.crossunder(close, sma20v)
+_dn21   = ta.crossunder(close, sma21v)
 _dn50   = ta.crossunder(close, sma50v)
 _dn100  = ta.crossunder(close, sma100v)
 _dn200  = ta.crossunder(close, sma200v)
-_dn5e   = ta.crossunder(close, ema5v)
-_dn20e  = ta.crossunder(close, ema20v)
+_dn8e   = ta.crossunder(close, ema8v)
+_dn21e  = ta.crossunder(close, ema21v)
 _dn50e  = ta.crossunder(close, ema50v)
 _dn100e = ta.crossunder(close, ema100v)
 _dn200e = ta.crossunder(close, ema200v)
 f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
 _rcTxt = ""
-_rcTxt := f_join(_rcTxt, _up5e,   "5 EMA")
+_rcTxt := f_join(_rcTxt, _up8e,   "8 EMA")
 _rcTxt := f_join(_rcTxt, _up8,    "8 SMA")
-_rcTxt := f_join(_rcTxt, _up20,   "20 SMA")
-_rcTxt := f_join(_rcTxt, _up20e,  "20 EMA")
+_rcTxt := f_join(_rcTxt, _up21,   "21 SMA")
+_rcTxt := f_join(_rcTxt, _up21e,  "21 EMA")
 _rcTxt := f_join(_rcTxt, _up50,   "50 SMA")
 _rcTxt := f_join(_rcTxt, _up50e,  "50 EMA")
 _rcTxt := f_join(_rcTxt, _up100,  "100 SMA")
@@ -364,10 +364,10 @@ _rcTxt := f_join(_rcTxt, _up100e, "100 EMA")
 _rcTxt := f_join(_rcTxt, _up200,  "200 SMA")
 _rcTxt := f_join(_rcTxt, _up200e, "200 EMA")
 _lsTxt = ""
-_lsTxt := f_join(_lsTxt, _dn5e,   "5 EMA")
+_lsTxt := f_join(_lsTxt, _dn8e,   "8 EMA")
 _lsTxt := f_join(_lsTxt, _dn8,    "8 SMA")
-_lsTxt := f_join(_lsTxt, _dn20,   "20 SMA")
-_lsTxt := f_join(_lsTxt, _dn20e,  "20 EMA")
+_lsTxt := f_join(_lsTxt, _dn21,   "21 SMA")
+_lsTxt := f_join(_lsTxt, _dn21e,  "21 EMA")
 _lsTxt := f_join(_lsTxt, _dn50,   "50 SMA")
 _lsTxt := f_join(_lsTxt, _dn50e,  "50 EMA")
 _lsTxt := f_join(_lsTxt, _dn100,  "100 SMA")
