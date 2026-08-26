@@ -172,6 +172,17 @@ FUTURES_SESSION_SYMBOLS: frozenset[str] = frozenset({
     "ES1!", "NQ1!", "MES1!", "MNQ1!",
 })
 
+# RTH gate (2026-08-26) — equities route only during 09:30-16:00 ET. Premarket and
+# after-hours fires are persisted with suppressed_reason="outside_rth" and summarised
+# in one digest at the open, instead of pinging through the pre/post session.
+# SPY/QQQ are exempt: they're the tape every other name is read against, and their
+# premarket levels are how the open gets planned. Editable via env (comma-separated).
+RTH_EXEMPT_SYMBOLS: frozenset[str] = frozenset(
+    s.strip().upper()
+    for s in os.getenv("RTH_EXEMPT_SYMBOLS", "SPY,QQQ").split(",")
+    if s.strip()
+)
+
 # Spec 61 — index/core allow-list EXEMPT from the SPY-below-PDL buy block.
 # On a downtrend day (SPY < PDL) we still trust these liquid index levels and
 # they're few alerts (vs 40 stocks), so their buys keep flowing while every
@@ -513,15 +524,96 @@ def _btc_below_pdl_now() -> Optional[bool]:
     return bool(snap.get("below_pdl"))
 
 
-def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
-    """Returns True if a futures symbol's alert fires outside the trading window.
+def _is_crypto_symbol(symbol: str) -> bool:
+    """Crypto detection that survives TradingView's ticker format.
 
-    For symbols in FUTURES_SESSION_SYMBOLS, suppress alerts outside of
-    04:00 – 16:00 America/New_York, Mon-Fri. All other symbols always
-    return False (no window applied — they use their own existing routing).
+    config.CRYPTO_ALERT_SYMBOLS holds yfinance-style tickers ("BTC-USD"), but TV
+    posts "BTCUSD" / "BINANCE:BTCUSDT". Matching only the config set would leave a
+    24h market silenced by the RTH gate outside 09:30-16:00 — so normalise first
+    (drop exchange prefix and separators) and also accept the quote-currency form.
+    """
+    sym = (symbol or "").upper()
+    if not sym:
+        return False
+    try:
+        from config import is_crypto_alert_symbol
+        if is_crypto_alert_symbol(sym):
+            return True
+    except Exception:
+        pass
+    bare = sym.split(":")[-1].replace("-", "").replace("/", "").replace("_", "")
+    try:
+        from config import CRYPTO_ALERT_SYMBOLS
+        bases = {c.split("-")[0].replace("-", "") for c in CRYPTO_ALERT_SYMBOLS}
+    except Exception:
+        bases = {"BTC", "ETH"}
+    for quote in ("USDT", "USDC", "USD", "PERP"):
+        if bare.endswith(quote) and bare[: -len(quote)] in bases:
+            return True
+    return False
+
+
+def session_suppress_reason(
+    symbol: str,
+    now: Optional[datetime] = None,
+    allow_premarket: bool = False,
+    allow_afterhours: bool = False,
+    exempt: Optional[frozenset[str]] = None,
+) -> Optional[str]:
+    """Why (if at all) this symbol's alert should be suppressed for the clock.
+
+    Returns a suppression reason string, or None to let the alert route.
+
+      • crypto              -> None, always. 24h market, no session to be outside of.
+      • futures             -> "outside_session" outside 04:00-16:00 ET Mon-Fri (unchanged).
+      • RTH_EXEMPT_SYMBOLS  -> None. SPY/QQQ keep firing pre/post market: they're the
+                               tape everything else is read against, and their premarket
+                               levels are how the open gets planned.
+      • every other equity  -> "outside_rth" outside 09:30-16:00 ET Mon-Fri.
+
+    Equities were meant to self-gate to RTH in the Pine alert config; in practice
+    premarket fires still arrive, so the gate is enforced here where it can't be
+    bypassed by a chart's extended-hours setting.
 
     `now` is optional for testability — defaults to current ET time.
     """
+    sym = (symbol or "").upper()
+    if _is_crypto_symbol(sym):
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo("America/New_York")
+    except ImportError:
+        return None
+    if now is None:
+        now = datetime.now(et)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=et)
+    now_et = now.astimezone(et)
+    weekend = now_et.weekday() >= 5
+    if sym in FUTURES_SESSION_SYMBOLS:
+        if weekend or now_et.hour < 4 or now_et.hour >= 16:
+            return "outside_session"
+        return None
+    if sym in (RTH_EXEMPT_SYMBOLS if exempt is None else exempt):
+        return None
+    if weekend:
+        return "outside_rth"
+    mins = now_et.hour * 60 + now_et.minute
+    if mins < 9 * 60 + 30:
+        return None if allow_premarket else "outside_rth"
+    if mins >= 16 * 60:
+        return None if allow_afterhours else "outside_rth"
+    return None
+
+
+def is_outside_session_window(symbol: str, now: Optional[datetime] = None) -> bool:
+    """Back-compat boolean wrapper around session_suppress_reason()."""
+    return session_suppress_reason(symbol, now) is not None
+
+
+def _legacy_futures_window(symbol: str, now: Optional[datetime] = None) -> bool:
+    """The original futures-only window, kept for reference/tests."""
     if symbol not in FUTURES_SESSION_SYMBOLS:
         return False
     try:
@@ -1990,14 +2082,23 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # 04:00–16:00 ET Mon-Fri so overnight Asian/Sunday-night chop doesn't
     # blow up Telegram. Suppressed alerts still persist (unrouted), visible
     # in the 'Not routed' feed for review.
-    if is_outside_session_window(sig.symbol):
+    # Settings-driven (regime_config): premarket / after-hours each toggle
+    # independently, and the exempt list is editable live. Defaults keep equities
+    # RTH-only with SPY/QQQ exempt.
+    _allow_pre = (_rc.get("premarket_alerts_enabled", "false") or "false").strip().lower() in ("1", "true", "yes", "on")
+    _allow_post = (_rc.get("afterhours_alerts_enabled", "false") or "false").strip().lower() in ("1", "true", "yes", "on")
+    _rth_exempt = _parse_exempt_syms(_rc.get("rth_exempt_symbols")) or RTH_EXEMPT_SYMBOLS
+    _sess_reason = session_suppress_reason(
+        sig.symbol, allow_premarket=_allow_pre, allow_afterhours=_allow_post, exempt=_rth_exempt,
+    )
+    if _sess_reason:
         logger.info(
-            "TV webhook: outside session suppressed %s for %s",
-            alert_type_full, sig.symbol,
+            "TV webhook: %s suppressed %s for %s",
+            _sess_reason, alert_type_full, sig.symbol,
         )
         return await _persist_unrouted(
             sig, alert_type_full, session_date,
-            suppressed_reason="outside_session",
+            suppressed_reason=_sess_reason,
         )
 
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either

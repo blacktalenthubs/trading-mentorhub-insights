@@ -1386,6 +1386,70 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Failed to register Social Buzz cron")
 
+        # Outside-RTH digest — equity alerts that fired premarket or after-hours are
+        # persisted with suppressed_reason="outside_rth" instead of pinging through the
+        # pre/post session (SPY/QQQ are exempt and route live). One summary at 9:35 ET
+        # gives the gap information back without the individual interruptions.
+        # Set OUTSIDE_RTH_DIGEST_ENABLED=0 to disable.
+        if os.environ.get("OUTSIDE_RTH_DIGEST_ENABLED", "true").lower() not in ("0", "false", "no"):
+            try:
+                from apscheduler.triggers.cron import CronTrigger as _CT_ORD
+                import pytz as _pytz_ord
+                _et_ord = _pytz_ord.timezone("America/New_York")
+
+                def _outside_rth_digest():
+                    try:
+                        from datetime import datetime as _dt, timedelta as _td
+                        from sqlalchemy import select as _select
+                        from api.app.models.alert import Alert as _Alert
+                        from alerting.notifier import _send_telegram as _tg
+
+                        _since = _dt.utcnow() - _td(hours=18)
+                        with sync_session_factory() as _s:
+                            _rows = _s.execute(
+                                _select(_Alert.symbol, _Alert.alert_type, _Alert.direction, _Alert.price)
+                                .where(_Alert.suppressed_reason == "outside_rth")
+                                .where(_Alert.created_at >= _since)
+                            ).all()
+                        if not _rows:
+                            logger.info("Outside-RTH digest: nothing suppressed overnight")
+                            return
+                        # collapse to one line per symbol+direction — the same name firing
+                        # five times premarket is one fact, not five
+                        _seen: dict[tuple[str, str], dict] = {}
+                        for _sym, _at, _dir, _px in _rows:
+                            _k = (_sym, (_dir or "").upper())
+                            _e = _seen.get(_k)
+                            if _e is None:
+                                _seen[_k] = {"n": 1, "types": {_at}, "px": _px}
+                            else:
+                                _e["n"] += 1
+                                _e["types"].add(_at)
+                        _lines = []
+                        for (_sym, _dir), _e in sorted(_seen.items(), key=lambda kv: -kv[1]["n"]):
+                            _arrow = "▲" if _dir == "BUY" else "▼" if _dir == "SHORT" else "•"
+                            _extra = f" ×{_e['n']}" if _e["n"] > 1 else ""
+                            _lines.append(f"{_arrow} {_sym}{_extra} — {', '.join(sorted(_e['types']))[:60]}")
+                        _body = (
+                            "🌙 <b>Outside-RTH digest</b>\n"
+                            f"{len(_rows)} alert(s) fired pre/post market and were held back.\n\n"
+                            + "\n".join(_lines[:25])
+                            + ("\n…" if len(_lines) > 25 else "")
+                        )
+                        _tg(_body)
+                        logger.info("Outside-RTH digest sent: %d rows, %d symbols", len(_rows), len(_seen))
+                    except Exception:
+                        logger.exception("Outside-RTH digest failed")
+
+                scheduler.add_job(
+                    _outside_rth_digest,
+                    _CT_ORD(day_of_week="mon-fri", hour=9, minute=35, timezone=_et_ord),
+                    id="outside_rth_digest", misfire_grace_time=600, replace_existing=True,
+                )
+                logger.info("Registered Outside-RTH digest cron: 9:35 ET Mon-Fri")
+            except Exception:
+                logger.exception("Outside-RTH digest cron registration failed")
+
         # Premarket Gap Board — scan watchlist ∪ universe for premarket gappers
         # every 15 min during the premarket window (7:00-9:45 ET, Mon-Fri) so the
         # board is ready before the open. Set PREMARKET_GAPS_ENABLED=0 to disable.
