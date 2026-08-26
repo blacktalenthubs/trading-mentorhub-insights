@@ -179,13 +179,17 @@ if _newDayY or array.size(yV) == 0
                     array.push(_idx, _yi)
             _start = math.max(0, array.size(_idx) - maxC4h)
             if array.size(_idx) > 0
-                for _k = _start to array.size(_idx) - 1
+                // numbered by RECENCY, newest = 1. A clock time ("4H 09:30 H") is detail you can't
+                // act on; how recent the candle is, is exactly what you weigh. Matches the naming
+                // the fourh_* alert payloads already use.
+                _lastK = array.size(_idx) - 1
+                for _k = _start to _lastK
                     _ii  = array.get(_idx, _k)
-                    _tmY = str.format_time(array.get(aT, _ii), "HH:mm", syminfo.timezone)
+                    _age = str.tostring(_lastK - _k + 1)
                     array.push(yV, array.get(aH, _ii))
-                    array.push(yN, "4H " + _tmY + " H")
+                    array.push(yN, "4H-" + _age + " H")
                     array.push(yV, array.get(aL, _ii))
-                    array.push(yN, "4H " + _tmY + " L")
+                    array.push(yN, "4H-" + _age + " L")
 
 // ── draw (rebuilt on the last bar) ─────────────────────────────────────────────
 var line[]  _ln = array.new_line()
@@ -288,10 +292,9 @@ if barstate.islast
     // session's opening battle actually settled, not merely where it traded — so it stands on its
     // own, and the H/L can be switched off to keep the chart clean without losing it.
     if not na(t1T)
-        _t1tm = str.format_time(t1T, "HH:mm", syminfo.timezone)
         if enToday and not na(t1H) and not na(t1L)
-            f_draw(t1H, "T-4H " + _t1tm + " H")
-            f_draw(t1L, "T-4H " + _t1tm + " L")
+            f_draw(t1H, "T-4H H")
+            f_draw(t1L, "T-4H L")
             array.push(_anchors, t1H)
             array.push(_anchors, t1L)
         if enT1C and enT1Bar and not na(t1B) and t1B >= 0
@@ -301,7 +304,7 @@ if barstate.islast
             _cxo = f_xoff(t1C)
             array.push(_ln, line.new(bar_index - lineLen, t1C, bar_index + _cxo, t1C, color = _cc, width = t1cW, style = line.style_dashed))
             if showLbl
-                array.push(_lb, label.new(bar_index + _cxo, t1C, "T-4H " + _t1tm + " CLOSE" + (close > t1C ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = color.new(_cc, 70), textcolor = _cc, size = size.small))
+                array.push(_lb, label.new(bar_index + _cxo, t1C, "T-4H CLOSE" + (close > t1C ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = color.new(_cc, 70), textcolor = _cc, size = size.small))
             array.push(_anchors, t1C)
 
     // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
