@@ -16,6 +16,12 @@ tagOff  = input.int(6,  "Label offset (bars right)", minval = 0, maxval = 50)
 showLbl = input.bool(true, "Show labels")
 lblGap  = input.float(0.4, "Stagger labels closer than ± % (so confluent lines don't overlap)", minval = 0.05, maxval = 5, step = 0.05) / 100.0
 lblStep = input.int(3, "Label stagger step (bars per collision)", minval = 1, maxval = 40)
+// ── higher-low structure across consecutive 4h candles ──────────────────────────
+gHL     = "4h higher-low structure"
+enHL    = input.bool(true, "Count consecutive 4h HIGHER LOWS on the candle tails", group = gHL, tooltip = "Each 4h candle whose LOW is above the previous 4h low continues the streak and gets its number on its tail: 1, 2, 3… A candle that undercuts the prior low BREAKS the structure — it gets ✕ and the count restarts from there. The number is how many 4h candles the uptrend has actually held for; the ✕ is the bar that ended it.")
+hlN     = input.int(8, "How many recent 4h candles to mark", minval = 2, maxval = 40, group = gHL)
+hlUpCol = input.color(color.new(#26A69A, 0), "Streak", inline = "hl", group = gHL)
+hlXCol  = input.color(color.new(#EF5350, 0), "Break",  inline = "hl", group = gHL)
 // How much of yesterday to carry forward. Set PER MARKET TYPE, because "yesterday" isn't the same
 // length: equity RTH holds two completed 4h candles, a 24h market holds six. One shared number would
 // either starve stocks or flood crypto, and you'd be editing it every time you switched symbol.
@@ -117,6 +123,7 @@ f_conf(float v) =>
 var float[] aH = array.new_float()
 var float[] aL = array.new_float()
 var int[]   aT = array.new_int()
+var int[]   aB = array.new_int()     // bar_index of the LAST chart bar inside each 4h block
 // TODAY's first completed 4h candle — captured the moment it lands, cleared at each new session.
 // Yesterday's set answers "where did price come from"; this answers "what has today built".
 var float t1H = na
@@ -146,10 +153,12 @@ if not na(h4) and not na(l4) and not na(t4)
         array.push(aH, h4)
         array.push(aL, l4)
         array.push(aT, t4)
+        array.push(aB, bar_index - 1)     // the settled value lands on the next block's first bar
         if array.size(aT) > 40
             array.shift(aH)
             array.shift(aL)
             array.shift(aT)
+            array.shift(aB)
 
 // ── YESTERDAY's COMPLETE 4h set, rebuilt once per day and frozen. On equity RTH that's the two
 //    completed 4h candles (4 levels). On a 24h market like BTC it's all SIX (12 levels) — the
@@ -306,6 +315,21 @@ if barstate.islast
             if showLbl
                 array.push(_lb, label.new(bar_index + _cxo, t1C, (close > t1C ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + "T-4H CLOSE", style = label.style_label_left, color = color.new(_cc, 70), textcolor = _cc, size = size.small))
             array.push(_anchors, t1C)
+
+    // ── HIGHER-LOW STRUCTURE — number each 4h candle that holds a higher low; mark the one that breaks it.
+    //    The streak is recomputed from the start of the stored history so the number shown is the TRUE
+    //    run length, not a count that happens to begin wherever the drawing window starts.
+    if enHL and array.size(aL) > 1 and array.size(aB) == array.size(aL)
+        _hlFrom = math.max(1, array.size(aL) - hlN)
+        _hlRun  = 0
+        for _hi = 1 to array.size(aL) - 1
+            _hlRun := array.get(aL, _hi) > array.get(aL, _hi - 1) ? _hlRun + 1 : 0
+            if _hi >= _hlFrom
+                _hlB = array.get(aB, _hi)
+                if _hlB >= 0
+                    _hlTxt = _hlRun > 0 ? str.tostring(_hlRun) : "✕"
+                    _hlCol = _hlRun > 0 ? hlUpCol : hlXCol
+                    array.push(_lb, label.new(_hlB, array.get(aL, _hi), _hlTxt, yloc = yloc.price, style = label.style_label_up, color = _hlCol, textcolor = color.white, size = size.tiny))
 
     // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
     //    That pair is the cell today started in, and the cell is the range being played.
