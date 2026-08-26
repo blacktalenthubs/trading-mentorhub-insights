@@ -109,35 +109,9 @@ ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50), 
 ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
 ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200), lookahead = barmerge.lookahead_off) : na
 // which prior day/week/month/quarter level(s) — and which MA — a 4h level lines up with (within confPct) → the tag
-f_maTag(float v) =>
-    s = ""
-    if enSma and not na(v) and v > 0
-        s := (not na(sma8v)   and math.abs(v - sma8v)   / v <= confPct) ? s + " · 8SMA"   : s
-        s := (not na(sma20v)  and math.abs(v - sma20v)  / v <= confPct) ? s + " · 20SMA"  : s
-        s := (not na(sma50v)  and math.abs(v - sma50v)  / v <= confPct) ? s + " · 50SMA"  : s
-        s := (not na(sma100v) and math.abs(v - sma100v) / v <= confPct) ? s + " · 100SMA" : s
-        s := (not na(sma200v) and math.abs(v - sma200v) / v <= confPct) ? s + " · 200SMA" : s
-        s := (not na(ema5v)   and math.abs(v - ema5v)   / v <= confPct) ? s + " · 5EMA"   : s
-        s := (not na(ema20v)  and math.abs(v - ema20v)  / v <= confPct) ? s + " · 20EMA"  : s
-        s := (not na(ema50v)  and math.abs(v - ema50v)  / v <= confPct) ? s + " · 50EMA"  : s
-        s := (not na(ema100v) and math.abs(v - ema100v) / v <= confPct) ? s + " · 100EMA" : s
-        s := (not na(ema200v) and math.abs(v - ema200v) / v <= confPct) ? s + " · 200EMA" : s
-    s
-f_conf(float v) =>
-    s = ""
-    if enConf and not na(v) and v > 0
-        s := (not na(pdh) and math.abs(v - pdh) / v <= confPct) ? s + " · PDH" : s
-        s := (not na(pdl) and math.abs(v - pdl) / v <= confPct) ? s + " · PDL" : s
-        s := (not na(pwh) and math.abs(v - pwh) / v <= confPct) ? s + " · PWH" : s
-        s := (not na(pwl) and math.abs(v - pwl) / v <= confPct) ? s + " · PWL" : s
-        s := (not na(pmh) and math.abs(v - pmh) / v <= confPct) ? s + " · PMH" : s
-        s := (not na(pml) and math.abs(v - pml) / v <= confPct) ? s + " · PML" : s
-        s := (not na(pqh) and math.abs(v - pqh) / v <= confPct) ? s + " · PQH" : s
-        s := (not na(pql) and math.abs(v - pql) / v <= confPct) ? s + " · PQL" : s
-        s := (not na(pdc) and math.abs(v - pdc) / v <= confPct) ? s + " · PDC" : s
-    s := s + f_maTag(v)                                 // + any MA that lines up here (folded in, no extra line)
-    s
-
+// (f_maTag / f_conf removed 2026-08-26 — replaced by nearest-OWNER confluence assignment
+//  in the draw block: testing each level independently let one MA be claimed by two
+//  levels whose spacing was tighter than the confluence band.)
 // ── forward-accumulate every DISTINCT completed 4h candle (H, L, open-time), keyed on t4 ───────
 var float[] aH = array.new_float()
 var float[] aL = array.new_float()
@@ -256,9 +230,8 @@ f_xoff(float v) =>
     tagOff + math.min(_c, 4) * lblStep   // cap the stagger so a line can't shoot off to the right
 // Equal-length lines: left end fixed at bar_index - lineLen (no extend.left), right end at the base
 // tagOff — it only extends further right when f_xoff detects a collision (two levels ~same price).
-f_draw(float v, string nm) =>
+f_draw(float v, string nm, string _tag) =>
     _c   = close > v ? colLo : colHi
-    _tag = f_conf(v)                                   // confluence with a prior D/W/M/Q level?
     _w   = str.length(_tag) > 0 ? wLine + 1 : wLine    // bolder when it lines up with one
     _xo  = f_xoff(v)
     array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = _c, width = _w))
@@ -317,6 +290,8 @@ if barstate.islast
         for i = 0 to array.size(_lvV) - 1
             array.push(_anchors, array.get(_lvV, i))     // MAs on these fold into the 4h label, no duplicate line
     // MERGE 4h levels within lvlMergePct → ONE line naming all members (sort, cluster, draw the cluster midpoint)
+    _dV4 = array.new_float()     // drawable levels (merged clusters, then today's H/L)
+    _dN4 = array.new_string()
     _n4 = array.size(_lvV)
     if _n4 > 0
         _ord4 = array.sort_indices(_lvV, order.ascending)
@@ -337,7 +312,8 @@ if barstate.islast
                     _j4  := _j4 + 1
                 else
                     break
-            f_draw((_lo4 + _hi4) / 2.0, _cn4 > 1 ? _nm4 + " ·×" + str.tostring(_cn4) : _nm4)
+            array.push(_dV4, (_lo4 + _hi4) / 2.0)
+            array.push(_dN4, _cn4 > 1 ? _nm4 + " ·×" + str.tostring(_cn4) : _nm4)
             _i4 := _j4
 
     // ── TODAY's first completed 4h candle — drawn once it closes, named apart from yesterday's
@@ -347,10 +323,37 @@ if barstate.islast
     // own, and the H/L can be switched off to keep the chart clean without losing it.
     if not na(t1T)
         if enToday and not na(t1H) and not na(t1L)
-            f_draw(t1H, "T-4H H")
-            f_draw(t1L, "T-4H L")
+            array.push(_dV4, t1H)
+            array.push(_dN4, "T-4H H")
+            array.push(_dV4, t1L)
+            array.push(_dN4, "T-4H L")
             array.push(_anchors, t1H)
             array.push(_anchors, t1L)
+
+    // ── CONFLUENCE OWNERSHIP — each member belongs to ONE level: the nearest.
+    // The old test asked "is this MA within the band of THIS level" for every level
+    // independently, so when two 4h highs sat closer together than the band, a single
+    // MA answered yes to both and the chart claimed the 8 SMA was in two places at once.
+    // Now every candidate picks its closest drawn level and is named only there.
+    _tags4 = array.new_string(array.size(_dV4), "")
+    if array.size(_dV4) > 0
+        _cfV = array.from(enConf ? pdh : na, enConf ? pdl : na, enConf ? pwh : na, enConf ? pwl : na, enConf ? pmh : na, enConf ? pml : na, enConf ? pqh : na, enConf ? pql : na, enConf ? pdc : na, enSma ? ema5v : na, enSma ? sma8v : na, enSma ? sma20v : na, enSma ? ema20v : na, enSma ? sma50v : na, enSma ? sma100v : na, enSma ? sma200v : na, enSma ? ema50v : na, enSma ? ema100v : na, enSma ? ema200v : na)
+        _cfN = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "PDC", "5EMA", "8SMA", "20SMA", "20EMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA")
+        for _fi = 0 to array.size(_cfV) - 1
+            _fv = array.get(_cfV, _fi)
+            if not na(_fv) and _fv > 0
+                _best = -1
+                _bestD = 1.0e18
+                for _gi = 0 to array.size(_dV4) - 1
+                    _gv = array.get(_dV4, _gi)
+                    _d = math.abs(_gv - _fv) / _fv
+                    if _d <= confPct and _d < _bestD
+                        _bestD := _d
+                        _best := _gi
+                if _best >= 0
+                    array.set(_tags4, _best, array.get(_tags4, _best) + " · " + array.get(_cfN, _fi))
+        for _gi = 0 to array.size(_dV4) - 1
+            f_draw(array.get(_dV4, _gi), array.get(_dN4, _gi), array.get(_tags4, _gi))
         if enT1C and enT1Bar and not na(t1B) and t1B >= 0
             array.push(_lb, label.new(t1B, low, "4H close", yloc = yloc.belowbar, style = label.style_label_up, color = t1BarCol, textcolor = color.black, size = size.tiny))
         if enT1C and not na(t1C)
