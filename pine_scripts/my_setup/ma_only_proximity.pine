@@ -10,9 +10,10 @@
 // Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
 //
 // ONE show-rule, no exemptions: a MA draws only inside the nearest-N bracket — the N closest MAs
-// ABOVE price and the N closest BELOW (default 3 each). A far 200 EMA stays hidden until price
-// approaches, so it can never stretch the axis. N means N: nothing bypasses the count and eats a
-// slot, so "3" always puts three lines on each side of price.
+// ABOVE price and the N closest BELOW, each side set independently (default 2 / 2). A far 200 EMA
+// stays hidden until price approaches, so it can never stretch the axis. N means N: nothing bypasses
+// the count and eats a slot, so 2 above puts exactly two lines overhead. 0 on a side draws none
+// there — a one-sided read when you only care what's above you.
 // MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
 //
 // NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
@@ -62,7 +63,8 @@ mergePct = input.float(0.20, "Merge MAs within (%) into one line", group = gMA, 
 
 // ── proximity ───────────────────────────────────────────────────────────────────
 gN        = "Proximity"
-nBracket  = input.int(3, "Show this many NEAREST MAs above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Always draw the N closest MAs ABOVE price and the N closest BELOW — a count, not a %, so every symbol shows the same-size near-price set.")
+nUp       = input.int(2, "MAs to show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest MAs above where price is NOW, and N below — set independently. A count, not a %, so every symbol shows the same-size near-price set. 0 = none that side, which is how you get a one-sided read (e.g. only what's overhead).")
+nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
 
@@ -233,8 +235,9 @@ if barstate.islast
                 array.push(_bl, v)
     array.sort(_ab, order.ascending)     // nearest-above first
     array.sort(_bl, order.descending)    // nearest-below first
-    _brkHi := array.size(_ab) > 0 ? array.get(_ab, math.min(nBracket, array.size(_ab)) - 1) : 1.0e18
-    _brkLo := array.size(_bl) > 0 ? array.get(_bl, math.min(nBracket, array.size(_bl)) - 1) : -1.0
+    // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
+    _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
+    _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
     // ── MERGE stacked MAs into one line, then draw (the bracket test lives in f_draw) ──
     _n = array.size(_maV)
     if _n > 0
