@@ -5,7 +5,8 @@
 //   • Daily MA flat S/R lines — 8/21/50/100/200 EMA + 50/100/200 SMA (settled [1]+lookahead_on),
 //     role-colored (green = support below price, red = resistance above).
 //   • PDH / PDL flat lines.
-//   • Proximity bracket around the OPEN — only the N nearest levels each side draw (far 200s hide).
+//   • Proximity bracket around the OPEN — only the N nearest MAs each side draw (far 200s hide),
+//     with separate above/below counts. PDH/PDL are EXEMPT and always draw.
 //   • Today's OPEN line + its two neighbors (first support ↔ first resistance it battles).
 //   • Tiny PDH/PDL signal text — break (PDH↑) · reclaim (PDL↑) · reject (PDH↓).
 // Non-repainting (settled daily values). Bind on any intraday TF.
@@ -32,8 +33,9 @@ flat_res_col = input.color(#EF5350, "Resistance (price below)", group = "Style",
 flat_len     = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Style")
 
 // ── proximity bracket around the open ───────────────────────────────────────────
-flat_prox = input.bool(true, "Proximity: only the N nearest levels above/below the OPEN", group = "Proximity", tooltip = "Draws only the N nearest levels ABOVE the open and N BELOW — a far 200 EMA/SMA stays hidden until price approaches it, so it can't clutter or stretch the chart. Off = draw every enabled level.")
-flat_nbr  = input.int (3, "  Neighbors each side of the open", minval = 1, maxval = 9, group = "Proximity")
+flat_prox = input.bool(true, "Proximity: only the N nearest MAs above/below the OPEN", group = "Proximity", tooltip = "Applies to the EMA/SMA lines ONLY — a far 200 EMA stays hidden until price approaches it. PDH and PDL are NEVER gated: they're the day's rails and hiding them is the one thing this chart can't afford. Off = draw every enabled MA.")
+nbr_up    = input.int (3, "  MAs to show ABOVE the open", minval = 0, maxval = 9, group = "Proximity", inline = "n")
+nbr_dn    = input.int (3, "  BELOW", minval = 0, maxval = 9, group = "Proximity", inline = "n")
 
 // ── today's open ─────────────────────────────────────────────────────────────────
 show_open = input.bool(true, "Mark today's open + its two neighbors (S ↔ R)", group = "Day open")
@@ -102,12 +104,12 @@ if show_lines and barstate.islast
     collect_lvl(_up, _dn, sma50,  show_sma50,  _popen)
     collect_lvl(_up, _dn, sma100, show_sma100, _popen)
     collect_lvl(_up, _dn, sma200, show_sma200, _popen)
-    collect_lvl(_up, _dn, pdh,    show_pdh,    _popen)
-    collect_lvl(_up, _dn, pdl,    show_pdl,    _popen)
+    // PDH/PDL are deliberately NOT collected: they always draw, so letting them into the
+    // pool would have them eat a slot a moving average should have had.
     array.sort(_up, order.ascending)
     array.sort(_dn, order.descending)
-    _aCut = array.size(_up) > 0 ? array.get(_up, math.min(flat_nbr, array.size(_up)) - 1) : 1e18
-    _bCut = array.size(_dn) > 0 ? array.get(_dn, math.min(flat_nbr, array.size(_dn)) - 1) : -1.0
+    _aCut = nbr_up <= 0 or array.size(_up) == 0 ? (nbr_up <= 0 ? -1.0 : 1e18) : array.get(_up, math.min(nbr_up, array.size(_up)) - 1)
+    _bCut = nbr_dn <= 0 or array.size(_dn) == 0 ? (nbr_dn <= 0 ? 1e18 : -1.0) : array.get(_dn, math.min(nbr_dn, array.size(_dn)) - 1)
     flat_draw(ema8,   "EMA 8",   false, show_ema8   and in_bracket(ema8,   _popen, _aCut, _bCut, flat_prox))
     flat_draw(ema21,  "EMA 21",  false, show_ema21  and in_bracket(ema21,  _popen, _aCut, _bCut, flat_prox))
     flat_draw(ema50,  "EMA 50",  false, show_ema50  and in_bracket(ema50,  _popen, _aCut, _bCut, flat_prox))
@@ -116,8 +118,9 @@ if show_lines and barstate.islast
     flat_draw(sma50,  "SMA 50",  true,  show_sma50  and in_bracket(sma50,  _popen, _aCut, _bCut, flat_prox))
     flat_draw(sma100, "SMA 100", true,  show_sma100 and in_bracket(sma100, _popen, _aCut, _bCut, flat_prox))
     flat_draw(sma200, "SMA 200", true,  show_sma200 and in_bracket(sma200, _popen, _aCut, _bCut, flat_prox))
-    flat_draw(pdh, "PDH", false, show_pdh and in_bracket(pdh, _popen, _aCut, _bCut, flat_prox))
-    flat_draw(pdl, "PDL", false, show_pdl and in_bracket(pdl, _popen, _aCut, _bCut, flat_prox))
+    // the day's rails — ALWAYS drawn, never proximity-gated
+    flat_draw(pdh, "PDH", false, show_pdh)
+    flat_draw(pdl, "PDL", false, show_pdl)
     // today's OPEN + its two neighbors (nearest support below ↔ nearest resistance above)
     if show_open and not na(day_open)
         _ov = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma200, pdh, pdl)
