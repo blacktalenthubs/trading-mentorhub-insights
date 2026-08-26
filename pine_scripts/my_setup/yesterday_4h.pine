@@ -23,6 +23,7 @@ maxC4hEq = input.int(2, "Equity (RTH) — 4h candles to use", minval = 1, maxval
 enToday  = input.bool(false, "TODAY's first 4h — HIGH + LOW", group = "4h candles", tooltip = "The moment the current session's first 4h candle CLOSES, its high and low join the chart. Yesterday's levels say where price came from; today's first 4h says what this session has actually built so far — and it's the level the rest of the day trades against. Nothing is drawn until that candle closes.")
 enT1C    = input.bool(true, "TODAY's first 4h — CLOSE (strength line)", group = "4h candles", tooltip = "Where the session's opening battle actually SETTLED, not merely where it traded. Holding above it says buyers kept what they took; losing it says the move failed and the first 4h H/L become a range instead. Tagged ▲ held / ▼ lost so the verdict reads without comparing prices.")
 t1cW     = input.int(2, "  CLOSE line thickness", minval = 1, maxval = 6, group = "4h candles")
+t1BarCol = input.color(color.new(#EAB308, 0), "  Print-bar tag colour", group = "4h candles", tooltip = "Solid by default so the tag reads at a glance. Amber keeps it distinct from the green/red support-resistance tags — this one marks a MOMENT, not a level.")
 enT1Bar  = input.bool(true, "  Tag the bar that PRINTED that close", group = "4h candles", tooltip = "Marks the last chart candle of that 4h block — on a 30m chart, the 30m candle whose close IS the 4h close. Lets you see exactly which candle set the level instead of inferring it from the clock.")
 maxC4hCr = input.int(3, "24h market (crypto) — 4h candles to use", minval = 1, maxval = 6, group = "4h candles", tooltip = "A 24h day holds SIX 4h candles. All six is 12 lines and 11 cells — noise. 3 keeps the newest 12 hours of yesterday = 6 lines, matching the weight stocks get from their 4.")
 enOpen  = input.bool(true, "Mark today's open (subtle) + tag it vs prior-day PDH/PDL", group = "Day open")
@@ -294,7 +295,7 @@ if barstate.islast
             array.push(_anchors, t1H)
             array.push(_anchors, t1L)
         if enT1C and enT1Bar and not na(t1B) and t1B >= 0
-            array.push(_lb, label.new(t1B, low, "4H close", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(colLo, 60), textcolor = color.white, size = size.tiny))
+            array.push(_lb, label.new(t1B, low, "4H close", yloc = yloc.belowbar, style = label.style_label_up, color = t1BarCol, textcolor = color.black, size = size.tiny))
         if enT1C and not na(t1C)
             _cc  = close > t1C ? colLo : colHi
             _cxo = f_xoff(t1C)
