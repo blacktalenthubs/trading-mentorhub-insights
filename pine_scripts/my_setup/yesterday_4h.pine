@@ -73,7 +73,7 @@ en20   = input.bool(true, "20 SMA",  inline = "s1", group = gSma)
 en50   = input.bool(true, "50 SMA",  inline = "s2", group = gSma)
 en100  = input.bool(true, "100 SMA", inline = "s2", group = gSma)
 en200  = input.bool(true, "200 SMA", inline = "s2", group = gSma)
-en5e   = input.bool(true, "5 EMA",   inline = "s3", group = gSma)
+en8e   = input.bool(true, "8 EMA",   inline = "s3", group = gSma)
 en20e  = input.bool(true, "20 EMA",  inline = "s3", group = gSma)
 en50e  = input.bool(true, "50 EMA",  inline = "s3", group = gSma)
 en100e = input.bool(true, "100 EMA", inline = "s3", group = gSma)
@@ -103,7 +103,7 @@ sma20v  = enSma and en20  ? request.security(rthTid, smaTf, ta.sma(close, 20),  
 sma50v  = enSma and en50  ? request.security(rthTid, smaTf, ta.sma(close, 50),  lookahead = barmerge.lookahead_off) : na
 sma100v = enSma and en100 ? request.security(rthTid, smaTf, ta.sma(close, 100), lookahead = barmerge.lookahead_off) : na
 sma200v = enSma and en200 ? request.security(rthTid, smaTf, ta.sma(close, 200), lookahead = barmerge.lookahead_off) : na
-ema5v   = enSma and en5e   ? request.security(rthTid, smaTf, ta.ema(close, 5),   lookahead = barmerge.lookahead_off) : na
+ema8v   = enSma and en8e   ? request.security(rthTid, smaTf, ta.ema(close, 8),   lookahead = barmerge.lookahead_off) : na
 ema20v  = enSma and en20e  ? request.security(rthTid, smaTf, ta.ema(close, 20),  lookahead = barmerge.lookahead_off) : na
 ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50),  lookahead = barmerge.lookahead_off) : na
 ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
@@ -337,8 +337,8 @@ if barstate.islast
     // Now every candidate picks its closest drawn level and is named only there.
     _tags4 = array.new_string(array.size(_dV4), "")
     if array.size(_dV4) > 0
-        _cfV = array.from(enConf ? pdh : na, enConf ? pdl : na, enConf ? pwh : na, enConf ? pwl : na, enConf ? pmh : na, enConf ? pml : na, enConf ? pqh : na, enConf ? pql : na, enConf ? pdc : na, enSma ? ema5v : na, enSma ? sma8v : na, enSma ? sma20v : na, enSma ? ema20v : na, enSma ? sma50v : na, enSma ? sma100v : na, enSma ? sma200v : na, enSma ? ema50v : na, enSma ? ema100v : na, enSma ? ema200v : na)
-        _cfN = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "PDC", "5EMA", "8SMA", "20SMA", "20EMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA")
+        _cfV = array.from(enConf ? pdh : na, enConf ? pdl : na, enConf ? pwh : na, enConf ? pwl : na, enConf ? pmh : na, enConf ? pml : na, enConf ? pqh : na, enConf ? pql : na, enConf ? pdc : na, enSma ? ema8v : na, enSma ? sma8v : na, enSma ? sma20v : na, enSma ? ema20v : na, enSma ? sma50v : na, enSma ? sma100v : na, enSma ? sma200v : na, enSma ? ema50v : na, enSma ? ema100v : na, enSma ? ema200v : na)
+        _cfN = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "PDC", "8EMA", "8SMA", "20SMA", "20EMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA")
         for _fi = 0 to array.size(_cfV) - 1
             _fv = array.get(_cfV, _fi)
             if not na(_fv) and _fv > 0
@@ -488,7 +488,7 @@ if barstate.islast
         //    The 4h H/L lines above are NOT gated by this — they always draw.
         _mAb = array.new_float()
         _mBl = array.new_float()
-        _mAll = array.from(ema5v, sma8v, sma20v, ema20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+        _mAll = array.from(ema8v, sma8v, sma20v, ema20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
         for _mi = 0 to array.size(_mAll) - 1
             _mv = array.get(_mAll, _mi)
             if not na(_mv) and _mv > 0
@@ -500,7 +500,7 @@ if barstate.islast
         array.sort(_mBl, order.descending)
         _maHi := maUp <= 0 or array.size(_mAb) == 0 ? (maUp <= 0 ? -1.0 : 1.0e18) : array.get(_mAb, math.min(maUp, array.size(_mAb)) - 1)
         _maLo := maDn <= 0 or array.size(_mBl) == 0 ? (maDn <= 0 ? 1.0e18 : -1.0) : array.get(_mBl, math.min(maDn, array.size(_mBl)) - 1)
-        f_addMa(ema5v,   "5 EMA")
+        f_addMa(ema8v,   "8 EMA")
         f_addMa(sma8v,   "8 SMA")
         f_addMa(sma20v,  "20 SMA")
         f_addMa(sma50v,  "50 SMA")
