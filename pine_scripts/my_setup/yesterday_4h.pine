@@ -40,6 +40,22 @@ pdcCol  = input.color(color.new(#787B86, 0), "Yesterday close line", group = "Pr
 enConf  = input.bool(true, "Tag a 4h level when it lines up with PDH/PDL or a W/M/Q level", group = "Confluence", tooltip = "If a 4h high/low sits within the band % of a prior-day/week/month/quarter high or low, that level's name is appended to the 4h label and the line is drawn a touch bolder. The HTF levels themselves are NEVER drawn (computed only) so they can't compress the scale.")
 confPct = input.float(0.15, "Confluence band (%)", group = "Confluence", minval = 0.02, maxval = 2, step = 0.01) / 100.0
 lvlMergePct = input.float(0.10, "Collapse 4h levels within (%) — merge near-equal H/L into one line", group = "Confluence", minval = 0.0, maxval = 2, step = 0.01, tooltip = "When two 4h levels (e.g. a 4h high and a 4h low) sit within this % of each other, they collapse into ONE line whose label names both (e.g. '4H 09:30 H + 4H 13:30 L ·×2'). Keeps the chart clean when levels stack. 0 = draw every 4h level separately.") / 100.0
+// ── structural levels (PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL) — own proximity bracket ──
+// These were computed for confluence TAGGING only and never drawn. Now they draw as flat
+// role-coloured lines with their OWN nearest-N counts, independent of the MA bracket — the
+// 4h lines are the trade, MAs are context, and these are the higher-timeframe walls; each
+// deserves its own budget rather than competing for one shared set of slots.
+gLv     = "Structural levels (PDH/PWH/PMH/PQH…)"
+enLvls  = input.bool(true, "Draw the structural levels", group = gLv)
+lvlUp   = input.int(2, "How many LEVELS above price", minval = 0, maxval = 8, group = gLv, tooltip = "The N nearest structural levels above price. Separate from the MA counts — a wall of HTF levels and a wall of MAs are different information and shouldn't crowd each other out.")
+lvlDn   = input.int(2, "How many LEVELS below price", minval = 0, maxval = 8, group = gLv)
+lvlW    = input.int(2, "Level line thickness", minval = 1, maxval = 6, group = gLv)
+lvlFade = input.int(25, "Level fade (higher = fainter)", minval = 0, maxval = 95, group = gLv)
+enPDHl  = input.bool(true, "PDH", inline = "l1", group = gLv)
+enPWl   = input.bool(true, "PWH/PWL", inline = "l1", group = gLv)
+enPMl   = input.bool(true, "PMH/PML", inline = "l1", group = gLv)
+enPQl   = input.bool(false, "PQH/PQL", inline = "l1", group = gLv)
+
 // ── auto SMA/EMA — drawn as FLAT role-colored levels (house style, never sloping), proximity-gated + merged ──
 gSma  = "Auto MAs (flat levels)"
 enSma = input.bool(true, "Show MAs as flat levels", group = gSma, tooltip = "Each MA is drawn as a FLAT horizontal line at its CURRENT value (green = below price / support, red = above price / resistance) — a level to react to, not a sloping plot. Proximity-gated + merged so the chart stays clean.")
@@ -376,6 +392,52 @@ if barstate.islast
                 _hlTxt = _hlRun > 0 ? str.tostring(_hlRun) : "✕"
                 _hlCol = _hlRun > 0 ? hlUpCol : hlXCol
                 array.push(_lb, label.new(_hlB, array.get(_seqL, _hi), _hlTxt, yloc = yloc.price, style = label.style_label_up, color = _hlCol, textcolor = color.white, size = size.tiny))
+
+    // ── STRUCTURAL LEVELS — nearest-N above / below price, own budget. A level sitting on a 4h
+    //    line is skipped: it's already named in that line's confluence tag, so drawing it again
+    //    would put two lines at one price and say the same thing twice.
+    if enLvls
+        // candidates + their enable flags, walked in one pass (a helper function can't be
+        // declared in a local scope in Pine v5, and it would need these locals anyway)
+        _lvV2 = array.new_float()
+        _lvN2 = array.new_string()
+        _cand  = array.from(pdh,   pwh,   pwl,   pmh,   pml,   pqh,   pql)
+        _candN = array.from("PDH", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+        _candOn = array.from(enPDHl, enPWl, enPWl, enPMl, enPMl, enPQl, enPQl)
+        for _ci = 0 to array.size(_cand) - 1
+            _cv = array.get(_cand, _ci)
+            if array.get(_candOn, _ci) and not na(_cv) and _cv > 0
+                _dup = false
+                if array.size(_anchors) > 0
+                    for _ai2 = 0 to array.size(_anchors) - 1
+                        if math.abs(array.get(_anchors, _ai2) - _cv) / _cv <= confPct
+                            _dup := true
+                if not _dup
+                    array.push(_lvV2, _cv)
+                    array.push(_lvN2, array.get(_candN, _ci))
+        // nearest-N bracket over just these
+        _lAb = array.new_float()
+        _lBl = array.new_float()
+        if array.size(_lvV2) > 0
+            for _li = 0 to array.size(_lvV2) - 1
+                _lv2 = array.get(_lvV2, _li)
+                if _lv2 > close
+                    array.push(_lAb, _lv2)
+                else if _lv2 < close
+                    array.push(_lBl, _lv2)
+        array.sort(_lAb, order.ascending)
+        array.sort(_lBl, order.descending)
+        _lHi = lvlUp <= 0 or array.size(_lAb) == 0 ? (lvlUp <= 0 ? -1.0 : 1.0e18) : array.get(_lAb, math.min(lvlUp, array.size(_lAb)) - 1)
+        _lLo = lvlDn <= 0 or array.size(_lBl) == 0 ? (lvlDn <= 0 ? 1.0e18 : -1.0) : array.get(_lBl, math.min(lvlDn, array.size(_lBl)) - 1)
+        if array.size(_lvV2) > 0
+            for _li = 0 to array.size(_lvV2) - 1
+                _lv2 = array.get(_lvV2, _li)
+                if _lv2 <= _lHi and _lv2 >= _lLo
+                    _lc2 = close > _lv2 ? colLo : colHi
+                    _lxo2 = f_xoff(_lv2)
+                    array.push(_ln, line.new(bar_index - lineLen, _lv2, bar_index + tagOff, _lv2, color = color.new(_lc2, lvlFade), width = lvlW))
+                    if showLbl
+                        array.push(_lb, label.new(bar_index + _lxo2, _lv2, (close > _lv2 ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + array.get(_lvN2, _li), style = label.style_label_left, color = color.new(_lc2, 82), textcolor = _lc2, size = size.small))
 
     // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
     //    That pair is the cell today started in, and the cell is the range being played.
