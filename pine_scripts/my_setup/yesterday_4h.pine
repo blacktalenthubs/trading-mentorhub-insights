@@ -209,7 +209,7 @@ f_draw(float v, string nm) =>
     _xo  = f_xoff(v)
     array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = _c, width = _w))
     if showLbl
-        array.push(_lb, label.new(bar_index + _xo, v, nm + _tag + "  " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
+        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ SUPPORT" : "  ▼ RESISTANCE") + _tag, style = label.style_label_left, color = color.new(_c, 82), textcolor = _c, size = size.small))
 
 // one MA as a FLAT role-colored level — subtle dotted so it sits UNDER the 4h H/L, never crowding them.
 // The nearest-N gate lives in f_addMa (collection); by here the cluster has already earned its place.
@@ -301,7 +301,7 @@ if barstate.islast
             _cxo = f_xoff(t1C)
             array.push(_ln, line.new(bar_index - lineLen, t1C, bar_index + _cxo, t1C, color = _cc, width = t1cW, style = line.style_dashed))
             if showLbl
-                array.push(_lb, label.new(bar_index + _cxo, t1C, "T-4H " + _t1tm + " CLOSE" + (close > t1C ? "  ▲ held" : "  ▼ lost"), style = label.style_label_left, color = color.new(_cc, 70), textcolor = _cc, size = size.small))
+                array.push(_lb, label.new(bar_index + _cxo, t1C, "T-4H " + _t1tm + " CLOSE" + (close > t1C ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = color.new(_cc, 70), textcolor = _cc, size = size.small))
             array.push(_anchors, t1C)
 
     // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
