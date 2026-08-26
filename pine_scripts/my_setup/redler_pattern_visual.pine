@@ -4,7 +4,8 @@
 // NO alerts, NO webhook payload — nothing here can touch the ma/ema alert engine. Draws:
 //   • Daily MA flat S/R lines — 8/21/50/100/200 EMA + 50/100/200 SMA (settled [1]+lookahead_on),
 //     role-colored (green = support below price, red = resistance above).
-//   • PDH / PDL flat lines.
+//   • PDH / PDL flat lines — ALWAYS drawn.
+//   • Structural levels (PWH/PWL · PMH/PML · PQH/PQL · PDC) on their OWN neighbour count.
 //   • Proximity bracket around the OPEN — only the N nearest MAs each side draw (far 200s hide),
 //     with separate above/below counts. PDH/PDL are EXEMPT and always draw.
 //   • Today's OPEN line + its two neighbors (first support ↔ first resistance it battles).
@@ -26,6 +27,19 @@ show_sma200 = input.bool(true, "  · SMA 200", group = "MA lines", inline = "s1"
 show_pdh    = input.bool(true, "  · PDH — prior-day high", group = "MA lines")
 show_pdl    = input.bool(true, "  · PDL — prior-day low",  group = "MA lines")
 maTf        = input.timeframe("D", "MA timeframe", group = "MA lines")
+
+// ── structural levels — own neighbour count, independent of the MA one ──────────
+// PDH/PDL are NOT here: they always draw (above). These are the wider walls, and they
+// get their own budget so a cluster of MAs can never crowd out the weekly/monthly line
+// — different information, separate allowance.
+gLv        = "Levels (PWH/PWL · PMH/PML · PQH/PQL)"
+show_lvls  = input.bool(true, "Show structural levels", group = gLv)
+lvl_up     = input.int (2, "  Levels to show ABOVE the open", minval = 0, maxval = 9, group = gLv, inline = "lv")
+lvl_dn     = input.int (2, "  BELOW", minval = 0, maxval = 9, group = gLv, inline = "lv")
+show_pw    = input.bool(true,  "  · PWH / PWL — prior week",    group = gLv)
+show_pm    = input.bool(true,  "  · PMH / PML — prior month",   group = gLv)
+show_pq    = input.bool(false, "  · PQH / PQL — prior quarter", group = gLv)
+show_pdc   = input.bool(true,  "  · PDC — prior-day close",     group = gLv)
 
 // ── style ─────────────────────────────────────────────────────────────────────
 flat_sup_col = input.color(#26A69A, "Support (price above)",    group = "Style", inline = "c")
@@ -62,6 +76,14 @@ rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 pdh = request.security(rthTid, "D", high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(rthTid, "D", low[1],  lookahead = barmerge.lookahead_on)
 day_open = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
+// structural levels — settled + RTH, same idiom as the prior-day pair above
+pdc = request.security(rthTid, "D",  close[1], lookahead = barmerge.lookahead_on)
+pwh = request.security(rthTid, "W",  high[1],  lookahead = barmerge.lookahead_on)
+pwl = request.security(rthTid, "W",  low[1],   lookahead = barmerge.lookahead_on)
+pmh = request.security(rthTid, "M",  high[1],  lookahead = barmerge.lookahead_on)
+pml = request.security(rthTid, "M",  low[1],   lookahead = barmerge.lookahead_on)
+pqh = request.security(rthTid, "3M", high[1],  lookahead = barmerge.lookahead_on)
+pql = request.security(rthTid, "3M", low[1],   lookahead = barmerge.lookahead_on)
 
 // ── flat level lines (rebuilt on the last bar) ────────────────────────────────
 is_support(float lvl) => not na(lvl) and close > lvl
@@ -121,6 +143,29 @@ if show_lines and barstate.islast
     // the day's rails — ALWAYS drawn, never proximity-gated
     flat_draw(pdh, "PDH", false, show_pdh)
     flat_draw(pdl, "PDL", false, show_pdl)
+    // ── structural levels — their OWN bracket, computed over only these candidates so the
+    //    MA count and the level count never spend each other's slots
+    if show_lvls
+        _lup = array.new_float()
+        _ldn = array.new_float()
+        collect_lvl(_lup, _ldn, pwh, show_pw,  _popen)
+        collect_lvl(_lup, _ldn, pwl, show_pw,  _popen)
+        collect_lvl(_lup, _ldn, pmh, show_pm,  _popen)
+        collect_lvl(_lup, _ldn, pml, show_pm,  _popen)
+        collect_lvl(_lup, _ldn, pqh, show_pq,  _popen)
+        collect_lvl(_lup, _ldn, pql, show_pq,  _popen)
+        collect_lvl(_lup, _ldn, pdc, show_pdc, _popen)
+        array.sort(_lup, order.ascending)
+        array.sort(_ldn, order.descending)
+        _laCut = lvl_up <= 0 or array.size(_lup) == 0 ? (lvl_up <= 0 ? -1.0 : 1e18) : array.get(_lup, math.min(lvl_up, array.size(_lup)) - 1)
+        _lbCut = lvl_dn <= 0 or array.size(_ldn) == 0 ? (lvl_dn <= 0 ? 1e18 : -1.0) : array.get(_ldn, math.min(lvl_dn, array.size(_ldn)) - 1)
+        flat_draw(pwh, "PWH", true, show_pw  and in_bracket(pwh, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pwl, "PWL", true, show_pw  and in_bracket(pwl, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pmh, "PMH", true, show_pm  and in_bracket(pmh, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pml, "PML", true, show_pm  and in_bracket(pml, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pqh, "PQH", true, show_pq  and in_bracket(pqh, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pql, "PQL", true, show_pq  and in_bracket(pql, _popen, _laCut, _lbCut, flat_prox))
+        flat_draw(pdc, "PDC", true, show_pdc and in_bracket(pdc, _popen, _laCut, _lbCut, flat_prox))
     // today's OPEN + its two neighbors (nearest support below ↔ nearest resistance above)
     if show_open and not na(day_open)
         _ov = array.from(ema8, ema21, ema50, ema100, ema200, sma50, sma200, pdh, pdl)
