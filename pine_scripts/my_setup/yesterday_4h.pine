@@ -57,6 +57,7 @@ en50   = input.bool(true, "50 SMA",  inline = "s2", group = gSma)
 en100  = input.bool(true, "100 SMA", inline = "s2", group = gSma)
 en200  = input.bool(true, "200 SMA", inline = "s2", group = gSma)
 en5e   = input.bool(true, "5 EMA",   inline = "s3", group = gSma)
+en20e  = input.bool(true, "20 EMA",  inline = "s3", group = gSma)
 en50e  = input.bool(true, "50 EMA",  inline = "s3", group = gSma)
 en100e = input.bool(true, "100 EMA", inline = "s3", group = gSma)
 en200e = input.bool(true, "200 EMA", inline = "s3", group = gSma)
@@ -86,6 +87,7 @@ sma50v  = enSma and en50  ? request.security(rthTid, smaTf, ta.sma(close, 50),  
 sma100v = enSma and en100 ? request.security(rthTid, smaTf, ta.sma(close, 100), lookahead = barmerge.lookahead_off) : na
 sma200v = enSma and en200 ? request.security(rthTid, smaTf, ta.sma(close, 200), lookahead = barmerge.lookahead_off) : na
 ema5v   = enSma and en5e   ? request.security(rthTid, smaTf, ta.ema(close, 5),   lookahead = barmerge.lookahead_off) : na
+ema20v  = enSma and en20e  ? request.security(rthTid, smaTf, ta.ema(close, 20),  lookahead = barmerge.lookahead_off) : na
 ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50),  lookahead = barmerge.lookahead_off) : na
 ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
 ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200), lookahead = barmerge.lookahead_off) : na
@@ -99,6 +101,7 @@ f_maTag(float v) =>
         s := (not na(sma100v) and math.abs(v - sma100v) / v <= confPct) ? s + " · 100SMA" : s
         s := (not na(sma200v) and math.abs(v - sma200v) / v <= confPct) ? s + " · 200SMA" : s
         s := (not na(ema5v)   and math.abs(v - ema5v)   / v <= confPct) ? s + " · 5EMA"   : s
+        s := (not na(ema20v)  and math.abs(v - ema20v)  / v <= confPct) ? s + " · 20EMA"  : s
         s := (not na(ema50v)  and math.abs(v - ema50v)  / v <= confPct) ? s + " · 50EMA"  : s
         s := (not na(ema100v) and math.abs(v - ema100v) / v <= confPct) ? s + " · 100EMA" : s
         s := (not na(ema200v) and math.abs(v - ema200v) / v <= confPct) ? s + " · 200EMA" : s
@@ -419,7 +422,7 @@ if barstate.islast
         //    The 4h H/L lines above are NOT gated by this — they always draw.
         _mAb = array.new_float()
         _mBl = array.new_float()
-        _mAll = array.from(ema5v, sma8v, sma20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
+        _mAll = array.from(ema5v, sma8v, sma20v, ema20v, sma50v, sma100v, sma200v, ema50v, ema100v, ema200v)
         for _mi = 0 to array.size(_mAll) - 1
             _mv = array.get(_mAll, _mi)
             if not na(_mv) and _mv > 0
@@ -437,6 +440,7 @@ if barstate.islast
         f_addMa(sma50v,  "50 SMA")
         f_addMa(sma100v, "100 SMA")
         f_addMa(sma200v, "200 SMA")
+        f_addMa(ema20v,  "20 EMA")
         f_addMa(ema50v,  "50 EMA")
         f_addMa(ema100v, "100 EMA")
         f_addMa(ema200v, "200 EMA")
