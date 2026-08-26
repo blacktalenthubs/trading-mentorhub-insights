@@ -18,8 +18,7 @@ lblGap  = input.float(0.4, "Stagger labels closer than ± % (so confluent lines 
 lblStep = input.int(3, "Label stagger step (bars per collision)", minval = 1, maxval = 40)
 // ── higher-low structure across consecutive 4h candles ──────────────────────────
 gHL     = "4h higher-low structure"
-enHL    = input.bool(true, "Count consecutive 4h HIGHER LOWS on the candle tails", group = gHL, tooltip = "Each 4h candle whose LOW is above the previous 4h low continues the streak and gets its number on its tail: 1, 2, 3… A candle that undercuts the prior low BREAKS the structure — it gets ✕ and the count restarts from there. The number is how many 4h candles the uptrend has actually held for; the ✕ is the bar that ended it.")
-hlN     = input.int(8, "How many recent 4h candles to mark", minval = 2, maxval = 40, group = gHL)
+enHL    = input.bool(true, "Number the higher-low sequence on the candle tails", group = gHL, tooltip = "The sequence is yesterday's selected 4h candles followed by TODAY's first 4h once it closes — the frame the day is actually traded in. Each candle holding a higher low continues the count (1, 2, 3); one that undercuts the prior low BREAKS it and gets ✕, and the next higher low restarts at 1. On equities that's a 3-candle read: two from yesterday plus today's first.")
 hlUpCol = input.color(color.new(#26A69A, 0), "Streak", inline = "hl", group = gHL)
 hlXCol  = input.color(color.new(#EF5350, 0), "Break",  inline = "hl", group = gHL)
 // How much of yesterday to carry forward. Set PER MARKET TYPE, because "yesterday" isn't the same
@@ -167,10 +166,14 @@ _isEqSym = syminfo.type == "stock" or syminfo.type == "fund" or syminfo.type == 
 maxC4h   = _isEqSym ? maxC4hEq : maxC4hCr   // 2 candles / 4 lines on stocks · 3 candles / 6 lines on crypto
 var float[]  yV = array.new_float()
 var string[] yN = array.new_string()
+var float[]  yCL = array.new_float()   // per-CANDLE lows of the selected set (chronological)
+var int[]    yCB = array.new_int()     // ...and the chart bar each one printed on
 _newDayY = ta.change(time("D")) != 0
 if _newDayY or array.size(yV) == 0
     array.clear(yV)
     array.clear(yN)
+    array.clear(yCL)
+    array.clear(yCB)
     _todayY = f_dnum(time)
     int _ydayY = 0
     if array.size(aT) > 0
@@ -199,6 +202,8 @@ if _newDayY or array.size(yV) == 0
                     array.push(yN, "4H-" + _age + " H")
                     array.push(yV, array.get(aL, _ii))
                     array.push(yN, "4H-" + _age + " L")
+                    array.push(yCL, array.get(aL, _ii))
+                    array.push(yCB, array.get(aB, _ii))
 
 // ── draw (rebuilt on the last bar) ─────────────────────────────────────────────
 var line[]  _ln = array.new_line()
@@ -319,17 +324,26 @@ if barstate.islast
     // ── HIGHER-LOW STRUCTURE — number each 4h candle that holds a higher low; mark the one that breaks it.
     //    The streak is recomputed from the start of the stored history so the number shown is the TRUE
     //    run length, not a count that happens to begin wherever the drawing window starts.
-    if enHL and array.size(aL) > 1 and array.size(aB) == array.size(aL)
-        _hlFrom = math.max(1, array.size(aL) - hlN)
-        _hlRun  = 0
-        for _hi = 1 to array.size(aL) - 1
-            _hlRun := array.get(aL, _hi) > array.get(aL, _hi - 1) ? _hlRun + 1 : 0
-            if _hi >= _hlFrom
-                _hlB = array.get(aB, _hi)
-                if _hlB >= 0
-                    _hlTxt = _hlRun > 0 ? str.tostring(_hlRun) : "✕"
-                    _hlCol = _hlRun > 0 ? hlUpCol : hlXCol
-                    array.push(_lb, label.new(_hlB, array.get(aL, _hi), _hlTxt, yloc = yloc.price, style = label.style_label_up, color = _hlCol, textcolor = color.white, size = size.tiny))
+    // THE day-trade sequence: yesterday's selected 4h candles, then TODAY's first once it closes.
+    // Not a rolling streak over all stored history — this is the frame the day is actually traded
+    // in, so the count answers "has today continued yesterday's structure or broken it".
+    if enHL and array.size(yCL) > 0
+        _seqL = array.copy(yCL)
+        _seqB = array.copy(yCB)
+        if not na(t1L) and not na(t1B)
+            array.push(_seqL, t1L)
+            array.push(_seqB, t1B)
+        _hlRun = 1                                   // the first candle in the frame is the baseline
+        for _hi = 0 to array.size(_seqL) - 1
+            if _hi > 0
+                _hlRun := array.get(_seqL, _hi) > array.get(_seqL, _hi - 1) ? _hlRun + 1 : 0
+            _hlB = array.get(_seqB, _hi)
+            if not na(_hlB) and _hlB >= 0
+                _hlTxt = _hlRun > 0 ? str.tostring(_hlRun) : "✕"
+                _hlCol = _hlRun > 0 ? hlUpCol : hlXCol
+                array.push(_lb, label.new(_hlB, array.get(_seqL, _hi), _hlTxt, yloc = yloc.price, style = label.style_label_up, color = _hlCol, textcolor = color.white, size = size.tiny))
+            if _hlRun == 0
+                _hlRun := 0                          // a break restarts the next higher low at 1
 
     // ── subtle open line (dotted) — WHICH of yesterday's 4h levels the open sits between.
     //    That pair is the cell today started in, and the cell is the range being played.
