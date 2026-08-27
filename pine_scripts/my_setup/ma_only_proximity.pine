@@ -120,7 +120,11 @@ resCol    = input.color(#EF5350, "Resistance (price below)", group = gV)
 wLine     = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
 lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
 extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
-dotted    = input.bool(true, "Draw MAs dotted (so a MA still reads as a MA)", group = gV)
+// One style for EVERY line — MAs, PDH/PDL, structural levels, the open. Mixing solid, dashed
+// and dotted made the chart look like the differences meant something they didn't; the ROLE
+// tag and the colour already carry the meaning. Default solid = unbroken lines.
+lineStyle = input.string("solid", "Line style — applies to every line", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "One setting for all of them. Solid draws unbroken lines across the chart. Dashed/dotted make every line broken the same way — the point is that they MATCH, so a style difference never reads as a category difference.")
+styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
 labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
 lblGap    = input.float(0.5, "Fan tags apart when MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
 lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
@@ -209,6 +213,8 @@ f_xoff(float price) =>
 // EVERYTHING drawable is queued into ONE pool — MAs, PDH/PDL, structural levels — so the merge
 // pass below can collapse a MA and a level sitting at the same price into a single labelled line.
 // Merging only MAs against each other is what left three near-identical lines stacked on the chart.
+_lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+_lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
 var float[]  _qv = array.new_float()
 var string[] _qn = array.new_string()
 var bool[]   _qdot = array.new_bool()
@@ -222,7 +228,7 @@ f_draw(float v, string nm) =>
     _inBr = v <= _brkHi and v >= _brkLo
     _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
     if not na(v) and v > 0 and (showAll or (_inBr and _cap))
-        f_queue(v, nm, dotted)
+        f_queue(v, nm, false)      // per-item style flag is vestigial — one setting styles every line now
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
         array.push(_maV, v)
@@ -351,7 +357,7 @@ if barstate.islast
             _qsup = close > _qnear
             _qcol = _qsup ? supCol : resCol
             _qx   = f_xoff(_qnear)                              // residual collisions still fan…
-            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qdt ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = size.small))
             _qi := _qj
 
@@ -398,17 +404,17 @@ if barstate.islast
         if _lHasDn
             _dxo = f_xoff(_lDn)
             _dc  = close > _lDn ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
         if _lHasUp
             _uxo = f_xoff(_lUp)
             _uc  = close > _lUp ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
-        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
         _oTag = _boxed ? "Open BTW " + _oUpN + " and " + _oDnN : _hasDn ? "Open ABOVE all MAs · " + _lvlTxt : _hasUp ? "Open BELOW all MAs · " + _lvlTxt : "Open"
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
     // ── HUD ──
