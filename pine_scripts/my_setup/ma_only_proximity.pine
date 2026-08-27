@@ -44,7 +44,7 @@
 // (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
 //
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 30, max_labels_count = 500)
+indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 60, max_labels_count = 500)
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
@@ -80,7 +80,19 @@ rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"
 // ── level fallback — what to say when the MA stack can't bracket the open ───────
 gL       = "Level fallback (open outside the MA stack)"
 enLvl    = input.bool(true, "Name the structural levels that bracket the open", group = gL, tooltip = "When the open is above (or below) EVERY MA, the stack has nothing to say about the day's range — so fall back to PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL and name the two that actually bracket the open. 'Open below all MAs · between PWL and PDL' beats 'below all MAs'.")
-enLvlDraw = input.bool(true, "  DRAW those two levels automatically", group = gL, tooltip = "ON by default: the moment the MA stack can't bracket the open, the two structural levels that DO bracket it are drawn beside the open line — so the day's range is on the chart without you going to find it. They appear ONLY in that case; while the open sits inside the MA stack nothing extra is drawn. Turn OFF if you also run 'Proximity Levels · Structural' and don't want the duplicate lines.")
+enLvlDraw = input.bool(false, "  DRAW those two levels automatically (legacy — superseded below)", group = gL, tooltip = "ON by default: the moment the MA stack can't bracket the open, the two structural levels that DO bracket it are drawn beside the open line — so the day's range is on the chart without you going to find it. They appear ONLY in that case; while the open sits inside the MA stack nothing extra is drawn. Turn OFF if you also run 'Proximity Levels · Structural' and don't want the duplicate lines.")
+
+// ── structural levels — PDH/PDL always on, the rest on their OWN neighbour count ──
+gSL      = "Structural levels"
+enSLvls  = input.bool(true, "Draw structural levels", group = gSL)
+slPdhPdl = input.bool(true, "  PDH / PDL — ALWAYS drawn, never gated", group = gSL, tooltip = "The day's rails. They're exempt from every proximity count and from the candidate pool, so they can't be hidden and can't eat a slot another level should have had.")
+slUp     = input.int(2, "  Other levels ABOVE price", minval = 0, maxval = 8, group = gSL, inline = "sl")
+slDn     = input.int(2, "  BELOW", minval = 0, maxval = 8, group = gSL, inline = "sl")
+slPW     = input.bool(true,  "  · PWH / PWL", inline = "slf", group = gSL)
+slPM     = input.bool(true,  "  · PMH / PML", inline = "slf", group = gSL)
+slPQ     = input.bool(false, "  · PQH / PQL", inline = "slf", group = gSL)
+slW      = input.int(2, "  Level thickness", minval = 1, maxval = 6, group = gSL)
+slFade   = input.int(25, "  Level fade", minval = 0, maxval = 95, group = gSL)
 
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
@@ -259,6 +271,49 @@ if barstate.islast
                     break
             f_draw((_lo + _hi) / 2.0, _nm)
             _i := _j
+    // ── STRUCTURAL LEVELS — PDH/PDL always; the rest earn their place via their own count,
+    //    kept apart from the MA count so a cluster of MAs can never hide the weekly line.
+    if enSLvls
+        if slPdhPdl
+            for _pi = 0 to 1
+                _pv = _pi == 0 ? lPdh : lPdl
+                if not na(_pv) and _pv > 0
+                    _pc = close > _pv ? supCol : resCol
+                    _pxo = f_xoff(_pv)
+                    array.push(_ln, line.new(bar_index - lineLen, _pv, bar_index + tagOff, _pv, color = color.new(_pc, slFade), width = slW, style = line.style_dashed))
+                    array.push(_lb, label.new(bar_index + _pxo, _pv, (close > _pv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + (_pi == 0 ? "PDH" : "PDL"), style = label.style_label_left, color = color.new(_pc, 82), textcolor = _pc, size = size.small))
+        _slV = array.new_float()
+        _slN = array.new_string()
+        _slC  = array.from(lPwh,  lPwl,  lPmh,  lPml,  lPqh,  lPql)
+        _slCN = array.from("PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+        _slOn = array.from(slPW,  slPW,  slPM,  slPM,  slPQ,  slPQ)
+        for _si = 0 to array.size(_slC) - 1
+            _sv = array.get(_slC, _si)
+            if array.get(_slOn, _si) and not na(_sv) and _sv > 0
+                array.push(_slV, _sv)
+                array.push(_slN, array.get(_slCN, _si))
+        _slAb = array.new_float()
+        _slBl = array.new_float()
+        if array.size(_slV) > 0
+            for _si = 0 to array.size(_slV) - 1
+                _sv = array.get(_slV, _si)
+                if _sv > close
+                    array.push(_slAb, _sv)
+                else if _sv < close
+                    array.push(_slBl, _sv)
+        array.sort(_slAb, order.ascending)
+        array.sort(_slBl, order.descending)
+        _slHi = slUp <= 0 or array.size(_slAb) == 0 ? (slUp <= 0 ? -1.0 : 1.0e18) : array.get(_slAb, math.min(slUp, array.size(_slAb)) - 1)
+        _slLo = slDn <= 0 or array.size(_slBl) == 0 ? (slDn <= 0 ? 1.0e18 : -1.0) : array.get(_slBl, math.min(slDn, array.size(_slBl)) - 1)
+        if array.size(_slV) > 0
+            for _si = 0 to array.size(_slV) - 1
+                _sv = array.get(_slV, _si)
+                if _sv <= _slHi and _sv >= _slLo
+                    _sc = close > _sv ? supCol : resCol
+                    _sxo = f_xoff(_sv)
+                    array.push(_ln, line.new(bar_index - lineLen, _sv, bar_index + tagOff, _sv, color = color.new(_sc, slFade), width = slW, style = line.style_dashed))
+                    array.push(_lb, label.new(bar_index + _sxo, _sv, (close > _sv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + array.get(_slN, _si), style = label.style_label_left, color = color.new(_sc, 82), textcolor = _sc, size = size.small))
+
     // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
     _oUp  = 1.0e18
     _oDn  = -1.0
@@ -331,26 +386,35 @@ if barstate.islast
 // Every ta.crossover/crossunder is evaluated on EVERY bar at global scope (they're stateful —
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
-_up8    = ta.crossover(close, sma8v)
-_up21   = ta.crossover(close, sma21v)
-_up50   = ta.crossover(close, sma50v)
-_up100  = ta.crossover(close, sma100v)
-_up200  = ta.crossover(close, sma200v)
-_up8e   = ta.crossover(close, ema8v)
-_up21e  = ta.crossover(close, ema21v)
-_up50e  = ta.crossover(close, ema50v)
-_up100e = ta.crossover(close, ema100v)
-_up200e = ta.crossover(close, ema200v)
-_dn8    = ta.crossunder(close, sma8v)
-_dn21   = ta.crossunder(close, sma21v)
-_dn50   = ta.crossunder(close, sma50v)
-_dn100  = ta.crossunder(close, sma100v)
-_dn200  = ta.crossunder(close, sma200v)
-_dn8e   = ta.crossunder(close, ema8v)
-_dn21e  = ta.crossunder(close, ema21v)
-_dn50e  = ta.crossunder(close, ema50v)
-_dn100e = ta.crossunder(close, ema100v)
-_dn200e = ta.crossunder(close, ema200v)
+// ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
+// Price ramping through a MA intrabar and closing back under is a FALSE signal; the high
+// tells you nothing about who won. Two patterns qualify, and both require the close:
+//   A. CLOSE-THROUGH — prior close was at/below it, this close is above  (fresh reclaim)
+//   B. OPEN-ABOVE + WICK + RECLAIM — opened above it, traded down to/through it, closed
+//      back above (the level was tested and DEFENDED — no cross, so A never sees it)
+// Explicitly NOT qualified: high > level while close <= level. That's the ramp-and-fail.
+f_qualUp(float v) => not na(v) and ((close > v and nz(close[1], v) <= nz(v[1], v)) or (open > v and low <= v and close > v))
+f_qualDn(float v) => not na(v) and ((close < v and nz(close[1], v) >= nz(v[1], v)) or (open < v and high >= v and close < v))
+_up8    = f_qualUp(sma8v)
+_up21   = f_qualUp(sma21v)
+_up50   = f_qualUp(sma50v)
+_up100  = f_qualUp(sma100v)
+_up200  = f_qualUp(sma200v)
+_up8e   = f_qualUp(ema8v)
+_up21e  = f_qualUp(ema21v)
+_up50e  = f_qualUp(ema50v)
+_up100e = f_qualUp(ema100v)
+_up200e = f_qualUp(ema200v)
+_dn8    = f_qualDn(sma8v)
+_dn21   = f_qualDn(sma21v)
+_dn50   = f_qualDn(sma50v)
+_dn100  = f_qualDn(sma100v)
+_dn200  = f_qualDn(sma200v)
+_dn8e   = f_qualDn(ema8v)
+_dn21e  = f_qualDn(ema21v)
+_dn50e  = f_qualDn(ema50v)
+_dn100e = f_qualDn(ema100v)
+_dn200e = f_qualDn(ema200v)
 f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
 _rcTxt = ""
 _rcTxt := f_join(_rcTxt, _up8e,   "8 EMA")
@@ -376,7 +440,12 @@ _lsTxt := f_join(_lsTxt, _dn200,  "200 SMA")
 _lsTxt := f_join(_lsTxt, _dn200e, "200 EMA")
 _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
 _rcOk  = not rcConf or barstate.isconfirmed
-if enRc and _rcOk and str.length(_rcTxt) > 0
+_sigUp = enRc   and _rcOk and str.length(_rcTxt) > 0
+_sigDn = enLost and _rcOk and str.length(_lsTxt) > 0
+if _sigUp
     label.new(bar_index, low, "⟲ " + _rcTxt, yloc = yloc.belowbar, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
-if enLost and _rcOk and str.length(_lsTxt) > 0
+if _sigDn
     label.new(bar_index, high, "▽ " + _lsTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
+// the arrow marks the bar; the label above says WHICH level(s) qualified on it
+plotshape(_sigUp, "Qualified reclaim", style = shape.arrowup,   location = location.belowbar, color = rcUpCol, size = size.tiny)
+plotshape(_sigDn, "Qualified loss",    style = shape.arrowdown, location = location.abovebar, color = rcDnCol, size = size.tiny)
