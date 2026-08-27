@@ -32,6 +32,15 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # suppressed EXCEPT for spy_trend_exempt. OFF by default (2026-06-17): alerts
     # flow ungated and the VOLUME GRADE is the conviction filter; flip to 'true'
     # here or in Settings to re-arm once the regime read is trustworthy.
+    # RTH gate (2026-08-26). Equity alerts route only 09:30-16:00 ET; pre/post fires are
+    # persisted with suppressed_reason="outside_rth" and summarised in one 9:35 digest.
+    # Each side toggles independently in Settings — flip to 'true' to let that session
+    # ping through again. Crypto (24h) and futures (own window) are unaffected.
+    "premarket_alerts_enabled": "false",
+    "afterhours_alerts_enabled": "false",
+    # Symbols EXEMPT from the RTH gate — they fire pre/post regardless. SPY/QQQ are the
+    # tape everything else is read against, so their premarket levels plan the open.
+    "rth_exempt_symbols": "SPY,QQQ",
     "spy_trend_gate_enabled": "false",
     "spy_trend_exempt": "SPY,QQQ,DRAM,NVDA",
     # 4h RC rejection-SHORT symbol allowlist (2026-06-12). The rc_4h SHORT (failed

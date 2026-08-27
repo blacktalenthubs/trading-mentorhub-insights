@@ -448,14 +448,23 @@ class TestFuturesSessionWindow:
 
     # ── Symbol scope: only futures gated ────────────────────────────
 
-    def test_non_futures_symbol_always_passes(self):
-        """Stocks + crypto unaffected by the futures window — return False at any time."""
-        # 3 AM ET Sunday — would be "outside" for futures, but stocks pass
+    def test_crypto_never_gated(self):
+        """Crypto is a 24h market — no session window may ever suppress it."""
         sunday_3am = self._et(2026, 5, 24, 3, 0)
-        assert is_outside_session_window("AAPL", sunday_3am) is False
         assert is_outside_session_window("BTC-USD", sunday_3am) is False
         assert is_outside_session_window("ETH-USD", sunday_3am) is False
-        assert is_outside_session_window("IREN", sunday_3am) is False
+
+    def test_equities_now_gated_to_rth(self):
+        """CONTRACT CHANGE (2026-08-26): equities are no longer exempt from every
+        window — the RTH gate suppresses them outside 09:30-16:00 ET. This test used
+        to assert stocks 'always pass'; that stopped being true when premarket and
+        after-hours alerts were turned off. Futures scope is unchanged (below)."""
+        sunday_3am = self._et(2026, 5, 24, 3, 0)
+        assert is_outside_session_window("AAPL", sunday_3am) is True
+        assert is_outside_session_window("IREN", sunday_3am) is True
+        # ...and they DO pass during regular hours
+        weekday_noon = self._et(2026, 5, 26, 12, 0)
+        assert is_outside_session_window("AAPL", weekday_noon) is False
 
     def test_futures_symbols_in_scope(self):
         """The frozenset includes ES1!, NQ1!, MES1!, MNQ1! — nothing else."""
