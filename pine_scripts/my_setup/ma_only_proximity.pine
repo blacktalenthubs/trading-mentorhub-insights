@@ -471,6 +471,15 @@ if barstate.islast
 _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
 // ── TWO PATTERNS, GATED DIFFERENTLY — because they carry different risk.
 //
+// STATELESS BY DESIGN. Both tests read only THIS bar's open/high/low/close against the level —
+// no [1], no history, no barstate. That's the shape the production ma-bounce pine uses
+// (strict_long: low <= ma and close > ma and close > open) and it's why that one has always
+// worked. My earlier version compared close[1] against the MA's previous value, which put the
+// whole test at the mercy of per-call-site history and made it fire nothing.
+//
+// "Came from below" is now open <= v — the bar OPENED at or under the level. That is the same
+// fact the prior-close comparison was reaching for, available directly on the bar itself.
+//
 //   HOLD   open ABOVE the level, wick down to/through it, price back above.
 //          Qualifies IMMEDIATELY, no close required. Price never lost the level — it opened
 //          above and defended a test. There is nothing to confirm: the wick already happened.
@@ -482,9 +491,9 @@ _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.
 // So the confirmed-bar gate applies to CROSS only. A hold-reclaim prints live on any timeframe;
 // a cross-reclaim waits for the bar to close and shows faint "· forming" until it does.
 f_hold(float v) => not na(v) and open > v and low <= v and close > v
-f_cross(float v, float vp) => not na(v) and close > v and nz(close[1], v) <= nz(vp, v) and not (open > v and low <= v)
+f_cross(float v) => not na(v) and close > v and open <= v
 f_holdDn(float v) => not na(v) and open < v and high >= v and close < v
-f_crossDn(float v, float vp) => not na(v) and close < v and nz(close[1], v) >= nz(vp, v) and not (open < v and high >= v)
+f_crossDn(float v) => not na(v) and close < v and open >= v
 f_add(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
 
 _conf = barstate.isconfirmed
@@ -492,66 +501,66 @@ _upTxt = ""
 _dnTxt = ""
 _pdTxt = ""
 _pdDnTxt = ""
-_upTxt := f_add(_upTxt, f_hold(sma8v) or (f_cross(sma8v, sma8v[1]) and (not rcConf or _conf)), "8 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma8v, sma8v[1]) and rcConf and not _conf, "8 SMA")
-_upTxt := f_add(_upTxt, f_hold(sma21v) or (f_cross(sma21v, sma21v[1]) and (not rcConf or _conf)), "21 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma21v, sma21v[1]) and rcConf and not _conf, "21 SMA")
-_upTxt := f_add(_upTxt, f_hold(sma50v) or (f_cross(sma50v, sma50v[1]) and (not rcConf or _conf)), "50 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma50v, sma50v[1]) and rcConf and not _conf, "50 SMA")
-_upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v, sma100v[1]) and (not rcConf or _conf)), "100 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
-_upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
-_upTxt := f_add(_upTxt, f_hold(ema5v) or (f_cross(ema5v, ema5v[1]) and (not rcConf or _conf)), "5 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema5v, ema5v[1]) and rcConf and not _conf, "5 EMA")
-_upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
-_upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema21v, ema21v[1]) and rcConf and not _conf, "21 EMA")
-_upTxt := f_add(_upTxt, f_hold(ema50v) or (f_cross(ema50v, ema50v[1]) and (not rcConf or _conf)), "50 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema50v, ema50v[1]) and rcConf and not _conf, "50 EMA")
-_upTxt := f_add(_upTxt, f_hold(ema100v) or (f_cross(ema100v, ema100v[1]) and (not rcConf or _conf)), "100 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema100v, ema100v[1]) and rcConf and not _conf, "100 EMA")
-_upTxt := f_add(_upTxt, f_hold(ema200v) or (f_cross(ema200v, ema200v[1]) and (not rcConf or _conf)), "200 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema200v, ema200v[1]) and rcConf and not _conf, "200 EMA")
-_upTxt := f_add(_upTxt, f_hold(lPdh) or (f_cross(lPdh, lPdh[1]) and (not rcConf or _conf)), "PDH")
-_pdTxt := f_add(_pdTxt, f_cross(lPdh, lPdh[1]) and rcConf and not _conf, "PDH")
-_upTxt := f_add(_upTxt, f_hold(lPdl) or (f_cross(lPdl, lPdl[1]) and (not rcConf or _conf)), "PDL")
-_pdTxt := f_add(_pdTxt, f_cross(lPdl, lPdl[1]) and rcConf and not _conf, "PDL")
-_upTxt := f_add(_upTxt, f_hold(lPwh) or (f_cross(lPwh, lPwh[1]) and (not rcConf or _conf)), "PWH")
-_pdTxt := f_add(_pdTxt, f_cross(lPwh, lPwh[1]) and rcConf and not _conf, "PWH")
-_upTxt := f_add(_upTxt, f_hold(lPwl) or (f_cross(lPwl, lPwl[1]) and (not rcConf or _conf)), "PWL")
-_pdTxt := f_add(_pdTxt, f_cross(lPwl, lPwl[1]) and rcConf and not _conf, "PWL")
-_upTxt := f_add(_upTxt, f_hold(lPmh) or (f_cross(lPmh, lPmh[1]) and (not rcConf or _conf)), "PMH")
-_pdTxt := f_add(_pdTxt, f_cross(lPmh, lPmh[1]) and rcConf and not _conf, "PMH")
-_upTxt := f_add(_upTxt, f_hold(lPml) or (f_cross(lPml, lPml[1]) and (not rcConf or _conf)), "PML")
-_pdTxt := f_add(_pdTxt, f_cross(lPml, lPml[1]) and rcConf and not _conf, "PML")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma8v) or (f_crossDn(sma8v, sma8v[1]) and (not rcConf or _conf)), "8 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma8v, sma8v[1]) and rcConf and not _conf, "8 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma21v) or (f_crossDn(sma21v, sma21v[1]) and (not rcConf or _conf)), "21 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma21v, sma21v[1]) and rcConf and not _conf, "21 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma50v) or (f_crossDn(sma50v, sma50v[1]) and (not rcConf or _conf)), "50 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma50v, sma50v[1]) and rcConf and not _conf, "50 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v, sma100v[1]) and (not rcConf or _conf)), "100 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema5v) or (f_crossDn(ema5v, ema5v[1]) and (not rcConf or _conf)), "5 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema5v, ema5v[1]) and rcConf and not _conf, "5 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema21v, ema21v[1]) and rcConf and not _conf, "21 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema50v) or (f_crossDn(ema50v, ema50v[1]) and (not rcConf or _conf)), "50 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema50v, ema50v[1]) and rcConf and not _conf, "50 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema100v) or (f_crossDn(ema100v, ema100v[1]) and (not rcConf or _conf)), "100 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema100v, ema100v[1]) and rcConf and not _conf, "100 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema200v) or (f_crossDn(ema200v, ema200v[1]) and (not rcConf or _conf)), "200 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema200v, ema200v[1]) and rcConf and not _conf, "200 EMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(lPdh) or (f_crossDn(lPdh, lPdh[1]) and (not rcConf or _conf)), "PDH")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdh, lPdh[1]) and rcConf and not _conf, "PDH")
-_dnTxt := f_add(_dnTxt, f_holdDn(lPdl) or (f_crossDn(lPdl, lPdl[1]) and (not rcConf or _conf)), "PDL")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdl, lPdl[1]) and rcConf and not _conf, "PDL")
+_upTxt := f_add(_upTxt, f_hold(sma8v) or (f_cross(sma8v) and (not rcConf or _conf)), "8 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma8v) and rcConf and not _conf, "8 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma21v) or (f_cross(sma21v) and (not rcConf or _conf)), "21 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma21v) and rcConf and not _conf, "21 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma50v) or (f_cross(sma50v) and (not rcConf or _conf)), "50 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma50v) and rcConf and not _conf, "50 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v) and (not rcConf or _conf)), "100 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma100v) and rcConf and not _conf, "100 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v) and (not rcConf or _conf)), "200 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma200v) and rcConf and not _conf, "200 SMA")
+_upTxt := f_add(_upTxt, f_hold(ema5v) or (f_cross(ema5v) and (not rcConf or _conf)), "5 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema5v) and rcConf and not _conf, "5 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v) and (not rcConf or _conf)), "8 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema8v) and rcConf and not _conf, "8 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v) and (not rcConf or _conf)), "21 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema21v) and rcConf and not _conf, "21 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema50v) or (f_cross(ema50v) and (not rcConf or _conf)), "50 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema50v) and rcConf and not _conf, "50 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema100v) or (f_cross(ema100v) and (not rcConf or _conf)), "100 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema100v) and rcConf and not _conf, "100 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema200v) or (f_cross(ema200v) and (not rcConf or _conf)), "200 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema200v) and rcConf and not _conf, "200 EMA")
+_upTxt := f_add(_upTxt, f_hold(lPdh) or (f_cross(lPdh) and (not rcConf or _conf)), "PDH")
+_pdTxt := f_add(_pdTxt, f_cross(lPdh) and rcConf and not _conf, "PDH")
+_upTxt := f_add(_upTxt, f_hold(lPdl) or (f_cross(lPdl) and (not rcConf or _conf)), "PDL")
+_pdTxt := f_add(_pdTxt, f_cross(lPdl) and rcConf and not _conf, "PDL")
+_upTxt := f_add(_upTxt, f_hold(lPwh) or (f_cross(lPwh) and (not rcConf or _conf)), "PWH")
+_pdTxt := f_add(_pdTxt, f_cross(lPwh) and rcConf and not _conf, "PWH")
+_upTxt := f_add(_upTxt, f_hold(lPwl) or (f_cross(lPwl) and (not rcConf or _conf)), "PWL")
+_pdTxt := f_add(_pdTxt, f_cross(lPwl) and rcConf and not _conf, "PWL")
+_upTxt := f_add(_upTxt, f_hold(lPmh) or (f_cross(lPmh) and (not rcConf or _conf)), "PMH")
+_pdTxt := f_add(_pdTxt, f_cross(lPmh) and rcConf and not _conf, "PMH")
+_upTxt := f_add(_upTxt, f_hold(lPml) or (f_cross(lPml) and (not rcConf or _conf)), "PML")
+_pdTxt := f_add(_pdTxt, f_cross(lPml) and rcConf and not _conf, "PML")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma8v) or (f_crossDn(sma8v) and (not rcConf or _conf)), "8 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma8v) and rcConf and not _conf, "8 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma21v) or (f_crossDn(sma21v) and (not rcConf or _conf)), "21 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma21v) and rcConf and not _conf, "21 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma50v) or (f_crossDn(sma50v) and (not rcConf or _conf)), "50 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma50v) and rcConf and not _conf, "50 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v) and (not rcConf or _conf)), "100 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v) and rcConf and not _conf, "100 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v) and (not rcConf or _conf)), "200 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v) and rcConf and not _conf, "200 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema5v) or (f_crossDn(ema5v) and (not rcConf or _conf)), "5 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema5v) and rcConf and not _conf, "5 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v) and (not rcConf or _conf)), "8 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v) and rcConf and not _conf, "8 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v) and (not rcConf or _conf)), "21 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema21v) and rcConf and not _conf, "21 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema50v) or (f_crossDn(ema50v) and (not rcConf or _conf)), "50 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema50v) and rcConf and not _conf, "50 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema100v) or (f_crossDn(ema100v) and (not rcConf or _conf)), "100 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema100v) and rcConf and not _conf, "100 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema200v) or (f_crossDn(ema200v) and (not rcConf or _conf)), "200 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema200v) and rcConf and not _conf, "200 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdh) or (f_crossDn(lPdh) and (not rcConf or _conf)), "PDH")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdh) and rcConf and not _conf, "PDH")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdl) or (f_crossDn(lPdl) and (not rcConf or _conf)), "PDL")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdl) and rcConf and not _conf, "PDL")
 
 // ── FORMING tag on the live bar. The qualification is already satisfied — open above, wick
 // through, price back above — and only the close can still change it. Drawn faint with a
