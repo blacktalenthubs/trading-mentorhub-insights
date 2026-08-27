@@ -441,13 +441,26 @@ _rcOk  = not rcConf or barstate.isconfirmed
 // qualified at once, and it sat at the candle's low rather than at the level itself.
 // Placing each arrow on its own level makes the mark self-explanatory: the arrow IS at
 // the price that was taken back. Levels are included, not just MAs.
+// The tag goes UNDER THE CANDLE that did the work, not out on the level line — that's where
+// your eye already is when you're reading the bar, and a mark floating at the level price sits
+// far from the candle it describes. The NAME carries which level, so nothing is lost by moving
+// it: "⟲ 21 EMA" under a wick-and-reclaim bar says both things at once. Several levels taken on
+// one bar collapse into a single tag rather than stacking marks on top of each other.
 _sigOn = _rcOk and (enRc or enLost)
+_upTxt = ""
+_dnTxt = ""
 if _sigOn
     _sv2 = array.from(sma8v, sma21v, sma50v, sma100v, sma200v, ema8v, ema21v, ema50v, ema100v, ema200v, lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+    _sn2 = array.from("8 SMA", "21 SMA", "50 SMA", "100 SMA", "200 SMA", "8 EMA", "21 EMA", "50 EMA", "100 EMA", "200 EMA", "PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
     for _qi2 = 0 to array.size(_sv2) - 1
         _qval = array.get(_sv2, _qi2)
         if not na(_qval) and _qval > 0
+            _qnm2 = array.get(_sn2, _qi2)
             if enRc and f_qualUp(_qval)
-                label.new(bar_index, _qval, "▲", yloc = yloc.price, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
+                _upTxt := str.length(_upTxt) > 0 ? _upTxt + " · " + _qnm2 : _qnm2
             if enLost and f_qualDn(_qval)
-                label.new(bar_index, _qval, "▼", yloc = yloc.price, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
+                _dnTxt := str.length(_dnTxt) > 0 ? _dnTxt + " · " + _qnm2 : _qnm2
+if str.length(_upTxt) > 0
+    label.new(bar_index, low,  "⟲ " + _upTxt, yloc = yloc.belowbar, style = label.style_label_up,   color = rcUpCol, textcolor = color.white, size = _rcSz)
+if str.length(_dnTxt) > 0
+    label.new(bar_index, high, "▽ " + _dnTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
