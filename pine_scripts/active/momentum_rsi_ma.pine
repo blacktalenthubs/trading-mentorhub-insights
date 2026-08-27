@@ -11,16 +11,35 @@
 //   ▲ RSI70 (orange) — RSI(14) crosses ABOVE 70 (parabolic ignition).
 //   ▲ 5/20  (lime)   — 5 EMA crosses ABOVE the 20 EMA (Steve Burns).
 //   ▲ OS    (aqua)   — RSI first closes in the 30–35 buy zone (never below 30).
+//   ▲ 20E   (green)  — TREND TRADE entry: in a rising-20-EMA uptrend, price
+//                      pulls back to TOUCH the 20 EMA then closes back above it
+//                      green. Buy the close; stop = the pullback low.
+//   ✕ 5E    (red)    — TREND TRADE exit: while in that trade, the first bar to
+//                      CLOSE below the 5 EMA (the 5 EMA is the trailing stop).
+//
+// The 50 / 200 SMA are the STRUCTURAL backdrop — they don't generate markers, they
+// tell you which side of the bigger trend a momentum signal is firing on. A 5/20
+// cross above a rising 200 is a different trade from the same cross beneath it.
+// Plotted (not flat) to match the 5/20 EMA already on this chart; the flat-level
+// treatment lives in the Proximity pines.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Momentum — RSI 70 / 5-20 cross / oversold (visual)", "Momentum", overlay = true, max_labels_count = 100)
 
-show_ma   = input.bool(true,  "Plot 5 / 20 EMA")
-os_floor  = input.float(30.0, "Oversold zone FLOOR — never below this RSI", minval = 20.0, maxval = 35.0, step = 1.0)
-os_ceil   = input.float(35.0, "Oversold zone CEILING", minval = 30.0, maxval = 45.0, step = 1.0)
+show_ma    = input.bool(true,  "Plot 5 / 20 EMA")
+show_sma50  = input.bool(true, "Plot 50 SMA",  inline = "s", group = "Structure")
+show_sma200 = input.bool(true, "Plot 200 SMA", inline = "s", group = "Structure")
+col_sma50   = input.color(color.new(#2962FF, 0), "50",  inline = "sc", group = "Structure")
+col_sma200  = input.color(color.new(#787B86, 0), "200", inline = "sc", group = "Structure")
+os_floor   = input.float(30.0, "Oversold zone FLOOR — never below this RSI", minval = 20.0, maxval = 35.0, step = 1.0)
+os_ceil    = input.float(35.0, "Oversold zone CEILING", minval = 30.0, maxval = 45.0, step = 1.0)
+show_trend = input.bool(true,  "Trend trade: 20-EMA pullback entry + 5-EMA trail exit", group = "Trend trade")
+touch_band = input.float(0.4,  "20-EMA pullback touch band (%)", minval = 0.0, step = 0.1, group = "Trend trade")
 
 r   = ta.rsi(close, 14)
 e5  = ta.ema(close, 5)
 e20 = ta.ema(close, 20)
+s50  = ta.sma(close, 50)
+s200 = ta.sma(close, 200)
 rsi70   = ta.crossover(r, 70.0)
 cross   = ta.crossover(e5, e20)
 in_zone    = (r >= os_floor) and (r <= os_ceil)
@@ -28,6 +47,27 @@ os_recover = in_zone and not in_zone[1]
 
 plot(show_ma ? e5  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
 plot(show_ma ? e20 : na, "EMA 20", color = color.new(color.green, 0),  linewidth = 2)
+plot(show_sma50  ? s50  : na, "SMA 50",  color = col_sma50,  linewidth = 2)
+plot(show_sma200 ? s200 : na, "SMA 200", color = col_sma200, linewidth = 2)
 plotshape(rsi70,      title = "RSI70", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), text = "RSI70", size = size.small)
 plotshape(cross,      title = "5x20",  style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),   text = "5/20",  size = size.small)
 plotshape(os_recover, title = "OS",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),   text = "OS",    size = size.small)
+
+// ── Trend trade: enter the 20 EMA, trail the 5 EMA ──────────────────
+e20_rising = not na(e20[1]) and e20 > e20[1]
+tt_touch   = low <= e20 * (1.0 + touch_band / 100.0)                 // pullback tagged the 20 EMA
+tt_reclaim = close > e20 and close > open                           // closed back above it, green
+tt_entry   = e20_rising and tt_touch and tt_reclaim
+var bool  tt_in   = false
+var float tt_stop = na
+tt_enter = not tt_in and tt_entry
+tt_exit  = tt_in and not na(close[1]) and close < e5                // closed below the 5-EMA trail
+if tt_enter
+    tt_in := true
+    tt_stop := low
+if tt_exit
+    tt_in := false
+plotshape(show_trend and tt_enter, title = "20E entry", style = shape.triangleup, location = location.belowbar, color = color.new(#16A34A, 0), text = "20E", size = size.small)
+plotshape(show_trend and tt_exit,  title = "5E exit",   style = shape.xcross,     location = location.abovebar, color = color.new(#EF4444, 0), text = "5E", size = size.small)
+if show_trend and tt_enter
+    label.new(bar_index, low, "20-EMA hold\nE " + str.tostring(close, format.mintick) + " | stop " + str.tostring(low, format.mintick), style = label.style_label_up, color = color.new(#16A34A, 12), textcolor = color.white, size = size.small)
