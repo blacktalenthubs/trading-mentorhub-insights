@@ -424,6 +424,8 @@ if barstate.islast
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
 // ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
+// (the per-level arrows below are the only consumer; the old aggregate ⟲ tag and its
+//  f_join chain were removed with it, so there is one signal path, not two)
 // Price ramping through a MA intrabar and closing back under is a FALSE signal; the high
 // tells you nothing about who won. Two patterns qualify, and both require the close:
 //   A. CLOSE-THROUGH — prior close was at/below it, this close is above  (fresh reclaim)
@@ -432,57 +434,20 @@ if barstate.islast
 // Explicitly NOT qualified: high > level while close <= level. That's the ramp-and-fail.
 f_qualUp(float v) => not na(v) and ((close > v and nz(close[1], v) <= nz(v[1], v)) or (open > v and low <= v and close > v))
 f_qualDn(float v) => not na(v) and ((close < v and nz(close[1], v) >= nz(v[1], v)) or (open < v and high >= v and close < v))
-_up8    = f_qualUp(sma8v)
-_up21   = f_qualUp(sma21v)
-_up50   = f_qualUp(sma50v)
-_up100  = f_qualUp(sma100v)
-_up200  = f_qualUp(sma200v)
-_up8e   = f_qualUp(ema8v)
-_up21e  = f_qualUp(ema21v)
-_up50e  = f_qualUp(ema50v)
-_up100e = f_qualUp(ema100v)
-_up200e = f_qualUp(ema200v)
-_dn8    = f_qualDn(sma8v)
-_dn21   = f_qualDn(sma21v)
-_dn50   = f_qualDn(sma50v)
-_dn100  = f_qualDn(sma100v)
-_dn200  = f_qualDn(sma200v)
-_dn8e   = f_qualDn(ema8v)
-_dn21e  = f_qualDn(ema21v)
-_dn50e  = f_qualDn(ema50v)
-_dn100e = f_qualDn(ema100v)
-_dn200e = f_qualDn(ema200v)
-f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
-_rcTxt = ""
-_rcTxt := f_join(_rcTxt, _up8e,   "8 EMA")
-_rcTxt := f_join(_rcTxt, _up8,    "8 SMA")
-_rcTxt := f_join(_rcTxt, _up21,   "21 SMA")
-_rcTxt := f_join(_rcTxt, _up21e,  "21 EMA")
-_rcTxt := f_join(_rcTxt, _up50,   "50 SMA")
-_rcTxt := f_join(_rcTxt, _up50e,  "50 EMA")
-_rcTxt := f_join(_rcTxt, _up100,  "100 SMA")
-_rcTxt := f_join(_rcTxt, _up100e, "100 EMA")
-_rcTxt := f_join(_rcTxt, _up200,  "200 SMA")
-_rcTxt := f_join(_rcTxt, _up200e, "200 EMA")
-_lsTxt = ""
-_lsTxt := f_join(_lsTxt, _dn8e,   "8 EMA")
-_lsTxt := f_join(_lsTxt, _dn8,    "8 SMA")
-_lsTxt := f_join(_lsTxt, _dn21,   "21 SMA")
-_lsTxt := f_join(_lsTxt, _dn21e,  "21 EMA")
-_lsTxt := f_join(_lsTxt, _dn50,   "50 SMA")
-_lsTxt := f_join(_lsTxt, _dn50e,  "50 EMA")
-_lsTxt := f_join(_lsTxt, _dn100,  "100 SMA")
-_lsTxt := f_join(_lsTxt, _dn100e, "100 EMA")
-_lsTxt := f_join(_lsTxt, _dn200,  "200 SMA")
-_lsTxt := f_join(_lsTxt, _dn200e, "200 EMA")
 _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
 _rcOk  = not rcConf or barstate.isconfirmed
-_sigUp = enRc   and _rcOk and str.length(_rcTxt) > 0
-_sigDn = enLost and _rcOk and str.length(_lsTxt) > 0
-if _sigUp
-    label.new(bar_index, low, "⟲ " + _rcTxt, yloc = yloc.belowbar, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
-if _sigDn
-    label.new(bar_index, high, "▽ " + _lsTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
-// the arrow marks the bar; the label above says WHICH level(s) qualified on it
-plotshape(_sigUp, "Qualified reclaim", style = shape.arrowup,   location = location.belowbar, color = rcUpCol, size = size.tiny)
-plotshape(_sigDn, "Qualified loss",    style = shape.arrowdown, location = location.abovebar, color = rcDnCol, size = size.tiny)
+// ── ONE ARROW PER LEVEL, drawn AT THAT LEVEL'S PRICE on the qualifying bar.
+// A single arrow under the candle couldn't say WHICH level was reclaimed when several
+// qualified at once, and it sat at the candle's low rather than at the level itself.
+// Placing each arrow on its own level makes the mark self-explanatory: the arrow IS at
+// the price that was taken back. Levels are included, not just MAs.
+_sigOn = _rcOk and (enRc or enLost)
+if _sigOn
+    _sv2 = array.from(sma8v, sma21v, sma50v, sma100v, sma200v, ema8v, ema21v, ema50v, ema100v, ema200v, lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+    for _qi2 = 0 to array.size(_sv2) - 1
+        _qval = array.get(_sv2, _qi2)
+        if not na(_qval) and _qval > 0
+            if enRc and f_qualUp(_qval)
+                label.new(bar_index, _qval, "▲", yloc = yloc.price, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
+            if enLost and f_qualDn(_qval)
+                label.new(bar_index, _qval, "▼", yloc = yloc.price, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
