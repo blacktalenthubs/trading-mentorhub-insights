@@ -9,6 +9,10 @@
 // themselves through resistance and give the gains back — this makes that harder to do.
 // Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
 //
+// EQUAL LENGTH: every line — MAs, PDH/PDL, structural levels, the open — terminates at the same
+// tag column. Only the LABEL fans right when two sit at nearly the same price, so a collision
+// moves text, never a line end. Line length carries no meaning and shouldn't vary.
+//
 // ONE show-rule, no exemptions: a MA draws only inside the nearest-N bracket — the N closest MAs
 // ABOVE price and the N closest BELOW, each side set independently (default 2 / 2). A far 200 EMA
 // stays hidden until price approaches, so it can never stretch the axis. N means N: nothing bypasses
@@ -205,7 +209,7 @@ f_draw(float v, string nm) =>
     if not na(v) and v > 0 and (showAll or (_inBr and _cap))
         col = close > v ? supCol : resCol
         _xo = f_xoff(v)
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + _xo, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + labelX, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
         array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
@@ -357,17 +361,17 @@ if barstate.islast
         if _lHasDn
             _dxo = f_xoff(_lDn)
             _dc  = close > _lDn ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + _dxo, _lDn, color = _dc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
         if _lHasUp
             _uxo = f_xoff(_lUp)
             _uc  = close > _lUp ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + _uxo, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = line.style_dashed, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
-        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + _oxo, dayOpen, color = openCol, width = openW, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = line.style_dotted, extend = extendAll ? extend.both : extend.none))
         _oTag = _boxed ? "Open BTW " + _oUpN + " and " + _oDnN : _hasDn ? "Open ABOVE all MAs · " + _lvlTxt : _hasUp ? "Open BELOW all MAs · " + _lvlTxt : "Open"
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
     // ── HUD ──
