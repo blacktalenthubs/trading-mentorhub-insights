@@ -77,6 +77,7 @@ showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 gR      = "Reclaim marker"
 enRc    = input.bool(true,  "Mark the bar that CLOSES back ABOVE a MA (reclaim)", group = gR, tooltip = "A small ⟲ tag under the bar, naming every MA reclaimed on that close. This is the trigger side — price taking back a level it was trading under.")
 enLost  = input.bool(false, "Also mark the bar that CLOSES back BELOW a MA (lost)", group = gR, tooltip = "The mirror: a ▽ tag above the bar when price loses a MA it was holding. That's the exit side. OFF by default so the chart only shows reclaims.")
+enPend  = input.bool(true, "Show the FORMING signal on the live bar (faint, marked · forming)", group = gR, tooltip = "The wick has already happened — only the CLOSE is still unknown. This draws the tag faintly on the bar in progress so you can see the setup as it forms, and it firms up to a solid tag when the bar closes. If price closes back under, the faint tag simply disappears: nothing that repaints is ever presented as confirmed. On a daily chart this is the difference between seeing today's reclaim now and seeing it after 4pm.")
 rcConf  = input.bool(true,  "Confirmed bars only (never paint on the live bar)", group = gR, tooltip = "ON = the tag appears only once the bar CLOSES, so it can't appear mid-bar and then disappear. OFF = marks intrabar the moment price crosses (repaints).")
 rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
@@ -510,6 +511,21 @@ _dnTxt := f_add(_dnTxt, _d200e, "200 EMA")
 _dnTxt := f_add(_dnTxt, _d200,  "200 SMA")
 _dnTxt := f_add(_dnTxt, _dPdh,  "PDH")
 _dnTxt := f_add(_dnTxt, _dPdl,  "PDL")
+
+// ── FORMING tag on the live bar. The qualification is already satisfied — open above, wick
+// through, price back above — and only the close can still change it. Drawn faint with a
+// "· forming" suffix and REPLACED each tick, so it never accumulates and never claims to be
+// confirmed. It vanishes on its own if price closes back under.
+var label _pendUp = na
+var label _pendDn = na
+if barstate.islast
+    label.delete(_pendUp)
+    label.delete(_pendDn)
+    if enPend and rcConf and not barstate.isconfirmed
+        if enRc and str.length(_upTxt) > 0
+            _pendUp := label.new(bar_index, low, "⟲ " + _upTxt + "  · forming", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(rcUpCol, 55), textcolor = color.white, size = _rcSz)
+        if enLost and str.length(_dnTxt) > 0
+            _pendDn := label.new(bar_index, high, "▽ " + _dnTxt + "  · forming", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(rcDnCol, 55), textcolor = color.white, size = _rcSz)
 
 // the tag sits UNDER the candle that did the work, naming which level it took
 if enRc and _rcOk and str.length(_upTxt) > 0
