@@ -78,7 +78,7 @@ gR      = "Reclaim marker"
 enRc    = input.bool(true,  "Mark the bar that CLOSES back ABOVE a MA (reclaim)", group = gR, tooltip = "A small ⟲ tag under the bar, naming every MA reclaimed on that close. This is the trigger side — price taking back a level it was trading under.")
 enLost  = input.bool(false, "Also mark the bar that CLOSES back BELOW a MA (lost)", group = gR, tooltip = "The mirror: a ▽ tag above the bar when price loses a MA it was holding. That's the exit side. OFF by default so the chart only shows reclaims.")
 enPend  = input.bool(true, "Show the FORMING signal on the live bar (faint, marked · forming)", group = gR, tooltip = "The wick has already happened — only the CLOSE is still unknown. This draws the tag faintly on the bar in progress so you can see the setup as it forms, and it firms up to a solid tag when the bar closes. If price closes back under, the faint tag simply disappears: nothing that repaints is ever presented as confirmed. On a daily chart this is the difference between seeing today's reclaim now and seeing it after 4pm.")
-rcConf  = input.bool(true,  "Confirmed bars only (never paint on the live bar)", group = gR, tooltip = "ON = the tag appears only once the bar CLOSES, so it can't appear mid-bar and then disappear. OFF = marks intrabar the moment price crosses (repaints).")
+rcConf  = input.bool(true,  "Require a confirmed CLOSE for a cross-up reclaim", group = gR, tooltip = "Applies to the CROSS pattern only — price coming from BELOW and ramping through a level, which can fail and close back under. A HOLD reclaim (opened above, wicked, back above) never needed a close and always prints live: price didn't lose the level, it defended a test. OFF = a cross marks intrabar too (repaints).")
 rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
 rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
@@ -425,92 +425,85 @@ if barstate.islast
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
 _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
-_rcOk  = not rcConf or barstate.isconfirmed
-// ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
-// (the per-level arrows below are the only consumer; the old aggregate ⟲ tag and its
-//  f_join chain were removed with it, so there is one signal path, not two)
-// Price ramping through a MA intrabar and closing back under is a FALSE signal; the high
-// tells you nothing about who won. Two patterns qualify, and both require the close:
-//   A. CLOSE-THROUGH — prior close was at/below it, this close is above  (fresh reclaim)
-//   B. OPEN-ABOVE + WICK + RECLAIM — opened above it, traded down to/through it, closed
-//      back above (the level was tested and DEFENDED — no cross, so A never sees it)
-// Explicitly NOT qualified: high > level while close <= level. That's the ramp-and-fail.
-// ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
-// Price ramping through intrabar and closing back under is a FALSE signal; the high tells you
-// nothing about who won. Two patterns qualify, and BOTH require the close:
-//   A. CLOSE-THROUGH          prior close at/below it, this close above
-//   B. OPEN-ABOVE + WICK      opened above, traded down to/through it, closed back above
-//                             (tested and DEFENDED — there is no cross, so A never sees it)
-// NOT qualified: high > level while close <= level.
+// ── TWO PATTERNS, GATED DIFFERENTLY — because they carry different risk.
 //
-// The prior value is passed IN rather than read as v[1] inside the function. Pine keeps one
-// history series per CALL SITE, so a function that does v[1] and is called in a loop over
-// array values reads whatever that slot held last bar — a different level each time. That is
-// why this fired nothing: every MA shared one poisoned history slot. Evaluated per level at
-// global scope, [1] refers to that level's own previous value, which is the whole point.
-f_qUp(float v, float vp) => not na(v) and ((close > v and nz(close[1], v) <= nz(vp, v)) or (open > v and low <= v and close > v))
-f_qDn(float v, float vp) => not na(v) and ((close < v and nz(close[1], v) >= nz(vp, v)) or (open < v and high >= v and close < v))
+//   HOLD   open ABOVE the level, wick down to/through it, price back above.
+//          Qualifies IMMEDIATELY, no close required. Price never lost the level — it opened
+//          above and defended a test. There is nothing to confirm: the wick already happened.
+//
+//   CROSS  price coming from BELOW, ramping up through the level.
+//          Requires a CONFIRMED CLOSE above, on the chart's timeframe. A ramp through can fail
+//          and close back under, and that's the false signal the whole rule exists to prevent.
+//
+// So the confirmed-bar gate applies to CROSS only. A hold-reclaim prints live on any timeframe;
+// a cross-reclaim waits for the bar to close and shows faint "· forming" until it does.
+f_hold(float v) => not na(v) and open > v and low <= v and close > v
+f_cross(float v, float vp) => not na(v) and close > v and nz(close[1], v) <= nz(vp, v) and not (open > v and low <= v)
+f_holdDn(float v) => not na(v) and open < v and high >= v and close < v
+f_crossDn(float v, float vp) => not na(v) and close < v and nz(close[1], v) >= nz(vp, v) and not (open < v and high >= v)
 f_add(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
 
-_u8    = f_qUp(sma8v,   sma8v[1])
-_u21   = f_qUp(sma21v,  sma21v[1])
-_u50   = f_qUp(sma50v,  sma50v[1])
-_u100  = f_qUp(sma100v, sma100v[1])
-_u200  = f_qUp(sma200v, sma200v[1])
-_u8e   = f_qUp(ema8v,   ema8v[1])
-_u21e  = f_qUp(ema21v,  ema21v[1])
-_u50e  = f_qUp(ema50v,  ema50v[1])
-_u100e = f_qUp(ema100v, ema100v[1])
-_u200e = f_qUp(ema200v, ema200v[1])
-_uPdh  = f_qUp(lPdh, lPdh[1])
-_uPdl  = f_qUp(lPdl, lPdl[1])
-_uPwh  = f_qUp(lPwh, lPwh[1])
-_uPwl  = f_qUp(lPwl, lPwl[1])
-_uPmh  = f_qUp(lPmh, lPmh[1])
-_uPml  = f_qUp(lPml, lPml[1])
-_d8    = f_qDn(sma8v,   sma8v[1])
-_d21   = f_qDn(sma21v,  sma21v[1])
-_d50   = f_qDn(sma50v,  sma50v[1])
-_d100  = f_qDn(sma100v, sma100v[1])
-_d200  = f_qDn(sma200v, sma200v[1])
-_d8e   = f_qDn(ema8v,   ema8v[1])
-_d21e  = f_qDn(ema21v,  ema21v[1])
-_d50e  = f_qDn(ema50v,  ema50v[1])
-_d100e = f_qDn(ema100v, ema100v[1])
-_d200e = f_qDn(ema200v, ema200v[1])
-_dPdh  = f_qDn(lPdh, lPdh[1])
-_dPdl  = f_qDn(lPdl, lPdl[1])
-
+_conf = barstate.isconfirmed
 _upTxt = ""
-_upTxt := f_add(_upTxt, _u8e,   "8 EMA")
-_upTxt := f_add(_upTxt, _u8,    "8 SMA")
-_upTxt := f_add(_upTxt, _u21e,  "21 EMA")
-_upTxt := f_add(_upTxt, _u21,   "21 SMA")
-_upTxt := f_add(_upTxt, _u50e,  "50 EMA")
-_upTxt := f_add(_upTxt, _u50,   "50 SMA")
-_upTxt := f_add(_upTxt, _u100e, "100 EMA")
-_upTxt := f_add(_upTxt, _u100,  "100 SMA")
-_upTxt := f_add(_upTxt, _u200e, "200 EMA")
-_upTxt := f_add(_upTxt, _u200,  "200 SMA")
-_upTxt := f_add(_upTxt, _uPdh,  "PDH")
-_upTxt := f_add(_upTxt, _uPdl,  "PDL")
-_upTxt := f_add(_upTxt, _uPwh,  "PWH")
-_upTxt := f_add(_upTxt, _uPwl,  "PWL")
-_upTxt := f_add(_upTxt, _uPmh,  "PMH")
-_upTxt := f_add(_upTxt, _uPml,  "PML")
 _dnTxt = ""
-_dnTxt := f_add(_dnTxt, _d8e,   "8 EMA")
-_dnTxt := f_add(_dnTxt, _d8,    "8 SMA")
-_dnTxt := f_add(_dnTxt, _d21e,  "21 EMA")
-_dnTxt := f_add(_dnTxt, _d21,   "21 SMA")
-_dnTxt := f_add(_dnTxt, _d50e,  "50 EMA")
-_dnTxt := f_add(_dnTxt, _d50,   "50 SMA")
-_dnTxt := f_add(_dnTxt, _d100e, "100 EMA")
-_dnTxt := f_add(_dnTxt, _d100,  "100 SMA")
-_dnTxt := f_add(_dnTxt, _d200e, "200 EMA")
-_dnTxt := f_add(_dnTxt, _d200,  "200 SMA")
-_dnTxt := f_add(_dnTxt, _dPdh,  "PDH")
-_dnTxt := f_add(_dnTxt, _dPdl,  "PDL")
+_pdTxt = ""
+_pdDnTxt = ""
+_upTxt := f_add(_upTxt, f_hold(sma8v) or (f_cross(sma8v, sma8v[1]) and (not rcConf or _conf)), "8 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma8v, sma8v[1]) and rcConf and not _conf, "8 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma21v) or (f_cross(sma21v, sma21v[1]) and (not rcConf or _conf)), "21 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma21v, sma21v[1]) and rcConf and not _conf, "21 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma50v) or (f_cross(sma50v, sma50v[1]) and (not rcConf or _conf)), "50 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma50v, sma50v[1]) and rcConf and not _conf, "50 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v, sma100v[1]) and (not rcConf or _conf)), "100 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
+_upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema21v, ema21v[1]) and rcConf and not _conf, "21 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema50v) or (f_cross(ema50v, ema50v[1]) and (not rcConf or _conf)), "50 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema50v, ema50v[1]) and rcConf and not _conf, "50 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema100v) or (f_cross(ema100v, ema100v[1]) and (not rcConf or _conf)), "100 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema100v, ema100v[1]) and rcConf and not _conf, "100 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema200v) or (f_cross(ema200v, ema200v[1]) and (not rcConf or _conf)), "200 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema200v, ema200v[1]) and rcConf and not _conf, "200 EMA")
+_upTxt := f_add(_upTxt, f_hold(lPdh) or (f_cross(lPdh, lPdh[1]) and (not rcConf or _conf)), "PDH")
+_pdTxt := f_add(_pdTxt, f_cross(lPdh, lPdh[1]) and rcConf and not _conf, "PDH")
+_upTxt := f_add(_upTxt, f_hold(lPdl) or (f_cross(lPdl, lPdl[1]) and (not rcConf or _conf)), "PDL")
+_pdTxt := f_add(_pdTxt, f_cross(lPdl, lPdl[1]) and rcConf and not _conf, "PDL")
+_upTxt := f_add(_upTxt, f_hold(lPwh) or (f_cross(lPwh, lPwh[1]) and (not rcConf or _conf)), "PWH")
+_pdTxt := f_add(_pdTxt, f_cross(lPwh, lPwh[1]) and rcConf and not _conf, "PWH")
+_upTxt := f_add(_upTxt, f_hold(lPwl) or (f_cross(lPwl, lPwl[1]) and (not rcConf or _conf)), "PWL")
+_pdTxt := f_add(_pdTxt, f_cross(lPwl, lPwl[1]) and rcConf and not _conf, "PWL")
+_upTxt := f_add(_upTxt, f_hold(lPmh) or (f_cross(lPmh, lPmh[1]) and (not rcConf or _conf)), "PMH")
+_pdTxt := f_add(_pdTxt, f_cross(lPmh, lPmh[1]) and rcConf and not _conf, "PMH")
+_upTxt := f_add(_upTxt, f_hold(lPml) or (f_cross(lPml, lPml[1]) and (not rcConf or _conf)), "PML")
+_pdTxt := f_add(_pdTxt, f_cross(lPml, lPml[1]) and rcConf and not _conf, "PML")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma8v) or (f_crossDn(sma8v, sma8v[1]) and (not rcConf or _conf)), "8 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma8v, sma8v[1]) and rcConf and not _conf, "8 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma21v) or (f_crossDn(sma21v, sma21v[1]) and (not rcConf or _conf)), "21 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma21v, sma21v[1]) and rcConf and not _conf, "21 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma50v) or (f_crossDn(sma50v, sma50v[1]) and (not rcConf or _conf)), "50 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma50v, sma50v[1]) and rcConf and not _conf, "50 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v, sma100v[1]) and (not rcConf or _conf)), "100 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema21v, ema21v[1]) and rcConf and not _conf, "21 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema50v) or (f_crossDn(ema50v, ema50v[1]) and (not rcConf or _conf)), "50 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema50v, ema50v[1]) and rcConf and not _conf, "50 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema100v) or (f_crossDn(ema100v, ema100v[1]) and (not rcConf or _conf)), "100 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema100v, ema100v[1]) and rcConf and not _conf, "100 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema200v) or (f_crossDn(ema200v, ema200v[1]) and (not rcConf or _conf)), "200 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema200v, ema200v[1]) and rcConf and not _conf, "200 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdh) or (f_crossDn(lPdh, lPdh[1]) and (not rcConf or _conf)), "PDH")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdh, lPdh[1]) and rcConf and not _conf, "PDH")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdl) or (f_crossDn(lPdl, lPdl[1]) and (not rcConf or _conf)), "PDL")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdl, lPdl[1]) and rcConf and not _conf, "PDL")
 
 // ── FORMING tag on the live bar. The qualification is already satisfied — open above, wick
 // through, price back above — and only the close can still change it. Drawn faint with a
@@ -521,14 +514,14 @@ var label _pendDn = na
 if barstate.islast
     label.delete(_pendUp)
     label.delete(_pendDn)
-    if enPend and rcConf and not barstate.isconfirmed
-        if enRc and str.length(_upTxt) > 0
-            _pendUp := label.new(bar_index, low, "⟲ " + _upTxt + "  · forming", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(rcUpCol, 55), textcolor = color.white, size = _rcSz)
-        if enLost and str.length(_dnTxt) > 0
-            _pendDn := label.new(bar_index, high, "▽ " + _dnTxt + "  · forming", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(rcDnCol, 55), textcolor = color.white, size = _rcSz)
+    if enPend and not barstate.isconfirmed
+        if enRc and str.length(_pdTxt) > 0
+            _pendUp := label.new(bar_index, low, "⟲ " + _pdTxt + "  · forming", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(rcUpCol, 55), textcolor = color.white, size = _rcSz)
+        if enLost and str.length(_pdDnTxt) > 0
+            _pendDn := label.new(bar_index, high, "▽ " + _pdDnTxt + "  · forming", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(rcDnCol, 55), textcolor = color.white, size = _rcSz)
 
 // the tag sits UNDER the candle that did the work, naming which level it took
-if enRc and _rcOk and str.length(_upTxt) > 0
+if enRc and str.length(_upTxt) > 0
     label.new(bar_index, low,  "⟲ " + _upTxt, yloc = yloc.belowbar, style = label.style_label_up,   color = rcUpCol, textcolor = color.white, size = _rcSz)
-if enLost and _rcOk and str.length(_dnTxt) > 0
+if enLost and str.length(_dnTxt) > 0
     label.new(bar_index, high, "▽ " + _dnTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
