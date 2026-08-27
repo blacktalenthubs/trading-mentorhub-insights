@@ -73,6 +73,7 @@ nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
+enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
 
 // ── reclaim marker ──────────────────────────────────────────────────────────────
 gR      = "Reclaim marker"
@@ -134,17 +135,39 @@ lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval =
 // ── values — SETTLED higher-TF MA ([1] + lookahead_on), the ma_ema_daily idiom. Flat, non-repainting.
 // (each call written out in full — a request.security wrapped in a helper that also branches is the
 //  one shape that bites; this is the exact form proximity_levels_pure / ma_ema_daily already use)
-sma8v   = en8    ? request.security(syminfo.tickerid, maTf, ta.sma(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
-sma21v  = en21   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 21)[1],  lookahead = barmerge.lookahead_on) : na
-sma50v  = en50   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
-sma100v = en100  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on) : na
-sma200v = en200  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
-ema5v   = en5e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on) : na
-ema8v   = en8e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
-ema21v  = en21e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on) : na
-ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
-ema100v = en100e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on) : na
-ema200v = en200e ? request.security(syminfo.tickerid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+[_r_sma8v, _r_sma8vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 8)[1], ta.sma(close, 8)[2]], lookahead = barmerge.lookahead_on)
+sma8v = en8 ? _r_sma8v : na
+sma8vp = en8 ? _r_sma8vp : na
+[_r_sma21v, _r_sma21vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 21)[1], ta.sma(close, 21)[2]], lookahead = barmerge.lookahead_on)
+sma21v = en21 ? _r_sma21v : na
+sma21vp = en21 ? _r_sma21vp : na
+[_r_sma50v, _r_sma50vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 50)[1], ta.sma(close, 50)[2]], lookahead = barmerge.lookahead_on)
+sma50v = en50 ? _r_sma50v : na
+sma50vp = en50 ? _r_sma50vp : na
+[_r_sma100v, _r_sma100vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 100)[1], ta.sma(close, 100)[2]], lookahead = barmerge.lookahead_on)
+sma100v = en100 ? _r_sma100v : na
+sma100vp = en100 ? _r_sma100vp : na
+[_r_sma200v, _r_sma200vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 200)[1], ta.sma(close, 200)[2]], lookahead = barmerge.lookahead_on)
+sma200v = en200 ? _r_sma200v : na
+sma200vp = en200 ? _r_sma200vp : na
+[_r_ema5v, _r_ema5vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 5)[1], ta.ema(close, 5)[2]], lookahead = barmerge.lookahead_on)
+ema5v = en5e ? _r_ema5v : na
+ema5vp = en5e ? _r_ema5vp : na
+[_r_ema8v, _r_ema8vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 8)[1], ta.ema(close, 8)[2]], lookahead = barmerge.lookahead_on)
+ema8v = en8e ? _r_ema8v : na
+ema8vp = en8e ? _r_ema8vp : na
+[_r_ema21v, _r_ema21vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 21)[1], ta.ema(close, 21)[2]], lookahead = barmerge.lookahead_on)
+ema21v = en21e ? _r_ema21v : na
+ema21vp = en21e ? _r_ema21vp : na
+[_r_ema50v, _r_ema50vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 50)[1], ta.ema(close, 50)[2]], lookahead = barmerge.lookahead_on)
+ema50v = en50e ? _r_ema50v : na
+ema50vp = en50e ? _r_ema50vp : na
+[_r_ema100v, _r_ema100vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 100)[1], ta.ema(close, 100)[2]], lookahead = barmerge.lookahead_on)
+ema100v = en100e ? _r_ema100v : na
+ema100vp = en100e ? _r_ema100vp : na
+[_r_ema200v, _r_ema200vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 200)[1], ta.ema(close, 200)[2]], lookahead = barmerge.lookahead_on)
+ema200v = en200e ? _r_ema200v : na
+ema200vp = en200e ? _r_ema200vp : na
 
 // ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -195,6 +218,14 @@ lPmh = f_lvl("M",  high[1])
 lPml = f_lvl("M",  low[1])
 lPqh = f_lvl("3M", high[1])
 lPql = f_lvl("3M", low[1])
+
+// SLOPE. A flat line is readable as a LEVEL but throws away direction, and direction is half the
+// trade: reclaiming a RISING 21 EMA is continuation — the average is coming up to meet price.
+// Reclaiming a FALLING one is a counter-trend bounce into supply that is still descending onto you.
+// Same level, opposite trades. So each MA carries its prior-day value and the tag shows ↑ / ↓ / →.
+// (Day-over-day, not bar-over-bar: a daily MA has one value per day, so an intraday comparison
+//  would always read flat.)
+f_slope(float v, float vp) => not enSlope or na(v) or na(vp) ? "" : v > vp ? " ↑" : v < vp ? " ↓" : " →"
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln = array.new_line()
@@ -254,17 +285,17 @@ if barstate.islast
     array.clear(_qv)
     array.clear(_qn)
     array.clear(_qdot)
-    f_collect(sma8v,   "8 SMA")
-    f_collect(sma21v,  "21 SMA")
-    f_collect(sma50v,  "50 SMA")
-    f_collect(sma100v, "100 SMA")
-    f_collect(sma200v, "200 SMA")
-    f_collect(ema5v,   "5 EMA")
-    f_collect(ema8v,   "8 EMA")
-    f_collect(ema21v,  "21 EMA")
-    f_collect(ema50v,  "50 EMA")
-    f_collect(ema100v, "100 EMA")
-    f_collect(ema200v, "200 EMA")
+    f_collect(sma8v,   "8 SMA" + f_slope(sma8v, sma8vp))
+    f_collect(sma21v,  "21 SMA" + f_slope(sma21v, sma21vp))
+    f_collect(sma50v,  "50 SMA" + f_slope(sma50v, sma50vp))
+    f_collect(sma100v, "100 SMA" + f_slope(sma100v, sma100vp))
+    f_collect(sma200v, "200 SMA" + f_slope(sma200v, sma200vp))
+    f_collect(ema5v,   "5 EMA" + f_slope(ema5v, ema5vp))
+    f_collect(ema8v,   "8 EMA" + f_slope(ema8v, ema8vp))
+    f_collect(ema21v,  "21 EMA" + f_slope(ema21v, ema21vp))
+    f_collect(ema50v,  "50 EMA" + f_slope(ema50v, ema50vp))
+    f_collect(ema100v, "100 EMA" + f_slope(ema100v, ema100vp))
+    f_collect(ema200v, "200 EMA" + f_slope(ema200v, ema200vp))
     // ── NEAREST-N bracket — the N closest MAs above price and N closest below ──
     _ab = array.new_float()
     _bl = array.new_float()
