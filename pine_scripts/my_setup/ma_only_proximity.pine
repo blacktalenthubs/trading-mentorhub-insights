@@ -280,7 +280,7 @@ if barstate.islast
                 if not na(_pv) and _pv > 0
                     _pc = close > _pv ? supCol : resCol
                     _pxo = f_xoff(_pv)
-                    array.push(_ln, line.new(bar_index - lineLen, _pv, bar_index + tagOff, _pv, color = color.new(_pc, slFade), width = slW, style = line.style_dashed))
+                    array.push(_ln, line.new(bar_index - lineLen, _pv, bar_index + labelX, _pv, color = color.new(_pc, slFade), width = slW, style = line.style_dashed))
                     array.push(_lb, label.new(bar_index + _pxo, _pv, (close > _pv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + (_pi == 0 ? "PDH" : "PDL"), style = label.style_label_left, color = color.new(_pc, 82), textcolor = _pc, size = size.small))
         _slV = array.new_float()
         _slN = array.new_string()
@@ -311,7 +311,7 @@ if barstate.islast
                 if _sv <= _slHi and _sv >= _slLo
                     _sc = close > _sv ? supCol : resCol
                     _sxo = f_xoff(_sv)
-                    array.push(_ln, line.new(bar_index - lineLen, _sv, bar_index + tagOff, _sv, color = color.new(_sc, slFade), width = slW, style = line.style_dashed))
+                    array.push(_ln, line.new(bar_index - lineLen, _sv, bar_index + labelX, _sv, color = color.new(_sc, slFade), width = slW, style = line.style_dashed))
                     array.push(_lb, label.new(bar_index + _sxo, _sv, (close > _sv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + array.get(_slN, _si), style = label.style_label_left, color = color.new(_sc, 82), textcolor = _sc, size = size.small))
 
     // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
