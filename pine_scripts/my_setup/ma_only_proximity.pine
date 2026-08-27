@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY MAs · FLAT — 8/21/50/100/200 SMA + 8/21/50/100/200 EMA as flat levels. NO structural levels.
+// PROXIMITY MAs · FLAT — 8/21/50/100/200 SMA + 5/8/21/50/100/200 EMA as flat levels. NO structural levels.
 // =============================================================================
 // The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
 // as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
@@ -58,6 +58,7 @@ en21   = input.bool(true, "21 SMA",  inline = "ma1", group = gMA)
 en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
 en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
 en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
+en5e   = input.bool(true, "5 EMA",   inline = "ma3", group = gMA)
 en8e   = input.bool(true, "8 EMA",   inline = "ma3", group = gMA)
 en21e  = input.bool(true, "21 EMA",  inline = "ma3", group = gMA)
 en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
@@ -132,6 +133,7 @@ sma21v  = en21   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 21)[1]
 sma50v  = en50   ? request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
 sma100v = en100  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on) : na
 sma200v = en200  ? request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on) : na
+ema5v   = en5e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on) : na
 ema8v   = en8e   ? request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on) : na
 ema21v  = en21e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on) : na
 ema50v  = en50e  ? request.security(syminfo.tickerid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on) : na
@@ -247,6 +249,7 @@ if barstate.islast
     f_collect(sma50v,  "50 SMA")
     f_collect(sma100v, "100 SMA")
     f_collect(sma200v, "200 SMA")
+    f_collect(ema5v,   "5 EMA")
     f_collect(ema8v,   "8 EMA")
     f_collect(ema21v,  "21 EMA")
     f_collect(ema50v,  "50 EMA")
@@ -458,6 +461,8 @@ _upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v, sma100v[1]) and (no
 _pdTxt := f_add(_pdTxt, f_cross(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
 _upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
 _pdTxt := f_add(_pdTxt, f_cross(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
+_upTxt := f_add(_upTxt, f_hold(ema5v) or (f_cross(ema5v, ema5v[1]) and (not rcConf or _conf)), "5 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema5v, ema5v[1]) and rcConf and not _conf, "5 EMA")
 _upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
 _pdTxt := f_add(_pdTxt, f_cross(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
 _upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
@@ -490,6 +495,8 @@ _dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v, sma100v[1]) and
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v, sma100v[1]) and rcConf and not _conf, "100 SMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v, sma200v[1]) and (not rcConf or _conf)), "200 SMA")
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v, sma200v[1]) and rcConf and not _conf, "200 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema5v) or (f_crossDn(ema5v, ema5v[1]) and (not rcConf or _conf)), "5 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema5v, ema5v[1]) and rcConf and not _conf, "5 EMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v, ema8v[1]) and (not rcConf or _conf)), "8 EMA")
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v, ema8v[1]) and rcConf and not _conf, "8 EMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v, ema21v[1]) and (not rcConf or _conf)), "21 EMA")
