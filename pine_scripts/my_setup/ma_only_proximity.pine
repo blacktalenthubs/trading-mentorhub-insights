@@ -423,6 +423,8 @@ if barstate.islast
 // Every ta.crossover/crossunder is evaluated on EVERY bar at global scope (they're stateful —
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
+_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
+_rcOk  = not rcConf or barstate.isconfirmed
 // ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
 // (the per-level arrows below are the only consumer; the old aggregate ⟲ tag and its
 //  f_join chain were removed with it, so there is one signal path, not two)
@@ -432,35 +434,85 @@ if barstate.islast
 //   B. OPEN-ABOVE + WICK + RECLAIM — opened above it, traded down to/through it, closed
 //      back above (the level was tested and DEFENDED — no cross, so A never sees it)
 // Explicitly NOT qualified: high > level while close <= level. That's the ramp-and-fail.
-f_qualUp(float v) => not na(v) and ((close > v and nz(close[1], v) <= nz(v[1], v)) or (open > v and low <= v and close > v))
-f_qualDn(float v) => not na(v) and ((close < v and nz(close[1], v) >= nz(v[1], v)) or (open < v and high >= v and close < v))
-_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
-_rcOk  = not rcConf or barstate.isconfirmed
-// ── ONE ARROW PER LEVEL, drawn AT THAT LEVEL'S PRICE on the qualifying bar.
-// A single arrow under the candle couldn't say WHICH level was reclaimed when several
-// qualified at once, and it sat at the candle's low rather than at the level itself.
-// Placing each arrow on its own level makes the mark self-explanatory: the arrow IS at
-// the price that was taken back. Levels are included, not just MAs.
-// The tag goes UNDER THE CANDLE that did the work, not out on the level line — that's where
-// your eye already is when you're reading the bar, and a mark floating at the level price sits
-// far from the candle it describes. The NAME carries which level, so nothing is lost by moving
-// it: "⟲ 21 EMA" under a wick-and-reclaim bar says both things at once. Several levels taken on
-// one bar collapse into a single tag rather than stacking marks on top of each other.
-_sigOn = _rcOk and (enRc or enLost)
+// ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
+// Price ramping through intrabar and closing back under is a FALSE signal; the high tells you
+// nothing about who won. Two patterns qualify, and BOTH require the close:
+//   A. CLOSE-THROUGH          prior close at/below it, this close above
+//   B. OPEN-ABOVE + WICK      opened above, traded down to/through it, closed back above
+//                             (tested and DEFENDED — there is no cross, so A never sees it)
+// NOT qualified: high > level while close <= level.
+//
+// The prior value is passed IN rather than read as v[1] inside the function. Pine keeps one
+// history series per CALL SITE, so a function that does v[1] and is called in a loop over
+// array values reads whatever that slot held last bar — a different level each time. That is
+// why this fired nothing: every MA shared one poisoned history slot. Evaluated per level at
+// global scope, [1] refers to that level's own previous value, which is the whole point.
+f_qUp(float v, float vp) => not na(v) and ((close > v and nz(close[1], v) <= nz(vp, v)) or (open > v and low <= v and close > v))
+f_qDn(float v, float vp) => not na(v) and ((close < v and nz(close[1], v) >= nz(vp, v)) or (open < v and high >= v and close < v))
+f_add(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
+
+_u8    = f_qUp(sma8v,   sma8v[1])
+_u21   = f_qUp(sma21v,  sma21v[1])
+_u50   = f_qUp(sma50v,  sma50v[1])
+_u100  = f_qUp(sma100v, sma100v[1])
+_u200  = f_qUp(sma200v, sma200v[1])
+_u8e   = f_qUp(ema8v,   ema8v[1])
+_u21e  = f_qUp(ema21v,  ema21v[1])
+_u50e  = f_qUp(ema50v,  ema50v[1])
+_u100e = f_qUp(ema100v, ema100v[1])
+_u200e = f_qUp(ema200v, ema200v[1])
+_uPdh  = f_qUp(lPdh, lPdh[1])
+_uPdl  = f_qUp(lPdl, lPdl[1])
+_uPwh  = f_qUp(lPwh, lPwh[1])
+_uPwl  = f_qUp(lPwl, lPwl[1])
+_uPmh  = f_qUp(lPmh, lPmh[1])
+_uPml  = f_qUp(lPml, lPml[1])
+_d8    = f_qDn(sma8v,   sma8v[1])
+_d21   = f_qDn(sma21v,  sma21v[1])
+_d50   = f_qDn(sma50v,  sma50v[1])
+_d100  = f_qDn(sma100v, sma100v[1])
+_d200  = f_qDn(sma200v, sma200v[1])
+_d8e   = f_qDn(ema8v,   ema8v[1])
+_d21e  = f_qDn(ema21v,  ema21v[1])
+_d50e  = f_qDn(ema50v,  ema50v[1])
+_d100e = f_qDn(ema100v, ema100v[1])
+_d200e = f_qDn(ema200v, ema200v[1])
+_dPdh  = f_qDn(lPdh, lPdh[1])
+_dPdl  = f_qDn(lPdl, lPdl[1])
+
 _upTxt = ""
+_upTxt := f_add(_upTxt, _u8e,   "8 EMA")
+_upTxt := f_add(_upTxt, _u8,    "8 SMA")
+_upTxt := f_add(_upTxt, _u21e,  "21 EMA")
+_upTxt := f_add(_upTxt, _u21,   "21 SMA")
+_upTxt := f_add(_upTxt, _u50e,  "50 EMA")
+_upTxt := f_add(_upTxt, _u50,   "50 SMA")
+_upTxt := f_add(_upTxt, _u100e, "100 EMA")
+_upTxt := f_add(_upTxt, _u100,  "100 SMA")
+_upTxt := f_add(_upTxt, _u200e, "200 EMA")
+_upTxt := f_add(_upTxt, _u200,  "200 SMA")
+_upTxt := f_add(_upTxt, _uPdh,  "PDH")
+_upTxt := f_add(_upTxt, _uPdl,  "PDL")
+_upTxt := f_add(_upTxt, _uPwh,  "PWH")
+_upTxt := f_add(_upTxt, _uPwl,  "PWL")
+_upTxt := f_add(_upTxt, _uPmh,  "PMH")
+_upTxt := f_add(_upTxt, _uPml,  "PML")
 _dnTxt = ""
-if _sigOn
-    _sv2 = array.from(sma8v, sma21v, sma50v, sma100v, sma200v, ema8v, ema21v, ema50v, ema100v, ema200v, lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
-    _sn2 = array.from("8 SMA", "21 SMA", "50 SMA", "100 SMA", "200 SMA", "8 EMA", "21 EMA", "50 EMA", "100 EMA", "200 EMA", "PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
-    for _qi2 = 0 to array.size(_sv2) - 1
-        _qval = array.get(_sv2, _qi2)
-        if not na(_qval) and _qval > 0
-            _qnm2 = array.get(_sn2, _qi2)
-            if enRc and f_qualUp(_qval)
-                _upTxt := str.length(_upTxt) > 0 ? _upTxt + " · " + _qnm2 : _qnm2
-            if enLost and f_qualDn(_qval)
-                _dnTxt := str.length(_dnTxt) > 0 ? _dnTxt + " · " + _qnm2 : _qnm2
-if str.length(_upTxt) > 0
+_dnTxt := f_add(_dnTxt, _d8e,   "8 EMA")
+_dnTxt := f_add(_dnTxt, _d8,    "8 SMA")
+_dnTxt := f_add(_dnTxt, _d21e,  "21 EMA")
+_dnTxt := f_add(_dnTxt, _d21,   "21 SMA")
+_dnTxt := f_add(_dnTxt, _d50e,  "50 EMA")
+_dnTxt := f_add(_dnTxt, _d50,   "50 SMA")
+_dnTxt := f_add(_dnTxt, _d100e, "100 EMA")
+_dnTxt := f_add(_dnTxt, _d100,  "100 SMA")
+_dnTxt := f_add(_dnTxt, _d200e, "200 EMA")
+_dnTxt := f_add(_dnTxt, _d200,  "200 SMA")
+_dnTxt := f_add(_dnTxt, _dPdh,  "PDH")
+_dnTxt := f_add(_dnTxt, _dPdl,  "PDL")
+
+// the tag sits UNDER the candle that did the work, naming which level it took
+if enRc and _rcOk and str.length(_upTxt) > 0
     label.new(bar_index, low,  "⟲ " + _upTxt, yloc = yloc.belowbar, style = label.style_label_up,   color = rcUpCol, textcolor = color.white, size = _rcSz)
-if str.length(_dnTxt) > 0
+if enLost and _rcOk and str.length(_dnTxt) > 0
     label.new(bar_index, high, "▽ " + _dnTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
