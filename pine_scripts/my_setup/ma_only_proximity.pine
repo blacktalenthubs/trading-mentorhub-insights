@@ -124,6 +124,8 @@ extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", 
 // and dotted made the chart look like the differences meant something they didn't; the ROLE
 // tag and the colour already carry the meaning. Default solid = unbroken lines.
 lineStyle = input.string("solid", "Line style — applies to every line", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "One setting for all of them. Solid draws unbroken lines across the chart. Dashed/dotted make every line broken the same way — the point is that they MATCH, so a style difference never reads as a category difference.")
+tagSize   = input.string("tiny", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
+hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
 styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
 labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
 lblGap    = input.float(0.5, "Fan tags apart when MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
@@ -213,6 +215,8 @@ f_xoff(float price) =>
 // EVERYTHING drawable is queued into ONE pool — MAs, PDH/PDL, structural levels — so the merge
 // pass below can collapse a MA and a level sitting at the same price into a single labelled line.
 // Merging only MAs against each other is what left three near-identical lines stacked on the chart.
+_tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+_hudSz = hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
 _lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
 _lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
 var float[]  _qv = array.new_float()
@@ -358,7 +362,7 @@ if barstate.islast
             _qcol = _qsup ? supCol : resCol
             _qx   = f_xoff(_qnear)                              // residual collisions still fan…
             array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = size.small))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
             _qi := _qj
 
     // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
@@ -405,25 +409,25 @@ if barstate.islast
             _dxo = f_xoff(_lDn)
             _dc  = close > _lDn ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = size.small))
+            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = _tagSz))
         if _lHasUp
             _uxo = f_xoff(_lUp)
             _uc  = close > _lUp ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = size.small))
+            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = _tagSz))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
         _oTag = _boxed ? "Open BTW " + _oUpN + " and " + _oDnN : _hasDn ? "Open ABOVE all MAs · " + _lvlTxt : _hasUp ? "Open BELOW all MAs · " + _lvlTxt : "Open"
-        array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = size.small))
+        array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
     // ── HUD ──
     if enHud
         _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
         _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
         table.set_position(_hudT, _hudPosC)
-        table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = size.normal)
-        table.cell(_hudT, 0, 1, enState ? stateTxt : "", bgcolor = enState ? stateCol : color.new(color.gray, 100), text_color = color.white, text_size = size.small)
+        table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = _hudSz)
+        table.cell(_hudT, 0, 1, enState ? stateTxt : "", bgcolor = enState ? stateCol : color.new(color.gray, 100), text_color = color.white, text_size = _hudSz)
     else
         table.cell(_hudT, 0, 0, "")
         table.cell(_hudT, 0, 1, "")
