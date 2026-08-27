@@ -354,6 +354,7 @@ const NOT_ROUTED_LABELS: Record<string, string> = {
   uptrend_gate_failed: "uptrend gate",
   basing_chop: "chop",
   outside_session: "off-hours",
+  outside_rth: "off-hours (held)",
   not_focus: "not in Focus",
   type_not_enabled: "type off",
   spy_market_gate: "SPY gate",
@@ -386,26 +387,6 @@ function collapsedLabel(reason?: string | null): string | null {
   return null;
 }
 
-// True if the alert fired OUTSIDE US regular hours (before 9:30 or at/after 16:00 ET, or a weekend) —
-// i.e. pre/post-market. Used by the Off-hours feed tab (equities only; crypto is 24/7 and excluded there).
-function isOffHoursET(iso: string | null | undefined): boolean {
-  if (!iso) return false;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return false;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    hourCycle: "h23",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(d);
-  const wd = parts.find((p) => p.type === "weekday")?.value;
-  const hh = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-  const mm = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
-  const mins = hh * 60 + mm;
-  if (wd === "Sat" || wd === "Sun") return true;
-  return mins < 570 || mins >= 960; // outside 9:30 (570) – 16:00 (960) ET
-}
 
 function SignalFeedTab({
   alerts,
@@ -467,7 +448,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing" | "offhours">("day");
+  const [view, setView] = useState<"day" | "swing">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -543,17 +524,18 @@ function SignalFeedTab({
   // Two feeds only (2026-08-02): Day (day_trade — 4H reactions + gap_and_go) vs Swing (everything
   // else — SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims). The old RC + 4H tabs
   // folded away (fourh_* → day_trade, weekly/monthly_rc → swing on the backend).
-  // Off-hours (equities only): fired outside US regular hours (pre/post-market or weekend). Crypto is 24/7 → excluded.
-  // The three tabs are MUTUALLY EXCLUSIVE — an off-hours equity signal lives ONLY in Off-hrs, not Day/Swing.
-  const isOffHrs = (a: Alert) => !(a.symbol || "").toUpperCase().endsWith("-USD") && isOffHoursET(a.created_at);
-  const offHoursAlerts = feedAllRaw.filter(isOffHrs);
+  // The Off-hrs tab is gone (2026-08-27). Equities no longer route outside 09:30-16:00 ET, so the
+  // tab had nothing left to hold but SPY/QQQ — and splitting those into a third bucket hid them
+  // from the Day/Swing read they belong to. Off-hours signals that DO route (the RTH-exempt
+  // symbols, plus 24/7 crypto) now fall into Day or Swing by their own style, like any other alert.
+  // Anything held back by the gate keeps its suppressed_reason and stays reviewable in Not-routed.
   const dayAlerts = feedAllRaw.filter(
-    (a) => !isOffHrs(a) && ((a as { style?: string }).style ?? "day_trade") === "day_trade",
+    (a) => ((a as { style?: string }).style ?? "day_trade") === "day_trade",
   );
   const swingAlerts = feedAllRaw.filter(
-    (a) => !isOffHrs(a) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
+    (a) => ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
   );
-  const feedAlerts = view === "day" ? dayAlerts : view === "swing" ? swingAlerts : offHoursAlerts;
+  const feedAlerts = view === "day" ? dayAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -659,20 +641,18 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"], ["offhours", "Off-hrs"]] as const).map(([id, label], i) => (
+          {([["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
               title={id === "day"
                 ? "Day trades — you must SELL the same day at some point (out by the close). 4H reactions (reclaim / rejection / break, 15m-confirmed) + gap-and-go."
-                : id === "swing"
-                  ? "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."
-                  : "Off-hours — STOCK signals fired pre/post-market (extended session). Crypto is 24/7 and stays in Day/Swing. Thin liquidity — verify before acting."}
+                : "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
               {label}{" "}
               <span className="opacity-70 font-normal">
-                {id === "day" ? dayAlerts.length : id === "swing" ? swingAlerts.length : offHoursAlerts.length}
+                {id === "day" ? dayAlerts.length : swingAlerts.length}
               </span>
             </button>
           ))}
