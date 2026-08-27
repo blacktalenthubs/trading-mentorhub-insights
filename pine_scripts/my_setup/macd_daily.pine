@@ -1,0 +1,80 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// MACD · DAILY-LOCKED — read the DAILY MACD from any intraday chart.
+// ─────────────────────────────────────────────────────────────────────────────
+// A 15m chart's own MACD tells you about the last few hours. This one is locked to the
+// daily, so the momentum you're reading is the same momentum a swing trader sees — while
+// you're timing the entry on an intraday chart. Change the lock TF to read weekly instead.
+//
+// NON-REPAINTING by default: the daily values are SETTLED ([1] + lookahead_on), i.e.
+// YESTERDAY's closed MACD. Locked to a higher TF that means the line is FLAT across the
+// session and only steps at the daily open — which is correct, because a daily MACD has
+// exactly one value per day. The developing value is available behind a toggle: it moves
+// intrabar and can cross and un-cross before the close, so it repaints by construction.
+//
+// HISTOGRAM has four states, not two — the sign says which side of zero, the slope says
+// whether momentum is still building or already fading:
+//   bright green  above zero, rising    — trend up, accelerating
+//   faint  green  above zero, falling   — still positive but decelerating (the first warning)
+//   faint  red    below zero, rising    — negative but improving (a bottoming tell)
+//   bright red    below zero, falling   — trend down, accelerating
+//
+// MARKERS (confirmed closes only, one per event):
+//   ▲ / ▼  MACD crosses its SIGNAL line — the trigger
+//   ◆      MACD crosses ZERO — the regime line, a slower and heavier event
+//
+// VISUAL ONLY — no alertcondition, nothing reaches the platform webhook.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("MACD · daily-locked", "MACD·D", overlay = false, max_labels_count = 300)
+
+gM      = "MACD"
+lockTf  = input.timeframe("D", "Lock timeframe", tooltip = "Which timeframe's MACD to read. D = the daily MACD on any intraday chart. W gives the weekly.", group = gM)
+fastLen = input.int(12, "Fast length", minval = 1, group = gM)
+slowLen = input.int(26, "Slow length", minval = 2, group = gM)
+sigLen  = input.int(9,  "Signal length", minval = 1, group = gM)
+src     = input.source(close, "Source", group = gM)
+settled = input.bool(true, "Settled values (non-repainting)", group = gM, tooltip = "ON = the last CLOSED daily MACD. Flat through the session, steps at the daily open, never revises — what you saw at 10am is what you see at 4pm. OFF = today's developing value, which moves intrabar and can cross then un-cross before the close.")
+
+gS      = "Markers"
+enCross = input.bool(true,  "Mark MACD × signal crosses", group = gS)
+enZero  = input.bool(true,  "Mark MACD × zero crosses",   group = gS)
+colUp   = input.color(#26A69A, "Bullish", inline = "c", group = gS)
+colDn   = input.color(#EF5350, "Bearish", inline = "c", group = gS)
+mkSize  = input.string("tiny", "Marker size", options = ["tiny", "small", "normal"], group = gS)
+
+// ── daily values. [1] + lookahead_on is the settled idiom used across these pines; without
+//    the [1] the higher-TF value is the DEVELOPING one and shifts under you intrabar.
+//    (Pine can't index a tuple — ta.macd(...)[0] is not valid — so the settled values come
+//     from a helper that unpacks first and returns the [1] of each.)
+f_macdLive() =>
+    [m, s, h] = ta.macd(src, fastLen, slowLen, sigLen)
+    [m, s, h]
+f_macdSettled() =>
+    [m, s, h] = ta.macd(src, fastLen, slowLen, sigLen)
+    [m[1], s[1], h[1]]
+[_m,  _s,  _h ] = request.security(syminfo.tickerid, lockTf, f_macdLive(),    lookahead = barmerge.lookahead_off)
+[_mS, _sS, _hS] = request.security(syminfo.tickerid, lockTf, f_macdSettled(), lookahead = barmerge.lookahead_on)
+macdV = settled ? _mS : _m
+sigV  = settled ? _sS : _s
+histV = settled ? _hS : _h
+
+// ── histogram: sign AND slope, so decelerating strength is visible before it turns
+hRising = not na(histV) and not na(histV[1]) and histV > histV[1]
+hCol = histV >= 0 ? (hRising ? color.new(colUp, 0) : color.new(colUp, 62)) : (hRising ? color.new(colDn, 62) : color.new(colDn, 0))
+plot(histV, "Histogram", style = plot.style_columns, color = hCol)
+plot(macdV, "MACD",   color = color.new(#2962FF, 0), linewidth = 2)
+plot(sigV,  "Signal", color = color.new(#FF6D00, 0), linewidth = 2)
+hline(0, "Zero", color = color.new(color.gray, 40), linestyle = hline.style_solid)
+
+// ── markers. Confirmed bars only: a cross that appears mid-bar and un-crosses before the
+//    close is not a cross, and marking it teaches you to act on noise.
+_mkSz  = mkSize == "normal" ? size.normal : mkSize == "small" ? size.small : size.tiny
+_ok    = barstate.isconfirmed
+_xUp   = enCross and _ok and ta.crossover(macdV, sigV)
+_xDn   = enCross and _ok and ta.crossunder(macdV, sigV)
+_zUp   = enZero  and _ok and ta.crossover(macdV, 0.0)
+_zDn   = enZero  and _ok and ta.crossunder(macdV, 0.0)
+plotshape(_xUp, "Bull cross", style = shape.triangleup,   location = location.bottom, color = colUp, size = _mkSz)
+plotshape(_xDn, "Bear cross", style = shape.triangledown, location = location.top,    color = colDn, size = _mkSz)
+plotshape(_zUp, "Zero up",    style = shape.diamond,      location = location.bottom, color = colUp, size = _mkSz)
+plotshape(_zDn, "Zero down",  style = shape.diamond,      location = location.top,    color = colDn, size = _mkSz)
