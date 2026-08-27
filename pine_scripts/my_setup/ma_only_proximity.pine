@@ -71,6 +71,7 @@ nUp       = input.int(2, "MAs to show ABOVE price", group = gN, minval = 0, maxv
 nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5) / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
+showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 
 // ── reclaim marker ──────────────────────────────────────────────────────────────
 gR      = "Reclaim marker"
@@ -202,15 +203,23 @@ f_xoff(float price) =>
                 _cnt := _cnt + 1
     array.push(_drawnY, price)
     labelX + math.min(_cnt, 6) * lblStep
+// EVERYTHING drawable is queued into ONE pool — MAs, PDH/PDL, structural levels — so the merge
+// pass below can collapse a MA and a level sitting at the same price into a single labelled line.
+// Merging only MAs against each other is what left three near-identical lines stacked on the chart.
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var bool[]   _qdot = array.new_bool()
+f_queue(float v, string nm, bool dot) =>
+    if not na(v) and v > 0
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qdot, dot)
 // ONE rule, no exemptions: a MA draws when it's inside the nearest-N bracket. N means N.
 f_draw(float v, string nm) =>
     _inBr = v <= _brkHi and v >= _brkLo
     _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
     if not na(v) and v > 0 and (showAll or (_inBr and _cap))
-        col = close > v ? supCol : resCol
-        _xo = f_xoff(v)
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + labelX, v, color = col, width = wLine, style = dotted ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
-        array.push(_lb, label.new(bar_index + _xo, v, nm + (close > v ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+        f_queue(v, nm, dotted)
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
         array.push(_maV, v)
@@ -229,6 +238,9 @@ if barstate.islast
     array.clear(_maV)
     array.clear(_maN)
     array.clear(_drawnY)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qdot)
     f_collect(sma8v,   "8 SMA")
     f_collect(sma21v,  "21 SMA")
     f_collect(sma50v,  "50 SMA")
@@ -254,27 +266,15 @@ if barstate.islast
     // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
     _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
     _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
-    // ── MERGE stacked MAs into one line, then draw (the bracket test lives in f_draw) ──
+    // MAs are queued by f_draw (bracket applied there); the single merge pass runs after the
+    // structural levels are queued too, so a MA and a level at one price become ONE line.
     _n = array.size(_maV)
     if _n > 0
         _ord = array.sort_indices(_maV, order.ascending)
-        _i = 0
-        while _i < _n
-            _s  = array.get(_ord, _i)
-            _lo = array.get(_maV, _s)
-            _hi = _lo
-            _nm = array.get(_maN, _s)
-            _j  = _i + 1
-            while _j < _n
-                _vj = array.get(_maV, array.get(_ord, _j))
-                if mergePct > 0 and _vj <= _hi * (1.0 + mergePct)
-                    _hi := _vj
-                    _nm := _nm + " · " + array.get(_maN, array.get(_ord, _j))
-                    _j  := _j + 1
-                else
-                    break
-            f_draw((_lo + _hi) / 2.0, _nm)
-            _i := _j
+        for _mi2 = 0 to _n - 1
+            _ms = array.get(_ord, _mi2)
+            f_draw(array.get(_maV, _ms), array.get(_maN, _ms))
+
     // ── STRUCTURAL LEVELS — PDH/PDL always; the rest earn their place via their own count,
     //    kept apart from the MA count so a cluster of MAs can never hide the weekly line.
     if enSLvls
@@ -282,10 +282,7 @@ if barstate.islast
             for _pi = 0 to 1
                 _pv = _pi == 0 ? lPdh : lPdl
                 if not na(_pv) and _pv > 0
-                    _pc = close > _pv ? supCol : resCol
-                    _pxo = f_xoff(_pv)
-                    array.push(_ln, line.new(bar_index - lineLen, _pv, bar_index + labelX, _pv, color = color.new(_pc, slFade), width = slW, style = line.style_dashed))
-                    array.push(_lb, label.new(bar_index + _pxo, _pv, (close > _pv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + (_pi == 0 ? "PDH" : "PDL"), style = label.style_label_left, color = color.new(_pc, 82), textcolor = _pc, size = size.small))
+                    f_queue(_pv, _pi == 0 ? "PDH" : "PDL", true)
         _slV = array.new_float()
         _slN = array.new_string()
         _slC  = array.from(lPwh,  lPwl,  lPmh,  lPml,  lPqh,  lPql)
@@ -313,10 +310,46 @@ if barstate.islast
             for _si = 0 to array.size(_slV) - 1
                 _sv = array.get(_slV, _si)
                 if _sv <= _slHi and _sv >= _slLo
-                    _sc = close > _sv ? supCol : resCol
-                    _sxo = f_xoff(_sv)
-                    array.push(_ln, line.new(bar_index - lineLen, _sv, bar_index + labelX, _sv, color = color.new(_sc, slFade), width = slW, style = line.style_dashed))
-                    array.push(_lb, label.new(bar_index + _sxo, _sv, (close > _sv ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + array.get(_slN, _si), style = label.style_label_left, color = color.new(_sc, 82), textcolor = _sc, size = size.small))
+                    f_queue(_sv, array.get(_slN, _si), true)
+
+    // ── ONE MERGE PASS over everything queued — MAs, PDH/PDL and structural levels together.
+    //    A MA and a level at the same price collapse into a single line naming both, so the tag
+    //    keeps the detail ("21 EMA · PDH ·×2") without three near-identical lines stacked up.
+    //    The line sits on the member NEAREST price — a real level, never a fabricated average —
+    //    and the LABEL sits at the line's own end, so a tag can never float away from its line.
+    _qn2 = array.size(_qv)
+    if _qn2 > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qn2
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qdt  = array.get(_qdot, _qs)
+            _qcnt = 1
+            _qnear  = _qhi
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qn2
+                _qk  = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if mergePct > 0 and _qv2 <= _qhi * (1.0 + mergePct)
+                    _qhi := _qv2
+                    _qnm := _qnm + " · " + array.get(_qn, _qk)
+                    _qdt := _qdt and array.get(_qdot, _qk)      // solid wins — a MA keeps the cluster solid
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qcol = _qsup ? supCol : resCol
+            _qx   = f_xoff(_qnear)                              // residual collisions still fan…
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qdt ? line.style_dotted : line.style_solid, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = size.small))
+            _qi := _qj
 
     // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
     _oUp  = 1.0e18
@@ -391,6 +424,8 @@ if barstate.islast
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
 // ── QUALIFIED reclaim / loss — a level only counts once the bar has CLOSED through it.
+// (the per-level arrows below are the only consumer; the old aggregate ⟲ tag and its
+//  f_join chain were removed with it, so there is one signal path, not two)
 // Price ramping through a MA intrabar and closing back under is a FALSE signal; the high
 // tells you nothing about who won. Two patterns qualify, and both require the close:
 //   A. CLOSE-THROUGH — prior close was at/below it, this close is above  (fresh reclaim)
@@ -399,57 +434,20 @@ if barstate.islast
 // Explicitly NOT qualified: high > level while close <= level. That's the ramp-and-fail.
 f_qualUp(float v) => not na(v) and ((close > v and nz(close[1], v) <= nz(v[1], v)) or (open > v and low <= v and close > v))
 f_qualDn(float v) => not na(v) and ((close < v and nz(close[1], v) >= nz(v[1], v)) or (open < v and high >= v and close < v))
-_up8    = f_qualUp(sma8v)
-_up21   = f_qualUp(sma21v)
-_up50   = f_qualUp(sma50v)
-_up100  = f_qualUp(sma100v)
-_up200  = f_qualUp(sma200v)
-_up8e   = f_qualUp(ema8v)
-_up21e  = f_qualUp(ema21v)
-_up50e  = f_qualUp(ema50v)
-_up100e = f_qualUp(ema100v)
-_up200e = f_qualUp(ema200v)
-_dn8    = f_qualDn(sma8v)
-_dn21   = f_qualDn(sma21v)
-_dn50   = f_qualDn(sma50v)
-_dn100  = f_qualDn(sma100v)
-_dn200  = f_qualDn(sma200v)
-_dn8e   = f_qualDn(ema8v)
-_dn21e  = f_qualDn(ema21v)
-_dn50e  = f_qualDn(ema50v)
-_dn100e = f_qualDn(ema100v)
-_dn200e = f_qualDn(ema200v)
-f_join(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
-_rcTxt = ""
-_rcTxt := f_join(_rcTxt, _up8e,   "8 EMA")
-_rcTxt := f_join(_rcTxt, _up8,    "8 SMA")
-_rcTxt := f_join(_rcTxt, _up21,   "21 SMA")
-_rcTxt := f_join(_rcTxt, _up21e,  "21 EMA")
-_rcTxt := f_join(_rcTxt, _up50,   "50 SMA")
-_rcTxt := f_join(_rcTxt, _up50e,  "50 EMA")
-_rcTxt := f_join(_rcTxt, _up100,  "100 SMA")
-_rcTxt := f_join(_rcTxt, _up100e, "100 EMA")
-_rcTxt := f_join(_rcTxt, _up200,  "200 SMA")
-_rcTxt := f_join(_rcTxt, _up200e, "200 EMA")
-_lsTxt = ""
-_lsTxt := f_join(_lsTxt, _dn8e,   "8 EMA")
-_lsTxt := f_join(_lsTxt, _dn8,    "8 SMA")
-_lsTxt := f_join(_lsTxt, _dn21,   "21 SMA")
-_lsTxt := f_join(_lsTxt, _dn21e,  "21 EMA")
-_lsTxt := f_join(_lsTxt, _dn50,   "50 SMA")
-_lsTxt := f_join(_lsTxt, _dn50e,  "50 EMA")
-_lsTxt := f_join(_lsTxt, _dn100,  "100 SMA")
-_lsTxt := f_join(_lsTxt, _dn100e, "100 EMA")
-_lsTxt := f_join(_lsTxt, _dn200,  "200 SMA")
-_lsTxt := f_join(_lsTxt, _dn200e, "200 EMA")
 _rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
 _rcOk  = not rcConf or barstate.isconfirmed
-_sigUp = enRc   and _rcOk and str.length(_rcTxt) > 0
-_sigDn = enLost and _rcOk and str.length(_lsTxt) > 0
-if _sigUp
-    label.new(bar_index, low, "⟲ " + _rcTxt, yloc = yloc.belowbar, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
-if _sigDn
-    label.new(bar_index, high, "▽ " + _lsTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
-// the arrow marks the bar; the label above says WHICH level(s) qualified on it
-plotshape(_sigUp, "Qualified reclaim", style = shape.arrowup,   location = location.belowbar, color = rcUpCol, size = size.tiny)
-plotshape(_sigDn, "Qualified loss",    style = shape.arrowdown, location = location.abovebar, color = rcDnCol, size = size.tiny)
+// ── ONE ARROW PER LEVEL, drawn AT THAT LEVEL'S PRICE on the qualifying bar.
+// A single arrow under the candle couldn't say WHICH level was reclaimed when several
+// qualified at once, and it sat at the candle's low rather than at the level itself.
+// Placing each arrow on its own level makes the mark self-explanatory: the arrow IS at
+// the price that was taken back. Levels are included, not just MAs.
+_sigOn = _rcOk and (enRc or enLost)
+if _sigOn
+    _sv2 = array.from(sma8v, sma21v, sma50v, sma100v, sma200v, ema8v, ema21v, ema50v, ema100v, ema200v, lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+    for _qi2 = 0 to array.size(_sv2) - 1
+        _qval = array.get(_sv2, _qi2)
+        if not na(_qval) and _qval > 0
+            if enRc and f_qualUp(_qval)
+                label.new(bar_index, _qval, "▲", yloc = yloc.price, style = label.style_label_up, color = rcUpCol, textcolor = color.white, size = _rcSz)
+            if enLost and f_qualDn(_qval)
+                label.new(bar_index, _qval, "▼", yloc = yloc.price, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)
