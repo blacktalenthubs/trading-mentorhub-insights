@@ -1,0 +1,104 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// FLOOR / CEILING — where candles keep stopping at the same price.
+// ─────────────────────────────────────────────────────────────────────────────
+// Extracted from proximity_levels_pure.pine so it can be tested on its own.
+//
+// Every other level in this set comes from a calendar (prior day / week / month) or a formula
+// (a moving average). These come from PRICE ITSELF: scan the recent candles, and wherever
+// several LOWS stop at the same place you have a FLOOR, wherever several HIGHS stop you have
+// a CEILING. Nobody publishes these levels — the tape draws them by refusing a price
+// repeatedly, which is why they often matter when the calendar levels are nowhere near.
+//
+// Reads the CHART timeframe, deliberately. On 2h it finds the 2h floor, on 15m the 15m one —
+// so the level you see is the one your chart is actually trading.
+//
+// The count is the evidence: "Floor ×4" means four candles stopped there. Two is a
+// coincidence, four is a decision. Raise the minimum to see only the levels that earned it.
+//
+// Role-coloured like the rest of the set — green when price is ABOVE the level (support),
+// red when BELOW (resistance) — so a floor that breaks reads as a ceiling without redrawing.
+//
+// VISUAL ONLY — no alertcondition, nothing reaches the platform webhook.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Floor / Ceiling", "Floor·Ceil", overlay = true, max_lines_count = 40, max_labels_count = 40)
+
+gC        = "Detection"
+enHi      = input.bool(true, "Ceilings — cluster of equal HIGHS", inline = "e", group = gC)
+enLo      = input.bool(true, "Floors — cluster of equal LOWS",    inline = "e", group = gC)
+consLook  = input.int(8, "Lookback — recent candles to scan", minval = 4, maxval = 100, group = gC, tooltip = "How far back to look, in CHART candles. 8 on a 2h chart ≈ two days. Longer finds older, heavier levels but also stale ones price has moved past.")
+consTol   = input.float(0.15, "Cluster tolerance % — how close counts as 'the same'", minval = 0.02, maxval = 2.0, step = 0.01, group = gC, tooltip = "Candles rarely stop at exactly the same tick. This is how much slop still counts as one level. Too tight and you find nothing; too loose and unrelated candles merge into a level that was never there.") / 100.0
+consMin   = input.int(3, "Min candles at the level to draw it", minval = 2, maxval = 8, group = gC, tooltip = "The evidence bar. 2 candles at a price is a coincidence; 4 is the market deciding. This is the setting to raise first if the chart looks busy.")
+
+gV        = "Style"
+consW     = input.int(2, "Line thickness", minval = 1, maxval = 6, group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gV)
+extendAll = input.bool(false, "Extend lines across the whole chart", group = gV)
+showCount = input.bool(true, "Show the candle count on the tag", group = gV)
+showPx    = input.bool(true, "Show the price on the tag", group = gV)
+tagSz     = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gV)
+consHiCol = input.color(color.new(#EF5350, 0), "Resistance — price BELOW the level", group = gV)
+consLoCol = input.color(color.new(#26A69A, 0), "Support — price ABOVE the level",    group = gV)
+
+_tagSz = tagSz == "normal" ? size.normal : tagSz == "tiny" ? size.tiny : size.small
+
+// Gather clustered price levels: sort the recent highs (or lows), walk them in order, and group
+// everything within tolerance of the group's base. A group with >= consMin members is a level,
+// drawn at the group's MEAN. Returns [levels, counts]. useHigh = scan highs (ceilings) else lows.
+f_levels(bool useHigh) =>
+    _vals = array.new_float()
+    _lookN = math.min(consLook, bar_index)
+    if _lookN > 0
+        for _i = 0 to _lookN - 1
+            array.push(_vals, useHigh ? high[_i] : low[_i])
+    array.sort(_vals, order.ascending)
+    _lvls = array.new_float()
+    _cnts = array.new_int()
+    _n = array.size(_vals)
+    _i = 0
+    while _i < _n
+        _base = array.get(_vals, _i)
+        _sum  = _base
+        _cnt  = 1
+        _j    = _i + 1
+        _cont = true
+        while _cont and _j < _n
+            _v = array.get(_vals, _j)
+            if _v <= _base * (1 + consTol)
+                _sum := _sum + _v
+                _cnt := _cnt + 1
+                _j   := _j + 1
+            else
+                _cont := false
+        if _cnt >= consMin
+            array.push(_lvls, _sum / _cnt)
+            array.push(_cnts, _cnt)
+        _i := _j
+    [_lvls, _cnts]
+
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+f_drawLvl(float v, int cnt, string kind) =>
+    _sup  = close > v
+    _col  = _sup ? consLoCol : consHiCol
+    _txt  = kind + (showCount ? " ×" + str.tostring(cnt) : "") + (_sup ? "  ▲ SUPPORT" : "  ▼ RESISTANCE") + (showPx ? "  " + str.tostring(v, format.mintick) : "")
+    array.push(_ln, line.new(bar_index - consLook, v, bar_index + labelX, v, color = _col, width = consW, extend = extendAll ? extend.both : extend.none))
+    array.push(_lb, label.new(bar_index + labelX, v, _txt, style = label.style_label_left, color = _col, textcolor = color.white, size = _tagSz))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    if enHi
+        [_hL, _hC] = f_levels(true)
+        if array.size(_hL) > 0
+            for _k = 0 to array.size(_hL) - 1
+                f_drawLvl(array.get(_hL, _k), array.get(_hC, _k), "Ceiling")
+    if enLo
+        [_lL, _lC] = f_levels(false)
+        if array.size(_lL) > 0
+            for _k = 0 to array.size(_lL) - 1
+                f_drawLvl(array.get(_lL, _k), array.get(_lC, _k), "Floor")
