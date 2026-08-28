@@ -48,9 +48,16 @@ REGIME_CONFIG_DEFAULTS: dict[str, str] = {
     # Non-empty = allowlist; BLANK = NONE (block all — a SHORT is opt-in, the
     # opposite of the multitouch default). Default SPY,DRAM — add more live in Settings.
     "rc_4h_short_symbols": "SPY,DRAM",
+    # Master switch for SHORT alerts (2026-08-27). false = every short suppressed — any type,
+    # any symbol, no exemptions. Use THIS for "no shorts"; see the warning below.
+    "short_alerts_enabled": "true",
     # Short-alert allowlist (#278, 2026-06-17). SHORT alerts of ANY type (index PDL
     # break, rc_4h rejection, MA rejection, htf_sr reject) flow ONLY for these symbols;
-    # everything else is Not-routed. Supersedes rc_4h_short_symbols. BLANK = no shorts.
+    # everything else is Not-routed. Supersedes rc_4h_short_symbols.
+    # WARNING: BLANK does NOT mean "no shorts". The routing guard is `if short_symbols and ...`,
+    # so an EMPTY list skips the check entirely and lets EVERY short through — the opposite of
+    # what this comment used to claim. To turn shorts off use short_alerts_enabled=false; this
+    # list only NARROWS which symbols may short.
     # Default SPY,QQQ — add the names you want shorts on, live in Settings.
     "short_symbols": "SPY,QQQ",
     # ORB (15m opening-range + PDH/PDL) allowlist (2026-07-03). The orb_break/held/
