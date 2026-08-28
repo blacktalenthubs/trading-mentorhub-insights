@@ -125,7 +125,7 @@ extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", 
 // and dotted made the chart look like the differences meant something they didn't; the ROLE
 // tag and the colour already carry the meaning. Default solid = unbroken lines.
 lineStyle = input.string("solid", "Line style — applies to every line", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "One setting for all of them. Solid draws unbroken lines across the chart. Dashed/dotted make every line broken the same way — the point is that they MATCH, so a style difference never reads as a category difference.")
-tagSize   = input.string("tiny", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
+tagSize   = input.string("small", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
 hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
 styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
 labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
