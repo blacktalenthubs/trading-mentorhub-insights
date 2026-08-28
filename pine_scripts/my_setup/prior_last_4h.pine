@@ -155,12 +155,19 @@ if barstate.islast
         gW   = array.get(_cw, i)
         gCnt = 1
         j = i + 1
-        while enConf and j < n and anchor != 0 and math.abs(array.get(_cv, j) - anchor) / math.abs(anchor) * 100 <= confPct
-            gSum += array.get(_cv, j)
-            gNm  += " + " + array.get(_cn, j)
-            gDay := gDay and array.get(_cd, j)
-            gW   := math.max(gW, array.get(_cw, j))
-            gCnt += 1
-            j += 1
+        // the bounds check has to stand ALONE. Pine's `and` does not short-circuit, so an
+        // array.get() sharing a condition with `j < n` still evaluates once j walks off the end.
+        _more = true
+        while _more and j < n
+            _nv = array.get(_cv, j)
+            if enConf and anchor != 0 and math.abs(_nv - anchor) / math.abs(anchor) * 100 <= confPct
+                gSum += _nv
+                gNm  += " + " + array.get(_cn, j)
+                gDay := gDay and array.get(_cd, j)
+                gW   := math.max(gW, array.get(_cw, j))
+                gCnt += 1
+                j += 1
+            else
+                _more := false
         f_draw(gSum / gCnt, gNm, gW, gDay, gCnt > 1)
         i := j
