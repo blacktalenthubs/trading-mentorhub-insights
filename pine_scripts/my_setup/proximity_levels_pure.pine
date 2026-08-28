@@ -166,8 +166,8 @@ ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200),
 // ── the OPEN's two NEIGHBORS — nearest enabled level ABOVE (resistance) and BELOW (support) the day's open.
 //    These two, and ONLY these two, drive the day-direction signals. Computed here so the open label names them.
 _nbMa    = enSma and enObMa
-_nbVals  = array.from(enPDH ? pdh : na, enPDL ? pdl : na, enPWH ? pwh : na, enPWL ? pwl : na, enPWC ? pwc : na, enPMH ? pmh : na, enPML ? pml : na, enPMC ? pmc : na, enPQH ? pqh : na, enPQL ? pql : na, enPQC ? pqc : na), _nbMa ? sma8v : na, _nbMa ? sma20v : na, _nbMa ? sma50v : na, _nbMa ? sma100v : na, _nbMa ? sma200v : na, _nbMa ? ema50v : na, _nbMa ? ema100v : na, _nbMa ? ema200v : na
-_nbNames = array.from("PDH", "PDL", "PWH", "PWL", "PWC", "PMH", "PML", "PMC", "PQH", "PQL", "PQC"), "8SMA", "20SMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA"
+_nbVals  = array.from(enPDH ? pdh : na, enPDL ? pdl : na, enPWH ? pwh : na, enPWL ? pwl : na, enPWC ? pwc : na, enPMH ? pmh : na, enPML ? pml : na, enPMC ? pmc : na, enPQH ? pqh : na, enPQL ? pql : na, enPQC ? pqc : na, _nbMa ? sma8v : na, _nbMa ? sma20v : na, _nbMa ? sma50v : na, _nbMa ? sma100v : na, _nbMa ? sma200v : na, _nbMa ? ema50v : na, _nbMa ? ema100v : na, _nbMa ? ema200v : na)
+_nbNames = array.from("PDH", "PDL", "PWH", "PWL", "PWC", "PMH", "PML", "PMC", "PQH", "PQL", "PQC", "8SMA", "20SMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA")
 oUp   = 1.0e18                            // nearest level ABOVE the open (the day's resistance neighbor)
 oDn   = -1.0                             // nearest level BELOW the open (the day's support neighbor)
 oUpNm = ""
