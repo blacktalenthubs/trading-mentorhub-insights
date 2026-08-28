@@ -16,6 +16,12 @@
 // glance. Same colours, different weight of evidence: the 4h trio is where the session ended,
 // PDH/PDL is the whole day's range around it.
 //
+// CONFLUENCE. Levels sitting within a % of each other are ONE level in practice — price can't
+// tell them apart. They collapse to a single line whose tag names every member, so a stack
+// reads as the single thicker wall it actually is instead of three lines fighting for the same
+// pixels. A merged group keeps the heaviest thickness of its members, and draws in the 4h style
+// unless every member is a day rail — the stronger evidence wins the look.
+//
 // FROZEN AT THE SESSION ROLL. At the instant a new day begins, "the last completed 4h" IS
 // yesterday's final one, so it's captured there and held all day. Read live it would walk
 // forward through today's own 4h candles and stop being yesterday's anything.
@@ -44,13 +50,18 @@ lineLen  = input.int(80, "Line length (bars back)", minval = 10, maxval = 500, g
 extendAll= input.bool(false, "Extend across the whole chart", group = gL)
 lineStyle= input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gL)
 
+gC       = "Confluence"
+enConf   = input.bool(true, "Merge levels within a % of each other", group = gC, tooltip = "Levels this close are one wall in practice — price can't tell them apart. Merged lines name every member on the tag.")
+confPct  = input.float(0.15, "Merge tolerance %", minval = 0.0, maxval = 5.0, step = 0.05, group = gC)
+confBump = input.int(1, "Extra thickness on a merged line", minval = 0, maxval = 4, group = gC, tooltip = "A stack is a heavier wall than any single level in it. 0 to keep the plain thickness.")
+
 gT       = "Tags"
 showLbl  = input.bool(true, "Show tags", group = gT)
 showPx   = input.bool(true, "Show the price on the tag", group = gT)
 labelX   = input.int(8, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gT)
 tagSz    = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gT)
 
-_tagSz  = tagSz == "normal" ? size.normal : tagSz == "tiny" ? size.tiny : size.small
+_tagSz   = tagSz == "normal" ? size.normal : tagSz == "tiny" ? size.tiny : size.small
 _lnStyle = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
 _dyStyle = dayStyle == "solid" ? line.style_solid : dayStyle == "dotted" ? line.style_dotted : line.style_dashed
 
@@ -68,15 +79,30 @@ if ta.change(time("D")) != 0 or na(y4H)
     y4L := _l
     y4C := _c
 
+// ── candidate book. Everything enabled lands here first; the merge pass runs over the whole
+// book at once, so a 4h level and a day rail can collapse together the same as two 4h levels.
+var float[]  _cv = array.new_float()
+var string[] _cn = array.new_string()
+var bool[]   _cd = array.new_bool()
+var int[]    _cw = array.new_int()
+
+f_add(float v, string nm, bool show, int w, bool isDay) =>
+    if show and not na(v)
+        array.push(_cv, v)
+        array.push(_cn, nm)
+        array.push(_cd, isDay)
+        array.push(_cw, w)
+
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
-f_draw(float v, string nm, bool show, int w, bool isDay) =>
-    if show and not na(v)
-        _sup = close > v
-        _col = _sup ? supCol : resCol
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + labelX, v, color = _col, width = w, style = isDay ? _dyStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
-        if showLbl
-            array.push(_lb, label.new(bar_index + labelX, v, (_sup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + nm + (showPx ? "  " + str.tostring(v, format.mintick) : ""), style = label.style_label_left, color = _col, textcolor = color.white, size = _tagSz))
+
+f_draw(float v, string nm, int w, bool isDay, bool merged) =>
+    _sup = close > v
+    _col = _sup ? supCol : resCol
+    _wid = math.min(6, w + (merged ? confBump : 0))
+    array.push(_ln, line.new(bar_index - lineLen, v, bar_index + labelX, v, color = _col, width = _wid, style = isDay ? _dyStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
+    if showLbl
+        array.push(_lb, label.new(bar_index + labelX, v, (_sup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + nm + (showPx ? "  " + str.tostring(v, format.mintick) : ""), style = label.style_label_left, color = _col, textcolor = color.white, size = _tagSz))
 
 if barstate.islast
     for x in _ln
@@ -85,8 +111,56 @@ if barstate.islast
         label.delete(y)
     array.clear(_ln)
     array.clear(_lb)
-    f_draw(y4H, "Y-4H HIGH",  enH, wLine,  false)
-    f_draw(y4L, "Y-4H LOW",   enL, wLine,  false)
-    f_draw(y4C, "Y-4H CLOSE", enC, wClose, false)
-    f_draw(pdh, "PDH", enPDH, wDay, true)
-    f_draw(pdl, "PDL", enPDL, wDay, true)
+    array.clear(_cv)
+    array.clear(_cn)
+    array.clear(_cd)
+    array.clear(_cw)
+
+    f_add(y4H, "Y-4H HIGH",  enH, wLine,  false)
+    f_add(y4L, "Y-4H LOW",   enL, wLine,  false)
+    f_add(y4C, "Y-4H CLOSE", enC, wClose, false)
+    f_add(pdh, "PDH", enPDH, wDay, true)
+    f_add(pdl, "PDL", enPDL, wDay, true)
+
+    // sort ascending by price — merging only ever needs to look at the next neighbour up
+    n = array.size(_cv)
+    if n > 1
+        for a = 0 to n - 2
+            m = a
+            for b = a + 1 to n - 1
+                if array.get(_cv, b) < array.get(_cv, m)
+                    m := b
+            if m != a
+                tv = array.get(_cv, a)
+                tn = array.get(_cn, a)
+                td = array.get(_cd, a)
+                tw = array.get(_cw, a)
+                array.set(_cv, a, array.get(_cv, m))
+                array.set(_cn, a, array.get(_cn, m))
+                array.set(_cd, a, array.get(_cd, m))
+                array.set(_cw, a, array.get(_cw, m))
+                array.set(_cv, m, tv)
+                array.set(_cn, m, tn)
+                array.set(_cd, m, td)
+                array.set(_cw, m, tw)
+
+    // merge pass — chain members off the group ANCHOR, not the running member, so a long
+    // ladder of near-equal levels can't drift the group wider than the tolerance itself
+    i = 0
+    while i < n
+        anchor = array.get(_cv, i)
+        gSum = anchor
+        gNm  = array.get(_cn, i)
+        gDay = array.get(_cd, i)
+        gW   = array.get(_cw, i)
+        gCnt = 1
+        j = i + 1
+        while enConf and j < n and anchor != 0 and math.abs(array.get(_cv, j) - anchor) / math.abs(anchor) * 100 <= confPct
+            gSum += array.get(_cv, j)
+            gNm  += " + " + array.get(_cn, j)
+            gDay := gDay and array.get(_cd, j)
+            gW   := math.max(gW, array.get(_cw, j))
+            gCnt += 1
+            j += 1
+        f_draw(gSum / gCnt, gNm, gW, gDay, gCnt > 1)
+        i := j
