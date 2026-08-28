@@ -4,7 +4,7 @@ import re, sys
 BUILTIN = set('''close open high low volume time bar_index na true false math array str label line box table color
 size shape location yloc input request ticker syminfo timeframe barstate ta nz barmerge order position extend
 plotshape plot indicator alert alertcondition int float bool string var if else for while break continue and or not
-to in by fill hline bgcolor barcolor dayofmonth month year hour minute second'''.split())
+to in by fill hline bgcolor barcolor dayofmonth month year hour minute second timenow syminfo'''.split())
 NAMED_ARG = re.compile(r'[(,]\s*([A-Za-z_]\w*)\s*=[^=]')
 
 def check(path):

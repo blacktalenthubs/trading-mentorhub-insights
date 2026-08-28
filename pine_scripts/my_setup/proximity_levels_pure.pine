@@ -66,6 +66,9 @@ en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
 en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
 en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
 en200e = input.bool(true, "200 EMA", inline = "ma3", group = gMA)
+// MAs as open-bracket candidates (2026-08-27). Declared here, with the MA group, because the
+// bracket is computed further up the file than the signals group where it would otherwise live.
+enObMa = input.bool(true, "Let these MAs be open-bracket candidates too", group = gMA, tooltip = "ON = the 8/20/50/100/200 SMA + 50/100/200 EMA compete with PDH/PDL/PWH/PWL… to be the OPEN's nearest level above and below — the pair the day signal actually trades. OFF = calendar levels only (the behaviour before 2026-08-27).\n\nWhy it matters: a day that opens between the 20 SMA and the 50 SMA used to reach PAST both to whatever prior-day/week level sat outside them, so the signal traded a wider bracket than the one holding price.")
 
 // ── style ──────────────────────────────────────────────────────────────────────
 gV     = "Style"
@@ -157,10 +160,14 @@ ema50v  = enSma and en50e  ? request.security(rthTid, smaTf, ta.ema(close, 50), 
 ema100v = enSma and en100e ? request.security(rthTid, smaTf, ta.ema(close, 100), lookahead = barmerge.lookahead_off) : na
 ema200v = enSma and en200e ? request.security(rthTid, smaTf, ta.ema(close, 200), lookahead = barmerge.lookahead_off) : na
 
+// MAs join the candidate pool when enObMa is on. A moving average moves every day while a calendar
+// level is fixed — that's the case for leaving them out. The case for putting them in is that when
+// one of them IS the nearest thing to the open, it's what the session is actually trading against.
 // ── the OPEN's two NEIGHBORS — nearest enabled level ABOVE (resistance) and BELOW (support) the day's open.
 //    These two, and ONLY these two, drive the day-direction signals. Computed here so the open label names them.
-_nbVals  = array.from(enPDH ? pdh : na, enPDL ? pdl : na, enPWH ? pwh : na, enPWL ? pwl : na, enPWC ? pwc : na, enPMH ? pmh : na, enPML ? pml : na, enPMC ? pmc : na, enPQH ? pqh : na, enPQL ? pql : na, enPQC ? pqc : na)
-_nbNames = array.from("PDH", "PDL", "PWH", "PWL", "PWC", "PMH", "PML", "PMC", "PQH", "PQL", "PQC")
+_nbMa    = enSma and enObMa
+_nbVals  = array.from(enPDH ? pdh : na, enPDL ? pdl : na, enPWH ? pwh : na, enPWL ? pwl : na, enPWC ? pwc : na, enPMH ? pmh : na, enPML ? pml : na, enPMC ? pmc : na, enPQH ? pqh : na, enPQL ? pql : na, enPQC ? pqc : na), _nbMa ? sma8v : na, _nbMa ? sma20v : na, _nbMa ? sma50v : na, _nbMa ? sma100v : na, _nbMa ? sma200v : na, _nbMa ? ema50v : na, _nbMa ? ema100v : na, _nbMa ? ema200v : na
+_nbNames = array.from("PDH", "PDL", "PWH", "PWL", "PWC", "PMH", "PML", "PMC", "PQH", "PQL", "PQC"), "8SMA", "20SMA", "50SMA", "100SMA", "200SMA", "50EMA", "100EMA", "200EMA"
 oUp   = 1.0e18                            // nearest level ABOVE the open (the day's resistance neighbor)
 oDn   = -1.0                             // nearest level BELOW the open (the day's support neighbor)
 oUpNm = ""
@@ -848,3 +855,75 @@ if enCons and barstate.islast
             _cCol = close > _v ? consLoCol : consHiCol
             array.push(_consLn, line.new(bar_index - consLook, _v, bar_index + labelX, _v, color = _cCol, width = consW, extend = extendAll ? extend.both : extend.none))
             array.push(_consLb, label.new(bar_index + labelX, _v, "Floor ×" + str.tostring(array.get(_lCc, _k)) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _cCol, textcolor = color.white, size = size.tiny))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SWING BOOK — merged from swing_reclaim.pine (2026-08-27).
+// ═══════════════════════════════════════════════════════════════════════════════
+// The condensed structural swing entries, folded in so this pine can carry the DAY signal and the
+// SWING book together. Every level entry is the SAME pattern: a line that was SUPPORT (price held
+// ABOVE it) gets reclaimed — role-guarded, so a from-below breakup does NOT fire. LONG only,
+// stop = the swept low.
+//
+// OFF BY DEFAULT, deliberately. swing_reclaim.pine is still bound on the MASTER watchlist; turning
+// this on while that stays bound fires every swing alert TWICE. Enable here only after unbinding
+// the other — and note the coverage swap that comes with it: this pine is bound per day-trade
+// watchlist, so the swing book would then scan THAT universe, not the master one.
+gSw    = "Swing book (merged — see note, OFF by default)"
+enSwing= input.bool(false, "Fire the swing entries from this pine", group = gSw, tooltip = "Leave OFF while swing_reclaim.pine is still bound — both pines emit the same rule names, so you would get duplicate Telegrams. Turning it on also moves the swing book onto THIS pine's symbol universe.")
+en8w   = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gSw)
+en21w  = input.bool(true, "21 EMA (weekly) reclaim", group = gSw)
+en30w  = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gSw)
+en200s = input.bool(true, "200 SMA (daily) reclaim", group = gSw)
+enRsiSw= input.bool(true, "RSI-30 reclaim (oversold turn)", group = gSw)
+en520  = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gSw)
+onBand = input.float(0.5, "Reclaim on-the-line band (%)", group = gSw, minval = 0.0, maxval = 3) / 100.0
+emaFast= input.int(5,  "5/20 cross — fast EMA", group = gSw, minval = 2)
+emaSlow= input.int(20, "5/20 cross — slow EMA", group = gSw, minval = 3)
+swLockTf = input.timeframe("D", "200 SMA / RSI / 5-20 lock timeframe", group = gSw)
+
+// weekly-locked spines + the daily lock, settled [1] + lookahead → flat, non-repainting
+e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)
+e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)
+w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)
+wOpen = request.security(tid, "W", open,                 lookahead = barmerge.lookahead_on)
+sw200 = request.security(tid, swLockTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+swOpen= request.security(tid, swLockTf, open,            lookahead = barmerge.lookahead_on)
+swRsi = request.security(tid, swLockTf, ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+swF   = request.security(tid, swLockTf, ta.ema(close, emaFast), lookahead = barmerge.lookahead_off)
+swS   = request.security(tid, swLockTf, ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off)
+_swConf = barstate.isconfirmed
+
+// DAILY reclaim: opened clearly ABOVE the line (it was support), wicked it, closed back above.
+f_swReclaim(float L) => not na(L) and not na(swOpen) and swOpen > L * (1.0 + onBand) and low <= L and close > L
+// WEEKLY reclaim: the WEEK opened above the level and price crossed BACK above on this bar —
+// a fresh event, not a from-below breakup and not every bar it happens to be above.
+f_swWReclaim(float L, float Lp) => not na(L) and not na(Lp) and not na(wOpen) and wOpen > L and close > L and nz(close[1], L) <= Lp
+
+sw_rc8w  = enSwing and en8w   and _swConf and f_swWReclaim(e8w, e8w[1])
+sw_rc21w = enSwing and en21w  and _swConf and f_swWReclaim(e21w, e21w[1])
+sw_rc30w = enSwing and en30w  and _swConf and f_swWReclaim(w30, w30[1])
+sw_rc200 = enSwing and en200s and _swConf and f_swReclaim(sw200)
+sw_rcR   = enSwing and enRsiSw and _swConf and ta.crossover(swRsi, rsiOS)
+sw_rc520 = enSwing and en520  and _swConf and ta.crossover(swF, swS)
+
+plotshape(sw_rc8w,  "8EMA-W reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#22C55E, 0), size = size.small, text = "8W")
+plotshape(sw_rc21w, "21EMA-W reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(#EAB308, 0), size = size.small, text = "21W")
+plotshape(sw_rc30w, "30W MA reclaim",  style = shape.arrowup, location = location.belowbar, color = color.new(#F97316, 0), size = size.small, text = "30W")
+plotshape(sw_rc200, "200 SMA reclaim", style = shape.arrowup, location = location.belowbar, color = color.new(color.teal, 0), size = size.small, text = "200")
+plotshape(sw_rcR,   "RSI-30 reclaim",  style = shape.circle,  location = location.belowbar, color = color.new(color.purple, 0), size = size.tiny)
+plotshape(sw_rc520, "5/20 EMA cross",  style = shape.labelup, location = location.belowbar, color = color.new(#10B981, 0), size = size.tiny, text = "5/20")
+
+sw_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
+if sw_rc8w
+    alert(sw_pay("swing_8ema_w_reclaim", "8 EMA (weekly) reclaim at " + str.tostring(e8w, format.mintick) + " — the week opened above the weekly 8 EMA (fast trend spine) and price reclaimed it, an early trend re-entry. Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if sw_rc21w
+    alert(sw_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if sw_rc30w
+    alert(sw_pay("swing_30w_reclaim", "30-week MA reclaim at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if sw_rc200
+    alert(sw_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sw200, format.mintick) + " · structural support recovered (the line institutions defend). Stop = the swept low; invalid on a close below " + str.tostring(sw200, format.mintick)), alert.freq_once_per_bar_close)
+if sw_rcR
+    alert(sw_pay("swing_rsi_30", "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
+if sw_rc520
+    alert(sw_pay("ema_5_20_cross", "5/20 EMA bullish cross (Burns) — the " + str.tostring(emaFast) + " EMA crossed ABOVE the " + str.tostring(emaSlow) + " EMA at " + str.tostring(swS, format.mintick) + " · short-term trend flip up (a swing entry, hold days). Stop = the swept low; invalid on a close back under the " + str.tostring(emaSlow) + " EMA."), alert.freq_once_per_bar_close)
+
