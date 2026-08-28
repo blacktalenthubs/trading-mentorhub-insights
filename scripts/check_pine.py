@@ -26,7 +26,24 @@ def check(path):
             continue                                   # namespace head or member (format.mintick)
         used.add(m.group(1))
     missing = sorted(u for u in used - declared - BUILTIN - named)
-    print(f"  {path.split('/')[-1]:34} {'UNDECLARED -> ' + ', '.join(missing) if missing else 'clean ✓'}")
+    # duplicate top-level declarations — Pine rejects a name declared twice, and it is the
+    # easiest mistake to make when merging one pine into another (gSw in prox-pure, 2026-08-27)
+    import collections
+    seen = collections.defaultdict(list)
+    for i, ln in enumerate(src.split("\n"), 1):
+        if ln.strip().startswith("//"):
+            continue
+        c = ln.split("//")[0]
+        m = re.match(r'^(?:var\s+\w+(?:\[\])?\s+)?([A-Za-z_]\w*)\s*=(?!=)', c) or re.match(r'^([A-Za-z_]\w*)\s*\([^)]*\)\s*=>', c)
+        if m:
+            seen[m.group(1)].append(i)
+    dups = {k: v for k, v in seen.items() if len(v) > 1}
+    parts = []
+    if missing:
+        parts.append("UNDECLARED -> " + ", ".join(missing))
+    if dups:
+        parts.append("DUPLICATE -> " + ", ".join(f"{k}@{v}" for k, v in sorted(dups.items())))
+    print(f"  {path.split('/')[-1]:34} {' | '.join(parts) if parts else 'clean ✓'}")
 
 print("Pine undeclared-identifier scan:")
 for p in sys.argv[1:]:
