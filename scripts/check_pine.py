@@ -42,8 +42,24 @@ def check(path):
     # 4-element array, and the per-line paren count still balances so bracket checks miss it.
     stray = []
     for i, ln in enumerate(src.split("\n"), 1):
-        c = ln.split("//")[0].rstrip()
-        if re.match(r'^\s*[A-Za-z_]\w*\s*=\s*\w[\w.]*\(', c) and re.search(r'\),\s*\S', c):
+        c = re.sub(r'"[^"\n]*"', '""', ln).split("//")[0].rstrip()
+        m = re.match(r'^\s*[A-Za-z_]\w*\s*=\s*\w[\w.]*\(', c)
+        if not m:
+            continue
+        # walk to where the OUTERMOST call closes; a naive regex matches nested calls instead
+        depth, close_at = 0, None
+        for j, ch in enumerate(c):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    close_at = j
+                    break
+        if close_at is None:
+            continue
+        rest = c[close_at + 1:].lstrip()
+        if rest.startswith(","):      # `f(a, b), c` — a tuple, not more arguments
             stray.append(i)
     parts = []
     if missing:
