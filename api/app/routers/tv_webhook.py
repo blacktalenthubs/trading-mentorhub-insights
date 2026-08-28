@@ -1869,6 +1869,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
         # apply to the whole WATCHLIST, no per-symbol exceptions; the *_DEFAULT consts
         # are frozenset()). An empty set bypasses the filter → routes every name. Kept
         # only as optional admin restrictors (set a key in regime_config to re-clamp).
+        # NB: an EMPTY short_symbols does NOT block shorts — the guard below is
+        # `if short_symbols and ...`, so blank skips the check and every short routes.
+        # Use short_alerts_enabled for "no shorts"; the allowlist only narrows.
+        shorts_enabled = (_rc.get("short_alerts_enabled", "true") or "true").strip().lower() not in ("false", "0", "no", "off")
         short_symbols = (
             _parse_exempt_syms(_rc["short_symbols"])
             if "short_symbols" in _rc else SHORT_SYMS_DEFAULT
@@ -1977,6 +1981,13 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     # short_symbols is now an OPTIONAL admin restrictor: EMPTY (the default) routes
     # every enabled SHORT; set it ONLY to clamp shorts to specific names.
     # ──────────────────────────────────────────────────────────────────
+    # Kill switch (2026-08-27) — short_alerts_enabled=false suppresses EVERY short, of any
+    # type, for every symbol. Checked BEFORE the allowlist and with no rc_4h exemption: a
+    # switch called "disable shorts" that quietly let a family through would be a trap.
+    if not shorts_enabled and (sig.direction or "").upper() in ("SHORT", "SELL"):
+        logger.info("TV webhook: SHORT %s suppressed — shorts disabled (%s)", sig.symbol, alert_type_full)
+        return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="shorts_disabled")
+
     if short_symbols and (sig.direction or "").upper() in ("SHORT", "SELL") and not alert_type_full.startswith("tv_rc_4h") and (sig.symbol or "").upper() not in short_symbols:
         logger.info("TV webhook: SHORT %s not in short_symbols allowlist — Not-routed (%s)", sig.symbol, alert_type_full)
         return await _persist_unrouted(sig, alert_type_full, session_date, suppressed_reason="short_symbol_filter")
