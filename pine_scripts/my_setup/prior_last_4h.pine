@@ -1,0 +1,92 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIOR LAST 4H — yesterday's FINAL 4h candle, plus the day rails.
+// ─────────────────────────────────────────────────────────────────────────────
+// Not yesterday's whole range, not its four-candle structure — just the ONE 4h candle the
+// session ended on. That candle is where the market left off: its high and low are the levels
+// today opens against, and they sit INSIDE the daily range, where PDH/PDL are often too wide
+// to trade off.
+//
+//   HIGH   the last thing sellers defended before the close
+//   LOW    the last thing buyers defended
+//   CLOSE  where the session actually settled — the strength line. Holding above it says
+//          yesterday's closing hand is still in control; losing it says it changed.
+//
+// PDH / PDL sit alongside them, drawn DASHED so the day rails read apart from the 4h lines at a
+// glance. Same colours, different weight of evidence: the 4h trio is where the session ended,
+// PDH/PDL is the whole day's range around it.
+//
+// FROZEN AT THE SESSION ROLL. At the instant a new day begins, "the last completed 4h" IS
+// yesterday's final one, so it's captured there and held all day. Read live it would walk
+// forward through today's own 4h candles and stop being yesterday's anything.
+//
+// RTH-accurate (regular-session ticker, so extended-hours prints never leak in) and
+// non-repainting (settled [1] + lookahead). Flat lines, role-coloured: green ▲ SUPPORT when
+// price is above, red ▼ RESISTANCE when below.
+//
+// VISUAL ONLY — no alertcondition, nothing reaches the platform webhook.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Prior last 4H", "Y-4H", overlay = true, max_lines_count = 10, max_labels_count = 10)
+
+gL       = "Lines"
+enH      = input.bool(true, "High",  inline = "l", group = gL)
+enL      = input.bool(true, "Low",   inline = "l", group = gL)
+enC      = input.bool(true, "Close", inline = "l", group = gL)
+enPDH    = input.bool(true, "PDH — prior-day high", inline = "p", group = gL)
+enPDL    = input.bool(true, "PDL — prior-day low",  inline = "p", group = gL)
+wDay     = input.int(2, "PDH / PDL thickness", minval = 1, maxval = 6, group = gL)
+dayStyle = input.string("dashed", "PDH / PDL line style", options = ["solid", "dashed", "dotted"], group = gL, tooltip = "Dashed by default so the DAY rails read apart from the three 4h lines at a glance — same colours, different weight of evidence.")
+supCol   = input.color(#26A69A, "Support (price above)",    group = gL)
+resCol   = input.color(#EF5350, "Resistance (price below)", group = gL)
+wLine    = input.int(2,  "Line thickness", minval = 1, maxval = 6, group = gL)
+wClose   = input.int(2,  "Close line thickness", minval = 1, maxval = 6, group = gL)
+lineLen  = input.int(80, "Line length (bars back)", minval = 10, maxval = 500, group = gL)
+extendAll= input.bool(false, "Extend across the whole chart", group = gL)
+lineStyle= input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gL)
+
+gT       = "Tags"
+showLbl  = input.bool(true, "Show tags", group = gT)
+showPx   = input.bool(true, "Show the price on the tag", group = gT)
+labelX   = input.int(8, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gT)
+tagSz    = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gT)
+
+_tagSz  = tagSz == "normal" ? size.normal : tagSz == "tiny" ? size.tiny : size.small
+_lnStyle = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+_dyStyle = dayStyle == "solid" ? line.style_solid : dayStyle == "dotted" ? line.style_dotted : line.style_dashed
+
+// ── the candle. Settled [1] + lookahead → non-repainting; RTH ticker keeps pre/post out.
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[_h, _l, _c] = request.security(rthTid, "240", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+// The day rails. These need no freezing — high[1]/low[1] on the daily ARE yesterday's, settled,
+// and they don't move once the session rolls. Only the 4h values walk forward if left live.
+[pdh, pdl] = request.security(rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+var float y4H = na
+var float y4L = na
+var float y4C = na
+if ta.change(time("D")) != 0 or na(y4H)
+    y4H := _h
+    y4L := _l
+    y4C := _c
+
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+f_draw(float v, string nm, bool show, int w, bool isDay) =>
+    if show and not na(v)
+        _sup = close > v
+        _col = _sup ? supCol : resCol
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + labelX, v, color = _col, width = w, style = isDay ? _dyStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
+        if showLbl
+            array.push(_lb, label.new(bar_index + labelX, v, (_sup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + nm + (showPx ? "  " + str.tostring(v, format.mintick) : ""), style = label.style_label_left, color = _col, textcolor = color.white, size = _tagSz))
+
+if barstate.islast
+    for x in _ln
+        line.delete(x)
+    for y in _lb
+        label.delete(y)
+    array.clear(_ln)
+    array.clear(_lb)
+    f_draw(y4H, "Y-4H HIGH",  enH, wLine,  false)
+    f_draw(y4L, "Y-4H LOW",   enL, wLine,  false)
+    f_draw(y4C, "Y-4H CLOSE", enC, wClose, false)
+    f_draw(pdh, "PDH", enPDH, wDay, true)
+    f_draw(pdl, "PDL", enPDL, wDay, true)
