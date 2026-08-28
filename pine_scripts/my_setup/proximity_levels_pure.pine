@@ -868,18 +868,18 @@ if enCons and barstate.islast
 // this on while that stays bound fires every swing alert TWICE. Enable here only after unbinding
 // the other — and note the coverage swap that comes with it: this pine is bound per day-trade
 // watchlist, so the swing book would then scan THAT universe, not the master one.
-gSw    = "Swing book (merged — see note, OFF by default)"
-enSwing= input.bool(false, "Fire the swing entries from this pine", group = gSw, tooltip = "Leave OFF while swing_reclaim.pine is still bound — both pines emit the same rule names, so you would get duplicate Telegrams. Turning it on also moves the swing book onto THIS pine's symbol universe.")
-en8w   = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gSw)
-en21w  = input.bool(true, "21 EMA (weekly) reclaim", group = gSw)
-en30w  = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gSw)
-en200s = input.bool(true, "200 SMA (daily) reclaim", group = gSw)
-enRsiSw= input.bool(true, "RSI-30 reclaim (oversold turn)", group = gSw)
-en520  = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gSw)
-onBand = input.float(0.5, "Reclaim on-the-line band (%)", group = gSw, minval = 0.0, maxval = 3) / 100.0
-emaFast= input.int(5,  "5/20 cross — fast EMA", group = gSw, minval = 2)
-emaSlow= input.int(20, "5/20 cross — slow EMA", group = gSw, minval = 3)
-swLockTf = input.timeframe("D", "200 SMA / RSI / 5-20 lock timeframe", group = gSw)
+gSwing = "Swing book (merged — see note, OFF by default)"
+enSwing= input.bool(false, "Fire the swing entries from this pine", group = gSwing, tooltip = "Leave OFF while swing_reclaim.pine is still bound — both pines emit the same rule names, so you would get duplicate Telegrams. Turning it on also moves the swing book onto THIS pine's symbol universe.")
+en8w   = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gSwing)
+en21w  = input.bool(true, "21 EMA (weekly) reclaim", group = gSwing)
+en30w  = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gSwing)
+en200s = input.bool(true, "200 SMA (daily) reclaim", group = gSwing)
+enRsiSw= input.bool(true, "RSI-30 reclaim (oversold turn)", group = gSwing)
+en520  = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gSwing)
+onBand = input.float(0.5, "Reclaim on-the-line band (%)", group = gSwing, minval = 0.0, maxval = 3) / 100.0
+emaFast= input.int(5,  "5/20 cross — fast EMA", group = gSwing, minval = 2)
+emaSlow= input.int(20, "5/20 cross — slow EMA", group = gSwing, minval = 3)
+swLockTf = input.timeframe("D", "200 SMA / RSI / 5-20 lock timeframe", group = gSwing)
 
 // weekly-locked spines + the daily lock, settled [1] + lookahead → flat, non-repainting
 e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)
