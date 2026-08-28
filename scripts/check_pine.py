@@ -38,11 +38,20 @@ def check(path):
         if m:
             seen[m.group(1)].append(i)
     dups = {k: v for k, v in seen.items() if len(v) > 1}
+    # trailing args after a closed call — `array.from(a, b), c, d` parses as a tuple, not a
+    # 4-element array, and the per-line paren count still balances so bracket checks miss it.
+    stray = []
+    for i, ln in enumerate(src.split("\n"), 1):
+        c = ln.split("//")[0].rstrip()
+        if re.match(r'^\s*[A-Za-z_]\w*\s*=\s*\w[\w.]*\(', c) and re.search(r'\),\s*\S', c):
+            stray.append(i)
     parts = []
     if missing:
         parts.append("UNDECLARED -> " + ", ".join(missing))
     if dups:
         parts.append("DUPLICATE -> " + ", ".join(f"{k}@{v}" for k, v in sorted(dups.items())))
+    if stray:
+        parts.append("ARGS-AFTER-CALL -> lines " + ", ".join(map(str, stray)))
     print(f"  {path.split('/')[-1]:34} {' | '.join(parts) if parts else 'clean ✓'}")
 
 print("Pine undeclared-identifier scan:")
