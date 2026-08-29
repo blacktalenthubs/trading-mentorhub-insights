@@ -95,6 +95,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     ("fourh_reject",  "4H rejection (short) — a 15m candle wicked above a prior 4h level & closed back below (resistance held). Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_breakup", "4H break-up (long) — a 15m candle closed up through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
     ("fourh_breakdn", "4H break-down (short) — a 15m candle closed down through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
+    # LAST 4H (2026-08-28) — the EXPERIMENT. Not the last two 4h candles' six levels: just the ONE
+    # candle the prior session ended on, and only its HIGH and LOW. Two lines, one long rule, one
+    # short rule. Deliberately its own pair of types (not folded into fourh_*) so the two-line read
+    # can be evaluated on its own numbers instead of being averaged into the six-level method — and
+    # so binding it alongside prior_4h_two_candles doesn't have the two pines fighting for one anchor.
+    # From prior_last_4h.pine. Default OFF; opt in per user in Settings.
+    ("last4h_long",  "Last 4H long — price RECLAIMED (wick + back above, fires immediately) or BROKE (confirmed close through) yesterday's FINAL 4h candle's high or low. Two lines only. Bind prior_last_4h.pine; opt in HERE.", "4H", False),
+    ("last4h_short", "Last 4H short — price REJECTED (poke + close back under, fires immediately) or BROKE DOWN (confirmed close through) yesterday's FINAL 4h candle's high or low. Bind prior_last_4h.pine; opt in HERE.", "4H", False),
     # Structural-level DAY reclaims (weekly-low / monthly-low / prior-2-day-low) — 2026-08-05. Same
     # reclaim mechanic as the 4H reactions on the 15m close, LONG only, stop = the swept bar low. They
     # JOIN the 4H DB-anchored day dedup stream: a 4H reclaim + these compete as ONE (symbol,BUY) anchor,
@@ -286,6 +294,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     # the 4H method IS the day trade, so fourh_* → day_trade feed (no separate RC / 4H tab).
     ("staged_pwl", "day_trade"),   # weekly_rc/monthly_rc retired 2026-08-02 (→ Smart Money zones)
     ("fourh_reclaim", "day_trade"), ("fourh_reject", "day_trade"), ("fourh_breakup", "day_trade"), ("fourh_breakdn", "day_trade"),
+    ("last4h_long", "day_trade"), ("last4h_short", "day_trade"),   # the last-4h two-line experiment → Day feed
     ("day_weekly_reclaim", "day_trade"), ("day_monthly_reclaim", "day_trade"), ("day_pdlow_reclaim", "day_trade"),   # structural day reclaims → Day feed
     ("gap_and_go", "day_trade"),   # gap-and-go momentum long → Day Trade feed
     ("open_bracket", "day_trade"),  # open-neighbor day signal → Day Trade feed
@@ -401,6 +410,8 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "fourh_reject": "4H rejection: a 15m candle poked above a prior 4h level and closed back below — resistance held, momentum flips down. Entry = the close, stop = the swept wick.",
     "fourh_breakup": "4H break-up: a 15m candle closed up through a prior 4h level — continuation. Entry = the close, stop back below the level.",
     "fourh_breakdn": "4H break-down: a 15m candle closed down through a prior 4h level — continuation. Entry = the close, stop back above the level.",
+    "last4h_long": "Last 4H long: yesterday's FINAL 4h candle only — the one the session actually ended on — and only its HIGH and LOW. RECLAIM (opened above the level, wicked through, back above) fires immediately: the market already showed the level held, there is nothing to confirm. BREAK (price came from below and pushed through) waits for a confirmed close at the chart timeframe. Entry = the trigger close, stop = the swept wick on a reclaim, back under the level on a break. One fire per level per day.",
+    "last4h_short": "Last 4H short: the mirror. REJECT (opened below, poked above, closed back under) fires immediately — the ceiling held. BREAKDOWN (came from above, pushed through) waits for a confirmed close. Entry = the trigger close, stop = the poke high on a reject, back over the level on a breakdown. One fire per level per day.",
     "day_weekly_reclaim": "Weekly-low reclaim (day trade): a 15m candle undercut the prior-WEEK low (PWL) and closed back above — the weekly support held. Entry = the 15m close, stop = the swept bar low. Shares the 4H day dedup, so only the LOWEST entry of the day fires.",
     "day_monthly_reclaim": "Monthly-low reclaim (day trade): a 15m candle undercut the prior-MONTH low (PML) and closed back above — the monthly support held. Entry = the close, stop = the swept bar low. Shares the 4H day dedup (lowest entry wins).",
     "day_pdlow_reclaim": "Prior-day low reclaim (day trade): a 15m candle undercut one of the last two sessions' lows (D-1 or D-2) and closed back above. Entry = the close, stop = the swept bar low. Shares the 4H day dedup (lowest entry wins).",
