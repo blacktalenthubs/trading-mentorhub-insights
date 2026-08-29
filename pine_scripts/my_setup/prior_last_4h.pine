@@ -22,6 +22,10 @@
 // pixels. A merged group keeps the heaviest thickness of its members, and draws in the 4h style
 // unless every member is a day rail — the stronger evidence wins the look.
 //
+// THE OPEN sits under it all as a faint line. Where the session opened INSIDE the candle is the
+// range they intend to play — the tag names the two lines bracketing it ("OPEN BTW Y-4H HIGH and
+// Y-4H CLOSE") rather than repeating a price the axis already shows.
+//
 // FROZEN AT THE SESSION ROLL. At the instant a new day begins, "the last completed 4h" IS
 // yesterday's final one, so it's captured there and held all day. Read live it would walk
 // forward through today's own 4h candles and stop being yesterday's anything.
@@ -65,6 +69,13 @@ lineLen  = input.int(80, "Line length (bars back)", minval = 10, maxval = 500, g
 extendAll= input.bool(false, "Extend across the whole chart", group = gL)
 lineStyle= input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gL)
 
+gO       = "Open"
+enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gO, tooltip = "Horizontal context. Where the session opened INSIDE the 4h candle tells you the range they intend to play — the tag names the two levels bracketing it.")
+openCol  = input.color(#9598A1, "Open line colour", group = gO)
+openW    = input.int(1, "Open line thickness", minval = 1, maxval = 6, group = gO)
+openStyl = input.string("dotted", "Open line style", options = ["solid", "dashed", "dotted"], group = gO)
+openTag  = input.bool(true, "Show the open tag", group = gO)
+
 gC       = "Confluence"
 enConf   = input.bool(true, "Merge levels within a % of each other", group = gC, tooltip = "Levels this close are one wall in practice — price can't tell them apart. Merged lines name every member on the tag.")
 confPct  = input.float(0.15, "Merge tolerance %", minval = 0.0, maxval = 5.0, step = 0.05, group = gC)
@@ -79,6 +90,7 @@ tagSz    = input.string("small", "Tag size", options = ["tiny", "small", "normal
 _tagSz   = tagSz == "normal" ? size.normal : tagSz == "tiny" ? size.tiny : size.small
 _lnStyle = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
 _dyStyle = dayStyle == "solid" ? line.style_solid : dayStyle == "dotted" ? line.style_dotted : line.style_dashed
+_opStyle = openStyl == "solid" ? line.style_solid : openStyl == "dashed" ? line.style_dashed : line.style_dotted
 
 // ── the candle. Settled [1] + lookahead → non-repainting; RTH ticker keeps pre/post out.
 rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -86,6 +98,11 @@ rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 // The day rails. These need no freezing — high[1]/low[1] on the daily ARE yesterday's, settled,
 // and they don't move once the session rolls. Only the 4h values walk forward if left live.
 [pdh, pdl] = request.security(rthTid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// Today's open. lookahead_OFF, unlike everything above it: the current day is a DEVELOPING
+// higher-timeframe bar, and lookahead_on on a developing bar hands back data the bar has not
+// produced yet — the classic repaint. The settled [1] values can use lookahead_on precisely
+// because they are already finished.
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
 var float y4H = na
 var float y4L = na
 var float y4C = na
@@ -110,6 +127,10 @@ f_add(float v, string nm, bool show, int w, bool isDay) =>
 
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
+// what actually got DRAWN, after merging — the open is bracketed by the lines on screen, not by
+// the raw candidates, so a merged group reads on the open tag under its merged name.
+var float[]  _gv = array.new_float()
+var string[] _gn = array.new_string()
 
 f_draw(float v, string nm, int w, bool isDay, bool merged) =>
     _sup = close > v
@@ -130,6 +151,8 @@ if barstate.islast
     array.clear(_cn)
     array.clear(_cd)
     array.clear(_cw)
+    array.clear(_gv)
+    array.clear(_gn)
 
     f_add(y4H, "Y-4H HIGH",  enH, wLine,  false)
     f_add(y4L, "Y-4H LOW",   enL, wLine,  false)
@@ -185,7 +208,40 @@ if barstate.islast
             else
                 _more := false
         f_draw(gSum / gCnt, gNm, gW, gDay, gCnt > 1)
+        array.push(_gv, gSum / gCnt)
+        array.push(_gn, gNm)
         i := j
+
+    // ── the open line — faint, horizontal context. WHERE the day opened inside the candle is
+    // what sets the range they intend to play, so the tag names the two lines bracketing it
+    // rather than repeating a price you can already read off the axis.
+    if enOpenLn and not na(dayOpen)
+        oUp  = 1.0e18
+        oDn  = -1.0
+        oUpN = ""
+        oDnN = ""
+        gN   = array.size(_gv)
+        if gN > 0
+            for k = 0 to gN - 1
+                gvk = array.get(_gv, k)
+                if gvk > dayOpen and gvk < oUp
+                    oUp  := gvk
+                    oUpN := array.get(_gn, k)
+                if gvk < dayOpen and gvk > oDn
+                    oDn  := gvk
+                    oDnN := array.get(_gn, k)
+        hasUp = oUp < 1.0e17
+        hasDn = oDn > 0
+        // a tag landing on top of a level tag is worse than no tag — step it right when the open
+        // sits inside the merge tolerance of a drawn line
+        nearest = hasUp and hasDn ? math.min(oUp - dayOpen, dayOpen - oDn) : hasUp ? oUp - dayOpen : hasDn ? dayOpen - oDn : 1.0e18
+        oxo = dayOpen != 0 and nearest / math.abs(dayOpen) * 100 <= confPct * 2 ? labelX + 10 : labelX
+        // the line runs to the TAG's column, not the shared one — a stepped-out tag with its line
+        // stopping short is exactly the floating tag this setup keeps fixing.
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + oxo, dayOpen, color = openCol, width = openW, style = _opStyle, extend = extendAll ? extend.both : extend.none))
+        if openTag
+            oTag = hasUp and hasDn ? "OPEN BTW " + oUpN + " and " + oDnN : hasDn ? "OPEN ABOVE ALL" : hasUp ? "OPEN BELOW ALL" : "OPEN"
+            array.push(_lb, label.new(bar_index + oxo, dayOpen, oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ALERTS
