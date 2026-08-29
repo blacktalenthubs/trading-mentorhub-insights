@@ -54,7 +54,7 @@ FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "fourh
 # Non-signals — heads-up/notice types (not trade entries); their own Settings bucket (user 2026-08-06).
 NOTICE_TYPES: frozenset[str] = frozenset({"candle_ping_equity", "candle_ping_crypto", "levels_hourly"})
 # SHORT-direction types — everything else is Long. Drives the per-bucket Long/Short toggles (2026-08-06).
-SHORT_TYPES: frozenset[str] = frozenset({"fourh_reject", "fourh_breakdn", "swing_wq_reject_short"})
+SHORT_TYPES: frozenset[str] = frozenset({"fourh_reject", "fourh_breakdn", "swing_wq_reject_short", "last4h_short"})
 TRADE_GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"]
 
 
