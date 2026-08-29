@@ -988,9 +988,16 @@ async def lifespan(app: FastAPI):
                     from datetime import datetime as _dt
                     _sd = _dt.now(_pytz.timezone("America/New_York")).strftime("%Y-%m-%d")
                     with sync_session_factory() as db:
+                        # One row per (kind, session_date) — that's the PK. Seven pings fire in a
+                        # session, so a plain INSERT succeeds for candle 1 and raises UniqueViolation
+                        # for 2..7: the day's row froze at the FIRST ping's body while the later,
+                        # more current ones were lost to the except below. Upsert, same idiom as
+                        # intel.py's writer against this table — the latest ping is the report.
                         db.execute(text(
                             "INSERT INTO market_reports (kind, session_date, body, created_at) "
-                            "VALUES ('candle_ping', :sd, :body, now())"
+                            "VALUES ('candle_ping', :sd, :body, now()) "
+                            "ON CONFLICT (kind, session_date) DO UPDATE SET "
+                            "body = EXCLUDED.body, created_at = now()"
                         ), {"sd": _sd, "body": body})
                         db.commit()
                 except Exception:
