@@ -905,6 +905,12 @@ _COLLAPSE_EXEMPT_BASE: frozenset[str] = frozenset({
     # "pdl reclaim and pdh reclaim should never be deduped, these are key levels").
     # Never fold a daily-level reclaim into a same-bar MA/EMA bounce.
     "pdl_held", "pdh_held",
+    # LAST-4H EXPERIMENT (2026-08-28) — the two-line read off yesterday's FINAL 4h candle. Kept out
+    # of the collapser AND out of _FOURH_TYPES on purpose: folded into either one, its fires would be
+    # absorbed by prior_4h_two_candles' six-level alerts on the same (symbol, direction) anchor and
+    # the experiment would have no numbers of its own. Isolated = evaluable. The pine already fires
+    # once per level per direction per day, so there's no self-spam to dedup.
+    "last4h_long", "last4h_short",
 })
 
 # RC VALIDATION types (daily/weekly/monthly undercut-and-reclaim) are FULLY isolated from the

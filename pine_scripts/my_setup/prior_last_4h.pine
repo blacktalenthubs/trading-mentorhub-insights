@@ -30,7 +30,22 @@
 // non-repainting (settled [1] + lookahead). Flat lines, role-coloured: green ▲ SUPPORT when
 // price is above, red ▼ RESISTANCE when below.
 //
-// VISUAL ONLY — no alertcondition, nothing reaches the platform webhook.
+// ALERTS — two lines, long and short. The last 4h candle's HIGH and LOW are the only levels
+// that fire by default; the CLOSE and the day rails are drawable but alert-silent unless you
+// switch them on. Rules `last4h_long` / `last4h_short`, routed to the Day feed.
+//
+// The qualification is the same one every pine in this setup uses:
+//
+//   RECLAIM   open above the level, wick through it, price back above  → fires IMMEDIATELY.
+//             Nothing to confirm: the market already showed the level held.
+//   BREAK     price came from the other side and pushed through        → needs a CONFIRMED CLOSE
+//             at the chart timeframe. Coming from below, an unclosed poke is not a break.
+//
+// The short side is the exact mirror — REJECT (open below, poke up, close back under) fires
+// immediately; BREAKDOWN needs the close.
+//
+// ONE alert per level per direction per session, reset at the day roll, so a level that gets
+// tested six times in a morning sends one message, not six.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Prior last 4H", "Y-4H", overlay = true, max_lines_count = 10, max_labels_count = 10)
 
@@ -171,3 +186,105 @@ if barstate.islast
                 _more := false
         f_draw(gSum / gCnt, gNm, gW, gDay, gCnt > 1)
         i := j
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERTS
+// ─────────────────────────────────────────────────────────────────────────────
+gA      = "Alerts"
+enAl    = input.bool(true,  "Fire platform alerts", group = gA, tooltip = "Bind ONE alert on this study: condition 'Any alert() function call', webhook on. Rules last4h_long / last4h_short.")
+alHi    = input.bool(true,  "Alert on the 4h HIGH", inline = "a1", group = gA)
+alLo    = input.bool(true,  "Alert on the 4h LOW",  inline = "a1", group = gA)
+alCl    = input.bool(false, "Alert on the 4h CLOSE", inline = "a2", group = gA, tooltip = "OFF by default — the experiment is the two candle rails. Turn on to add the settle line as a third trigger.")
+alLong  = input.bool(true,  "Longs",  inline = "a3", group = gA)
+alShort = input.bool(true,  "Shorts", inline = "a3", group = gA)
+alMark  = input.bool(true,  "Mark the trigger on the chart", group = gA)
+
+// Stateless — current-bar OHLC only, no history reads, so these are safe at any call site.
+f_hold(float v)    => not na(v) and open > v and low  <= v and close > v   // wick + reclaim, no confirm
+f_cross(float v)   => not na(v) and close > v and open <= v                // came from below → confirm
+f_holdDn(float v)  => not na(v) and open < v and high >= v and close < v   // poke + reject, no confirm
+f_crossDn(float v) => not na(v) and close < v and open >= v                // came from above → confirm
+
+f_nl() => "Y-4H H " + str.tostring(y4H, format.mintick) + " · Y-4H L " + str.tostring(y4L, format.mintick) + " · Y-4H C " + str.tostring(y4C, format.mintick) + " · PDH " + str.tostring(pdh, format.mintick) + " · PDL " + str.tostring(pdl, format.mintick)
+
+f_pay(string rule, string dir, string lvlNm, float lvl, float stp, string note) =>
+    '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl() + '"}'
+
+// One fire per level per direction per session. Pine keeps a SEPARATE var per call site, so these
+// have to be explicit globals — a flag inside a helper would be a different flag at each call.
+var bool fHiL = false
+var bool fHiS = false
+var bool fLoL = false
+var bool fLoS = false
+var bool fClL = false
+var bool fClS = false
+if ta.change(time("D")) != 0
+    fHiL := false
+    fHiS := false
+    fLoL := false
+    fLoS := false
+    fClL := false
+    fClS := false
+
+okLong  = enAl and alLong
+okShort = enAl and alShort
+
+// ── 4h HIGH
+hiRec = alHi and f_hold(y4H)
+hiBrk = alHi and f_cross(y4H)
+hiRej = alHi and f_holdDn(y4H)
+hiBdn = alHi and f_crossDn(y4H)
+if okLong and hiRec and not fHiL
+    fHiL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H HIGH", y4H, low, "RECLAIM of yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — opened above it, wicked through, back above. The last level sellers defended is holding as support. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and hiBrk and not fHiL
+    fHiL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H HIGH", y4H, y4H, "BREAK above yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — confirmed " + timeframe.period + " close through the level price came into from below. Stop back under " + str.tostring(y4H, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and hiRej and not fHiS
+    fHiS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H HIGH", y4H, high, "REJECT at yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — poked above and closed back under. The ceiling held. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and hiBdn and not fHiS
+    fHiS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H HIGH", y4H, y4H, "BREAKDOWN through yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — confirmed " + timeframe.period + " close back below a level that was holding as support. Stop back above " + str.tostring(y4H, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── 4h LOW
+loRec = alLo and f_hold(y4L)
+loBrk = alLo and f_cross(y4L)
+loRej = alLo and f_holdDn(y4L)
+loBdn = alLo and f_crossDn(y4L)
+if okLong and loRec and not fLoL
+    fLoL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H LOW", y4L, low, "RECLAIM of yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — opened above it, wicked through, back above. The last level buyers defended is still theirs. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and loBrk and not fLoL
+    fLoL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H LOW", y4L, y4L, "BREAK back above yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — confirmed " + timeframe.period + " close through from underneath. Stop back under " + str.tostring(y4L, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and loRej and not fLoS
+    fLoS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H LOW", y4L, high, "REJECT at yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — poked above a lost level and closed back under. Old support is resistance. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and loBdn and not fLoS
+    fLoS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H LOW", y4L, y4L, "BREAKDOWN through yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — confirmed " + timeframe.period + " close under the last level buyers defended. Stop back above " + str.tostring(y4L, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── 4h CLOSE (off by default)
+clRec = alCl and f_hold(y4C)
+clBrk = alCl and f_cross(y4C)
+clRej = alCl and f_holdDn(y4C)
+clBdn = alCl and f_crossDn(y4C)
+if okLong and clRec and not fClL
+    fClL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H CLOSE", y4C, low, "RECLAIM of yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — wicked under where the session ended and recovered it. Yesterday's closing hand is still in control. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and clBrk and not fClL
+    fClL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H CLOSE", y4C, y4C, "BREAK above yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — confirmed " + timeframe.period + " close back over where the session ended. Stop back under " + str.tostring(y4C, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and clRej and not fClS
+    fClS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H CLOSE", y4C, high, "REJECT at yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — poked above and closed back under. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and clBdn and not fClS
+    fClS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H CLOSE", y4C, y4C, "BREAKDOWN through yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — confirmed " + timeframe.period + " close below where the session ended. The closing hand changed. Stop back above " + str.tostring(y4C, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// Chart marks — same triggers, so what fired is visible without opening the alert log.
+_mkLong  = alMark and okLong  and (hiRec or hiBrk or loRec or loBrk or clRec or clBrk)
+_mkShort = alMark and okShort and (hiRej or hiBdn or loRej or loBdn or clRej or clBdn)
+plotshape(_mkLong,  title = "Long trigger",  style = shape.triangleup,   location = location.belowbar, color = supCol, size = size.tiny)
+plotshape(_mkShort, title = "Short trigger", style = shape.triangledown, location = location.abovebar, color = resCol, size = size.tiny)
