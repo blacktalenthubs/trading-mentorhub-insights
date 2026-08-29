@@ -101,8 +101,8 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # can be evaluated on its own numbers instead of being averaged into the six-level method — and
     # so binding it alongside prior_4h_two_candles doesn't have the two pines fighting for one anchor.
     # From prior_last_4h.pine. Default OFF; opt in per user in Settings.
-    ("last4h_long",  "Last 4H long — price RECLAIMED (wick + back above, fires immediately) or BROKE (confirmed close through) yesterday's FINAL 4h candle's high or low. Two lines only. Bind prior_last_4h.pine; opt in HERE.", "4H", False),
-    ("last4h_short", "Last 4H short — price REJECTED (poke + close back under, fires immediately) or BROKE DOWN (confirmed close through) yesterday's FINAL 4h candle's high or low. Bind prior_last_4h.pine; opt in HERE.", "4H", False),
+    ("last4h_long",  "Last 4H long — price RECLAIMED (wick + back above, fires immediately) or BROKE (confirmed close through) yesterday's FINAL 4h candle's high or low. Two lines only. Bind prior_last_4h.pine; opt in HERE.", "Last 4H", False),
+    ("last4h_short", "Last 4H short — price REJECTED (poke + close back under, fires immediately) or BROKE DOWN (confirmed close through) yesterday's FINAL 4h candle's high or low. Bind prior_last_4h.pine; opt in HERE.", "Last 4H", False),
     # Structural-level DAY reclaims (weekly-low / monthly-low / prior-2-day-low) — 2026-08-05. Same
     # reclaim mechanic as the 4H reactions on the 15m close, LONG only, stop = the swept bar low. They
     # JOIN the 4H DB-anchored day dedup stream: a 4H reclaim + these compete as ONE (symbol,BUY) anchor,
