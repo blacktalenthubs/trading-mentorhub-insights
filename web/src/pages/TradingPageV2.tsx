@@ -742,6 +742,27 @@ function SignalFeedTab({
             : "Off-hours — stock signals fired pre/post-market. Thin liquidity, so verify before acting."}
       </div>
 
+      {/* Focus-mode banner — makes an active Focus filter UNMISTAKABLE (it's a sticky,
+          persisted filter, so without this a user can forget it's on and think signals
+          are missing). Tappable to clear. Also warns if Focus is on but there are no
+          starred symbols, in which case the filter can't apply and the full feed shows. */}
+      {focusOnly && (
+        <button
+          onClick={() => setFocusOnlyPersist(false)}
+          title="Focus filter is ON — tap to show all signals"
+          className="mx-3 mb-1.5 shrink-0 flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] text-warning hover:bg-warning/15 transition-colors text-left"
+        >
+          <Star className="h-3 w-3 shrink-0" fill="currentColor" />
+          <span className="font-semibold shrink-0">Focus only</span>
+          <span className="opacity-80 truncate">
+            {hasFocus
+              ? `showing ${listAlerts.length} of ${feedAlerts.length} ${view === "day" ? "day" : "swing"} ${feedAlerts.length === 1 ? "signal" : "signals"}`
+              : "no starred symbols yet — showing all. Star symbols to filter."}
+          </span>
+          <span className="ml-auto underline decoration-dotted opacity-90 shrink-0">Show all</span>
+        </button>
+      )}
+
       {/* Row 2 — Search (primary) + one Filters popover (asset · grade · types) */}
       <div className="px-3 pb-1.5 shrink-0 flex items-center gap-1.5 relative">
         <div className="relative flex-1">
