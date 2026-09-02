@@ -394,6 +394,9 @@ function SignalFeedTab({
   onSelectSymbol,
   assetFilter = "all",
   onAssetFilterChange,
+  focusSymbols,
+  focusOnly = false,
+  onFocusOnlyChange,
 }: {
   alerts?: Alert[];
   alertsError: unknown;
@@ -401,6 +404,13 @@ function SignalFeedTab({
   signalDate?: string;
   assetFilter?: "all" | "stocks" | "crypto";
   onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
+  // The user's starred Focus symbols (from the watchlist). Drives the
+  // "Focus only" feed filter below. Case-normalized to uppercase at use.
+  focusSymbols?: Set<string>;
+  // "Focus only" is CONTROLLED by the parent so the in-feed pill and the mobile
+  // panel header share one state (persisted per-device by the parent).
+  focusOnly?: boolean;
+  onFocusOnlyChange?: (next: boolean) => void;
 }) {
   const [search, setSearch] = useState("");
   // "Show collapsed" — reveal the deduped/merged alerts (hidden by default) so the
@@ -443,6 +453,17 @@ function SignalFeedTab({
     setGradeFilter(g);
     try { localStorage.setItem("signal_feed_grade", g); } catch {}
   }
+
+  // Focus-only feed filter — show only signals for the user's starred Focus
+  // symbols. CONTROLLED by the parent (so the mobile header toggle stays in sync);
+  // parent persists it per-device in localStorage["signal_feed_focus_only"].
+  // View-only — it does NOT touch alert routing/delivery (that's the separate
+  // server-side daytrade_focus_only push setting).
+  const setFocusOnlyPersist = (next: boolean) => onFocusOnlyChange?.(next);
+  function toggleFocusOnly() { setFocusOnlyPersist(!focusOnly); }
+  // Uppercase membership set (alert symbols vs Focus symbols may differ in case).
+  const focusUpper = new Set([...(focusSymbols ?? [])].map((s) => (s || "").toUpperCase()));
+  const hasFocus = focusUpper.size > 0;
 
   // Which panel is showing: the live delivered feed, or the not-routed
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
@@ -565,6 +586,12 @@ function SignalFeedTab({
   if (gradeFilter !== "all") {
     filtered = filtered.filter((a) => (a.grade ?? "C").toUpperCase() === gradeFilter);
   }
+  // Focus-only — keep just the signals for the user's starred Focus symbols.
+  // Guarded on hasFocus so an empty Focus list doesn't blank the feed silently
+  // (the empty-state copy below explains "star symbols first" in that case).
+  if (focusOnly && hasFocus) {
+    filtered = filtered.filter((a) => focusUpper.has((a.symbol || "").toUpperCase()));
+  }
 
   // Sort applied client-side so the user can flip it without an extra fetch.
   const GRADE_RANK: Record<string, number> = { A: 3, B: 2, C: 1 };
@@ -628,11 +655,13 @@ function SignalFeedTab({
   const activeFilterCount =
     (assetFilter !== "all" ? 1 : 0) +
     (gradeFilter !== "all" ? 1 : 0) +
-    (hiddenTypes.size > 0 ? 1 : 0);
+    (hiddenTypes.size > 0 ? 1 : 0) +
+    (focusOnly ? 1 : 0);
   function clearAllFilters() {
     onAssetFilterChange?.("all");
     changeGradeFilter("all");
     clearHiddenTypes();
+    setFocusOnlyPersist(false);
     setSearch("");
   }
 
@@ -657,6 +686,24 @@ function SignalFeedTab({
             </button>
           ))}
         </div>
+        {/* Focus-only toggle — restrict the feed to the user's starred Focus symbols. */}
+        <button
+          onClick={toggleFocusOnly}
+          title={hasFocus
+            ? (focusOnly
+                ? "Showing only your Focus (starred) symbols — tap to show all signals"
+                : "Show only signals for your Focus (starred) symbols")
+            : "Star symbols in your watchlist to build a Focus list, then filter the feed to just those"}
+          className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
+            focusOnly
+              ? "bg-warning/15 text-warning border-warning/40 hover:bg-warning/20"
+              : "bg-surface-1 text-text-muted border-border-subtle hover:bg-surface-2"
+          }`}
+        >
+          <Star className="h-3 w-3" fill={focusOnly ? "currentColor" : "none"} />
+          <span>Focus</span>
+          {hasFocus && <span className="opacity-70 font-normal">{focusUpper.size}</span>}
+        </button>
         <div className="ml-auto relative">
           <button
             onClick={() => setSortOpen((v) => !v)}
@@ -843,6 +890,11 @@ function SignalFeedTab({
               {hiddenTypes.size} type{hiddenTypes.size > 1 ? "s" : ""} off <X className="h-2.5 w-2.5" />
             </button>
           )}
+          {focusOnly && (
+            <button onClick={() => setFocusOnlyPersist(false)} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-warning/10 text-warning border border-warning/30 hover:bg-warning/15">
+              Focus only <X className="h-2.5 w-2.5" />
+            </button>
+          )}
           <button onClick={clearAllFilters} className="text-[10px] text-text-faint hover:text-text-secondary px-1">Clear all</button>
         </div>
       )}
@@ -855,10 +907,14 @@ function SignalFeedTab({
         </div>
       ) : listAlerts.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-text-faint">
+          <p className="text-xs text-text-faint text-center px-4">
             {q
               ? `No ${q} alerts`
-              : `No alerts this session`}
+              : focusOnly && !hasFocus
+                ? "No Focus symbols yet — star symbols in your watchlist to build a Focus list"
+                : focusOnly
+                  ? `No ${view === "day" ? "day-trade" : "swing"} signals for your Focus symbols this session`
+                  : `No alerts this session`}
           </p>
         </div>
       ) : (
@@ -1236,6 +1292,19 @@ export default function TradingPageV2() {
   const focusSymbols = new Set(
     (watchlistItems ?? []).filter((w) => w.focus).map((w) => w.symbol),
   );
+  const focusSymbolCount = focusSymbols.size;
+  // Signals-feed "Focus only" toggle — lifted to the parent so BOTH the in-feed
+  // pill and the mobile panel header drive the same state. Per-device
+  // (localStorage), view-only — does NOT affect alert routing/delivery (that's the
+  // server-side daytrade_focus_only push setting).
+  const [signalFocusOnly, setSignalFocusOnly] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("signal_feed_focus_only") === "1";
+  });
+  const setSignalFocusOnlyPersist = (next: boolean) => {
+    setSignalFocusOnly(next);
+    try { localStorage.setItem("signal_feed_focus_only", next ? "1" : "0"); } catch { /* ignore */ }
+  };
   const { data: rankItems } = useWatchlistRank();
   const rankMap = new Map<string, WatchlistRankItem>();
   rankItems?.forEach((r) => rankMap.set(r.symbol, r));
@@ -2464,6 +2533,9 @@ export default function TradingPageV2() {
                 signalDate={signalDate}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
+                focusSymbols={focusSymbols}
+                focusOnly={signalFocusOnly}
+                onFocusOnlyChange={setSignalFocusOnlyPersist}
               />
             </div>
           )}
@@ -2503,6 +2575,24 @@ export default function TradingPageV2() {
             </button>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            {/* Focus-only toggle — one-tap from the panel header (Signals tab only). */}
+            {rightTab === "signals" && !mobileSignalsCollapsed && (
+              <button
+                onClick={() => setSignalFocusOnlyPersist(!signalFocusOnly)}
+                aria-pressed={signalFocusOnly}
+                title={focusSymbolCount > 0
+                  ? (signalFocusOnly ? "Showing only your Focus symbols — tap to show all" : "Show only signals for your Focus (starred) symbols")
+                  : "Star symbols in your watchlist to build a Focus list"}
+                className={`shrink-0 flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                  signalFocusOnly
+                    ? "bg-warning/15 text-warning border-warning/40"
+                    : "bg-surface-0 text-text-muted border-border-subtle"
+                }`}
+              >
+                <Star className="h-3 w-3" fill={signalFocusOnly ? "currentColor" : "none"} />
+                {focusSymbolCount > 0 && <span className="opacity-70 font-normal">{focusSymbolCount}</span>}
+              </button>
+            )}
             {rightTab !== "levels" && !mobileSignalsCollapsed && (
               <select
                 value={signalDate}
@@ -2534,6 +2624,9 @@ export default function TradingPageV2() {
                 signalDate={signalDate}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
+                focusSymbols={focusSymbols}
+                focusOnly={signalFocusOnly}
+                onFocusOnlyChange={setSignalFocusOnlyPersist}
               />
             )}
           </div>
