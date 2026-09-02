@@ -29,7 +29,7 @@ import type { NotificationPrefs } from "../types";
 import {
   Send, Bell, User, Key, ChevronRight, Check,
   ExternalLink, Loader2, DollarSign, Gift,
-  Sun, Moon, Zap, ShieldCheck, X, Plus,
+  Sun, Moon, Zap, ShieldCheck, X, Plus, Star,
 } from "lucide-react";
 import { toast } from "../components/Toast";
 import { signalNotificationsEnabled, setSignalNotificationsEnabled } from "../hooks/useSignalNotifications";
@@ -220,19 +220,31 @@ function NotificationChannels() {
           </div>
           <Toggle on={desktopOn} onClick={() => toggleDesktop(!desktopOn)} />
         </div>
+      </div>
+    </Section>
+  );
+}
 
-        <div className="flex items-center gap-3 py-3">
-          <ShieldCheck className="h-4 w-4 shrink-0 text-text-faint" />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm text-text-primary">Day-trade alerts: my Focus list only</div>
-            <p className="text-[11px] text-text-faint">Off = your whole watchlist (default). On = push day-trade alerts only for symbols on your Focus tab — the rest are still tracked in the feed, marked “not in Focus.” Swing &amp; long-term always cover your whole watchlist.</p>
-          </div>
-          <Toggle
-            on={!!notifPrefs?.daytrade_focus_only}
-            disabled={!notifPrefs}
-            onClick={() => notifPrefs && updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), daytrade_focus_only: !notifPrefs.daytrade_focus_only })}
-          />
+/* ── Day-trade Focus filter (lives on the ALERTS tab, next to the Market Gate —
+   it's a "which day-trade alerts reach me" control, so it belongs with the other
+   day-trade gates rather than buried under Delivery). Same daytrade_focus_only
+   pref as before. ────────────────────────────────────────────────────────── */
+
+function DaytradeFocusFilterSection() {
+  const { data: notifPrefs } = useNotificationPrefs();
+  const updateNotifs = useUpdateNotificationPrefs();
+  return (
+    <Section title="Day-trade Focus filter" icon={<Star className="h-4 w-4 text-accent" />}>
+      <div className="flex items-center gap-3 py-1">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-text-primary">Day-trade alerts: my Focus list only</div>
+          <p className="text-[11px] text-text-faint">Off = your whole watchlist (default). On = push day-trade alerts only for symbols on your Focus tab — the rest are still tracked in the feed, marked “not in Focus.” Swing &amp; long-term always cover your whole watchlist.</p>
         </div>
+        <Toggle
+          on={!!notifPrefs?.daytrade_focus_only}
+          disabled={!notifPrefs}
+          onClick={() => notifPrefs && updateNotifs.mutate({ ...(notifPrefs as NotificationPrefs), daytrade_focus_only: !notifPrefs.daytrade_focus_only })}
+        />
       </div>
     </Section>
   );
@@ -797,7 +809,7 @@ export default function SettingsPage() {
 
           {/* Active pane */}
           <div className="min-w-0 flex-1 space-y-5">
-            {pane === "alerts" && (<><MarketGateSection /><AlertTypesSection /><OpenBracketStocksSection /></>)}
+            {pane === "alerts" && (<><MarketGateSection /><DaytradeFocusFilterSection /><AlertTypesSection /><OpenBracketStocksSection /></>)}
             {pane === "delivery" && (<><TelegramSetup /><NotificationChannels /></>)}
             {pane === "risk" && <TradingSettings />}
             {pane === "appearance" && <ThemeToggle />}
