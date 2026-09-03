@@ -123,16 +123,27 @@ export function formatSetup(alertType?: string): string {
 export function setupTitle(a: { alert_type?: string | null; description?: string | null; message?: string | null }): string {
   const t = (a.alert_type ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (t === "last4h_long" || t === "last4h_short") {
+    // last4h_* is an OVERLOADED alert_type: the prior_last_4h Pine fires the daily
+    // 8/21/50 EMA·SMA reclaims AND the 4h high/low break under this one name. The
+    // real trigger (which LEVEL) lives only in the description prose, so parse it
+    // out and name the alert for what it actually is — "50 SMA Reclaim".
+    const isLong = t === "last4h_long";
     const txt = `${a.description ?? ""} ${a.message ?? ""}`.toUpperCase();
-    const side = /\bLOW\b/.test(txt) ? "Low" : /\bHIGH\b/.test(txt) ? "High" : "";
+    // Verb: "back above/below" = defended the level (reclaim/reject); otherwise a break.
     const verb =
-      /RECLAIM/.test(txt) ? "Reclaim"
+      /RECLAIM/.test(txt) || /BACK ABOVE/.test(txt) ? "Reclaim"
+      : /REJECT/.test(txt) || /BACK BELOW/.test(txt) ? "Reject"
       : /BREAKDOWN/.test(txt) ? "Breakdown"
-      : /REJECT/.test(txt) ? "Reject"
       : /BREAK/.test(txt) ? "Break"
-      : "";
-    const label = ["Last 4h", side, verb].filter(Boolean).join(" ");
-    return label !== "Last 4h" ? label : t === "last4h_long" ? "Last 4h long" : "Last 4h short";
+      : isLong ? "Long" : "Short";
+    // Level: a daily MA ("50 SMA", "8 EMA") wins; else the 4h high/low.
+    const ma = txt.match(/(\d{1,3})\s*(EMA|SMA)/);
+    const level = ma
+      ? `${ma[1]} ${ma[2]}`
+      : /HIGH/.test(txt) ? "Last 4h High"
+      : /LOW/.test(txt) ? "Last 4h Low"
+      : "Last 4h";
+    return `${level} ${verb}`.trim();
   }
   return formatSetup(a.alert_type ?? undefined);
 }
