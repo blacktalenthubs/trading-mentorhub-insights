@@ -160,6 +160,134 @@ def _target_line(signal) -> str | None:
     return None
 
 
+# Rule-name → human title. Mirrors web/src/lib/alertFormat.ts (formatSetup +
+# setupTitle) so Telegram reads the same as the app feed instead of a raw rule
+# key. Keep in sync with that file when rules are added.
+_SETUP_NAMES: dict[str, str] = {
+    "rc_4h_long": "4-hour low reclaim",
+    "rc_4h_hrec": "4-hour high break",
+    "rc_daily_long": "Prior-day low reclaim",
+    "rc_daily_hrec": "Prior-day high break",
+    "pq_reclaim": "Prior-quarter low reclaim (swing)",
+    "ma200_bounce": "200-MA bounce (swing)",
+    "pdh_held": "PDH reclaim / hold",
+    "pdl_held": "PDL reclaim / hold",
+    "orb_high_held": "ORB high held",
+    "orb_low_held": "ORB low held",
+    "weekly_lvl_reclaim": "Prior-week reclaim / gap",
+    "monthly_lvl_reclaim": "Prior-month reclaim / gap",
+    "weekly_lvl_reject": "Prior-week rejection",
+    "monthly_lvl_reject": "Prior-month rejection",
+    "daily_rc": "Daily low reclaim",
+    "weekly_rc": "Weekly low reclaim",
+    "monthly_rc": "Monthly low reclaim",
+    "fourh_reclaim": "4H reclaim (long)",
+    "fourh_reject": "4H rejection (short)",
+    "fourh_breakup": "4H break-up (long)",
+    "fourh_breakdn": "4H break-down (short)",
+    "fourh_ema_reclaim": "50 EMA reclaim (long)",
+    "fourh_ema_reject": "50 EMA rejection (short)",
+    "fourh_ema_breakup": "50 EMA break-up (long)",
+    "fourh_ema_breakdn": "50 EMA break-down (short)",
+    "fourh_ma200_reclaim": "200 reclaim (long)",
+    "gap_and_go": "Gap-and-Go (long)",
+    "reclaim_long": "Morning shakeout reclaim",
+    "gap_up_continuation_long": "Gap-up continuation",
+    "orb_break": "ORB break",
+    "orb_held": "ORB held",
+    "orb_retest": "ORB retest",
+    "orb_exit": "ORB exit",
+    "orb_reclaim_low": "ORB low reclaim",
+    "orb_reclaim_high": "ORB high reclaim",
+    "cml_held": "Month-low support hold",
+    "cml_reclaim": "Month-low reclaim",
+    "pml_held": "Prior-month-low support hold",
+    "monthly_box": "Monthly box breakout",
+    "mobo_rch": "Monthly high breakout",
+    "weekly_10w_held": "10-week MA support hold",
+    "weekly_10w_reclaim": "10-week MA reclaim",
+    "weekly_30w_held": "30-week MA support hold",
+    "weekly_30w_reclaim": "30-week MA reclaim",
+    "swing_rsi_30": "RSI-30 reclaim (the turn)",
+    "swing_sma50_reclaim": "50 SMA reclaim (swing)",
+    "swing_sma200_reclaim": "200 SMA reclaim (swing)",
+    "open_reclaimed": "Open reclaimed",
+    "open_held": "Open held",
+    "open_wick_reclaim": "Open wick reclaim",
+    "open_lost": "Open lost",
+    "htf_support_held": "HTF support held",
+    "htf_proximity": "HTF proximity",
+    "pullback_long": "Pullback continuation",
+    "rsi_70": "RSI 70 — momentum",
+    "ema_5_20_cross": "5/20 EMA cross",
+    "rsi_oversold": "RSI oversold buy zone (30-35)",
+    "gap_support": "Gap support bounce",
+    "gap_fill": "Gap fill → far edge",
+    "gap_reject": "Gap rejection",
+    "lost_support_reject": "Lost support → resistance",
+    "htf_sr_reject": "Multi-period resistance",
+    "htf_sr_bounce": "Multi-period support",
+    "last4h_long": "Last 4H reclaim / break",
+    "last4h_short": "Last 4H reject / breakdown",
+}
+
+
+def _pretty_setup(rule: str, note: str | None = None) -> str:
+    """Human setup name for a Pine rule — mirrors the app's formatSetup/setupTitle.
+    For the overloaded last4h_* type, the ACTUAL trigger (which level) is parsed
+    out of the Pine note ("RECLAIM of the daily 50 SMA …" → "50 SMA Reclaim")."""
+    import re as _re
+    t = (rule or "")
+    for pre in ("tv_", "ai_"):
+        if t.startswith(pre):
+            t = t[len(pre):]
+    if not t:
+        return "Signal"
+    # last4h_* — one type, many triggers; the specifics live in the note prose.
+    if t in ("last4h_long", "last4h_short"):
+        txt = (note or "").upper()
+        if _re.search(r"GAP.?AND.?GO", txt):
+            return "Gap-and-Go"
+        is_long = t == "last4h_long"
+        if "RECLAIM" in txt or "BACK ABOVE" in txt:
+            verb = "Reclaim"
+        elif "REJECT" in txt or "BACK BELOW" in txt:
+            verb = "Reject"
+        elif "BREAKDOWN" in txt:
+            verb = "Breakdown"
+        elif "BREAK" in txt:
+            verb = "Break"
+        else:
+            verb = "Long" if is_long else "Short"
+        m = _re.search(r"(\d{1,3})\s*(EMA|SMA)", txt)
+        if m:
+            level = f"{m.group(1)} {m.group(2)}"
+        elif "HIGH" in txt:
+            level = "Last 4h High"
+        elif "LOW" in txt:
+            level = "Last 4h Low"
+        else:
+            level = "Last 4h"
+        return f"{level} {verb}".strip()
+    # MA families — ma_bounce_long_v3_ema8_ema21 → "EMA 8 + EMA 21 bounce"
+    m = _re.match(r"^ma_(bounce_long|rejection_short|proximity_long|proximity_short)_v3_(.+)$", t)
+    if m:
+        kind = {"bounce_long": "bounce", "rejection_short": "rejection"}.get(m.group(1), "proximity")
+        mas = " + ".join(_re.sub(r"^(EMA|SMA)", r"\1 ", x.upper()) for x in m.group(2).split("_"))
+        return f"{mas} {kind}"
+    # Staged level events — staged_pdh_break → "PDH break"
+    m = _re.match(r"^staged_p([dwm])([hl])_(.+)$", t)
+    if m:
+        if m.group(1) == "d":
+            lvl = "PD" + m.group(2).upper()
+        else:
+            lvl = ("Weekly " if m.group(1) == "w" else "Monthly ") + ("high" if m.group(2) == "h" else "low")
+        return f"{lvl} {m.group(3).replace('_', ' ')}"
+    if t in _SETUP_NAMES:
+        return _SETUP_NAMES[t]
+    return t.replace("_", " ").title()
+
+
 def _format_tv_body(signal: AlertSignal) -> str | None:
     """TV-native Telegram message. Driven by Pine script output.
 
@@ -182,7 +310,10 @@ def _format_tv_body(signal: AlertSignal) -> str | None:
     alignment_tag, conviction_label, conviction_score = _tv_alignment(direction, rule, stage_first)
 
     ma_tag_pretty = getattr(signal, "_tv_ma_tag_pretty", "") or ""
-    rule_label = f"{rule} ({ma_tag_pretty})" if ma_tag_pretty else rule
+    # Human setup name (matches the app feed) instead of the raw rule key. For the
+    # overloaded last4h_* type the specific trigger is parsed from the Pine note.
+    _pretty = _pretty_setup(rule, getattr(signal, "note", None) or (signal.message or ""))
+    rule_label = f"{_pretty} ({ma_tag_pretty})" if ma_tag_pretty else _pretty
     parts = [f"<b>{dir_label} {sym} ${signal.price:.2f}</b> — <i>{_html.escape(rule_label)}</i>"]
 
     # Trade-style badge (day/swing/long/gap) — the first thing a busy trader reads.
