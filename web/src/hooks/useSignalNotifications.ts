@@ -8,7 +8,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useAlertsToday } from "../api/hooks";
-import { formatSetup, isFeedSignal } from "../lib/alertFormat";
+import { setupTitle, isFeedSignal } from "../lib/alertFormat";
 import { toast } from "../components/Toast";
 import type { Alert } from "../types";
 
@@ -61,7 +61,7 @@ function fireNotification(a: Alert, navigate: NavigateFunction): void {
     a.direction === "BUY" ? "LONG"
     : a.direction === "SHORT" ? "SHORT"
     : a.direction || "";
-  const title = `${a.symbol} ${dir} · ${formatSetup(a.alert_type)}`.trim();
+  const title = `${a.symbol} ${dir} · ${setupTitle(a)}`.trim();
   const parts: string[] = [];
   if (a.entry != null) parts.push(`Entry $${a.entry.toFixed(2)}`);
   if (a.stop != null) parts.push(`Stop $${a.stop.toFixed(2)}`);
