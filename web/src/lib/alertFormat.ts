@@ -129,6 +129,8 @@ export function setupTitle(a: { alert_type?: string | null; description?: string
     // out and name the alert for what it actually is — "50 SMA Reclaim".
     const isLong = t === "last4h_long";
     const txt = `${a.description ?? ""} ${a.message ?? ""}`.toUpperCase();
+    // Gap-and-go rides the last4h_long route (its own type is backend-retired) — name it directly.
+    if (/GAP.?AND.?GO/.test(txt)) return "Gap-and-Go";
     // Verb: "back above/below" = defended the level (reclaim/reject); otherwise a break.
     const verb =
       /RECLAIM/.test(txt) || /BACK ABOVE/.test(txt) ? "Reclaim"
