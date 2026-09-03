@@ -106,8 +106,35 @@ export function formatSetup(alertType?: string): string {
     lost_support_reject: "Lost support → resistance",
     htf_sr_reject: "Multi-period resistance",
     htf_sr_bounce: "Multi-period support",
+    // last4h_* is one alert_type covering high/low × break/reclaim/reject — the
+    // specific trigger is resolved by setupTitle() below from the description.
+    // These are only the fallback when that text is missing.
+    last4h_long: "Last 4H reclaim / break",
+    last4h_short: "Last 4H reject / breakdown",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
+}
+
+/** Card TITLE — like formatSetup, but for a rule whose ONE alert_type covers
+ *  several distinct triggers (last4h_* = HIGH/LOW × BREAK/RECLAIM/REJECT/BREAKDOWN),
+ *  it reads the alert's OWN description/message to name the actual trigger —
+ *  "Last 4h Low Break", "Last 4h High Reclaim" — instead of the generic label.
+ *  Every other type falls straight through to formatSetup(alert_type). */
+export function setupTitle(a: { alert_type?: string | null; description?: string | null; message?: string | null }): string {
+  const t = (a.alert_type ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
+  if (t === "last4h_long" || t === "last4h_short") {
+    const txt = `${a.description ?? ""} ${a.message ?? ""}`.toUpperCase();
+    const side = /\bLOW\b/.test(txt) ? "Low" : /\bHIGH\b/.test(txt) ? "High" : "";
+    const verb =
+      /RECLAIM/.test(txt) ? "Reclaim"
+      : /BREAKDOWN/.test(txt) ? "Breakdown"
+      : /REJECT/.test(txt) ? "Reject"
+      : /BREAK/.test(txt) ? "Break"
+      : "";
+    const label = ["Last 4h", side, verb].filter(Boolean).join(" ");
+    return label !== "Last 4h" ? label : t === "last4h_long" ? "Last 4h long" : "Last 4h short";
+  }
+  return formatSetup(a.alert_type ?? undefined);
 }
 
 /** One-line plain-English explanation of what the setup MEANS — shown under the

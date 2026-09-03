@@ -7,7 +7,7 @@
  */
 
 import type { Alert } from "../types";
-import { formatSetup, isFeedSignal } from "../lib/alertFormat";
+import { setupTitle, isFeedSignal } from "../lib/alertFormat";
 
 function timeOf(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", {
@@ -62,7 +62,7 @@ export default function AlertLog({
             <span className="shrink-0 tabular-nums text-text-faint">{timeOf(a.created_at)}</span>
             <span className="shrink-0 font-bold text-text-primary">{a.symbol}</span>
             {dir && <span className={`shrink-0 font-semibold ${dirCls}`}>{dir}</span>}
-            <span className="flex-1 truncate text-text-muted">{formatSetup(a.alert_type)}</span>
+            <span className="flex-1 truncate text-text-muted">{setupTitle(a)}</span>
             {rr != null && (
               <span className={`shrink-0 font-bold ${rr >= 2 ? "text-bullish-text" : "text-text-faint"}`}>
                 {rr.toFixed(1)}R

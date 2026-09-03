@@ -5,7 +5,7 @@
  */
 
 import { X, Zap } from "lucide-react";
-import { formatSetup } from "../lib/alertFormat";
+import { setupTitle } from "../lib/alertFormat";
 import type { Alert } from "../types";
 
 export default function NewSignalToast({
@@ -37,7 +37,7 @@ export default function NewSignalToast({
             <span className="ml-auto text-[10px] text-text-faint">new signal</span>
           </div>
           <div className="text-[11px] text-text-muted truncate">
-            {formatSetup(alert.alert_type)}
+            {setupTitle(alert)}
             {alert.entry != null && ` · entry $${alert.entry.toFixed(2)}`}
           </div>
         </div>

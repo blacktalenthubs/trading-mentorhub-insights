@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import type { Alert } from "../types";
-import { formatSetup } from "../lib/alertFormat";
+import { formatSetup, setupTitle } from "../lib/alertFormat";
 import { useReportTrade, useAckAlert } from "../api/hooks";
 import { useNavigate } from "react-router-dom";
 import { Info, LineChart, BookOpen, Check, ChevronRight, X } from "lucide-react";
@@ -113,7 +113,7 @@ export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: 
           <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${long ? "bg-bullish-subtle text-bullish-text" : "bg-bearish-subtle text-bearish-text"}`}>{long ? "LONG" : "SHORT"}</span>
           <span className={`text-[11px] font-bold w-5 h-5 grid place-items-center rounded border ${GRADE_STYLE[grade] ?? GRADE_STYLE.C}`}>{grade}</span>
           <div className="ml-auto flex items-center gap-2 shrink-0 pl-2">
-            <span className="hidden sm:inline text-[11px] text-text-faint max-w-[130px] truncate">{formatSetup(a.alert_type)}</span>
+            <span className="hidden sm:inline text-[11px] text-text-faint max-w-[130px] truncate">{setupTitle(a)}</span>
             <span className="text-[11px] text-text-faint tabular-nums">{timeAgo(a.created_at)}</span>
             {(!expanded || took) && statusBadge}
           </div>
@@ -160,7 +160,7 @@ export default function AlertCard({ a, onChart, defaultExpanded = false }: { a: 
           {/* capture form / result / action */}
           {showForm ? (
             <div className="mt-3 border-t border-border-subtle pt-3 space-y-2">
-              <div className="text-[10px] uppercase tracking-wider text-text-faint">Log your trade · {formatSetup(a.alert_type)}</div>
+              <div className="text-[10px] uppercase tracking-wider text-text-faint">Log your trade · {setupTitle(a)}</div>
               <div className="flex gap-2">
                 <label className="flex-1 text-[11px] text-text-muted">
                   Your entry
