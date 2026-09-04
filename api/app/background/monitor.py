@@ -185,20 +185,38 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         prior_day_cache: dict[str, object] = {}
         htf_bias_cache: dict[str, object] = {}
         daily_plan_cache: dict[str, object] = {}
+        # Scanner daily plans (pre-marked levels) for the planned-level-touch rule,
+        # loaded ONCE per poll via the Monitor's Postgres session. NOT root db.py's
+        # get_daily_plan — the scanner service force-sets that module to SQLite mode
+        # process-wide (app.services.scanner), so it would read an empty local DB here.
+        try:
+            from sqlalchemy import text as _sql_text
+            _plan_rows = db.execute(_sql_text(
+                "select distinct on (upper(symbol)) upper(symbol) as sym, entry, stop, "
+                "support, target_1, target_2, pattern, support_label "
+                "from daily_plans where upper(symbol) = any(:syms) "
+                "order by upper(symbol), session_date desc, created_at desc"
+            ), {"syms": [s.upper() for s in active_symbols]}).fetchall()
+
+            def _pf(v):
+                return float(v) if v is not None else 0
+            for _r in _plan_rows:
+                _m = _r._mapping
+                daily_plan_cache[_m["sym"]] = {
+                    "entry": _pf(_m["entry"]), "stop": _pf(_m["stop"]),
+                    "support": _pf(_m["support"]), "target_1": _pf(_m["target_1"]),
+                    "target_2": _pf(_m["target_2"]),
+                    "pattern": _m["pattern"] or "normal",
+                    "support_label": _m["support_label"] or "support",
+                }
+            logger.info("Loaded %d daily plans for planned-level-touch", len(daily_plan_cache))
+        except Exception:
+            logger.debug("daily_plan batch load failed", exc_info=True)
+
         for symbol in active_symbols:
             _crypto = _is_crypto_sym(symbol)
             intraday_cache[symbol] = fetch_intraday_crypto(symbol) if _crypto else fetch_intraday(symbol)
             prior_day_cache[symbol] = fetch_prior_day(symbol, is_crypto=_crypto)
-
-            # Scanner's daily plan (pre-marked entry/support levels) for the
-            # intraday planned-level-touch rule. Loaded once per symbol per poll
-            # and shared across users, like the other per-symbol caches above.
-            try:
-                from db import get_daily_plan
-                daily_plan_cache[symbol] = get_daily_plan(symbol, session_date)
-            except Exception:
-                logger.debug("daily_plan fetch failed for %s", symbol, exc_info=True)
-                daily_plan_cache[symbol] = None
 
             # Phase 2 (2026-04-23) — HTF bias: fetch 1h + 4h bars once per symbol
             # per poll and compute BULL/BEAR/NEUTRAL per timeframe. Cached here so
@@ -513,7 +531,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         fired_today=fired_today,
                         is_crypto=_is_crypto,
                         queue_symbols=queue_symbols,
-                        daily_plan=daily_plan_cache.get(symbol),
+                        daily_plan=daily_plan_cache.get(symbol.upper()),
                     )
 
                     # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
