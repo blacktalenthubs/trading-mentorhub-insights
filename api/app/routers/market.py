@@ -47,13 +47,42 @@ _PRIOR_DAY_TTL = 3600  # 1 hour — stale after close
 _PRICES_TTL = 10  # live quote ticker — short cache dedupes concurrent users' 15s polls
 
 
+def _snapshot_price(snap) -> dict | None:
+    """Extract {price, change_pct} from an Alpaca snapshot (stock or crypto share the shape).
+
+    Latest price prefers the last trade, then the freshest bar; change% needs the prior
+    daily close. Returns None when no usable price is present.
+    """
+    if snap is None:
+        return None
+    price = None
+    if getattr(snap, "latest_trade", None) and snap.latest_trade.price:
+        price = float(snap.latest_trade.price)
+    elif getattr(snap, "minute_bar", None) and snap.minute_bar.close:
+        price = float(snap.minute_bar.close)
+    elif getattr(snap, "daily_bar", None) and snap.daily_bar.close:
+        price = float(snap.daily_bar.close)
+    if not price:
+        return None
+    prev = None
+    if getattr(snap, "previous_daily_bar", None) and snap.previous_daily_bar.close:
+        prev = float(snap.previous_daily_bar.close)
+    change = round(((price - prev) / prev) * 100, 2) if prev else 0
+    return {"price": round(price, 2), "change_pct": change}
+
+
 def _fetch_prices_alpaca(syms: List[str]) -> dict:
-    """Live price + daily change% for many symbols via Alpaca's batch snapshot (one IEX call).
+    """Live price + daily change% for many symbols via Alpaca's batch snapshot.
 
     yfinance's fast_info is cloud-blocked on Railway (stale price + no previous_close → the
     frozen-ticker / universal +0.00% bug). Alpaca's snapshot gives latest trade AND the prior
     daily close in a single request, so both the price and the change% are real. IEX feed pinned
     (the free plan blocks recent SIP data); ALPACA_FEED=sip to override.
+
+    Stocks and crypto MUST be split: crypto (…-USD) go to Alpaca's CRYPTO snapshot API in
+    `BTC/USD` form — sending a crypto symbol to the STOCK snapshot 400s the ENTIRE batch
+    ("invalid symbol: BTC-USD"), which would drop every stock to the unreliable yfinance path.
+    Each side fails independently so one bad feed never poisons the other.
     """
     import os
     if os.environ.get("ALPACA_DISABLED", "").lower() in ("1", "true", "yes"):
@@ -62,37 +91,44 @@ def _fetch_prices_alpaca(syms: List[str]) -> dict:
     secret = os.environ.get("ALPACA_SECRET_KEY", "")
     if not key or not secret or not syms:
         return {}
-    try:
-        from alpaca.data.historical import StockHistoricalDataClient
-        from alpaca.data.requests import StockSnapshotRequest
-        from alpaca.data.enums import DataFeed
 
-        feed = DataFeed.SIP if os.environ.get("ALPACA_FEED", "iex").lower() == "sip" else DataFeed.IEX
-        client = StockHistoricalDataClient(key, secret)
-        snaps = client.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=list(syms), feed=feed))
-        out = {}
-        for sym, snap in (snaps or {}).items():
-            if snap is None:
-                continue
-            # latest price: prefer the last trade, fall back to the freshest bar
-            price = None
-            if getattr(snap, "latest_trade", None) and snap.latest_trade.price:
-                price = float(snap.latest_trade.price)
-            elif getattr(snap, "minute_bar", None) and snap.minute_bar.close:
-                price = float(snap.minute_bar.close)
-            elif getattr(snap, "daily_bar", None) and snap.daily_bar.close:
-                price = float(snap.daily_bar.close)
-            if not price:
-                continue
-            prev = None
-            if getattr(snap, "previous_daily_bar", None) and snap.previous_daily_bar.close:
-                prev = float(snap.previous_daily_bar.close)
-            change = round(((price - prev) / prev) * 100, 2) if prev else 0
-            out[sym] = {"price": round(price, 2), "change_pct": change}
-        return out
-    except Exception as e:  # noqa: BLE001
-        logger.info("Alpaca snapshot fetch failed: %s — falling back to yfinance", str(e)[:120])
-        return {}
+    stock_syms = [s for s in syms if not s.upper().endswith("-USD")]
+    crypto_syms = [s for s in syms if s.upper().endswith("-USD")]
+    out: dict = {}
+
+    if stock_syms:
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockSnapshotRequest
+            from alpaca.data.enums import DataFeed
+
+            feed = DataFeed.SIP if os.environ.get("ALPACA_FEED", "iex").lower() == "sip" else DataFeed.IEX
+            client = StockHistoricalDataClient(key, secret)
+            snaps = client.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=stock_syms, feed=feed))
+            for sym, snap in (snaps or {}).items():
+                p = _snapshot_price(snap)
+                if p:
+                    out[sym] = p
+        except Exception as e:  # noqa: BLE001
+            logger.info("Alpaca stock snapshot failed: %s — yfinance fallback", str(e)[:120])
+
+    if crypto_syms:
+        try:
+            from alpaca.data.historical import CryptoHistoricalDataClient
+            from alpaca.data.requests import CryptoSnapshotRequest
+
+            # internal BTC-USD → Alpaca BTC/USD (same boundary translation as the bars fetch)
+            pair_of = {s: s.upper().replace("-USD", "/USD") for s in crypto_syms}
+            client = CryptoHistoricalDataClient(key, secret)
+            snaps = client.get_crypto_snapshot(CryptoSnapshotRequest(symbol_or_symbols=list(pair_of.values()))) or {}
+            for sym, pair in pair_of.items():
+                p = _snapshot_price(snaps.get(pair))
+                if p:
+                    out[sym] = p
+        except Exception as e:  # noqa: BLE001
+            logger.info("Alpaca crypto snapshot failed: %s — yfinance fallback", str(e)[:120])
+
+    return out
 
 
 @router.get("/status", response_model=MarketStatusResponse)
