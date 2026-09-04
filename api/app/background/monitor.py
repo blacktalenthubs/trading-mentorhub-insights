@@ -184,10 +184,21 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         intraday_cache: dict[str, object] = {}
         prior_day_cache: dict[str, object] = {}
         htf_bias_cache: dict[str, object] = {}
+        daily_plan_cache: dict[str, object] = {}
         for symbol in active_symbols:
             _crypto = _is_crypto_sym(symbol)
             intraday_cache[symbol] = fetch_intraday_crypto(symbol) if _crypto else fetch_intraday(symbol)
             prior_day_cache[symbol] = fetch_prior_day(symbol, is_crypto=_crypto)
+
+            # Scanner's daily plan (pre-marked entry/support levels) for the
+            # intraday planned-level-touch rule. Loaded once per symbol per poll
+            # and shared across users, like the other per-symbol caches above.
+            try:
+                from db import get_daily_plan
+                daily_plan_cache[symbol] = get_daily_plan(symbol, session_date)
+            except Exception:
+                logger.debug("daily_plan fetch failed for %s", symbol, exc_info=True)
+                daily_plan_cache[symbol] = None
 
             # Phase 2 (2026-04-23) — HTF bias: fetch 1h + 4h bars once per symbol
             # per poll and compute BULL/BEAR/NEUTRAL per timeframe. Cached here so
@@ -337,6 +348,18 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     )
                 ).all()
                 _cat_prefs = {r[0]: bool(r[1]) for r in pref_rows}
+                # Per-TYPE preferences (the Settings "Alert Types" toggles). When a
+                # user has set ANY per-type toggle they've opted into per-type
+                # control: an explicit row wins, and a catalogued type with no row
+                # is OFF. Users who have never touched per-type stay on the legacy
+                # category behaviour (empty dict → category gate below).
+                from app.models.alert_type_pref import UserAlertTypePref
+                _tp_rows = db.execute(
+                    select(UserAlertTypePref.alert_type, UserAlertTypePref.enabled).where(
+                        UserAlertTypePref.user_id == user_id
+                    )
+                ).all()
+                _type_prefs = {r[0]: bool(r[1]) for r in _tp_rows}
                 # Get min_score from user
                 _user_row = db.execute(
                     select(User.min_alert_score).where(User.id == user_id)
@@ -344,6 +367,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 _min_score = _user_row or 0
             except Exception:
                 _cat_prefs = {}
+                _type_prefs = {}
                 _min_score = 0
 
             for symbol in symbols:
@@ -489,6 +513,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         fired_today=fired_today,
                         is_crypto=_is_crypto,
                         queue_symbols=queue_symbols,
+                        daily_plan=daily_plan_cache.get(symbol),
                     )
 
                     # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
@@ -794,14 +819,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             ))
                     # Target hits: notify but don't close — user decides when to take profits
 
-                    # Preference gate: check if user wants this alert category + score
+                    # Preference gate: per-TYPE toggle wins, else legacy category.
                     _at_val = signal.alert_type.value
                     _send_notification = True
                     if _at_val not in EXIT_ALERT_TYPES:
-                        _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
-                        if _cat and not _cat_prefs.get(_cat, True):
+                        if _at_val in _type_prefs:
+                            # User explicitly toggled THIS type in Settings.
+                            _send_notification = _type_prefs[_at_val]
+                        elif _type_prefs:
+                            # User has opted into per-type control (≥1 toggle set) but
+                            # did NOT enable this type → off. This is what lets them
+                            # isolate a single signal: enable one, everything else mutes.
                             _send_notification = False
-                        elif _min_score > 0 and signal.score < _min_score:
+                        else:
+                            # Legacy category gate (unchanged for non-per-type users).
+                            _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
+                            if _cat and not _cat_prefs.get(_cat, True):
+                                _send_notification = False
+                        if _send_notification and _min_score > 0 and signal.score < _min_score:
                             _send_notification = False
 
                     if not _send_notification:

@@ -6169,11 +6169,16 @@ def check_first_hour_summary(
 # ---------------------------------------------------------------------------
 
 
+# Gap-and-go: minimum gap-up over prior close (as a fraction) to qualify.
+_GAP_AND_GO_MIN_PCT = 0.01  # 1%
+
+
 def check_planned_level_touch(
     symbol: str,
     bars: pd.DataFrame,
     plan: dict | None,
     today_open: float = 0,
+    prior_day: dict | None = None,
 ) -> AlertSignal | None:
     """Price touches the Scanner's daily plan levels and bounces — potential BUY entry.
 
@@ -6187,6 +6192,12 @@ def check_planned_level_touch(
     2. Any recent bar low within BUY_ZONE_PROXIMITY_PCT of a plan level
     3. Last bar close >= that level (bounce/hold confirmed)
     4. Risk > 0
+
+    Level set: the plan supplies entry + the single nearest support. When
+    ``prior_day`` is provided, the SAME touch-and-hold logic is extended to the
+    rest of the pullback book — PDL, 8/20/50 EMA, 20/50 MA, and PDH-as-support —
+    so the alert fires on a tap-and-hold of ANY of them, not just the nearest
+    support. Omitting ``prior_day`` reproduces the original entry+support behaviour.
     """
     if plan is None:
         return None
@@ -6200,17 +6211,44 @@ def check_planned_level_touch(
     target_2 = plan.get("target_2") or 0
     pattern = plan.get("pattern", "normal")
 
-    # Skip stale plan on gap-down: if today opened below the plan entry,
-    # that entry level is overhead resistance, not a buy level.
-    if today_open > 0 and today_open < entry:
+    # Gap-down handling: if today opened below the plan entry, that entry level
+    # is overhead resistance, not a buy level. Without the expanded book
+    # (prior_day is None) the whole plan is stale → skip, as before. With the
+    # expanded book, only the ENTRY level is dropped — the support / MA / EMA /
+    # PDL levels are still valid pullback buys on a gap-down day.
+    _entry_overhead = today_open > 0 and entry > 0 and today_open < entry
+    if _entry_overhead and not prior_day:
         return None
 
     # Check each level for proximity — entry and support are the primary BUY zone levels
     levels_to_check = []
-    if entry > 0:
+    if entry > 0 and not _entry_overhead:
         levels_to_check.append((entry, "entry"))
     if support > 0 and support != entry:
         levels_to_check.append((support, plan.get("support_label", "support")))
+
+    # Same touch-and-hold logic, expanded level set. prior_day adds the rest of
+    # the pullback book so the alert fires on a tap-and-hold of ANY of these,
+    # not just the plan's single nearest support. A level already covered
+    # (within 0.1%) is skipped to avoid double-listing (e.g. support == 50 MA).
+    if prior_day:
+        _extra = [
+            (prior_day.get("low"),   "PDL"),
+            (prior_day.get("ema8"),  "8 EMA"),
+            (prior_day.get("ema20"), "20 EMA"),
+            (prior_day.get("ema50"), "50 EMA"),
+            (prior_day.get("ma20"),  "20 MA"),
+            (prior_day.get("ma50"),  "50 MA"),
+            (prior_day.get("high"),  "PDH"),
+        ]
+        _seen = [lv for lv, _ in levels_to_check]
+        for _lv, _lbl in _extra:
+            if _lv is None or (isinstance(_lv, float) and math.isnan(_lv)) or _lv <= 0:
+                continue
+            if any(s > 0 and abs(_lv - s) / s <= 0.001 for s in _seen):
+                continue
+            levels_to_check.append((_lv, _lbl))
+            _seen.append(_lv)
 
     if not levels_to_check:
         return None
@@ -6237,6 +6275,57 @@ def check_planned_level_touch(
                 break  # found a touch for this level
 
     if touched_level is None:
+        # No pullback bounce — try the momentum triggers (same alert type),
+        # available only when the expanded book (prior_day) is supplied:
+        #   • PDH break — was under PDH, last bar closes above it (breakout).
+        #   • Gap-and-go — gapped up >= _GAP_AND_GO_MIN_PCT over prior close and
+        #     holding above the open (no pullback needed).
+        if prior_day:
+            _c = float(last_bar["Close"])
+            _pdh = prior_day.get("high")
+            _pclose = prior_day.get("close")
+
+            # PDH break
+            if (_pdh and _pdh > 0 and not (isinstance(_pdh, float) and math.isnan(_pdh))
+                    and _c > _pdh):
+                _was_under = any(float(r["Close"]) <= _pdh for _, r in lookback.iterrows())
+                if _was_under:
+                    _bk_stop = _cap_risk(_c, round(_pdh * (1 - BUY_ZONE_PROXIMITY_PCT), 2), symbol=symbol)
+                    if _c - _bk_stop > 0:
+                        return AlertSignal(
+                            symbol=symbol,
+                            alert_type=AlertType.PLANNED_LEVEL_TOUCH,
+                            direction="BUY",
+                            price=_c,
+                            entry=round(_c, 2),
+                            stop=round(_bk_stop, 2),
+                            target_1=round(target_1, 2) if target_1 > 0 else None,
+                            target_2=round(target_2, 2) if target_2 > 0 else None,
+                            confidence="high",
+                            message=(f"PDH break ({pattern}) — price ${_c:.2f} "
+                                     f"closed above PDH ${_pdh:.2f}"),
+                        )
+
+            # Gap-and-go
+            if (_pclose and _pclose > 0 and today_open > 0
+                    and not (isinstance(_pclose, float) and math.isnan(_pclose))):
+                _gap = (today_open - _pclose) / _pclose
+                if _gap >= _GAP_AND_GO_MIN_PCT and _c >= today_open:
+                    _gg_stop = _cap_risk(_c, round(today_open, 2), symbol=symbol)
+                    if _c - _gg_stop > 0:
+                        return AlertSignal(
+                            symbol=symbol,
+                            alert_type=AlertType.PLANNED_LEVEL_TOUCH,
+                            direction="BUY",
+                            price=_c,
+                            entry=round(_c, 2),
+                            stop=round(_gg_stop, 2),
+                            target_1=round(target_1, 2) if target_1 > 0 else None,
+                            target_2=round(target_2, 2) if target_2 > 0 else None,
+                            confidence="high",
+                            message=(f"Gap-and-go ({pattern}) — gapped +{_gap * 100:.1f}% "
+                                     f"over prior close ${_pclose:.2f}, holding open ${today_open:.2f}"),
+                        )
         return None
 
     # When the touch is on the support level (not the plan entry), override
@@ -8419,7 +8508,7 @@ def evaluate_rules(
 
         # --- Planned Level Touch (uses daily plan from DB) ---
         if daily_plan is not None:
-            sig = check_planned_level_touch(symbol, intraday_bars, daily_plan, today_open)
+            sig = check_planned_level_touch(symbol, intraday_bars, daily_plan, today_open, prior_day=prior_day)
             if sig:
                 sig.message += f" ({phase})"
                 if vwap_pos:

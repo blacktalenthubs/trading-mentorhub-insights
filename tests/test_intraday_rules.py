@@ -2505,6 +2505,75 @@ class TestPlannedLevelTouch:
         sig = check_planned_level_touch("SPY", bars, plan, today_open=660.0)
         assert sig is None
 
+    # ── Expanded level book (prior_day): PDL / 8-20-50 EMA / 20-50 MA / PDH ──
+    def _multi(self, rows):
+        """rows = list of (open, high, low, close) → DataFrame."""
+        return pd.DataFrame([{"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000}
+                             for o, h, l, c in rows])
+
+    def test_fires_on_prior_day_ema50(self):
+        """Nearest plan support is far below, but price taps the 50 EMA (from
+        prior_day) and holds → fires labelled '50 EMA'."""
+        plan = {"entry": 200.0, "support": 180.0, "support_label": "Prior Day Low",
+                "stop": 179.0, "target_1": 210.0, "target_2": 220.0, "pattern": "normal"}
+        prior_day = {"low": 180.0, "high": 205.0, "ma20": 188.0, "ma50": 186.0,
+                     "ema8": 196.0, "ema20": 192.0, "ema50": 190.0}
+        bars = self._multi([(195, 196, 194, 195), (194, 195, 193, 194),
+                            (193, 194, 190.05, 191), (191, 192, 190.2, 191.5),
+                            (191, 192, 190.5, 191.8), (191.8, 192.5, 191, 192.0)])
+        sig = check_planned_level_touch("MU", bars, plan, today_open=195.0, prior_day=prior_day)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
+        assert "50 EMA" in sig.message
+        # Same bars WITHOUT prior_day → the extra book is absent → no fire.
+        assert check_planned_level_touch("MU", bars, plan, today_open=195.0) is None
+
+    def test_gap_down_entry_overhead_still_fires_on_ema(self):
+        """Today opens below the plan entry (entry is overhead), but a tap-and-hold
+        of the 20 EMA is still a valid buy when the expanded book is supplied."""
+        plan = {"entry": 200.0, "support": 200.0, "support_label": "Prior Day Low",
+                "stop": 198.0, "target_1": 210.0, "target_2": 220.0, "pattern": "normal"}
+        prior_day = {"low": 180.0, "high": 205.0, "ma20": 188.0, "ma50": 186.0,
+                     "ema8": 196.0, "ema20": 190.0, "ema50": 185.0}
+        bars = self._multi([(193, 194, 192, 193), (192, 193, 190.1, 191),
+                            (191, 192, 190.3, 191.5), (191, 192, 190.4, 191.6),
+                            (191.5, 192, 191, 191.7), (191.7, 192.4, 191.2, 192.0)])
+        # Opened at 193 < entry 200 → old path bails; expanded path keeps the EMA.
+        sig = check_planned_level_touch("X", bars, plan, today_open=193.0, prior_day=prior_day)
+        assert sig is not None
+        assert "20 EMA" in sig.message
+        assert check_planned_level_touch("X", bars, plan, today_open=193.0) is None
+
+    def test_fires_on_pdh_break(self):
+        """Price was under PDH then closes above it (breakout) → fires 'PDH break'."""
+        plan = {"entry": 205.0, "support": 205.0, "support_label": "Prior Day Low",
+                "stop": 203.0, "target_1": 210.0, "target_2": 215.0, "pattern": "normal"}
+        prior_day = {"high": 200.0, "close": 199.0, "low": 180.0,
+                     "ema8": 190.0, "ema20": 188.0, "ema50": 185.0, "ma20": 187.0, "ma50": 184.0}
+        bars = self._multi([(197, 198, 196.5, 197.5), (197.5, 198.5, 197, 198),
+                            (198, 199, 197.8, 198.5), (198.5, 199.5, 198.2, 199),
+                            (199, 199.8, 198.8, 199.5), (201, 203.5, 201.2, 203)])
+        sig = check_planned_level_touch("X", bars, plan, today_open=197.0, prior_day=prior_day)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
+        assert "PDH break" in sig.message
+        # No prior_day → momentum branch absent → no fire.
+        assert check_planned_level_touch("X", bars, plan, today_open=197.0) is None
+
+    def test_fires_on_gap_and_go(self):
+        """Gapped up >=1% over prior close and holding above the open → 'Gap-and-go'."""
+        plan = {"entry": 110.0, "support": 110.0, "support_label": "Prior Day Low",
+                "stop": 108.0, "target_1": 115.0, "target_2": 120.0, "pattern": "normal"}
+        prior_day = {"high": 101.0, "close": 100.0, "low": 95.0,
+                     "ema8": 98.0, "ema20": 97.0, "ema50": 96.0, "ma20": 97.0, "ma50": 96.0}
+        bars = self._multi([(103, 104, 102.5, 103.5), (103.5, 104.5, 103, 104),
+                            (104, 104.5, 103.5, 104), (104, 104.8, 103.8, 104.2),
+                            (104.2, 105, 104, 104.5), (104.5, 105, 104.2, 104.8)])
+        sig = check_planned_level_touch("X", bars, plan, today_open=103.0, prior_day=prior_day)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PLANNED_LEVEL_TOUCH
+        assert "Gap-and-go" in sig.message
+
     def test_lookback_catches_earlier_touch(self):
         """Touch was 3 bars ago, last bar bounced above → should fire."""
         plan = {
