@@ -136,7 +136,11 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                 )
             ),
         )
-        _allow_email = (os.environ.get("SCAN_USER_EMAIL") or "master@busytradersdesk").strip().lower()
+        # Default aligned with db.get_pro_users_with_telegram + notifier._allowed_chat_ids
+        # (both default to vbolofinde@gmail.com). monitor.py was the outlier defaulting to
+        # master@busytradersdesk, so the poll scanned a different user than the notifier
+        # would deliver to. Override with the SCAN_USER_EMAIL env var for a different target.
+        _allow_email = (os.environ.get("SCAN_USER_EMAIL") or "vbolofinde@gmail.com").strip().lower()
         if _allow_email:
             from sqlalchemy import func
             _q = _q.where(func.lower(User.email) == _allow_email)
