@@ -40,6 +40,7 @@ from analytics.market_hours import is_market_hours, is_premarket, get_session_ph
 from analytics.intraday_data import fetch_intraday, fetch_prior_day  # noqa: E402
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Cache TTLs (seconds)
 _INTRADAY_TTL = 180  # 3 min — matches monitor interval
