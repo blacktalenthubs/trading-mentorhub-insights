@@ -123,6 +123,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
     ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Open Bracket", False),  # own category = its own family toggle
     ("structural_breakout", "Structural breakout (day) — gap/break/reclaim of a MAJOR level (PDH/PWH/PMH/PQH/pivot=long; PDL/PWL/PML/PQL break=short, reclaim=long). Bind proximity_levels_pure.pine on 15m.", "Structural Breakout", False),  # own family; replaces open_bracket
+    # Scanner level touch (day) — the Monitor watches live price against the nightly Scanner plan's
+    # marked levels and fires on a tap-and-hold of PDL / 8·20·50 EMA / 20·50 MA / PDH-as-support,
+    # plus a PDH break and gap-and-go. Own family toggle so it can be run in isolation.
+    ("planned_level_touch", "Scanner level touch (day) — price taps a Scanner-marked level (PDL / 8·20·50 EMA / 20·50 MA / PDH support) and holds, or breaks PDH / gaps-and-goes. Levels from the nightly Scanner plan.", "Scanner Levels", False),  # own family
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
