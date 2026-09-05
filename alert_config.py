@@ -659,23 +659,14 @@ ENABLED_RULES: set[str] = {
     # Phase 3b (2026-04-23 evening): added EMA8 (fast pullback) + EMA21
     # (medium-trend, replaces EMA20). Function check_ema_bounce_20 + AlertType
     # EMA_BOUNCE_20 retained for DB-historical compat but no longer fire.
-    "ema_bounce_8",
-    "ema_bounce_21",
-    "ema_bounce_50",
-    "ema_bounce_100",
-    "ema_bounce_200",
-    # DISABLED Phase 3b:
+    # DEPRECATED (scanner redesign 2026-09): the bounce fires on ANY touch of the MA
+    # with NO open-above test — it can't tell support from resistance being ramped
+    # into. Replaced by the open-above ema_reclaim_* / ma_reclaim_* rules below.
+    # "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
     # "ema_bounce_20"  — superseded by ema_bounce_21 (1-period diff)
 
-    # ── LONG: SMA support bounces (50/100/200) ──────────────────────────────
-    # Phase 5c (2026-04-26): re-enabled per trader. Phase 3a wrongly assumed
-    # SMA ≈ EMA — true at fast lookbacks (8/21) but FALSE at 50/200 where SMA
-    # lags EMA by 2-5% on volatile names. Evidence: PLTR SMA50 $144.35 vs
-    # EMA50 $147.36 = $3.01 spread (2.1%), both acting as distinct S/R levels.
-    "ma_bounce_50",
-    "ma_bounce_100",
-    "ma_bounce_200",
-    # Still disabled (near-duplicate of ema_bounce_21):
+    # ── LONG: SMA support bounces — DEPRECATED (scanner redesign) → ma_reclaim_* ──
+    # "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
     # "ma_bounce_20"
 
     # ── LONG: EMA reclaims (final set 8/21/50/100/200) ──────────────────────
@@ -693,7 +684,8 @@ ENABLED_RULES: set[str] = {
 
     # ── LONG: prior-day high/low (institutional levels) ─────────────────────
     "prior_day_low_reclaim",
-    "prior_day_low_bounce",
+    # DEPRECATED (scanner redesign): prior_day_low_bounce → use prior_day_low_reclaim.
+    # "prior_day_low_bounce",
     "prior_day_high_breakout",
     "pdh_retest_hold",
 
