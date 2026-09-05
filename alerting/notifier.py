@@ -272,7 +272,7 @@ def _pretty_setup(rule: str, note: str | None = None) -> str:
     # Scanner MA ladder — ma_reclaim_50 → "50 SMA Reclaim", ema_bounce_21 → "21 EMA Bounce".
     # Matched before the v3 family below so the plain ladder keys don't fall through
     # to the raw title-case ("Ma Reclaim 50").
-    m = _re.match(r"^(ma|ema)_(reclaim|bounce)_(\d{1,3})$", t)
+    m = _re.match(r"^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$", t)
     if m:
         kind = "SMA" if m.group(1) == "ma" else "EMA"
         return f"{m.group(3)} {kind} {m.group(2).capitalize()}"

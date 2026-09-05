@@ -361,6 +361,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "prior_day_high_breakout": "Price broke above yesterday's high on confirming volume — resistance taken out.",
     "pdh_retest_hold": "After breaking above yesterday's high, price pulled back to retest it and held — PDH flipped from resistance to support. The re-entry if you missed the breakout.",
     "multi_day_double_bottom": "A daily swing-low zone that has already been tested twice is being retested intraday — buyers defended this price before.",
+    "pdh_rejection": "Price rallied up to yesterday's high, tagged it and closed back below — the level held as resistance. Short; stop above the high. Index-only (SPY/QQQ/SMH).",
 
     # Held-as-support — prior high acted as a floor after price reclaimed it.
     "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",
@@ -445,7 +446,7 @@ def describe_alert_type(alert_type: str) -> str:
     # web/src/lib/alertFormat.ts. The open-above reclaim is the redesign's core:
     # the level was support at the open, not resistance being ramped into.
     import re as _re
-    m = _re.match(r"^(?:tv_)?(ma|ema)_(reclaim|bounce)_(\d{1,3})$", alert_type or "")
+    m = _re.match(r"^(?:tv_)?(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$", alert_type or "")
     if m:
         level = f"{m.group(3)} {'SMA' if m.group(1) == 'ma' else 'EMA'}"
         if m.group(2) == "reclaim":
@@ -453,6 +454,12 @@ def describe_alert_type(alert_type: str) -> str:
                 f"Opened ABOVE the {level}, wicked down to tag it, and closed back "
                 f"above — the level held as support. Entry = the reclaim close, "
                 f"stop 0.5% below the level."
+            )
+        if m.group(2) == "rejection":
+            return (
+                f"Opened BELOW the {level}, rallied up to tag it, and closed back "
+                f"below — the level held as resistance. Entry = the rejection close, "
+                f"stop 0.5% above the level. Index-only (SPY/QQQ/SMH)."
             )
         return f"Intraday price pulled back to the {level} and bounced off it."
     return ""

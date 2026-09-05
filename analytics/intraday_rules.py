@@ -301,6 +301,15 @@ class AlertType(str, Enum):
     EMA_RECLAIM_50 = "ema_reclaim_50"
     EMA_RECLAIM_100 = "ema_reclaim_100"
     EMA_RECLAIM_200 = "ema_reclaim_200"
+    # Open-BELOW rejection — the short mirror of the reclaim ladder. Index-only
+    # (SHORT_UNIVERSE): opened below the MA, rallied up to tag it, closed back
+    # below. 8/21/50 only — the fast MAs are where an index gets turned away.
+    MA_REJECTION_8 = "ma_rejection_8"
+    MA_REJECTION_21 = "ma_rejection_21"
+    MA_REJECTION_50 = "ma_rejection_50"
+    EMA_REJECTION_8 = "ema_rejection_8"
+    EMA_REJECTION_21 = "ema_rejection_21"
+    EMA_REJECTION_50 = "ema_rejection_50"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
     # Phase 5a (2026-04-25) — generic catch-all for TradingView webhook ingest.
@@ -5537,6 +5546,83 @@ def check_ma_reclaim(
     )
 
 
+def check_ma_rejection(
+    symbol: str,
+    bars: pd.DataFrame,
+    ma_level: float | None,
+    ma_label: str,
+    alert_type: "AlertType",
+    today_open: float,
+    prior_day: dict | None = None,
+    other_levels: dict[str, float | None] | None = None,
+) -> AlertSignal | None:
+    """Open-below REJECTION of a key MA/EMA — the exact mirror of check_ma_reclaim.
+
+    Qualifies ONLY when today's candle:
+      1. OPENED BELOW the level (today_open < ma_level) — it was RESISTANCE
+         overhead, not support the stock is breaking down through.
+      2. RALLIED UP to tag it (session high >= ma_level).
+      3. Is back BELOW it now (last close < ma_level).
+      4. Hasn't already fallen too far below it (staleness guard).
+
+    The open test is what separates "rallied into resistance and failed" from
+    "lost support it was holding" — the same distinction the long side makes,
+    inverted. Short only. Entry = the rejection close, stop just above the level.
+    """
+    if ma_level is None or ma_level <= 0:
+        return None
+    if today_open is None or today_open <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    # 1. OPEN BELOW — mandatory. The level must have been resistance at the open.
+    if today_open >= ma_level:
+        return None
+
+    # 2. RALLIED UP to the level (today's session high tagged it)
+    session_high = float(bars["High"].max())
+    if session_high < ma_level:
+        return None  # never reached the level — nothing was rejected
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+
+    # 3. Back below the level now
+    if last_close >= ma_level:
+        return None
+
+    # 4. Staleness — price hasn't already dropped far away from the level
+    distance = (ma_level - last_close) / ma_level
+    if distance > MA_RECLAIM_MAX_DISTANCE_PCT:
+        return None
+
+    entry = round(last_close, 2)
+    stop = round(ma_level * (1 + MA_RECLAIM_STOP_OFFSET_PCT), 2)
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    confidence = "high" if distance <= 0.005 else "medium"
+    t1, t2 = _targets_for_short(entry, stop, prior_day, emas_below=other_levels)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=alert_type,
+        direction="SHORT",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence=confidence,
+        message=(
+            f"{ma_label} rejection — opened below ${ma_level:.2f} (resistance), "
+            f"rallied to it (high ${session_high:.2f}), closed back below at ${last_close:.2f}"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Rule: Session High Retracement (BUY)
 # ---------------------------------------------------------------------------
@@ -8580,6 +8666,33 @@ def evaluate_rules(
                         sig.message += f" — price {vwap_pos}"
                     sig.message += caution_suffix
                     signals.append(sig)
+
+        # --- Open-below MA REJECTION (short mirror of the reclaim ladder) ---
+        # Index-only: SPY / QQQ / SMH. The fast MAs (8/21/50) are where an index
+        # that gapped down gets turned away on the retest.
+        from alert_config import SHORT_UNIVERSE
+        if symbol.upper() in SHORT_UNIVERSE:
+            _rejection_pairs = [
+                (AlertType.MA_REJECTION_8, ma8, "8MA"),
+                (AlertType.MA_REJECTION_21, ma21, "21MA"),
+                (AlertType.MA_REJECTION_50, ma50, "50MA"),
+                (AlertType.EMA_REJECTION_8, ema8, "EMA8"),
+                (AlertType.EMA_REJECTION_21, ema21, "EMA21"),
+                (AlertType.EMA_REJECTION_50, ema50, "EMA50"),
+            ]
+            for _at, _ma, _label in _rejection_pairs:
+                if _at.value in ENABLED_RULES and _ma:
+                    _below = {
+                        "EMA8": ema8, "EMA21": ema21, "EMA50": ema50,
+                        "EMA100": ema100, "EMA200": ema200,
+                    }
+                    sig = check_ma_rejection(
+                        symbol, intraday_bars, _ma, _label, _at, today_open,
+                        prior_day=prior_day, other_levels=_below,
+                    )
+                    if sig:
+                        sig.message += f" ({phase})"
+                        signals.append(sig)
 
         # --- Session High Retracement ---
         if AlertType.SESSION_HIGH_RETRACEMENT.value in ENABLED_RULES:

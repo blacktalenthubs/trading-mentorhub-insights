@@ -170,6 +170,36 @@ now controls only whether the 1h/4h fetch happens at all.
 the 1.5% staleness guard, level-dedup, the confluence merge, 1/symbol/type/day, the
 30-minute burst cooldown and the 30-minute zone cluster.
 
+### 2.7 The final signal set (user, 2026-09)
+
+**Delivered — nothing else reaches the phone.**
+
+Longs (14), any symbol in `SCANNER_UNIVERSE`:
+`ma_reclaim_8/21/50/100/200`, `ema_reclaim_8/21/50/100/200`, `prior_day_low_reclaim`,
+`prior_day_high_breakout`, `pdh_retest_hold`, `multi_day_double_bottom`.
+
+Shorts (7), **index-only** — `SHORT_UNIVERSE = {SPY, QQQ, SMH}`:
+`pdh_rejection`, `ma_rejection_8/21/50`, `ema_rejection_8/21/50`.
+
+`check_ma_rejection` is the exact mirror of `check_ma_reclaim`: the symbol must have
+**opened BELOW** the level (so it was resistance overhead, not support being lost),
+rallied up to tag it, and closed back below. Entry = the rejection close, stop 0.5%
+above the level, same staleness guard. A short on any non-index symbol is recorded as
+`short_not_index` and never sent.
+
+**Stop and target hits are no longer delivered.** They stay in `ENABLED_RULES` so the
+trade lifecycle and P&L tracking keep recording, but delivery stamps them
+`exits_not_delivered`. Entries only.
+
+**Retired from the set:** all nine weekly/monthly rules (they only ever became NOTICEs
+with entry/stop/targets stripped — unreadable rows nobody could trade), plus
+`ema_rejection_short` (the un-gated 9-MA catch-all, superseded by the open-below
+ladder), `ema_overhead_resistance`, `pdh_failed_breakout`, `resistance_prior_high`,
+`prior_day_low_breakdown` and `prior_day_low_resistance`.
+
+`SMH` was added to `SCANNER_UNIVERSE` (39 symbols) — it was in the short set but not
+the evaluated universe, so it could never have fired.
+
 ## Files
 
 | File | Change |
