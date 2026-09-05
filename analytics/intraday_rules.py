@@ -8555,16 +8555,18 @@ def evaluate_rules(
         ]
         for _at, _ma, _label in _reclaim_pairs:
             if _at.value in ENABLED_RULES and _ma:
-                # Phase 4a — pass prior_day + EMAs above the reclaimed level so
-                # _targets_for_long can build a structural ladder. The full set
-                # of EMAs is fine here; the helper filters by "above entry".
+                # OPEN-ABOVE reclaim (redesign): today opened above the level,
+                # wicked to it, closed back above — the level was SUPPORT, not
+                # resistance being ramped into. Replaces the old cross-up
+                # check_ma_ema_reclaim (prior close below → close above), which
+                # fired on the wrong direction. Pass EMAs above for the target ladder.
                 _other_emas = {
                     "EMA8": ema8, "EMA21": ema21, "EMA50": ema50,
                     "EMA100": ema100, "EMA200": ema200,
                 }
-                sig = check_ma_ema_reclaim(
-                    symbol, intraday_bars, _ma, prior_close, _at, _label,
-                    prior_day=prior_day, other_emas=_other_emas,
+                sig = check_ma_reclaim(
+                    symbol, intraday_bars, _ma, _label, _at, today_open,
+                    prior_day=prior_day, other_levels=_other_emas,
                 )
                 if sig:
                     sig.message += f" ({phase})"
