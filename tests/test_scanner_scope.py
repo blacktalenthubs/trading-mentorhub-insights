@@ -6,6 +6,7 @@ from analytics.intraday_rules import (
     AlertType,
     check_level_breakout_retest,
     check_rsi_oversold_turn,
+    check_swing_2h_reclaims,
 )
 
 
@@ -68,3 +69,20 @@ def test_rsi_turn_bad_inputs():
     bars = _bars([(50, 51, 49, 50)])
     assert check_rsi_oversold_turn("X", bars, None, 28.0) is None
     assert check_rsi_oversold_turn("X", _bars([]), 32.0, 28.0) is None
+
+
+# ── 2-hour swing reclaim ─────────────────────────────────────────────────────
+def test_swing_2h_reclaim_qualifies_8wema():
+    prior_day = {"wema8": 100.0, "wema21": 90.0, "w30": 80.0, "ma200": 70.0}
+    # 2h candle: day opened above 100 (via today_open), wicked to 100, closed above
+    bars = _bars([(101, 102, 99.9, 100.5), (100.5, 101, 100.2, 100.6)])
+    sigs = check_swing_2h_reclaims("X", bars, prior_day, today_open=101.0)
+    assert any(s.alert_type == AlertType.SWING_RECLAIM_8WEMA for s in sigs)
+    # 21wema (90): never wicked to it (low 99.9 > 90) → no signal
+    assert not any(s.alert_type == AlertType.SWING_RECLAIM_21WEMA for s in sigs)
+    assert all("2h swing" in s.message for s in sigs)
+
+
+def test_swing_2h_reclaim_bad_inputs():
+    assert check_swing_2h_reclaims("X", _bars([]), {"wema8": 100.0}, 101.0) == []
+    assert check_swing_2h_reclaims("X", _bars([(1, 1, 1, 1)]), None, 1.0) == []

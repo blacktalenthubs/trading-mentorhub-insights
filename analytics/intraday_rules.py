@@ -318,6 +318,11 @@ class AlertType(str, Enum):
     # Same open-above / open-below tests as the daily ladder, on a bigger level.
     WEMA_RECLAIM_8 = "wema_reclaim_8"
     WEMA_RECLAIM_21 = "wema_reclaim_21"
+    # 2-hour SWING reclaim — big structural levels, judged on the 2h candle.
+    SWING_RECLAIM_8WEMA = "swing_reclaim_8wema"
+    SWING_RECLAIM_21WEMA = "swing_reclaim_21wema"
+    SWING_RECLAIM_30W = "swing_reclaim_30w"
+    SWING_RECLAIM_200SMA = "swing_reclaim_200sma"
     WEMA_REJECTION_8 = "wema_rejection_8"
     WEMA_REJECTION_21 = "wema_rejection_21"
     # Informational — inside day forming (today's range within yesterday's)
@@ -5747,6 +5752,38 @@ def check_ma_rejection(
             f"rallied to it (high ${session_high:.2f}), closed back below at ${last_close:.2f}"
         ),
     )
+
+
+def check_swing_2h_reclaims(
+    symbol: str,
+    bars_2h: "pd.DataFrame",
+    prior_day: dict | None,
+    today_open: float,
+) -> list["AlertSignal"]:
+    """2-hour SWING reclaims of the big structural levels.
+
+    For the 8 EMA (weekly), 21 EMA (weekly), 30-week MA, and 200 SMA (daily),
+    fire the SAME open-above reclaim — but judged on the 2H candle: today opened
+    above the level, the 2h candle wicked to it, closed back above. Higher-
+    timeframe swing entries, checked on a 2h cadence. Returns a list (0-4).
+    """
+    if prior_day is None or bars_2h is None or bars_2h.empty:
+        return []
+    _levels = [
+        (AlertType.SWING_RECLAIM_8WEMA,  prior_day.get("wema8"),  "8 EMA (W)"),
+        (AlertType.SWING_RECLAIM_21WEMA, prior_day.get("wema21"), "21 EMA (W)"),
+        (AlertType.SWING_RECLAIM_30W,    prior_day.get("w30"),    "30-week MA"),
+        (AlertType.SWING_RECLAIM_200SMA, prior_day.get("ma200"),  "200 SMA"),
+    ]
+    out: list[AlertSignal] = []
+    for _at, _lvl, _lbl in _levels:
+        if _at.value not in ENABLED_RULES or not _lvl:
+            continue
+        sig = check_ma_reclaim(symbol, bars_2h, _lvl, _lbl, _at, today_open, prior_day=prior_day)
+        if sig:
+            sig.message = "2h swing · " + (sig.message or "")
+            out.append(sig)
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -708,6 +708,11 @@ ENABLED_RULES: set[str] = {
     "pwh_breakout_retest",
     "pmh_breakout_retest",
     "rsi_30_35",
+    # 2-hour SWING reclaim — big structural levels, judged on the 2h candle
+    "swing_reclaim_8wema",
+    "swing_reclaim_21wema",
+    "swing_reclaim_30w",
+    "swing_reclaim_200sma",
 
     # ── LONG: multi-day support structure ───────────────────────────────────
     "multi_day_double_bottom",

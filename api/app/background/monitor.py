@@ -120,6 +120,9 @@ SCANNER_UNIVERSE: list[str] = [
 # this session. Cleared on the session rollover alongside the other per-day trackers.
 _entry_type_day: set = set()
 
+# 2-hour SWING reclaim — run the swing block once per 2h UTC bucket, not every poll.
+_swing_2h_bucket: str = ""
+
 # Confluence merge — same-level entries collapse into one alert.
 _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 
@@ -219,7 +222,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
     from app.models.paper_trade import RealTrade  # noqa: E402
 
-    global _last_buy_session, _spy_inside_day_notified
+    global _last_buy_session, _spy_inside_day_notified, _swing_2h_bucket
     session_date = date.today().isoformat()
     # Crypto uses UTC date so dedup resets at midnight UTC (not server time)
     _utc_date = datetime.utcnow().date().isoformat()
@@ -232,6 +235,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         _level_lock.clear()
         _entry_type_day.clear()
         _last_buy_session = session_date
+
+    # 2-hour SWING reclaim cadence — evaluate the swing block once per 2h UTC
+    # bucket (computed once per poll so every symbol this cycle uses the same flag).
+    _cur_swing_bucket = f"{_utc_date}:{datetime.utcnow().hour // 2}"
+    _run_swing = _cur_swing_bucket != _swing_2h_bucket
+    if _run_swing:
+        _swing_2h_bucket = _cur_swing_bucket
+        logger.info("2h swing reclaim scan — bucket %s", _cur_swing_bucket)
 
     with sync_session_factory() as db:
         # Get Pro + Premium users (paid or active trial)
@@ -663,6 +674,22 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _sig._confluence_score = confluence_score(_dir, _bias)
                         _kept_signals.append(_sig)
                     signals = _kept_signals
+                    # 2-hour SWING reclaims (8/21 wk EMA · 30w MA · 200 SMA) —
+                    # appended on the 2h cadence, judged on the 2h candle. They
+                    # flow through the same delivery path (Swing feed via style_for).
+                    if _run_swing and intraday is not None and not intraday.empty:
+                        try:
+                            _b2 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto \
+                                  else fetch_intraday(symbol, period="10d", interval="1h")
+                            if _b2 is not None and not _b2.empty:
+                                _b2 = _b2.resample("2H").agg({"Open": "first", "High": "max",
+                                    "Low": "min", "Close": "last", "Volume": "sum"}).dropna().tail(3)
+                                from analytics.intraday_rules import check_swing_2h_reclaims
+                                _swing_open = float(intraday.iloc[0]["Open"])
+                                signals = list(signals) + check_swing_2h_reclaims(
+                                    symbol, _b2, prior_day, _swing_open)
+                        except Exception:
+                            logger.debug("2h swing reclaim failed for %s", symbol, exc_info=True)
                     # Confluence — collapse same-level entries into one alert.
                     signals = _merge_confluence(signals)
                 except Exception:
