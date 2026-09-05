@@ -144,6 +144,32 @@ so the fast SMA reclaims could never fire.
 → `MA8` / `MA21` computed in `intraday_data.py` (both the Coinbase and the equity path),
 extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES`.
 
+### 2.6 The HTF bias gate is removed
+
+`should_gate_long()` blocked every long whenever the 4h read was BEAR and the 1h had
+not yet turned BULL. That is the shape of a washout — so the gate suppressed **the
+first reclaim off a flush**, which is the setup this redesign exists to catch. It let
+through only the later, more extended ones.
+
+It was also solving, coarsely and by trend, the question `check_ma_reclaim` now answers
+precisely and per setup: the day opened ABOVE the level, so the level was support, not
+resistance being ramped into. Two filters for one problem, the older one blunter.
+
+Worse, it was invisible: the gate `continue`d **before** the Alert row was written, so
+unlike every Phase-2 suppression it left no row and no `suppressed_reason` — a signal
+it ate could not be reviewed at all.
+
+→ The gate is gone from the poll loop. The 1h/4h bias is still computed and still feeds
+the 0–3 `confluence_score` (the Telegram 🟢/🟡 and the persisted column); it suppresses
+nothing. `should_gate_long` / `should_gate_short` remain in `analytics/htf_bias.py`,
+marked deprecated with their tests, as the record of the old behaviour — nothing calls
+them. The `HTF_BIAS_GATE_ENABLED` env var keeps its name (Railway backward compat) and
+now controls only whether the 1h/4h fetch happens at all.
+
+**Expect more entries per session.** What still limits them: the open-above rule itself,
+the 1.5% staleness guard, level-dedup, the confluence merge, 1/symbol/type/day, the
+30-minute burst cooldown and the 30-minute zone cluster.
+
 ## Files
 
 | File | Change |
@@ -152,7 +178,8 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 | `analytics/intraday_rules.py` | SMA 8/21 in the reclaim ladder |
 | `alert_config.py` | `ma_reclaim_8` / `ma_reclaim_21` enabled |
 | `alerting/notifier.py` | `_pretty_setup` names the MA ladder |
-| `api/app/background/monitor.py` | global delivery, confluence audit + label, suppressed_reason, push payload |
+| `api/app/background/monitor.py` | global delivery, confluence audit + label, suppressed_reason, push payload, HTF gate removed |
+| `analytics/htf_bias.py` | gate helpers deprecated — scoring only |
 | `api/app/models/alert_type_config.py` | `describe_alert_type` explains the ladder rules by regex + the six named scanner entries by table |
 | `web/src/lib/alertFormat.ts` | `isScannerEntry`, ladder names + blurbs |
 | `web/src/pages/TradingPageV2.tsx` | labels for the new suppression reasons |

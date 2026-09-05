@@ -205,6 +205,20 @@ def test_every_feed_type_can_actually_fire():
         assert t in ENABLED_RULES, f"{t} is in the feed allow-list but can never fire"
 
 
+def test_no_htf_gate_in_the_poll_loop():
+    """The HTF bias gate is gone — it ate the first reclaim off a washout.
+
+    "4h BEAR and 1h not yet BULL" describes a flush, so the gate suppressed
+    exactly the setup the open-above reclaim is built to catch. The bias is
+    still computed for the confluence score; it must not suppress anything.
+    """
+    src = (_ROOT / "api" / "app" / "background" / "monitor.py").read_text()
+    assert "should_gate_long" not in src
+    assert "should_gate_short" not in src
+    # …but the confluence score it feeds is still stamped on every signal.
+    assert "_confluence_score = confluence_score(" in src
+
+
 def test_daily_data_exposes_sma_8_21():
     """prior_day must carry ma8/ma21 or the ladder pairs are always None."""
     import inspect
