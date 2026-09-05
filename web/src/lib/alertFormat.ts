@@ -22,6 +22,16 @@ export function formatSetup(alertType?: string): string {
   const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (!t) return "Signal";
   const swing = (name: string) => (isSwingAlert(alertType) ? `SWING · ${name}` : name);
+  // Scanner MA ladder — ma_reclaim_50 -> "50 SMA Reclaim", ema_bounce_21 -> "21 EMA Bounce".
+  // Mirrors _pretty_setup() in alerting/notifier.py so the feed, Telegram and the
+  // push notification all name the setup identically. Matched before the v3 family
+  // so these don't fall through to the raw title-case ("Ema Reclaim 21").
+  const ladder = t.match(/^(ma|ema)_(reclaim|bounce)_(\d{1,3})$/);
+  if (ladder) {
+    const kind = ladder[1] === "ma" ? "SMA" : "EMA";
+    const verb = ladder[2].charAt(0).toUpperCase() + ladder[2].slice(1);
+    return swing(`${ladder[3]} ${kind} ${verb}`);
+  }
   // MA families — ma_bounce_long_v3_ema8_ema21 -> "EMA 8 + EMA 21 bounce"
   const ma = t.match(/^ma_(bounce_long|rejection_short|proximity_long|proximity_short)_v3_(.+)$/);
   if (ma) {
@@ -178,6 +188,16 @@ export function setupBlurb(alertType?: string): string {
           : `${sm[3].replace(/_/g, " ")} the ${lvl} ${hl}`;
     return `Price ${act}.`;
   }
+  // Scanner MA ladder → the open-above reclaim, spelled out. This is the redesign's
+  // core rule: the level was SUPPORT at the open, not resistance being ramped into.
+  const ladder = t.match(/^(ma|ema)_(reclaim|bounce)_(\d{1,3})$/);
+  if (ladder) {
+    const kind = ladder[1] === "ma" ? "SMA" : "EMA";
+    const lvl = `${ladder[3]} ${kind}`;
+    return ladder[2] === "reclaim"
+      ? `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the level, stop below the reclaim wick.`
+      : `Pulled back to the ${lvl} and bounced off it.`;
+  }
   const BLURB: Record<string, string> = {
     pq_reclaim: "Undercut the prior-quarter LOW (the low of the candle) and closed back above it — a bottom-bounce swing. Low only; no close/high.",
     ma200_bounce: "Daily close reclaimed the 200 EMA/SMA — the institutional dip-buy zone; a swing bottom.",
@@ -229,8 +249,32 @@ export function setupBlurb(alertType?: string): string {
   return BLURB[t] ?? "";
 }
 
-/** True for alerts that belong in the Signals feed — AI scans + TV signals, no WAITs. */
+/** The scanner's long-entry rules (monitor.py + alert_config.ENABLED_RULES). These
+ *  carry NO ai_/tv_ prefix — the scanner writes the bare rule key — so before the
+ *  scanner redesign they were filtered out of the feed, the alert log and the in-app
+ *  notification alike: Phase 1's alerts recorded to the DB and were never seen.
+ *  Shorts, resistance and weekly/monthly NOTICE rules stay out — the redesign
+ *  delivers long entries only, and the feed shows the trade set. */
+const SCANNER_ENTRY_TYPES = new Set([
+  "prior_day_low_reclaim",
+  "prior_day_high_breakout",
+  "pdh_retest_hold",
+  "multi_day_double_bottom",
+  "inside_day_reclaim",
+  "vwap_reclaim",
+]);
+/** ma_reclaim_50 / ema_reclaim_21 / ma_bounce_100 … — the MA ladder rules. */
+const SCANNER_LADDER_RE = /^(ma|ema)_(reclaim|bounce)_\d{1,3}$/;
+
+export function isScannerEntry(alertType?: string): boolean {
+  const t = alertType ?? "";
+  return SCANNER_ENTRY_TYPES.has(t) || SCANNER_LADDER_RE.test(t);
+}
+
+/** True for alerts that belong in the Signals feed — AI scans, TV signals and the
+ *  scanner's own long entries. No WAITs. */
 export function isFeedSignal(alertType?: string): boolean {
   const t = alertType ?? "";
-  return t !== "ai_scan_wait" && (t.startsWith("ai_") || t.startsWith("tv_"));
+  if (t === "ai_scan_wait") return false;
+  return t.startsWith("ai_") || t.startsWith("tv_") || isScannerEntry(t);
 }

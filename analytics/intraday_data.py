@@ -996,6 +996,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 last_bar_date = hist.index[-1].normalize()
 
                 # Compute MAs on full history
+                # Scanner redesign (2026-09) — SMA 8/21 feed ma_reclaim_8 / ma_reclaim_21.
+                hist["MA8"] = hist["Close"].rolling(window=8).mean()
+                hist["MA21"] = hist["Close"].rolling(window=21).mean()
                 hist["MA20"] = hist["Close"].rolling(window=20).mean()
                 hist["MA50"] = hist["Close"].rolling(window=50).mean()
                 hist["MA100"] = hist["Close"].rolling(window=100).mean()
@@ -1031,6 +1034,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 )
 
                 # Build return dict with essential fields
+                ma8 = last["MA8"] if pd.notna(last.get("MA8")) else None
+                ma21 = last["MA21"] if pd.notna(last.get("MA21")) else None
                 ma20 = last["MA20"] if pd.notna(last.get("MA20")) else None
                 ma50 = last["MA50"] if pd.notna(last.get("MA50")) else None
                 ma100 = last["MA100"] if pd.notna(last.get("MA100")) else None
@@ -1096,6 +1101,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "open": last["Open"], "high": last["High"],
                     "low": last["Low"], "close": last["Close"],
                     "volume": last["Volume"],
+                    "ma8": ma8, "ma21": ma21,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
@@ -1134,6 +1140,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         hist = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
 
         # Compute MAs on full history
+        # Scanner redesign (2026-09) — SMA 8/21 feed ma_reclaim_8 / ma_reclaim_21.
+        hist["MA8"] = hist["Close"].rolling(window=8).mean()
+        hist["MA21"] = hist["Close"].rolling(window=21).mean()
         hist["MA20"] = hist["Close"].rolling(window=20).mean()
         hist["MA50"] = hist["Close"].rolling(window=50).mean()
         hist["MA100"] = hist["Close"].rolling(window=100).mean()
@@ -1264,6 +1273,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         except Exception:
             pass
 
+        ma8 = last["MA8"] if pd.notna(last["MA8"]) else None
+        ma21 = last["MA21"] if pd.notna(last["MA21"]) else None
         ma20 = last["MA20"] if pd.notna(last["MA20"]) else None
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
         ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
@@ -1306,6 +1317,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "low": last["Low"],
             "close": last["Close"],
             "volume": last["Volume"],
+            "ma8": ma8,
+            "ma21": ma21,
             "ma20": ma20,
             "ma50": ma50,
             "ma100": ma100,

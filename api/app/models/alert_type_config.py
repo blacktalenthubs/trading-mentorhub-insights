@@ -430,7 +430,25 @@ def describe_alert_type(alert_type: str) -> str:
     """Returns the plain-English description for an alert type, or empty
     string if unknown. UI surfaces the empty case as no tooltip / no subline.
     """
-    return ALERT_TYPE_DESCRIPTIONS.get(alert_type, "")
+    desc = ALERT_TYPE_DESCRIPTIONS.get(alert_type, "")
+    if desc:
+        return desc
+    # Scanner MA ladder (ma_reclaim_50, ema_reclaim_21, …) — described by rule
+    # rather than 10 near-identical dict entries. Mirrors setupBlurb() in
+    # web/src/lib/alertFormat.ts. The open-above reclaim is the redesign's core:
+    # the level was support at the open, not resistance being ramped into.
+    import re as _re
+    m = _re.match(r"^(?:tv_)?(ma|ema)_(reclaim|bounce)_(\d{1,3})$", alert_type or "")
+    if m:
+        level = f"{m.group(3)} {'SMA' if m.group(1) == 'ma' else 'EMA'}"
+        if m.group(2) == "reclaim":
+            return (
+                f"Opened ABOVE the {level}, wicked down to tag it, and closed back "
+                f"above — the level held as support. Entry = the level, stop below "
+                f"the reclaim wick."
+            )
+        return f"Intraday price pulled back to the {level} and bounced off it."
+    return ""
 
 
 # ── Cleanup — every retired/obsoleted alert type ────────────────────────

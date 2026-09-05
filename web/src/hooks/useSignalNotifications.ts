@@ -66,6 +66,9 @@ function fireNotification(a: Alert, navigate: NavigateFunction): void {
   if (a.entry != null) parts.push(`Entry $${a.entry.toFixed(2)}`);
   if (a.stop != null) parts.push(`Stop $${a.stop.toFixed(2)}`);
   if (a.target_1 != null) parts.push(`T1 $${a.target_1.toFixed(2)}`);
+  // Confluence — the other factors stacked at this same level. Set by the
+  // scanner's merge, so one ping names every reason instead of three pings.
+  if (a.confluence_label) parts.push(`Confluence: ${a.confluence_label}`);
   const body = parts.join("  ·  ") || a.message || "";
 
   toast.info(`${title}${body ? " — " + body : ""}`);
@@ -107,9 +110,11 @@ export function useSignalNotifications(): void {
     for (const a of alerts) {
       if (seen.has(a.id)) continue;
       seen.add(a.id);
-      // Only routed feed signals — disabled/non-routed types stay silent.
+      // Only DELIVERED feed signals. Anything the backend held back carries a
+      // suppressed_reason — a merged confluence sibling, an already-fired type,
+      // a cooldown — and those are audit rows for the feed, never a ping.
       if (!isFeedSignal(a.alert_type)) continue;
-      if (a.suppressed_reason === "type_not_enabled") continue;
+      if (a.suppressed_reason) continue;
       fresh.push(a);
     }
 
