@@ -102,6 +102,63 @@ def poll_all_users(sync_session_factory) -> int:
         return 0
 
 
+# Scanner redesign (2026-09) — hardcoded eval universe (38). Replaces the per-user
+# watchlist so we validate on a fixed, controlled set before widening. ETH/BTC in
+# internal -USD form so is_crypto + the crypto data path pick them up (24/7).
+SCANNER_UNIVERSE: list[str] = [
+    "SNXX", "SNDK", "MUU", "MRVL", "DELL", "MU", "LITE", "VRT", "ETH-USD", "META",
+    "MRNA", "COHR", "BTC-USD", "QQQ", "JPM", "HOOD", "GOOGL", "MSFT", "PLTR", "SPCX",
+    "NOW", "LLY", "SPOT", "ANET", "NBIS", "SHOP", "CRWD", "NVDA", "AMZN", "APP",
+    "RKLB", "TSLA", "XLI", "SPY", "AVGO", "CRCL", "MSTR", "AAPL",
+]
+
+# 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
+# this session. Cleared on the session rollover alongside the other per-day trackers.
+_entry_type_day: set = set()
+
+# Confluence merge — same-level entries collapse into one alert.
+_CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
+
+
+def _merge_confluence(signals: list) -> list:
+    """Collapse BUY entries at the SAME price level into one confluence alert.
+
+    Group BUY signals whose entry prices are within _CONFLUENCE_PCT of each other;
+    keep the highest-confidence one, fold the others' rule names into its message,
+    stamp a confluence count, and mark it high-confidence. Non-BUY signals and lone
+    entries pass through unchanged. Example: double-bottom @ 769.21 + 21 SMA reclaim
+    @ 769.18 → one "… · confluence ×2: multi_day_double_bottom, ma_reclaim_21".
+    """
+    buys = [s for s in signals
+            if (getattr(s, "direction", "") or "").upper() == "BUY"
+            and getattr(s, "entry", None) and s.entry > 0]
+    if len(buys) <= 1:
+        return signals
+    others = [s for s in signals if s not in buys]
+    buys.sort(key=lambda s: s.entry)
+    _rank = {"high": 3, "medium": 2, "low": 1}
+    merged = []
+    used = [False] * len(buys)
+    for i in range(len(buys)):
+        if used[i]:
+            continue
+        group = [buys[i]]
+        used[i] = True
+        for j in range(i + 1, len(buys)):
+            if not used[j] and abs(buys[j].entry - buys[i].entry) / buys[i].entry <= _CONFLUENCE_PCT:
+                group.append(buys[j])
+                used[j] = True
+        if len(group) == 1:
+            merged.append(group[0])
+        else:
+            base = max(group, key=lambda s: _rank.get(s.confidence, 0))
+            labels = ", ".join(g.alert_type.value for g in group)
+            base.message = (base.message or "") + f" · confluence ×{len(group)}: {labels}"
+            base.confidence = "high"
+            merged.append(base)
+    return merged + others
+
+
 def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.user import Subscription, User  # noqa: E402
     from app.models.watchlist import WatchlistItem  # noqa: E402
@@ -119,6 +176,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         _last_buy_notify.clear()
         _spy_inside_day_notified = False
         _level_lock.clear()
+        _entry_type_day.clear()
         _last_buy_session = session_date
 
     with sync_session_factory() as db:
@@ -155,11 +213,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         user_symbols: Dict[int, List[str]] = {}
         all_symbols: set[str] = set()
         for user_id in pro_users:
-            symbols = db.execute(
-                select(WatchlistItem.symbol).where(WatchlistItem.user_id == user_id)
-            ).scalars().all()
-            user_symbols[user_id] = list(symbols)
-            all_symbols.update(symbols)
+            # Scanner redesign — hardcoded eval universe, NOT the per-user watchlist.
+            user_symbols[user_id] = list(SCANNER_UNIVERSE)
+            all_symbols.update(SCANNER_UNIVERSE)
 
         for uid, syms in user_symbols.items():
             logger.info("User %d watchlist: %s", uid, ", ".join(syms) if syms else "(empty)")
@@ -578,6 +634,8 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _sig._confluence_score = confluence_score(_dir, _bias)
                         _kept_signals.append(_sig)
                     signals = _kept_signals
+                    # Confluence — collapse same-level entries into one alert.
+                    signals = _merge_confluence(signals)
                 except Exception:
                     logger.exception("Error evaluating %s for user %d", symbol, user_id)
                     continue
@@ -844,6 +902,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Preference gate: per-TYPE toggle wins, else legacy category.
                     _at_val = signal.alert_type.value
                     _send_notification = True
+
+                    # Scanner redesign — deliver LONG ENTRIES ONLY. Drop
+                    # resistance/notice/short delivery entirely; keep the exit
+                    # lifecycle (stop/target) which is separately gated to users
+                    # with an open trade below.
+                    _is_exit = _at_val in EXIT_ALERT_TYPES
+                    if (signal.direction or "").upper() != "BUY" and not _is_exit:
+                        _send_notification = False
+
+                    # 1 alert / stock / TYPE / day — same entry type on the same
+                    # stock fires once per session, regardless of price.
+                    _etd_key = (user_id, symbol, _at_val)
+                    if _send_notification and signal.direction == "BUY" and _etd_key in _entry_type_day:
+                        _send_notification = False
+                        logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
+                                    user_id, symbol, _at_val)
+
                     if _at_val not in EXIT_ALERT_TYPES:
                         if _at_val in _type_prefs:
                             # User explicitly toggled THIS type in Settings.
@@ -895,6 +970,11 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         else:
                             _zone_cooldown[_zone_key] = _now_ts
                             _poll_all_users_inner._zone_cooldown = _zone_cooldown
+
+                    # Record the per-day entry-type fire so it can't repeat today
+                    # (1 alert / stock / type / day).
+                    if _send_notification and signal.direction == "BUY":
+                        _entry_type_day.add(_etd_key)
 
                     # Commit immediately so alert is persisted + has ID for Telegram buttons
                     db.commit()
