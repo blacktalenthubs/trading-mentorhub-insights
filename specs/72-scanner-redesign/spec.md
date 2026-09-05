@@ -32,7 +32,9 @@ AND last_close > L  (reclaimed — closed back above)
 AND close is not already far above L   (staleness guard)
 ```
 
-Entry = the level · Stop = below the reclaim wick · Long only.
+Entry = the reclaim close · Stop = 0.5% below the level (`MA_RECLAIM_STOP_OFFSET_PCT`,
+then risk-capped by `_cap_risk`) · Long only. Staleness guard: skipped if the close is
+already more than 1.5% above the level (`MA_RECLAIM_MAX_DISTANCE_PCT`).
 Chart-validated 2026-09-04: LRCX 100 EMA qualifies; MRVL 21 EMA (opened below →
 cross-up) is rejected.
 

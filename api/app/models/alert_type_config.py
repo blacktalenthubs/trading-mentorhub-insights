@@ -357,7 +357,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
 
     # Scanner long entries (scanner redesign) — the non-ladder rules the Day feed
     # now shows. Without these their cards render with no explanation subline.
-    "prior_day_low_reclaim": "Price dipped below yesterday's low and closed back above it — the breakdown failed and the level held. Entry = the level, stop just below it.",
+    "prior_day_low_reclaim": "Price dipped below yesterday's low and closed back above it — the breakdown failed and the level held. Entry = the reclaim close, stop 0.5% below the level.",
     "prior_day_high_breakout": "Price broke above yesterday's high on confirming volume — resistance taken out.",
     "pdh_retest_hold": "After breaking above yesterday's high, price pulled back to retest it and held — PDH flipped from resistance to support. The re-entry if you missed the breakout.",
     "multi_day_double_bottom": "A daily swing-low zone that has already been tested twice is being retested intraday — buyers defended this price before.",
@@ -451,8 +451,8 @@ def describe_alert_type(alert_type: str) -> str:
         if m.group(2) == "reclaim":
             return (
                 f"Opened ABOVE the {level}, wicked down to tag it, and closed back "
-                f"above — the level held as support. Entry = the level, stop below "
-                f"the reclaim wick."
+                f"above — the level held as support. Entry = the reclaim close, "
+                f"stop 0.5% below the level."
             )
         return f"Intraday price pulled back to the {level} and bounced off it."
     return ""

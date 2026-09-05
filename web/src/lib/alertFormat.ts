@@ -201,7 +201,7 @@ export function setupBlurb(alertType?: string): string {
     const kind = ladder[1] === "ma" ? "SMA" : "EMA";
     const lvl = `${ladder[3]} ${kind}`;
     return ladder[2] === "reclaim"
-      ? `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the level, stop below the reclaim wick.`
+      ? `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the reclaim close, stop 0.5% below the level.`
       : `Pulled back to the ${lvl} and bounced off it.`;
   }
   const BLURB: Record<string, string> = {
@@ -253,7 +253,7 @@ export function setupBlurb(alertType?: string): string {
     weekly_30w_reclaim: "Reclaimed the 30-week moving average.",
     // Scanner long entries — mirrors ALERT_TYPE_DESCRIPTIONS in
     // api/app/models/alert_type_config.py.
-    prior_day_low_reclaim: "Dipped below yesterday's low and closed back above it — the breakdown failed. Entry = the level, stop just below it.",
+    prior_day_low_reclaim: "Dipped below yesterday's low and closed back above it — the breakdown failed. Entry = the reclaim close, stop 0.5% below the level.",
     prior_day_high_breakout: "Broke above yesterday's high on confirming volume — resistance taken out.",
     pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
     multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
