@@ -288,6 +288,8 @@ class AlertType(str, Enum):
     PDH_FAILED_BREAKOUT = "pdh_failed_breakout"
     FIRST_HOUR_HIGH_BREAKOUT = "first_hour_high_breakout"
     # MA/EMA reclaim — price crosses above key daily MA/EMA
+    MA_RECLAIM_8 = "ma_reclaim_8"
+    MA_RECLAIM_21 = "ma_reclaim_21"
     MA_RECLAIM_20 = "ma_reclaim_20"
     MA_RECLAIM_50 = "ma_reclaim_50"
     MA_RECLAIM_100 = "ma_reclaim_100"
@@ -5451,6 +5453,86 @@ def check_ma_ema_reclaim(
         message=(
             f"{ma_label} reclaim — prior close ${prior_close:.2f} was below "
             f"${ma_level:.2f}, now closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+def check_ma_reclaim(
+    symbol: str,
+    bars: pd.DataFrame,
+    ma_level: float | None,
+    ma_label: str,
+    alert_type: "AlertType",
+    today_open: float,
+    prior_day: dict | None = None,
+    other_levels: dict[str, float | None] | None = None,
+) -> AlertSignal | None:
+    """Open-above RECLAIM of a key MA/EMA — the level was SUPPORT, not resistance.
+
+    Qualifies ONLY when today's daily candle:
+      1. OPENED ABOVE the level (today_open > ma_level) — it was support the
+         stock was defending, NOT resistance the price is ramping up into.
+      2. WICKED DOWN to tag it (session low <= ma_level).
+      3. Is back ABOVE it now (last close > ma_level).
+      4. Hasn't run too far above it (staleness guard).
+
+    This is deliberately distinct from:
+      - a BOUNCE (any touch + close above, no open test), and
+      - a CROSS-UP (prior close below, closes above) — the old
+        check_ma_ema_reclaim, which is the OPPOSITE direction.
+    Long only. Entry = last close, stop = just below the reclaimed level.
+    """
+    if ma_level is None or ma_level <= 0:
+        return None
+    if today_open is None or today_open <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    # 1. OPEN ABOVE — mandatory. The level must have been support at the open.
+    if today_open <= ma_level:
+        return None
+
+    # 2. WICKED DOWN to the level (today's session low tagged it)
+    session_low = float(bars["Low"].min())
+    if session_low > ma_level:
+        return None  # never came back to the level — no reclaim
+
+    last_bar = bars.iloc[-1]
+    last_close = float(last_bar["Close"])
+
+    # 3. Back above the level now
+    if last_close <= ma_level:
+        return None
+
+    # 4. Staleness — price hasn't run too far above the reclaimed level
+    distance = (last_close - ma_level) / ma_level
+    if distance > MA_RECLAIM_MAX_DISTANCE_PCT:
+        return None
+
+    entry = round(last_close, 2)
+    stop = round(ma_level * (1 - MA_RECLAIM_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    confidence = "high" if distance <= 0.005 else "medium"
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=other_levels)
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=alert_type,
+        direction="BUY",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence=confidence,
+        message=(
+            f"{ma_label} reclaim — opened above ${ma_level:.2f} (support), "
+            f"wicked to it (low ${session_low:.2f}), closed back above at ${last_close:.2f}"
         ),
     )
 
