@@ -688,6 +688,12 @@ ENABLED_RULES: set[str] = {
     "ma_reclaim_8",
     "ma_reclaim_21",
     "ma_reclaim_50",
+
+    # ── LONG: WEEKLY 8/21 EMA reclaims ──────────────────────────────────────
+    # The chart's "8 EMA (W)" / "21 EMA (W)". Same open-above test as the daily
+    # ladder — a weekly level the day opened above, wicked to, and reclaimed.
+    "wema_reclaim_8",
+    "wema_reclaim_21",
     "ma_reclaim_100",
     "ma_reclaim_200",
     # Still disabled: "ma_reclaim_20"
@@ -723,6 +729,8 @@ ENABLED_RULES: set[str] = {
     "pdh_rejection",
     "ma_rejection_8", "ma_rejection_21", "ma_rejection_50",
     "ema_rejection_8", "ema_rejection_21", "ema_rejection_50",
+    # Weekly 8/21 EMA as resistance — the ASML case: "8 EMA (W) RESIST".
+    "wema_rejection_8", "wema_rejection_21",
 
     # ── SHORT: DISABLED (scanner redesign 2026-09) ──────────────────────────
     # Not in the agreed set — shorts are PDH rejection + the MA rejections only.

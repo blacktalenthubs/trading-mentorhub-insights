@@ -446,9 +446,10 @@ def describe_alert_type(alert_type: str) -> str:
     # web/src/lib/alertFormat.ts. The open-above reclaim is the redesign's core:
     # the level was support at the open, not resistance being ramped into.
     import re as _re
-    m = _re.match(r"^(?:tv_)?(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$", alert_type or "")
+    m = _re.match(r"^(?:tv_)?(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$", alert_type or "")
     if m:
-        level = f"{m.group(3)} {'SMA' if m.group(1) == 'ma' else 'EMA'}"
+        _kind = {"ma": "SMA", "ema": "EMA", "wema": "EMA (W)"}[m.group(1)]
+        level = f"{m.group(3)} {_kind}"
         if m.group(2) == "reclaim":
             return (
                 f"Opened ABOVE the {level}, wicked down to tag it, and closed back "

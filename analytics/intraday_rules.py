@@ -311,6 +311,12 @@ class AlertType(str, Enum):
     EMA_REJECTION_8 = "ema_rejection_8"
     EMA_REJECTION_21 = "ema_rejection_21"
     EMA_REJECTION_50 = "ema_rejection_50"
+    # WEEKLY 8/21 EMA — the "8 EMA (W)" / "21 EMA (W)" levels on the chart.
+    # Same open-above / open-below tests as the daily ladder, on a bigger level.
+    WEMA_RECLAIM_8 = "wema_reclaim_8"
+    WEMA_RECLAIM_21 = "wema_reclaim_21"
+    WEMA_REJECTION_8 = "wema_rejection_8"
+    WEMA_REJECTION_21 = "wema_rejection_21"
     # Informational — inside day forming (today's range within yesterday's)
     INSIDE_DAY_FORMING = "inside_day_forming"
     # Phase 5a (2026-04-25) — generic catch-all for TradingView webhook ingest.
@@ -8073,6 +8079,10 @@ def evaluate_rules(
     # (ma_reclaim_8 / ma_reclaim_21). Sourced from prior_day like the rest.
     ma8 = prior_day.get("ma8")
     ma21 = prior_day.get("ma21")
+    # Weekly 8/21 EMA — the chart's "8 EMA (W)" / "21 EMA (W)". Same ladder
+    # treatment as the daily MAs, just a slower level.
+    wema8 = prior_day.get("wema8")
+    wema21 = prior_day.get("wema21")
     ma20 = prior_day.get("ma20")
     ma50 = prior_day.get("ma50")
     ma100 = prior_day.get("ma100")
@@ -8677,6 +8687,8 @@ def evaluate_rules(
             (AlertType.EMA_RECLAIM_50, ema50, "EMA50"),
             (AlertType.EMA_RECLAIM_100, ema100, "EMA100"),
             (AlertType.EMA_RECLAIM_200, ema200, "EMA200"),
+            (AlertType.WEMA_RECLAIM_8, wema8, "8 EMA (W)"),
+            (AlertType.WEMA_RECLAIM_21, wema21, "21 EMA (W)"),
         ]
         for _at, _ma, _label in _reclaim_pairs:
             if _at.value in ENABLED_RULES and _ma:
@@ -8711,6 +8723,8 @@ def evaluate_rules(
                 (AlertType.EMA_REJECTION_8, ema8, "EMA8"),
                 (AlertType.EMA_REJECTION_21, ema21, "EMA21"),
                 (AlertType.EMA_REJECTION_50, ema50, "EMA50"),
+                (AlertType.WEMA_REJECTION_8, wema8, "8 EMA (W)"),
+                (AlertType.WEMA_REJECTION_21, wema21, "21 EMA (W)"),
             ]
             for _at, _ma, _label in _rejection_pairs:
                 if _at.value in ENABLED_RULES and _ma:
