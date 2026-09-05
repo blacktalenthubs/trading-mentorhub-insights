@@ -361,8 +361,6 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "prior_day_high_breakout": "Price broke above yesterday's high on confirming volume — resistance taken out.",
     "pdh_retest_hold": "After breaking above yesterday's high, price pulled back to retest it and held — PDH flipped from resistance to support. The re-entry if you missed the breakout.",
     "multi_day_double_bottom": "A daily swing-low zone that has already been tested twice is being retested intraday — buyers defended this price before.",
-    "inside_day_reclaim": "Price dipped below the inside-day low and closed back above it — the range held.",
-    "vwap_reclaim": "Price put in the session low, then reclaimed VWAP and closed above it — the morning reversal.",
 
     # Held-as-support — prior high acted as a floor after price reclaimed it.
     "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",

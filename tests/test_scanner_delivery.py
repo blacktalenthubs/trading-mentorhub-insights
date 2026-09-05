@@ -174,7 +174,7 @@ _SCANNER_FEED_TYPES = [
     "ma_reclaim_8", "ma_reclaim_21", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
     "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     "prior_day_low_reclaim", "prior_day_high_breakout", "pdh_retest_hold",
-    "multi_day_double_bottom", "inside_day_reclaim", "vwap_reclaim",
+    "multi_day_double_bottom",
 ]
 
 
@@ -196,14 +196,12 @@ def test_every_scanner_entry_has_a_description():
     assert not missing, f"no plain-English description for: {missing}"
 
 
-def test_live_named_entries_are_enabled():
-    """The four non-ladder entries the feed shows must actually be able to fire.
+def test_every_feed_type_can_actually_fire():
+    """Nothing reaches the feed allow-list that ENABLED_RULES can't produce.
 
-    inside_day_reclaim / vwap_reclaim are deliberately NOT enabled — they stay in
-    the allow-list so they surface if re-enabled. Documented in the spec.
+    The allow-list is the redesign's live entry set — no aspirational rules.
     """
-    for t in ("prior_day_low_reclaim", "prior_day_high_breakout",
-              "pdh_retest_hold", "multi_day_double_bottom"):
+    for t in _SCANNER_FEED_TYPES:
         assert t in ENABLED_RULES, f"{t} is in the feed allow-list but can never fire"
 
 

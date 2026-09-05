@@ -72,26 +72,22 @@ the database and reached neither the feed nor the phone. Phase 2 closes that.
 bare rule key (`ma_reclaim_50`), so **every Phase-1 alert was filtered out of the
 Signals feed, the Alert Log and the in-app notification alike.**
 
-→ `isScannerEntry()` admits the scanner's long-entry rules: the MA ladder
-(`^(ma|ema)_(reclaim|bounce)_\d+$`) plus `prior_day_low_reclaim`,
-`prior_day_high_breakout`, `pdh_retest_hold`, `multi_day_double_bottom`,
-`inside_day_reclaim`, `vwap_reclaim`. Shorts, resistance and weekly/monthly NOTICE
-rules stay out — the redesign delivers long entries, and the feed shows the trade set.
+→ `isScannerEntry()` admits **exactly the redesign's live long-entry set — 14 types,
+nothing aspirational**: the open-above MA ladder (`^(ma|ema)_reclaim_\d+$`, 10 types)
+plus `prior_day_low_reclaim`, `prior_day_high_breakout`, `pdh_retest_hold` and
+`multi_day_double_bottom`. Every one is in `ENABLED_RULES` and can actually fire — a
+test enforces that, so a rule can't be added to the feed before it's enabled. Shorts,
+resistance, weekly/monthly NOTICE rules and the deprecated `*_bounce_*` ladder stay
+out.
 
-`style_for()` resolves **all 16** of these to `day_trade` — including `ma_reclaim_200`
-and `ema_reclaim_200`, which are NOT routed to Swing (`isSwingAlert` only marks the
+`style_for()` resolves **all 14** to `day_trade` — including `ma_reclaim_200` and
+`ema_reclaim_200`, which are NOT routed to Swing (`isSwingAlert` only marks the
 `ma_bounce_long_v3_*200` TradingView family as swing). The scanner's entire entry set
 lands in the **Day** feed; nothing from it reaches Swing.
 
-Two of the six named types — `inside_day_reclaim` and `vwap_reclaim` — are **not in
-`ENABLED_RULES`** today, so they cannot fire. They stay in the allow-list so they
-surface in the feed if they are ever re-enabled; the four live ones are
-`prior_day_low_reclaim`, `prior_day_high_breakout`, `pdh_retest_hold` and
-`multi_day_double_bottom`.
-
-Every one of the 16 has a plain-English description, so its feed card carries an
+Every one of the 14 has a plain-English description, so its feed card carries an
 explanation subline: the ladder is described by rule in `describe_alert_type()` /
-`setupBlurb()`, the six named types by explicit entries in `ALERT_TYPE_DESCRIPTIONS`
+`setupBlurb()`, the four named types by explicit entries in `ALERT_TYPE_DESCRIPTIONS`
 and the TS `NAMES` / `BLURB` maps.
 
 ### 2.2 Delivery is global
@@ -166,7 +162,7 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 `tests/test_scanner_delivery.py` (12) — the merge keeps its audit rows, the label fits
 its column, setup naming parity, SMA 8/21 wired end to end, and the feed contract:
 every type `isScannerEntry()` admits resolves to `day_trade`, carries a description,
-and (for the four non-ladder entries) is actually in `ENABLED_RULES`.
+and is in `ENABLED_RULES`.
 
 `test_intraday_rules.py`: 635 pass, 4 fail — the same 4 SPY-regime failures as on `main`.
 

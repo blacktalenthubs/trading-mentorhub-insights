@@ -127,8 +127,6 @@ export function formatSetup(alertType?: string): string {
     prior_day_high_breakout: "PDH breakout",
     pdh_retest_hold: "PDH retest / hold",
     multi_day_double_bottom: "Double bottom",
-    inside_day_reclaim: "Inside-day reclaim",
-    vwap_reclaim: "VWAP reclaim",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
@@ -259,8 +257,6 @@ export function setupBlurb(alertType?: string): string {
     prior_day_high_breakout: "Broke above yesterday's high on confirming volume — resistance taken out.",
     pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
     multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
-    inside_day_reclaim: "Dipped below the inside-day low and closed back above it — the range held.",
-    vwap_reclaim: "Put in the session low, then reclaimed VWAP and closed above it — the morning reversal.",
   };
   return BLURB[t] ?? "";
 }
@@ -276,11 +272,10 @@ const SCANNER_ENTRY_TYPES = new Set([
   "prior_day_high_breakout",
   "pdh_retest_hold",
   "multi_day_double_bottom",
-  "inside_day_reclaim",
-  "vwap_reclaim",
 ]);
-/** ma_reclaim_50 / ema_reclaim_21 / ma_bounce_100 … — the MA ladder rules. */
-const SCANNER_LADDER_RE = /^(ma|ema)_(reclaim|bounce)_\d{1,3}$/;
+/** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder. Reclaims only:
+ *  the bounce rules were deprecated by the redesign and cannot fire. */
+const SCANNER_LADDER_RE = /^(ma|ema)_reclaim_\d{1,3}$/;
 
 export function isScannerEntry(alertType?: string): boolean {
   const t = alertType ?? "";
