@@ -183,6 +183,9 @@ class AlertType(str, Enum):
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
     PDH_TEST = "pdh_test"
     PDH_RETEST_HOLD = "pdh_retest_hold"
+    PWH_BREAKOUT_RETEST = "pwh_breakout_retest"
+    PMH_BREAKOUT_RETEST = "pmh_breakout_retest"
+    RSI_30_35 = "rsi_30_35"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
     INSIDE_DAY_RECLAIM = "inside_day_reclaim"
@@ -1723,6 +1726,90 @@ def check_pdh_retest_hold(
             f"PDH retest & hold — broke above ${prior_day_high:.2f}, "
             f"pulled back and holding"
         ),
+    )
+
+
+def check_level_breakout_retest(
+    symbol: str,
+    bars: pd.DataFrame,
+    level: float | None,
+    label: str,
+    alert_type: "AlertType",
+    prior_day: dict | None = None,
+    other_emas: dict[str, float | None] | None = None,
+) -> AlertSignal | None:
+    """Breakout-retest of a higher-timeframe level (PWH / PMH).
+
+    Same pattern as PDH retest-hold, generalized: price BROKE ABOVE the level,
+    pulled back to RETEST it, and HOLDS above — the level flips resistance→support.
+    Long only.
+    """
+    if bars.empty or level is None or level <= 0 or len(bars) < PDH_RETEST_HOLD_BARS + 2:
+        return None
+    breakout_mask = bars["Close"] > level
+    if not breakout_mask.any():
+        return None
+    first_breakout_idx = breakout_mask.idxmax()
+    breakout_pos = bars.index.get_loc(first_breakout_idx)
+    post_breakout = bars.iloc[breakout_pos:]
+    if len(post_breakout) < PDH_RETEST_HOLD_BARS + 1:
+        return None
+    if not (post_breakout["Low"] <= level * (1 + PDH_RETEST_PROXIMITY_PCT)).any():
+        return None  # no retest of the level
+    recent = bars.iloc[-PDH_RETEST_HOLD_BARS:]
+    if not (recent["Close"] > level).all():
+        return None  # not holding above
+    last_bar = bars.iloc[-1]
+    if (float(last_bar["Close"]) - level) / level > PDH_RETEST_MAX_DISTANCE_PCT:
+        return None  # ran too far above
+    entry = round(float(last_bar["Close"]), 2)
+    stop = round(level * (1 - PDH_RETEST_STOP_OFFSET_PCT), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=other_emas,
+                               session_high=float(bars["High"].max()), breakout_triggered=True)
+    return AlertSignal(
+        symbol=symbol, alert_type=alert_type, direction="BUY",
+        price=last_bar["Close"], entry=entry, stop=stop, target_1=t1, target_2=t2,
+        confidence="high",
+        message=f"{label} breakout & retest — broke above ${level:.2f}, pulled back and holding",
+    )
+
+
+def check_rsi_oversold_turn(
+    symbol: str,
+    bars: pd.DataFrame,
+    rsi14: float | None,
+    rsi14_prev: float | None,
+    prior_day: dict | None = None,
+    other_emas: dict[str, float | None] | None = None,
+) -> AlertSignal | None:
+    """RSI 30-35 oversold turn — RSI reclaims the 30-35 zone from below.
+
+    Prior RSI was below 30 (oversold), now back into 30-35 — a momentum turn from
+    a washout. Long only. Stop = the session low (the washout low).
+    """
+    if rsi14 is None or rsi14_prev is None or bars.empty:
+        return None
+    if not (rsi14_prev < 30.0 and 30.0 <= rsi14 <= 35.0):
+        return None
+    last_bar = bars.iloc[-1]
+    entry = round(float(last_bar["Close"]), 2)
+    session_low = float(bars["Low"].min())
+    stop = round(min(session_low, entry * 0.99), 2)
+    stop = _cap_risk(entry, stop, symbol=symbol)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=other_emas)
+    return AlertSignal(
+        symbol=symbol, alert_type=AlertType.RSI_30_35, direction="BUY",
+        price=last_bar["Close"], entry=entry, stop=stop, target_1=t1, target_2=t2,
+        confidence="medium",
+        message=(f"RSI oversold turn — RSI reclaimed {rsi14:.0f} (from {rsi14_prev:.0f}), "
+                 f"momentum turning up from a washout"),
     )
 
 
@@ -8423,6 +8510,37 @@ def evaluate_rules(
             sig = check_pdh_retest_hold(
                 symbol, intraday_bars, prior_high,
                 prior_day=prior_day, ema100=ema100, ema200=ema200,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                if vwap_pos:
+                    sig.message += f" — price {vwap_pos}"
+                sig.message += caution_suffix
+                signals.append(sig)
+
+        # --- PWH / PMH Breakout & Retest (higher-timeframe levels) ---
+        _other_emas_br = {"EMA100": ema100, "EMA200": ema200}
+        for _br_at, _br_lvl, _br_lbl in [
+            (AlertType.PWH_BREAKOUT_RETEST, prior_day.get("prior_week_high"), "PWH"),
+            (AlertType.PMH_BREAKOUT_RETEST, prior_day.get("prior_month_high"), "PMH"),
+        ]:
+            if _br_at.value in ENABLED_RULES and _br_lvl:
+                sig = check_level_breakout_retest(
+                    symbol, intraday_bars, _br_lvl, _br_lbl, _br_at,
+                    prior_day=prior_day, other_emas=_other_emas_br,
+                )
+                if sig:
+                    sig.message += f" ({phase})"
+                    if vwap_pos:
+                        sig.message += f" — price {vwap_pos}"
+                    sig.message += caution_suffix
+                    signals.append(sig)
+
+        # --- RSI 30-35 oversold turn ---
+        if AlertType.RSI_30_35.value in ENABLED_RULES:
+            sig = check_rsi_oversold_turn(
+                symbol, intraday_bars, sym_rsi14, prior_day.get("rsi14_prev"),
+                prior_day=prior_day, other_emas=_other_emas_br,
             )
             if sig:
                 sig.message += f" ({phase})"

@@ -704,6 +704,10 @@ ENABLED_RULES: set[str] = {
     # "prior_day_low_bounce",
     "prior_day_high_breakout",
     "pdh_retest_hold",
+    # Higher-timeframe breakout-retest + RSI oversold turn (scanner scope, 2026-09)
+    "pwh_breakout_retest",
+    "pmh_breakout_retest",
+    "rsi_30_35",
 
     # ── LONG: multi-day support structure ───────────────────────────────────
     "multi_day_double_bottom",
