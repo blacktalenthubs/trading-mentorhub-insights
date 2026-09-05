@@ -32,7 +32,9 @@ AND last_close > L  (reclaimed — closed back above)
 AND close is not already far above L   (staleness guard)
 ```
 
-Entry = the level · Stop = below the reclaim wick · Long only.
+Entry = the reclaim close · Stop = 0.5% below the level (`MA_RECLAIM_STOP_OFFSET_PCT`,
+then risk-capped by `_cap_risk`) · Long only. Staleness guard: skipped if the close is
+already more than 1.5% above the level (`MA_RECLAIM_MAX_DISTANCE_PCT`).
 Chart-validated 2026-09-04: LRCX 100 EMA qualifies; MRVL 21 EMA (opened below →
 cross-up) is rejected.
 
@@ -72,13 +74,23 @@ the database and reached neither the feed nor the phone. Phase 2 closes that.
 bare rule key (`ma_reclaim_50`), so **every Phase-1 alert was filtered out of the
 Signals feed, the Alert Log and the in-app notification alike.**
 
-→ `isScannerEntry()` admits the scanner's long-entry rules: the MA ladder
-(`^(ma|ema)_(reclaim|bounce)_\d+$`) plus `prior_day_low_reclaim`,
-`prior_day_high_breakout`, `pdh_retest_hold`, `multi_day_double_bottom`,
-`inside_day_reclaim`, `vwap_reclaim`. Shorts, resistance and weekly/monthly NOTICE
-rules stay out — the redesign delivers long entries, and the feed shows the trade set.
-`style_for()` already classifies all of them as `day_trade`, so they land in the **Day**
-feed; the 200-level swing rules keep their Swing bucket.
+→ `isScannerEntry()` admits **exactly the redesign's live long-entry set — 14 types,
+nothing aspirational**: the open-above MA ladder (`^(ma|ema)_reclaim_\d+$`, 10 types)
+plus `prior_day_low_reclaim`, `prior_day_high_breakout`, `pdh_retest_hold` and
+`multi_day_double_bottom`. Every one is in `ENABLED_RULES` and can actually fire — a
+test enforces that, so a rule can't be added to the feed before it's enabled. Shorts,
+resistance, weekly/monthly NOTICE rules and the deprecated `*_bounce_*` ladder stay
+out.
+
+`style_for()` resolves **all 14** to `day_trade` — including `ma_reclaim_200` and
+`ema_reclaim_200`, which are NOT routed to Swing (`isSwingAlert` only marks the
+`ma_bounce_long_v3_*200` TradingView family as swing). The scanner's entire entry set
+lands in the **Day** feed; nothing from it reaches Swing.
+
+Every one of the 14 has a plain-English description, so its feed card carries an
+explanation subline: the ladder is described by rule in `describe_alert_type()` /
+`setupBlurb()`, the four named types by explicit entries in `ALERT_TYPE_DESCRIPTIONS`
+and the TS `NAMES` / `BLURB` maps.
 
 ### 2.2 Delivery is global
 
@@ -132,6 +144,62 @@ so the fast SMA reclaims could never fire.
 → `MA8` / `MA21` computed in `intraday_data.py` (both the Coinbase and the equity path),
 extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES`.
 
+### 2.6 The HTF bias gate is removed
+
+`should_gate_long()` blocked every long whenever the 4h read was BEAR and the 1h had
+not yet turned BULL. That is the shape of a washout — so the gate suppressed **the
+first reclaim off a flush**, which is the setup this redesign exists to catch. It let
+through only the later, more extended ones.
+
+It was also solving, coarsely and by trend, the question `check_ma_reclaim` now answers
+precisely and per setup: the day opened ABOVE the level, so the level was support, not
+resistance being ramped into. Two filters for one problem, the older one blunter.
+
+Worse, it was invisible: the gate `continue`d **before** the Alert row was written, so
+unlike every Phase-2 suppression it left no row and no `suppressed_reason` — a signal
+it ate could not be reviewed at all.
+
+→ The gate is gone from the poll loop. The 1h/4h bias is still computed and still feeds
+the 0–3 `confluence_score` (the Telegram 🟢/🟡 and the persisted column); it suppresses
+nothing. `should_gate_long` / `should_gate_short` remain in `analytics/htf_bias.py`,
+marked deprecated with their tests, as the record of the old behaviour — nothing calls
+them. The `HTF_BIAS_GATE_ENABLED` env var keeps its name (Railway backward compat) and
+now controls only whether the 1h/4h fetch happens at all.
+
+**Expect more entries per session.** What still limits them: the open-above rule itself,
+the 1.5% staleness guard, level-dedup, the confluence merge, 1/symbol/type/day, the
+30-minute burst cooldown and the 30-minute zone cluster.
+
+### 2.7 The final signal set (user, 2026-09)
+
+**Delivered — nothing else reaches the phone.**
+
+Longs (14), any symbol in `SCANNER_UNIVERSE`:
+`ma_reclaim_8/21/50/100/200`, `ema_reclaim_8/21/50/100/200`, `prior_day_low_reclaim`,
+`prior_day_high_breakout`, `pdh_retest_hold`, `multi_day_double_bottom`.
+
+Shorts (7), **index-only** — `SHORT_UNIVERSE = {SPY, QQQ, SMH}`:
+`pdh_rejection`, `ma_rejection_8/21/50`, `ema_rejection_8/21/50`.
+
+`check_ma_rejection` is the exact mirror of `check_ma_reclaim`: the symbol must have
+**opened BELOW** the level (so it was resistance overhead, not support being lost),
+rallied up to tag it, and closed back below. Entry = the rejection close, stop 0.5%
+above the level, same staleness guard. A short on any non-index symbol is recorded as
+`short_not_index` and never sent.
+
+**Stop and target hits are no longer delivered.** They stay in `ENABLED_RULES` so the
+trade lifecycle and P&L tracking keep recording, but delivery stamps them
+`exits_not_delivered`. Entries only.
+
+**Retired from the set:** all nine weekly/monthly rules (they only ever became NOTICEs
+with entry/stop/targets stripped — unreadable rows nobody could trade), plus
+`ema_rejection_short` (the un-gated 9-MA catch-all, superseded by the open-below
+ladder), `ema_overhead_resistance`, `pdh_failed_breakout`, `resistance_prior_high`,
+`prior_day_low_breakdown` and `prior_day_low_resistance`.
+
+`SMH` was added to `SCANNER_UNIVERSE` (39 symbols) — it was in the short set but not
+the evaluated universe, so it could never have fired.
+
 ## Files
 
 | File | Change |
@@ -140,8 +208,9 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 | `analytics/intraday_rules.py` | SMA 8/21 in the reclaim ladder |
 | `alert_config.py` | `ma_reclaim_8` / `ma_reclaim_21` enabled |
 | `alerting/notifier.py` | `_pretty_setup` names the MA ladder |
-| `api/app/background/monitor.py` | global delivery, confluence audit + label, suppressed_reason, push payload |
-| `api/app/models/alert_type_config.py` | `describe_alert_type` explains the ladder rules |
+| `api/app/background/monitor.py` | global delivery, confluence audit + label, suppressed_reason, push payload, HTF gate removed |
+| `analytics/htf_bias.py` | gate helpers deprecated — scoring only |
+| `api/app/models/alert_type_config.py` | `describe_alert_type` explains the ladder rules by regex + the six named scanner entries by table |
 | `web/src/lib/alertFormat.ts` | `isScannerEntry`, ladder names + blurbs |
 | `web/src/pages/TradingPageV2.tsx` | labels for the new suppression reasons |
 | `web/src/hooks/useSignalNotifications.ts` | confluence in the body; suppressed alerts stay silent |
@@ -149,8 +218,10 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 ## Tests
 
 `tests/test_ma_reclaim.py` (6) — the rule.
-`tests/test_scanner_delivery.py` (9) — the merge keeps its audit rows, the label fits
-its column, setup naming parity, SMA 8/21 wired end to end.
+`tests/test_scanner_delivery.py` (12) — the merge keeps its audit rows, the label fits
+its column, setup naming parity, SMA 8/21 wired end to end, and the feed contract:
+every type `isScannerEntry()` admits resolves to `day_trade`, carries a description,
+and is in `ENABLED_RULES`.
 
 `test_intraday_rules.py`: 635 pass, 4 fail — the same 4 SPY-regime failures as on `main`.
 

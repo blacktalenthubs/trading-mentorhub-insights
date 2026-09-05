@@ -515,6 +515,11 @@ SPY_SHORT_ENABLED = True       # feature flag
 SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
 SPY_SHORT_SYMBOLS = {"SPY", "QQQ", "AIQ", "NDX"}    # index/index-style symbols for short entries + NOTICE alerts
 
+# Scanner redesign (2026-09) — the ONLY symbols allowed to produce a short.
+# PDH rejection + the open-below 8/21/50 MA rejections, indexes only. Every
+# other symbol in SCANNER_UNIVERSE is long-only.
+SHORT_UNIVERSE = {"SPY", "QQQ", "SMH"}
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
@@ -702,32 +707,29 @@ ENABLED_RULES: set[str] = {
     # "morning_low_retest"         — overlaps with PDL bounce most days
     # "session_low_reversal"       — overlaps with double bottom
 
-    # ── Weekly/monthly levels — kept enabled but rewritten to NOTICE ────────
-    # See NOTICE_ONLY_RULES below. Rule fires, monitor.py downgrades to NOTICE
-    # and clears entry/stop/T1/T2 so they're heads-up only, never tradeable.
-    "weekly_level_touch",
-    "weekly_high_breakout",
-    "weekly_low_test",
-    "weekly_high_resistance",
-    "monthly_level_touch",
-    "monthly_high_breakout",
-    "monthly_low_test",
-    "monthly_ema_touch",
-    "monthly_high_resistance",
+    # ── Weekly/monthly levels — DISABLED (scanner redesign 2026-09) ─────────
+    # They only ever became NOTICEs: monitor.py stripped entry/stop/T1/T2 and
+    # entries-only delivery dropped them, so they were unreadable heads-up rows
+    # nobody could trade. The signal set is the entries below, nothing else.
+    # "weekly_level_touch", "weekly_high_breakout", "weekly_low_test",
+    # "weekly_high_resistance", "monthly_level_touch", "monthly_high_breakout",
+    # "monthly_low_test", "monthly_ema_touch", "monthly_high_resistance",
 
-    # ── SHORT: PDH-family rejections ────────────────────────────────────────
-    "pdh_failed_breakout",
-    "resistance_prior_high",
+    # ── SHORT: index-only (SHORT_UNIVERSE = SPY / QQQ / SMH) ────────────────
+    # PDH rejection + the open-below 8/21/50 MA rejections. The MA rejections
+    # mirror the long ladder exactly: opened BELOW the level (resistance),
+    # rallied up to tag it, closed back below.
     "pdh_rejection",
+    "ma_rejection_8", "ma_rejection_21", "ma_rejection_50",
+    "ema_rejection_8", "ema_rejection_21", "ema_rejection_50",
 
-    # ── SHORT: PDL-family breakdowns ────────────────────────────────────────
-    "prior_day_low_breakdown",
-    "prior_day_low_resistance",
-
-    # ── SHORT: EMA rejection (only the cleanest single rule) ────────────────
-    "ema_rejection_short",
-    # ── NOTICE: EMA acting as overhead resistance (Phase 5b heads-up) ───────
-    "ema_overhead_resistance",
+    # ── SHORT: DISABLED (scanner redesign 2026-09) ──────────────────────────
+    # Not in the agreed set — shorts are PDH rejection + the MA rejections only.
+    # "pdh_failed_breakout", "resistance_prior_high",
+    # "prior_day_low_breakdown", "prior_day_low_resistance",
+    # "ema_rejection_short"      — the un-gated 9-MA catch-all; no open-below
+    #                              test, superseded by ma_rejection_8/21/50.
+    # "ema_overhead_resistance"  — NOTICE, not a trade.
     # DISABLED Phase 3a:
     # "intraday_ema_rejection_short"        — overlap, lower trust
     # "hourly_resistance_rejection_short"   — hourly rejections too noisy

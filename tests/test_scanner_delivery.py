@@ -167,6 +167,133 @@ def test_sma_8_21_reclaim_fires():
     assert sig.direction == "BUY"
 
 
+# ── 4. Feed contract: every admitted type is a Day trade and explains itself ──
+
+# The types web/src/lib/alertFormat.ts::isScannerEntry admits to the feed.
+_SCANNER_FEED_TYPES = [
+    # Longs — any symbol in SCANNER_UNIVERSE.
+    "ma_reclaim_8", "ma_reclaim_21", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
+    "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    "prior_day_low_reclaim", "prior_day_high_breakout", "pdh_retest_hold",
+    "multi_day_double_bottom",
+    # Shorts — index-only (SHORT_UNIVERSE).
+    "pdh_rejection",
+    "ma_rejection_8", "ma_rejection_21", "ma_rejection_50",
+    "ema_rejection_8", "ema_rejection_21", "ema_rejection_50",
+]
+
+
+def test_every_scanner_entry_is_a_day_trade():
+    """All 16 land in the Day feed — including the 200s, which are NOT swings here."""
+    sys.path.insert(0, str(_ROOT / "api"))
+    from app.models.alert_type_config import style_for
+
+    for t in _SCANNER_FEED_TYPES:
+        assert style_for(t) == "day_trade", f"{t} would land in the {style_for(t)} feed"
+
+
+def test_every_scanner_entry_has_a_description():
+    """A feed card with no explanation subline is the thing this redesign removed."""
+    sys.path.insert(0, str(_ROOT / "api"))
+    from app.models.alert_type_config import describe_alert_type
+
+    missing = [t for t in _SCANNER_FEED_TYPES if not describe_alert_type(t)]
+    assert not missing, f"no plain-English description for: {missing}"
+
+
+def test_every_feed_type_can_actually_fire():
+    """Nothing reaches the feed allow-list that ENABLED_RULES can't produce.
+
+    The allow-list is the redesign's live entry set — no aspirational rules.
+    """
+    for t in _SCANNER_FEED_TYPES:
+        assert t in ENABLED_RULES, f"{t} is in the feed allow-list but can never fire"
+
+
+# ── 5. The index shorts — open-BELOW rejection, the mirror of the reclaim ──
+
+
+def test_rejection_qualifies_open_below_rally_reject():
+    """SPY-style: opened below the 21 EMA, rallied to tag it, closed back below."""
+    from analytics.intraday_rules import check_ma_rejection
+
+    lvl = 670.00
+    bars = pd.DataFrame([
+        {"Open": 666.0, "High": 667.5, "Low": 665.0, "Close": 667.0, "Volume": 1000},
+        {"Open": 667.0, "High": 670.40, "Low": 666.8, "Close": 669.0, "Volume": 1000},
+        {"Open": 669.0, "High": 669.4, "Low": 667.9, "Close": 668.2, "Volume": 1000},
+    ])
+    sig = check_ma_rejection("SPY", bars, lvl, "EMA21",
+                             AlertType.EMA_REJECTION_21, today_open=666.0)
+    assert sig is not None
+    assert sig.direction == "SHORT"
+    assert sig.entry < lvl < sig.stop  # entry below the level, stop above it
+
+
+def test_rejection_rejects_open_above():
+    """Opened ABOVE the level then lost it — that's a breakdown, not a rejection."""
+    from analytics.intraday_rules import check_ma_rejection
+
+    lvl = 670.00
+    bars = pd.DataFrame([
+        {"Open": 672.0, "High": 673.0, "Low": 669.0, "Close": 670.5, "Volume": 1000},
+        {"Open": 670.5, "High": 671.0, "Low": 667.0, "Close": 668.0, "Volume": 1000},
+    ])
+    sig = check_ma_rejection("SPY", bars, lvl, "EMA21",
+                             AlertType.EMA_REJECTION_21, today_open=672.0)
+    assert sig is None  # open was above → the level was support, not resistance
+
+
+def test_rejection_needs_the_level_tagged():
+    """Opened below and stayed below without reaching it — nothing was rejected."""
+    from analytics.intraday_rules import check_ma_rejection
+
+    lvl = 670.00
+    bars = pd.DataFrame([
+        {"Open": 660.0, "High": 662.0, "Low": 659.0, "Close": 661.0, "Volume": 1000},
+        {"Open": 661.0, "High": 663.0, "Low": 660.0, "Close": 662.0, "Volume": 1000},
+    ])
+    sig = check_ma_rejection("SPY", bars, lvl, "EMA21",
+                             AlertType.EMA_REJECTION_21, today_open=660.0)
+    assert sig is None
+
+
+def test_shorts_are_index_only():
+    """SHORT_UNIVERSE is the whole short surface — and lives inside the scanner's."""
+    sys.path.insert(0, str(_ROOT / "api"))
+    from alert_config import SHORT_UNIVERSE
+
+    assert SHORT_UNIVERSE == {"SPY", "QQQ", "SMH"}
+    src = (_ROOT / "api" / "app" / "background" / "monitor.py").read_text()
+    for sym in SHORT_UNIVERSE:
+        assert f'"{sym}"' in src, f"{sym} must be in SCANNER_UNIVERSE to be evaluated"
+    # A short on any other symbol is recorded, never delivered.
+    assert 'short_not_index' in src
+
+
+def test_exits_are_recorded_but_never_delivered():
+    """Entries only (user 2026-09) — no stop or target pushes."""
+    src = (_ROOT / "api" / "app" / "background" / "monitor.py").read_text()
+    assert 'exits_not_delivered' in src
+    # …but the exit rules stay enabled so the trade lifecycle still records.
+    for t in ("stop_loss_hit", "target_1_hit", "target_2_hit", "auto_stop_out"):
+        assert t in ENABLED_RULES
+
+
+def test_no_htf_gate_in_the_poll_loop():
+    """The HTF bias gate is gone — it ate the first reclaim off a washout.
+
+    "4h BEAR and 1h not yet BULL" describes a flush, so the gate suppressed
+    exactly the setup the open-above reclaim is built to catch. The bias is
+    still computed for the confluence score; it must not suppress anything.
+    """
+    src = (_ROOT / "api" / "app" / "background" / "monitor.py").read_text()
+    assert "should_gate_long" not in src
+    assert "should_gate_short" not in src
+    # …but the confluence score it feeds is still stamped on every signal.
+    assert "_confluence_score = confluence_score(" in src
+
+
 def test_daily_data_exposes_sma_8_21():
     """prior_day must carry ma8/ma21 or the ladder pairs are always None."""
     import inspect

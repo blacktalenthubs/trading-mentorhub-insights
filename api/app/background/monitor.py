@@ -25,8 +25,6 @@ from analytics.htf_bias import (  # noqa: E402
     HTFBias,
     compute_htf_bias,
     confluence_score,
-    should_gate_long,
-    should_gate_short,
 )
 from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, evaluate_rules  # noqa: E402
@@ -34,11 +32,14 @@ from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  
 
 logger = logging.getLogger("monitor")
 
-# Phase 2 (2026-04-23) — HTF bias gate env flag. Default on; set to "false"
-# on Railway to bypass 1h/4h trend gating without a redeploy if it's blocking
-# trades we wanted.
+# HTF bias — the 1h/4h trend read. It no longer GATES anything (the gate was
+# removed in the scanner redesign, 2026-09); it feeds the 0-3 confluence score
+# stamped on every signal. Env var name kept as HTF_BIAS_GATE_ENABLED for Railway
+# backward compat — renaming it would silently ignore an existing false override.
+# Set false to skip the 1h/4h fetch entirely: bias reads NEUTRAL and every signal
+# scores the baseline 1, exactly as it did with the flag off before.
 import os as _os_htf  # noqa: E402
-_HTF_BIAS_GATE_ENABLED = _os_htf.environ.get("HTF_BIAS_GATE_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
+_HTF_BIAS_ENABLED = _os_htf.environ.get("HTF_BIAS_GATE_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
 
 # Phase 3a (2026-04-23 evening) — NOTICE-only rule rewriter env flag. Default
 # on; set to "false" on Railway to let weekly/monthly rules fire as full
@@ -110,6 +111,9 @@ SCANNER_UNIVERSE: list[str] = [
     "MRNA", "COHR", "BTC-USD", "QQQ", "JPM", "HOOD", "GOOGL", "MSFT", "PLTR", "SPCX",
     "NOW", "LLY", "SPOT", "ANET", "NBIS", "SHOP", "CRWD", "NVDA", "AMZN", "APP",
     "RKLB", "TSLA", "XLI", "SPY", "AVGO", "CRCL", "MSTR", "AAPL",
+    # Added 2026-09 for the index short set (SHORT_UNIVERSE = SPY/QQQ/SMH) —
+    # SPY and QQQ were already here; SMH was not, so it could never be evaluated.
+    "SMH",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
@@ -328,10 +332,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
             intraday_cache[symbol] = fetch_intraday_crypto(symbol) if _crypto else fetch_intraday(symbol)
             prior_day_cache[symbol] = fetch_prior_day(symbol, is_crypto=_crypto)
 
-            # Phase 2 (2026-04-23) — HTF bias: fetch 1h + 4h bars once per symbol
-            # per poll and compute BULL/BEAR/NEUTRAL per timeframe. Cached here so
-            # every user evaluating this symbol shares the result.
-            if _HTF_BIAS_GATE_ENABLED:
+            # HTF bias: fetch 1h + 4h bars once per symbol per poll and compute
+            # BULL/BEAR/NEUTRAL per timeframe. Cached here so every user evaluating
+            # this symbol shares the result. Scoring only — it gates nothing.
+            if _HTF_BIAS_ENABLED:
                 try:
                     _bars_1h = fetch_intraday(symbol, period="5d", interval="1h")
                     if _crypto:
@@ -634,8 +638,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     _bias = htf_bias_cache.get(symbol) or HTFBias()
                     _kept_signals = []
                     for _sig in signals:
-                        # Phase 3a — rewrite weekly/monthly rules to NOTICE first
-                        # so the HTF gate sees the final direction.
+                        # Phase 3a — rewrite weekly/monthly rules to NOTICE.
                         _alert_type_str = _sig.alert_type.value
                         if _NOTICE_ONLY_RULES_ENABLED and _alert_type_str in NOTICE_ONLY_RULES:
                             _sig.direction = "NOTICE"
@@ -645,19 +648,18 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _sig.target_2 = None
 
                         _dir = (_sig.direction or "").upper()
-                        if _HTF_BIAS_GATE_ENABLED and _dir != "NOTICE":
-                            if _dir in ("BUY", "LONG") and should_gate_long(_bias):
-                                logger.info(
-                                    "HTF GATE: %s %s suppressed — 4H=%s 1H=%s",
-                                    symbol, _sig.alert_type.value, _bias.htf_4h, _bias.htf_1h,
-                                )
-                                continue
-                            if _dir == "SHORT" and should_gate_short(_bias):
-                                logger.info(
-                                    "HTF GATE: %s %s suppressed — 4H=%s 1H=%s",
-                                    symbol, _sig.alert_type.value, _bias.htf_4h, _bias.htf_1h,
-                                )
-                                continue
+                        # HTF BIAS GATE REMOVED (scanner redesign, 2026-09).
+                        # It blocked a long whenever 4h was BEAR and 1h had not yet
+                        # turned BULL — which is the exact shape of a washout, and so
+                        # of the first reclaim off one. That is the setup the redesign
+                        # is built to catch, so the gate was eating its best entries.
+                        # It was also the trend-based proxy for a question the
+                        # open-above rule now answers structurally per setup: the day
+                        # opened ABOVE the level, so the level was support, not
+                        # resistance being ramped into. The bias is still computed —
+                        # it feeds the 0-3 confluence score below (the Telegram
+                        # 🟢/🟡 and the persisted confluence_score) — it just no
+                        # longer suppresses anything.
                         _sig._confluence_score = confluence_score(_dir, _bias)
                         _kept_signals.append(_sig)
                     signals = _kept_signals
@@ -962,38 +964,55 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         # Set upstream by _merge_confluence — recorded, never delivered.
                         _send_notification = False
 
-                    # Scanner redesign — deliver LONG ENTRIES ONLY. Drop
-                    # resistance/notice/short delivery entirely; keep the exit
-                    # lifecycle (stop/target) which is separately gated to users
-                    # with an open trade below.
+                    # ── What gets delivered (2026-09, user): ENTRIES ONLY ─────
+                    #   • the 14 long entries, any symbol in SCANNER_UNIVERSE
+                    #   • shorts ONLY on the index set (SHORT_UNIVERSE) — PDH
+                    #     rejection + the open-below 8/21/50 MA rejections
+                    #   • NOTHING else. Stop and target hits are still RECORDED
+                    #     (the trade lifecycle and P&L tracking need them) but
+                    #     are never pushed — the user asked for entries only.
+                    from alert_config import SHORT_UNIVERSE
+                    _dir_up = (signal.direction or "").upper()
                     _is_exit = _at_val in EXIT_ALERT_TYPES
-                    if _send_notification and (signal.direction or "").upper() != "BUY" and not _is_exit:
-                        _send_notification = False
-                        _suppressed = "not_long_entry"
+                    if _send_notification:
+                        if _is_exit:
+                            _send_notification = False
+                            _suppressed = "exits_not_delivered"
+                        elif _dir_up == "SHORT":
+                            if symbol.upper() not in SHORT_UNIVERSE:
+                                _send_notification = False
+                                _suppressed = "short_not_index"
+                        elif _dir_up != "BUY":
+                            _send_notification = False
+                            _suppressed = "not_an_entry"
 
                     # 1 alert / stock / TYPE / day — same entry type on the same
                     # stock fires once per session, regardless of price.
+                    # Entries include the index shorts now, so every dedup below
+                    # applies to both directions — a short gets the same
+                    # once-per-type-per-day and cooldown discipline as a long.
+                    _is_entry = _dir_up in ("BUY", "SHORT")
                     _etd_key = (user_id, symbol, _at_val)
-                    if _send_notification and signal.direction == "BUY" and _etd_key in _entry_type_day:
+                    if _send_notification and _is_entry and _etd_key in _entry_type_day:
                         _send_notification = False
                         _suppressed = "dedup_type_day"
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
                                     user_id, symbol, _at_val)
 
-                    # Burst cooldown: suppress rapid BUY notification spam
-                    if _send_notification and signal.direction == "BUY":
+                    # Burst cooldown: suppress rapid entry notification spam
+                    if _send_notification and _is_entry:
                         _prev = _last_buy_notify.get(symbol)
                         _now = datetime.utcnow()
                         if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
                             _send_notification = False
                             _suppressed = "dedup_cooldown"
                             logger.info(
-                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last BUY)",
+                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last entry)",
                                 user_id, symbol, _at_val, (_now - _prev).total_seconds(),
                             )
 
-                    # Track BUY notification time for burst cooldown
-                    if _send_notification and signal.direction == "BUY":
+                    # Track entry notification time for burst cooldown
+                    if _send_notification and _is_entry:
                         _last_buy_notify[symbol] = datetime.utcnow()
 
                     # Zone clustering: suppress redundant directional signals at same price zone
@@ -1013,7 +1032,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                     # Record the per-day entry-type fire so it can't repeat today
                     # (1 alert / stock / type / day).
-                    if _send_notification and signal.direction == "BUY":
+                    if _send_notification and _is_entry:
                         _entry_type_day.add(_etd_key)
 
                     # Stamp WHY it didn't send on the row itself. The feed's clean

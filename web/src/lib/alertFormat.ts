@@ -22,11 +22,12 @@ export function formatSetup(alertType?: string): string {
   const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (!t) return "Signal";
   const swing = (name: string) => (isSwingAlert(alertType) ? `SWING · ${name}` : name);
-  // Scanner MA ladder — ma_reclaim_50 -> "50 SMA Reclaim", ema_bounce_21 -> "21 EMA Bounce".
-  // Mirrors _pretty_setup() in alerting/notifier.py so the feed, Telegram and the
-  // push notification all name the setup identically. Matched before the v3 family
-  // so these don't fall through to the raw title-case ("Ema Reclaim 21").
-  const ladder = t.match(/^(ma|ema)_(reclaim|bounce)_(\d{1,3})$/);
+  // Scanner MA ladder, both directions — ma_reclaim_50 -> "50 SMA Reclaim",
+  // ema_rejection_21 -> "21 EMA Rejection". Mirrors _pretty_setup() in
+  // alerting/notifier.py so the feed, Telegram and the push notification all name
+  // the setup identically. Matched before the v3 family so these don't fall
+  // through to the raw title-case ("Ema Reclaim 21").
+  const ladder = t.match(/^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
     const kind = ladder[1] === "ma" ? "SMA" : "EMA";
     const verb = ladder[2].charAt(0).toUpperCase() + ladder[2].slice(1);
@@ -121,6 +122,13 @@ export function formatSetup(alertType?: string): string {
     // These are only the fallback when that text is missing.
     last4h_long: "Last 4H reclaim / break",
     last4h_short: "Last 4H reject / breakdown",
+    // Scanner long entries (scanner redesign) — the non-ladder rules the Day feed
+    // shows. Without these the card falls back to raw title-case.
+    prior_day_low_reclaim: "PDL reclaim",
+    prior_day_high_breakout: "PDH breakout",
+    pdh_retest_hold: "PDH retest / hold",
+    multi_day_double_bottom: "Double bottom",
+    pdh_rejection: "PDH rejection",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
@@ -188,15 +196,20 @@ export function setupBlurb(alertType?: string): string {
           : `${sm[3].replace(/_/g, " ")} the ${lvl} ${hl}`;
     return `Price ${act}.`;
   }
-  // Scanner MA ladder → the open-above reclaim, spelled out. This is the redesign's
-  // core rule: the level was SUPPORT at the open, not resistance being ramped into.
-  const ladder = t.match(/^(ma|ema)_(reclaim|bounce)_(\d{1,3})$/);
+  // Scanner MA ladder, spelled out — the redesign's core rule and its mirror.
+  // Long: the level was SUPPORT at the open, not resistance being ramped into.
+  // Short: the level was RESISTANCE at the open, not support being lost.
+  const ladder = t.match(/^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
     const kind = ladder[1] === "ma" ? "SMA" : "EMA";
     const lvl = `${ladder[3]} ${kind}`;
-    return ladder[2] === "reclaim"
-      ? `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the level, stop below the reclaim wick.`
-      : `Pulled back to the ${lvl} and bounced off it.`;
+    if (ladder[2] === "reclaim") {
+      return `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the reclaim close, stop 0.5% below the level.`;
+    }
+    if (ladder[2] === "rejection") {
+      return `Opened BELOW the ${lvl}, rallied up to tag it, and closed back below — the level held as resistance. Entry = the rejection close, stop 0.5% above the level. Index-only (SPY/QQQ/SMH).`;
+    }
+    return `Pulled back to the ${lvl} and bounced off it.`;
   }
   const BLURB: Record<string, string> = {
     pq_reclaim: "Undercut the prior-quarter LOW (the low of the candle) and closed back above it — a bottom-bounce swing. Low only; no close/high.",
@@ -245,6 +258,13 @@ export function setupBlurb(alertType?: string): string {
     weekly_10w_reclaim: "Reclaimed the 10-week moving average.",
     weekly_30w_held: "Held the 30-week moving average as support.",
     weekly_30w_reclaim: "Reclaimed the 30-week moving average.",
+    // Scanner long entries — mirrors ALERT_TYPE_DESCRIPTIONS in
+    // api/app/models/alert_type_config.py.
+    prior_day_low_reclaim: "Dipped below yesterday's low and closed back above it — the breakdown failed. Entry = the reclaim close, stop 0.5% below the level.",
+    prior_day_high_breakout: "Broke above yesterday's high on confirming volume — resistance taken out.",
+    pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
+    multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
+    pdh_rejection: "Rallied up to yesterday's high, tagged it and closed back below — the level held as resistance. Index-only (SPY/QQQ/SMH).",
   };
   return BLURB[t] ?? "";
 }
@@ -260,11 +280,13 @@ const SCANNER_ENTRY_TYPES = new Set([
   "prior_day_high_breakout",
   "pdh_retest_hold",
   "multi_day_double_bottom",
-  "inside_day_reclaim",
-  "vwap_reclaim",
+  // Index-only shorts (SPY / QQQ / SMH).
+  "pdh_rejection",
 ]);
-/** ma_reclaim_50 / ema_reclaim_21 / ma_bounce_100 … — the MA ladder rules. */
-const SCANNER_LADDER_RE = /^(ma|ema)_(reclaim|bounce)_\d{1,3}$/;
+/** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, and its short
+ *  mirror ma_rejection_8/21/50 (open-BELOW, index-only). Reclaims/rejections
+ *  only: the bounce rules were deprecated by the redesign and cannot fire. */
+const SCANNER_LADDER_RE = /^(ma|ema)_(reclaim|rejection)_\d{1,3}$/;
 
 export function isScannerEntry(alertType?: string): boolean {
   const t = alertType ?? "";

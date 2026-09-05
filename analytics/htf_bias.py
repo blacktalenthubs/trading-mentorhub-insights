@@ -5,12 +5,15 @@ OHLC bars on EMA-20 position + a 3-bar higher-lows/lower-highs pattern and
 returns 'BULL', 'BEAR', or 'NEUTRAL' per timeframe.
 
 Used in `api/app/background/monitor.py` after `evaluate_rules()` returns a
-list of signals — counter-trend signals (e.g. 5-min MA20 bounce LONG in a
-4h BEAR trend) are suppressed, and the 0–3 confluence score is attached
-to every surviving signal so the Telegram 🟢/🟡 emoji lights up.
+list of signals: the 0–3 confluence score is attached to every signal so the
+Telegram 🟢/🟡 emoji lights up.
 
-Pure Python, zero Anthropic calls. Enabled/disabled via env var
-HTF_BIAS_GATE_ENABLED (default True).
+The GATING half was removed in the scanner redesign (2026-09) — see
+`should_gate_long` below. Nothing suppresses signals on HTF bias any more.
+
+Pure Python, zero Anthropic calls. The 1h/4h fetch is skipped (bias reads
+NEUTRAL) via env var HTF_BIAS_GATE_ENABLED=false; name kept for Railway
+backward compat.
 """
 from __future__ import annotations
 
@@ -93,6 +96,13 @@ def compute_htf_bias(
 def should_gate_long(bias: HTFBias) -> bool:
     """True when a LONG entry should be blocked.
 
+    DEPRECATED (scanner redesign, 2026-09) — NOTHING CALLS THIS. The monitor no
+    longer gates on HTF bias: "4h BEAR and 1h not yet BULL" is the shape of a
+    washout, so the gate suppressed the first reclaim off one — the setup the
+    redesign exists to catch. The open-above rule in check_ma_reclaim answers the
+    counter-trend question structurally instead. Kept (with its tests) as the
+    record of the old behaviour; do not re-wire it without that context.
+
     Gate fires when the 4h trend is BEAR AND 1h has not yet turned BULL
     (i.e. no sign of a tactical bottom inside the larger downtrend).
     NEUTRAL on either timeframe is pass-through.
@@ -101,7 +111,10 @@ def should_gate_long(bias: HTFBias) -> bool:
 
 
 def should_gate_short(bias: HTFBias) -> bool:
-    """True when a SHORT entry should be blocked (inverse of should_gate_long)."""
+    """True when a SHORT entry should be blocked (inverse of should_gate_long).
+
+    DEPRECATED — nothing calls this either; see should_gate_long above.
+    """
     return bias.htf_4h == BULL and bias.htf_1h != BEAR
 
 
