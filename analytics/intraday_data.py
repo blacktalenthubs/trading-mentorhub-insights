@@ -989,11 +989,26 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         if is_crypto:
             coinbase_hist = _fetch_coinbase_candles(symbol, granularity=86400, num_candles=250)
             if not coinbase_hist.empty and len(coinbase_hist) >= 3:
-                # Coinbase bars are ET-naive after _fetch_coinbase_candles converts them.
-                # Compare with ET "today" so we pick the right daily bar.
+                # Coinbase DAILY candles are bucketed at 00:00 UTC, but
+                # _fetch_coinbase_candles converts every index to ET-naive. That
+                # shift moves today's bar back onto YESTERDAY's ET date (00:00 UTC
+                # = 20:00 ET the day before), so comparing it against ET "today"
+                # always read false and the picker took hist.iloc[-1] — TODAY'S
+                # PARTIAL BAR — as the prior day. PDH/PDL then tracked the current
+                # session's own high/low, and pdh_rejection fired the moment price
+                # ticked down off its own high (BTC 2026-09-05: reported PDH
+                # $79,754 against a real prior-day high of $81,426).
+                # Compare UTC bucket date against UTC today. The offset is read
+                # live so it stays correct across DST.
                 hist = coinbase_hist[["Open", "High", "Low", "Close", "Volume"]].copy()
                 today = pd.Timestamp.now(tz=ET).normalize().tz_localize(None)
                 last_bar_date = hist.index[-1].normalize()
+                # Bar-pick comparison ONLY. last_bar_date above stays ET-shifted
+                # because the weekly/monthly resamples below are built from the
+                # same shifted index and must be compared like with like.
+                _et_off = pd.Timestamp.now(tz=ET).utcoffset()
+                _today_utc = pd.Timestamp.now(tz="UTC").normalize().tz_localize(None)
+                _bar_utc_date = (hist.index[-1] - _et_off).normalize()
 
                 # Compute MAs on full history
                 # Scanner redesign (2026-09) — SMA 8/21 feed ma_reclaim_8 / ma_reclaim_21.
@@ -1021,7 +1036,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 ], axis=1).max(axis=1)
                 hist["ATR14"] = _tr.rolling(14).mean()
 
-                if last_bar_date >= today:
+                if _bar_utc_date >= _today_utc:
                     last = hist.iloc[-2]
                     prev = hist.iloc[-3]
                 else:
