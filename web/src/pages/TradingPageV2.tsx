@@ -366,6 +366,11 @@ const NOT_ROUTED_LABELS: Record<string, string> = {
   ma_symbol_filter: "MA allowlist",
   orl_symbol_filter: "ORL allowlist",
   htf_sr_symbol_filter: "HTF allowlist",
+  // Scanner redesign Phase 2 — the scanner now stamps WHY it held a signal back.
+  not_long_entry: "not a long entry",
+  dedup_type_day: "already fired today",
+  dedup_zone: "same zone",
+  not_delivered: "not sent",
 };
 function notRoutedLabel(reason?: string | null): string | null {
   if (!reason) return null;
@@ -383,7 +388,12 @@ function collapsedLabel(reason?: string | null): string | null {
   if (base === "dedup_confluence") return `merged · $${anchor}`;
   if (base === "dedup_chase") return `chase · ≥ $${anchor}`;
   if (base === "dedup_cooldown") return "cooldown · < 30m";
-  if (base === "confluence_collapsed") return "same-bar";
+  // confluence_collapsed:<winner> — the TradingView path anchors it on the prior
+  // type, the scanner on the rule that WON the merge. Name the winner when we can
+  // so the merge reads as "this folded into that", not an anonymous "same-bar".
+  if (base === "confluence_collapsed") {
+    return anchor ? `merged into ${formatSetup(anchor)}` : "same-bar";
+  }
   if (reason === "late_session") return "late session";
   return null;
 }

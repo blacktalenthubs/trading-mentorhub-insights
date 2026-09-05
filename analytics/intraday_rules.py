@@ -7950,6 +7950,10 @@ def evaluate_rules(
 
     signals: list[AlertSignal] = []
     last_bar = intraday_bars.iloc[-1]
+    # Scanner redesign (2026-09) — SMA 8/21 complete the reclaim ladder
+    # (ma_reclaim_8 / ma_reclaim_21). Sourced from prior_day like the rest.
+    ma8 = prior_day.get("ma8")
+    ma21 = prior_day.get("ma21")
     ma20 = prior_day.get("ma20")
     ma50 = prior_day.get("ma50")
     ma100 = prior_day.get("ma100")
@@ -8542,6 +8546,8 @@ def evaluate_rules(
         # Phase 3b — EMA8 / EMA21 reclaims added (final EMA set 8/21/50/100/200).
         # EMA20 reclaim kept here for backwards compat but disabled in ENABLED_RULES.
         _reclaim_pairs = [
+            (AlertType.MA_RECLAIM_8, ma8, "8MA"),
+            (AlertType.MA_RECLAIM_21, ma21, "21MA"),
             (AlertType.MA_RECLAIM_20, ma20, "20MA"),
             (AlertType.MA_RECLAIM_50, ma50, "50MA"),
             (AlertType.MA_RECLAIM_100, ma100, "100MA"),

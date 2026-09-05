@@ -676,7 +676,11 @@ ENABLED_RULES: set[str] = {
     # DISABLED Phase 3b:
     # "ema_reclaim_20"  — superseded by ema_reclaim_21
 
-    # ── LONG: SMA reclaims (50/100/200) — Phase 5c, same rationale as bounces
+    # ── LONG: SMA reclaims (8/21/50/100/200) — Phase 5c, same rationale as bounces.
+    # Scanner redesign (2026-09): 8/21 added — the enums shipped in Phase 1 but
+    # were never wired, so the fast SMA reclaims could not fire at all.
+    "ma_reclaim_8",
+    "ma_reclaim_21",
     "ma_reclaim_50",
     "ma_reclaim_100",
     "ma_reclaim_200",

@@ -120,14 +120,49 @@ _entry_type_day: set = set()
 _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 
 
+def _setup_name(alert_type: str) -> str:
+    """Human setup title for a rule key — "ma_reclaim_50" → "50 SMA Reclaim".
+
+    Delegates to the notifier's _pretty_setup so the feed, Telegram and the iOS
+    push all name a setup identically (it mirrors web/src/lib/alertFormat.ts).
+    Falls back to title-case if the notifier can't be imported.
+    """
+    try:
+        from alerting.notifier import _pretty_setup
+        return _pretty_setup(alert_type)
+    except Exception:
+        return (alert_type or "").replace("_", " ").title()
+
+
+def _confluence_token(alert_type: str) -> str:
+    """Compact factor name for the confluence label — "50 EMA", "Double bottom".
+
+    Alert.confluence_label is String(50), so the label drops the verb every factor
+    shares ("Reclaim") and keeps what distinguishes them. The full sentence stays
+    in the alert message.
+    """
+    import re as _re
+    m = _re.match(r"^(ma|ema)_(?:reclaim|bounce)_(\d{1,3})$", alert_type or "")
+    if m:
+        return f"{m.group(2)} {'SMA' if m.group(1) == 'ma' else 'EMA'}"
+    return _setup_name(alert_type)
+
+
 def _merge_confluence(signals: list) -> list:
     """Collapse BUY entries at the SAME price level into one confluence alert.
 
     Group BUY signals whose entry prices are within _CONFLUENCE_PCT of each other;
-    keep the highest-confidence one, fold the others' rule names into its message,
-    stamp a confluence count, and mark it high-confidence. Non-BUY signals and lone
-    entries pass through unchanged. Example: double-bottom @ 769.21 + 21 SMA reclaim
-    @ 769.18 → one "… · confluence ×2: multi_day_double_bottom, ma_reclaim_21".
+    keep the highest-confidence one, fold the others' HUMAN setup names into its
+    message + `_confluence_label`, and mark it high-confidence. Non-BUY signals and
+    lone entries pass through unchanged. Example: double-bottom @ 769.21 + 21 SMA
+    reclaim @ 769.18 → one "… · confluence ×2: Multi-day double bottom + 21 SMA
+    Reclaim".
+
+    Phase 2: the collapsed siblings are NOT dropped — they stay in the returned list
+    carrying `_suppressed_reason = "confluence_collapsed:<winner_type>"` so each one
+    still records an Alert row. The feed's "Show collapsed" toggle then renders them
+    as "merged", exactly as it already does for the TradingView path
+    (tv_webhook.py's confluence_collapsed). Delivery is skipped for them.
     """
     buys = [s for s in signals
             if (getattr(s, "direction", "") or "").upper() == "BUY"
@@ -152,10 +187,25 @@ def _merge_confluence(signals: list) -> list:
             merged.append(group[0])
         else:
             base = max(group, key=lambda s: _rank.get(s.confidence, 0))
-            labels = ", ".join(g.alert_type.value for g in group)
-            base.message = (base.message or "") + f" · confluence ×{len(group)}: {labels}"
+            names = [_setup_name(g.alert_type.value) for g in group]
+            base.message = (
+                (base.message or "") + f" · confluence ×{len(group)}: " + " + ".join(names)
+            )
             base.confidence = "high"
+            # Persisted on the Alert row → AlertCard renders "• Confluence: …".
+            # Column is String(50): use the compact factor names, and if even those
+            # don't fit, say how many stacked rather than truncate mid-word.
+            _label = " + ".join(_confluence_token(g.alert_type.value) for g in group)
+            if len(_label) > 50:
+                _label = f"×{len(group)} at ${float(base.entry):.2f}"[:50]
+            base._confluence_label = _label
             merged.append(base)
+            # Keep the losers for the audit trail — recorded, never delivered.
+            for g in group:
+                if g is base:
+                    continue
+                g._suppressed_reason = f"confluence_collapsed:{base.alert_type.value}"
+                merged.append(g)
     return merged + others
 
 
@@ -416,37 +466,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         if k[0] != sym or k[1] in _sell_types
                     }
 
-            # Load alert category preferences for this user
-            try:
-                from app.models.alert_prefs import UserAlertCategoryPref
-                from alert_config import ALERT_TYPE_TO_CATEGORY, EXIT_ALERT_TYPES
-                pref_rows = db.execute(
-                    select(UserAlertCategoryPref.category_id, UserAlertCategoryPref.enabled).where(
-                        UserAlertCategoryPref.user_id == user_id
-                    )
-                ).all()
-                _cat_prefs = {r[0]: bool(r[1]) for r in pref_rows}
-                # Per-TYPE preferences (the Settings "Alert Types" toggles). When a
-                # user has set ANY per-type toggle they've opted into per-type
-                # control: an explicit row wins, and a catalogued type with no row
-                # is OFF. Users who have never touched per-type stay on the legacy
-                # category behaviour (empty dict → category gate below).
-                from app.models.alert_type_pref import UserAlertTypePref
-                _tp_rows = db.execute(
-                    select(UserAlertTypePref.alert_type, UserAlertTypePref.enabled).where(
-                        UserAlertTypePref.user_id == user_id
-                    )
-                ).all()
-                _type_prefs = {r[0]: bool(r[1]) for r in _tp_rows}
-                # Get min_score from user
-                _user_row = db.execute(
-                    select(User.min_alert_score).where(User.id == user_id)
-                ).scalar_one_or_none()
-                _min_score = _user_row or 0
-            except Exception:
-                _cat_prefs = {}
-                _type_prefs = {}
-                _min_score = 0
+            # Scanner redesign Phase 2 — delivery is GLOBAL. The per-user category
+            # prefs, per-type toggles and min_score gate are no longer read here:
+            # the universe (SCANNER_UNIVERSE) and the rule set (ENABLED_RULES) are
+            # hardcoded, so what fires is what delivers. Those Settings rows still
+            # exist and still drive the TradingView webhook path — this is the
+            # scanner path only. Imported outside a try so a failure can never leave
+            # EXIT_ALERT_TYPES undefined for the delivery gate below.
+            from alert_config import EXIT_ALERT_TYPES
 
             for symbol in symbols:
                 # Skip symbols whose market is closed (crypto always passes)
@@ -748,7 +775,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # LEVEL_DEDUP_WINDOW_MIN minutes. Fixes AAPL 04-22 case where
                     # weekly_high_breakout + pdh_retest_hold + prior_day_high_breakout
                     # all fired at $272.30 within 96 min.
-                    if signal.direction in ("BUY", "SHORT") and signal.entry and signal.entry > 0:
+                    # A confluence-collapsed sibling is BY DEFINITION at the winner's
+                    # level, so the level-dedup below would drop it before it could be
+                    # recorded. Skip the check for it (it never delivers anyway) and
+                    # don't let it into the lock window either — otherwise the audit
+                    # row it exists for is silently lost.
+                    _pre_suppressed = bool(getattr(signal, "_suppressed_reason", None))
+                    if (signal.direction in ("BUY", "SHORT") and signal.entry
+                            and signal.entry > 0 and not _pre_suppressed):
                         _level_key = (symbol, signal.direction)
                         _now_ld = datetime.utcnow()
                         _window = _level_lock.get(_level_key, [])
@@ -771,13 +805,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _window.append((float(signal.entry), _now_ld))
                         _level_lock[_level_key] = _window
 
-                    # Generate AI narrative for education context
+                    # Generate AI narrative for education context. Skipped for a
+                    # confluence-collapsed sibling — it's an audit row nobody reads
+                    # as a trade, and the narrative costs an API call per signal.
                     _narrative = ""
-                    try:
-                        from analytics.ai_narrator import generate_narrative
-                        _narrative = generate_narrative(signal) or ""
-                    except Exception:
-                        pass
+                    if not _pre_suppressed:
+                        try:
+                            from analytics.ai_narrator import generate_narrative
+                            _narrative = generate_narrative(signal) or ""
+                        except Exception:
+                            pass
 
                     # Cluster narrator: richer AI synthesis for multi-signal confluence
                     if "[+" in (signal.message or "") and "confirming:" in (signal.message or ""):
@@ -845,6 +882,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         # Phase 2 — persist the 0-3 HTF confluence so the dashboard
                         # and future analytics can see how many timeframes agreed.
                         confluence_score=int(getattr(signal, "_confluence_score", 0)) or 0,
+                        # Scanner redesign Phase 2 — the same-level factors this entry
+                        # merged ("Double bottom + 21 SMA Reclaim"). AlertCard renders
+                        # it as "• Confluence: …"; None for a lone entry.
+                        confluence_label=getattr(signal, "_confluence_label", None),
                         session_date=_sym_session,
                     )
                     db.add(alert)
@@ -862,7 +903,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         AlertType.MA_RESISTANCE, AlertType.RESISTANCE_PRIOR_LOW,
                         AlertType.OPENING_RANGE_BREAKDOWN,
                     }
-                    if signal.direction == "BUY" and signal.alert_type not in _non_entry_types:
+                    # A confluence-collapsed sibling records its Alert row for the
+                    # audit trail but must NOT open a second ActiveEntry at the same
+                    # level — the winner already owns the entry, and a duplicate
+                    # would fire the stop/target lifecycle twice.
+                    if (signal.direction == "BUY" and signal.alert_type not in _non_entry_types
+                            and not _pre_suppressed):
                         try:
                             db.add(ActiveEntry(
                                 user_id=user_id,
@@ -899,48 +945,40 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             ))
                     # Target hits: notify but don't close — user decides when to take profits
 
-                    # Preference gate: per-TYPE toggle wins, else legacy category.
+                    # ── Delivery gate — GLOBAL (scanner redesign Phase 2) ──────────
+                    # The scanner runs a HARDCODED universe (SCANNER_UNIVERSE) over a
+                    # HARDCODED rule set (ENABLED_RULES). Delivery follows the same
+                    # rule: if a redesign rule fires, it is delivered. The per-user
+                    # type toggles / category prefs / min-score gate are NOT consulted
+                    # any more — they silently muted the new open-above reclaims for
+                    # every user who had toggled the now-deprecated bounce types, so
+                    # Phase 1 shipped to an empty phone.
+                    # Every suppression below is recorded on the Alert row's
+                    # suppressed_reason so the feed can show WHY it didn't send.
                     _at_val = signal.alert_type.value
                     _send_notification = True
+                    _suppressed = getattr(signal, "_suppressed_reason", None)
+                    if _suppressed:
+                        # Set upstream by _merge_confluence — recorded, never delivered.
+                        _send_notification = False
 
                     # Scanner redesign — deliver LONG ENTRIES ONLY. Drop
                     # resistance/notice/short delivery entirely; keep the exit
                     # lifecycle (stop/target) which is separately gated to users
                     # with an open trade below.
                     _is_exit = _at_val in EXIT_ALERT_TYPES
-                    if (signal.direction or "").upper() != "BUY" and not _is_exit:
+                    if _send_notification and (signal.direction or "").upper() != "BUY" and not _is_exit:
                         _send_notification = False
+                        _suppressed = "not_long_entry"
 
                     # 1 alert / stock / TYPE / day — same entry type on the same
                     # stock fires once per session, regardless of price.
                     _etd_key = (user_id, symbol, _at_val)
                     if _send_notification and signal.direction == "BUY" and _etd_key in _entry_type_day:
                         _send_notification = False
+                        _suppressed = "dedup_type_day"
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
                                     user_id, symbol, _at_val)
-
-                    if _at_val not in EXIT_ALERT_TYPES:
-                        if _at_val in _type_prefs:
-                            # User explicitly toggled THIS type in Settings.
-                            _send_notification = _type_prefs[_at_val]
-                        elif _type_prefs:
-                            # User has opted into per-type control (≥1 toggle set) but
-                            # did NOT enable this type → off. This is what lets them
-                            # isolate a single signal: enable one, everything else mutes.
-                            _send_notification = False
-                        else:
-                            # Legacy category gate (unchanged for non-per-type users).
-                            _cat = ALERT_TYPE_TO_CATEGORY.get(_at_val)
-                            if _cat and not _cat_prefs.get(_cat, True):
-                                _send_notification = False
-                        if _send_notification and _min_score > 0 and signal.score < _min_score:
-                            _send_notification = False
-
-                    if not _send_notification:
-                        logger.info(
-                            "PREF FILTERED: user=%d %s %s (dashboard only)",
-                            user_id, signal.symbol, _at_val,
-                        )
 
                     # Burst cooldown: suppress rapid BUY notification spam
                     if _send_notification and signal.direction == "BUY":
@@ -948,6 +986,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _now = datetime.utcnow()
                         if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
                             _send_notification = False
+                            _suppressed = "dedup_cooldown"
                             logger.info(
                                 "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last BUY)",
                                 user_id, symbol, _at_val, (_now - _prev).total_seconds(),
@@ -966,6 +1005,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _last_zone = _zone_cooldown.get(_zone_key)
                         if _last_zone and (_now_ts - _last_zone).total_seconds() < 1800:  # 30 min cooldown
                             _send_notification = False
+                            _suppressed = "dedup_zone"
                             logger.info("ZONE CLUSTER: user=%d %s %s at $%.0f — suppressed (same zone as recent alert)", user_id, symbol, _at_val, signal.price)
                         else:
                             _zone_cooldown[_zone_key] = _now_ts
@@ -976,6 +1016,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if _send_notification and signal.direction == "BUY":
                         _entry_type_day.add(_etd_key)
 
+                    # Stamp WHY it didn't send on the row itself. The feed's clean
+                    # view shows suppressed_reason IS NULL — i.e. what actually
+                    # delivered — and the "Show collapsed" toggle reveals the rest.
+                    if not _send_notification:
+                        alert.suppressed_reason = (_suppressed or "not_delivered")[:200]
+                        logger.info(
+                            "NOT DELIVERED: user=%d %s %s — %s",
+                            user_id, signal.symbol, _at_val, alert.suppressed_reason,
+                        )
+
                     # Commit immediately so alert is persisted + has ID for Telegram buttons
                     db.commit()
 
@@ -983,8 +1033,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     alert_data = {
                         "symbol": signal.symbol,
                         "alert_type": signal.alert_type.value,
+                        # Phase 2 — the human setup title + the trade levels travel
+                        # WITH the event, so the in-app toast and the push payload
+                        # don't have to re-derive them from the rule key.
+                        "setup": _setup_name(_at_val),
                         "direction": signal.direction,
                         "price": signal.price,
+                        "entry": _py(signal.entry),
+                        "stop": _py(signal.stop),
+                        "target_1": _py(signal.target_1),
+                        "confluence_label": getattr(signal, "_confluence_label", None),
                         "message": signal.message,
                     }
                     if _send_notification:
@@ -1062,15 +1120,33 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 )
                             ).scalars().all()
                             if tokens:
-                                label = signal.alert_type.value.replace("_", " ").title()
-                                push_title = (
-                                    f"{signal.direction} {signal.symbol} "
-                                    f"${signal.price:.2f}"
+                                # Phase 2 — the push says WHAT the setup is and WHERE
+                                # to act, not the raw rule key ("Ma Reclaim 50").
+                                # Title:  "SPY LONG · 50 SMA Reclaim"
+                                # Body:   "Entry $769.20 · Stop $766.10 · Confluence: …"
+                                _dir = (
+                                    "LONG" if signal.direction == "BUY"
+                                    else (signal.direction or "")
                                 )
+                                push_title = (
+                                    f"{signal.symbol} {_dir} · {_setup_name(_at_val)}".strip()
+                                )
+                                _bits = []
+                                if signal.entry:
+                                    _bits.append(f"Entry ${float(signal.entry):.2f}")
+                                if signal.stop:
+                                    _bits.append(f"Stop ${float(signal.stop):.2f}")
+                                if signal.target_1:
+                                    _bits.append(f"T1 ${float(signal.target_1):.2f}")
+                                _conf = getattr(signal, "_confluence_label", None)
+                                if _conf:
+                                    _bits.append(f"Confluence: {_conf}")
+                                if not _bits:
+                                    _bits.append(f"${float(signal.price):.2f}")
                                 send_push_sync(
                                     list(tokens),
                                     title=push_title,
-                                    body=label,
+                                    body=" · ".join(_bits),
                                     data=alert_data,
                                     thread_id=signal.symbol,
                                 )
