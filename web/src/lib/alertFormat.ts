@@ -30,7 +30,11 @@ export function formatSetup(alertType?: string): string {
   const ladder = t.match(/^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
     const kind = ladder[1] === "ma" ? "SMA" : "EMA";
-    const verb = ladder[2].charAt(0).toUpperCase() + ladder[2].slice(1);
+    // A rejection is a liquidity grab: price sweeps through the level, takes the
+    // stops sitting above it, and closes back below. Named for the pattern.
+    const verb = ladder[2] === "rejection"
+      ? "Liquidity Grab"
+      : ladder[2].charAt(0).toUpperCase() + ladder[2].slice(1);
     return swing(`${ladder[3]} ${kind} ${verb}`);
   }
   // MA families — ma_bounce_long_v3_ema8_ema21 -> "EMA 8 + EMA 21 bounce"
@@ -128,7 +132,7 @@ export function formatSetup(alertType?: string): string {
     prior_day_high_breakout: "PDH breakout",
     pdh_retest_hold: "PDH retest / hold",
     multi_day_double_bottom: "Double bottom",
-    pdh_rejection: "PDH rejection",
+    pdh_rejection: "PDH liquidity grab",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
@@ -207,7 +211,7 @@ export function setupBlurb(alertType?: string): string {
       return `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the reclaim close, stop 0.5% below the level.`;
     }
     if (ladder[2] === "rejection") {
-      return `Opened BELOW the ${lvl}, rallied up to tag it, and closed back below — the level held as resistance. Entry = the rejection close, stop 0.5% above the level. Index-only (SPY/QQQ/SMH).`;
+      return `Liquidity grab at the ${lvl}: opened BELOW it, wicked up THROUGH it — taking the stops resting above — then closed back below. The level held as resistance. Entry = the close, stop 0.5% above the level. Index + ETH only.`;
     }
     return `Pulled back to the ${lvl} and bounced off it.`;
   }
@@ -264,7 +268,7 @@ export function setupBlurb(alertType?: string): string {
     prior_day_high_breakout: "Broke above yesterday's high on confirming volume — resistance taken out.",
     pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
     multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
-    pdh_rejection: "Rallied up to yesterday's high, tagged it and closed back below — the level held as resistance. Index-only (SPY/QQQ/SMH).",
+    pdh_rejection: "Liquidity grab at yesterday's high: wicked THROUGH it — taking the stops resting above — then closed back below. The push was made and lost. Index + ETH only.",
   };
   return BLURB[t] ?? "";
 }

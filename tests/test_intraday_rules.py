@@ -1118,14 +1118,19 @@ class TestResistancePriorHigh:
 
 class TestPDHRejection:
     def test_fires_on_confirmed_rejection(self):
-        """High touched PDH, close below → confirmed rejection."""
+        """Wick THROUGH the PDH, close back below → the push was lost.
+
+        2026-09: a rejection now requires price to trade through the level, not
+        merely near it, and it fires as a tradeable SHORT with entry and stop.
+        """
         bar = _bar(high=100.10, close=99.80)
         sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PDH_REJECTION
-        assert sig.direction == "SELL"
-        assert "PRIOR DAY HIGH REJECTION" in sig.message
-        assert "approaching from below" in sig.message
+        assert sig.direction == "SHORT"
+        assert sig.entry == 99.80
+        assert sig.stop > 100.0
+        assert "PDH rejection" in sig.message
 
     def test_no_fire_when_close_above_pdh(self):
         """Close above PDH = breakout, not rejection."""
@@ -1150,8 +1155,20 @@ class TestPDHRejection:
         bar = _bar(high=100.10, close=99.80)
         sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=None)
         assert sig is not None
-        assert sig.direction == "SELL"
-        assert "approaching from below" not in sig.message
+        assert sig.direction == "SHORT"
+
+    def test_no_fire_when_high_only_reaches_pdh(self):
+        """Touched the level exactly but never traded through it — not a rejection."""
+        bar = _bar(high=100.0, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
+
+    def test_no_fire_when_bar_opened_above_pdh(self):
+        """Open above the level = the level is inside the body — losing support,
+        not being turned away by resistance. Needs a WICK through it."""
+        bar = _bar(open_=100.30, high=100.50, low=99.50, close=99.80)
+        sig = check_pdh_rejection("ETH-USD", bar, prior_day_high=100.0, prior_close=98.0)
+        assert sig is None
 
     def test_no_fire_when_pdh_is_zero(self):
         """PDH of zero → skip."""

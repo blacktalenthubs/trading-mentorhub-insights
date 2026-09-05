@@ -275,7 +275,10 @@ def _pretty_setup(rule: str, note: str | None = None) -> str:
     m = _re.match(r"^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$", t)
     if m:
         kind = "SMA" if m.group(1) == "ma" else "EMA"
-        return f"{m.group(3)} {kind} {m.group(2).capitalize()}"
+        # A rejection is a liquidity grab — swept through the level, closed back
+        # below. Named for the pattern; mirrors formatSetup in alertFormat.ts.
+        verb = "Liquidity Grab" if m.group(2) == "rejection" else m.group(2).capitalize()
+        return f"{m.group(3)} {kind} {verb}"
     # MA families — ma_bounce_long_v3_ema8_ema21 → "EMA 8 + EMA 21 bounce"
     m = _re.match(r"^ma_(bounce_long|rejection_short|proximity_long|proximity_short)_v3_(.+)$", t)
     if m:

@@ -244,18 +244,76 @@ def test_rejection_rejects_open_above():
     assert sig is None  # open was above → the level was support, not resistance
 
 
-def test_rejection_needs_the_level_tagged():
-    """Opened below and stayed below without reaching it — nothing was rejected."""
+def test_rejection_needs_the_level_broken_not_just_tagged():
+    """Rallied up to the level but never through it — no rejection.
+
+    A wick THROUGH the level and a close back below is the rule (user 2026-09);
+    an exact touch is not enough.
+    """
     from analytics.intraday_rules import check_ma_rejection
 
     lvl = 670.00
-    bars = pd.DataFrame([
+    # Stops short of the level.
+    near = pd.DataFrame([
         {"Open": 660.0, "High": 662.0, "Low": 659.0, "Close": 661.0, "Volume": 1000},
-        {"Open": 661.0, "High": 663.0, "Low": 660.0, "Close": 662.0, "Volume": 1000},
+        {"Open": 661.0, "High": 669.9, "Low": 660.0, "Close": 662.0, "Volume": 1000},
     ])
-    sig = check_ma_rejection("SPY", bars, lvl, "EMA21",
-                             AlertType.EMA_REJECTION_21, today_open=660.0)
-    assert sig is None
+    assert check_ma_rejection("SPY", near, lvl, "EMA21",
+                              AlertType.EMA_REJECTION_21, today_open=660.0) is None
+    # Touches it exactly — still not through it.
+    exact = pd.DataFrame([
+        {"Open": 660.0, "High": 662.0, "Low": 659.0, "Close": 661.0, "Volume": 1000},
+        {"Open": 661.0, "High": 670.00, "Low": 660.0, "Close": 662.0, "Volume": 1000},
+    ])
+    assert check_ma_rejection("SPY", exact, lvl, "EMA21",
+                              AlertType.EMA_REJECTION_21, today_open=660.0) is None
+
+
+# ── 5b. PDH rejection — wick through the level, close back below ──────
+
+
+def _bar(o, h, l, c):
+    return pd.Series({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000})
+
+
+def test_pdh_rejection_wick_through_and_lost():
+    """Poked above yesterday's high and closed back below — the push was lost."""
+    from analytics.intraday_rules import check_pdh_rejection
+
+    pdh = 670.00
+    sig = check_pdh_rejection("SPY", _bar(667.0, 671.2, 666.5, 668.0), pdh,
+                              prior_close=665.0)
+    assert sig is not None
+    assert sig.direction == "SHORT"          # was "SELL" — never deliverable
+    assert sig.entry == 668.0
+    assert sig.stop > pdh                    # stop above the level
+
+
+def test_pdh_rejection_rejects_a_near_miss():
+    """Rallied close to the PDH but never through it — not a rejection."""
+    from analytics.intraday_rules import check_pdh_rejection
+
+    pdh = 670.00
+    assert check_pdh_rejection("SPY", _bar(667.0, 669.5, 666.5, 668.0), pdh,
+                               prior_close=665.0) is None
+
+
+def test_pdh_rejection_rejects_a_body_through_the_level():
+    """Opened ABOVE the PDH and closed below it — that's losing support."""
+    from analytics.intraday_rules import check_pdh_rejection
+
+    pdh = 670.00
+    assert check_pdh_rejection("SPY", _bar(671.0, 672.0, 667.0, 668.0), pdh,
+                               prior_close=665.0) is None
+
+
+def test_pdh_rejection_rejects_a_close_above():
+    """Held the break — nothing failed, so nothing to short."""
+    from analytics.intraday_rules import check_pdh_rejection
+
+    pdh = 670.00
+    assert check_pdh_rejection("SPY", _bar(667.0, 673.0, 666.5, 672.0), pdh,
+                               prior_close=665.0) is None
 
 
 def test_shorts_are_index_only():
@@ -263,7 +321,7 @@ def test_shorts_are_index_only():
     sys.path.insert(0, str(_ROOT / "api"))
     from alert_config import SHORT_UNIVERSE
 
-    assert SHORT_UNIVERSE == {"SPY", "QQQ", "SMH"}
+    assert SHORT_UNIVERSE == {"SPY", "QQQ", "SMH", "ETH-USD"}
     src = (_ROOT / "api" / "app" / "background" / "monitor.py").read_text()
     for sym in SHORT_UNIVERSE:
         assert f'"{sym}"' in src, f"{sym} must be in SCANNER_UNIVERSE to be evaluated"

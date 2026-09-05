@@ -1,7 +1,7 @@
 # Scanner — day-trade signal engine
 
 **Status:** live · **Type:** day-trade scanner · **Owner:** vbolofinde
-**Last updated:** 2026-09-05 (PRs #1118, #1119, #1120)
+**Last updated:** 2026-09-05 (PRs #1118, #1119, #1120, #1122)
 
 This is the current state of the scanner, not a change log. It describes what the
 system does today; the history is at the bottom.
@@ -32,18 +32,25 @@ last_close >  L      price closed back above it
 Entry = the reclaim close · Stop = `L × 0.995` (then risk-capped by `_cap_risk`)
 Targets from `_targets_for_long` (structural ladder with an ATR floor).
 
-### Short — open-below rejection (`check_ma_rejection`)
+### Short — liquidity grab (`check_ma_rejection`)
 
-The exact mirror. Index symbols only.
+The mirror, and the pattern has a name: price sweeps **through** the level, takes the
+stops resting above it, and closes back below. The push was made and lost.
 
 ```
 day_open    <  L     the day opened BELOW it, so L was resistance
-session_high ≥ L     price rallied up and tagged it
+session_high >  L    price traded THROUGH it — a touch is not a grab
 last_close  <  L     price closed back below it
 (L − close) / L ≤ 1.5%   same staleness guard
 ```
 
-Entry = the rejection close · Stop = `L × 1.005` · Targets from `_targets_for_short`.
+Entry = the close · Stop = `L × 1.005` · Targets from `_targets_for_short`.
+
+`check_pdh_rejection` is the same pattern on yesterday's high, on the current bar:
+high **above** the PDH, close below it, and the bar's open at or below it — so the
+level sits above the body and the excursion through it is a wick, not a body. An open
+above the PDH means price was already through the level and is losing it: a breakdown,
+not a grab.
 
 Chart-validated 2026-09-04: LRCX 100 EMA qualifies as a reclaim; MRVL 21 EMA (opened
 below → cross-up) is correctly rejected.
@@ -67,11 +74,14 @@ The open gate is an **MA test only**. A prior-day high or low is a fixed structu
 level and doesn't need the question asked — so a stock that opens under its moving
 averages still produces level signals.
 
-### Shorts (7) — `SHORT_UNIVERSE = {SPY, QQQ, SMH}` only
+### Shorts (7) — `SHORT_UNIVERSE = {SPY, QQQ, SMH, ETH-USD}` only
 
 `pdh_rejection`, `ma_rejection_8` / `21` / `50`, `ema_rejection_8` / `21` / `50`.
 
-A short on any other symbol is recorded as `short_not_index` and never sent.
+Indexes plus ETH — ETH trades 24/7, so it is the one short that can be validated on a
+weekend. A short on any other symbol is recorded as `short_not_index` and never sent.
+
+They read as what they are: **"21 EMA Liquidity Grab"**, **"PDH liquidity grab"**.
 
 ### Exits (4) — recorded, never delivered
 
@@ -129,7 +139,7 @@ An alert that fires but doesn't send still writes its row, stamped with why:
 | `dedup_type_day` | this type already fired on this symbol today |
 | `dedup_cooldown` | inside the 30-minute burst window |
 | `dedup_zone` | same price zone as a recent alert |
-| `short_not_index` | a short outside SPY/QQQ/SMH |
+| `short_not_index` | a short outside `SHORT_UNIVERSE` |
 | `exits_not_delivered` | a stop or target hit |
 | `not_an_entry` | NOTICE or any non-entry direction |
 
