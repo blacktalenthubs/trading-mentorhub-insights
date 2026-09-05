@@ -1080,6 +1080,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 prior_week_low = None
                 wema8 = None
                 wema21 = None
+                w30 = None
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
                     if len(weekly) >= 2:
@@ -1099,6 +1100,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                             wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
                         if len(_done_wk) >= 21:
                             wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
+                        if len(_done_wk) >= 30:
+                            w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
                 except Exception:
                     pass
 
@@ -1131,7 +1134,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "low": last["Low"], "close": last["Close"],
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
-                    "wema8": wema8, "wema21": wema21,
+                    "wema8": wema8, "wema21": wema21, "w30": w30,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),

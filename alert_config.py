@@ -704,6 +704,15 @@ ENABLED_RULES: set[str] = {
     # "prior_day_low_bounce",
     "prior_day_high_breakout",
     "pdh_retest_hold",
+    # Higher-timeframe breakout-retest + RSI oversold turn (scanner scope, 2026-09)
+    "pwh_breakout_retest",
+    "pmh_breakout_retest",
+    "rsi_30_35",
+    # 2-hour SWING reclaim — big structural levels, judged on the 2h candle
+    "swing_reclaim_8wema",
+    "swing_reclaim_21wema",
+    "swing_reclaim_30w",
+    "swing_reclaim_200sma",
 
     # ── LONG: multi-day support structure ───────────────────────────────────
     "multi_day_double_bottom",
