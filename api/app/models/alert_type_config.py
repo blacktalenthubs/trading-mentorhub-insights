@@ -355,6 +355,15 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "ma_rejection_short_v3_ema200": "Price rallied up into the 200 EMA from below and closed back below on a red bar — rejected at major trend resistance.",
     "ma_rejection_short_v3_sma":    "Price rallied up into a major SMA (50/100/200) from below and closed back below on a red bar — rejected at institutional resistance.",
 
+    # Scanner long entries (scanner redesign) — the non-ladder rules the Day feed
+    # now shows. Without these their cards render with no explanation subline.
+    "prior_day_low_reclaim": "Price dipped below yesterday's low and closed back above it — the breakdown failed and the level held. Entry = the level, stop just below it.",
+    "prior_day_high_breakout": "Price broke above yesterday's high on confirming volume — resistance taken out.",
+    "pdh_retest_hold": "After breaking above yesterday's high, price pulled back to retest it and held — PDH flipped from resistance to support. The re-entry if you missed the breakout.",
+    "multi_day_double_bottom": "A daily swing-low zone that has already been tested twice is being retested intraday — buyers defended this price before.",
+    "inside_day_reclaim": "Price dipped below the inside-day low and closed back above it — the range held.",
+    "vwap_reclaim": "Price put in the session low, then reclaimed VWAP and closed above it — the morning reversal.",
+
     # Held-as-support — prior high acted as a floor after price reclaimed it.
     "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",
     "staged_pwh_held": "Stock pulled back to last week's high and bounced — weekly resistance flipped to support.",

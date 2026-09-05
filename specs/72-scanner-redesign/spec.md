@@ -77,8 +77,22 @@ Signals feed, the Alert Log and the in-app notification alike.**
 `prior_day_high_breakout`, `pdh_retest_hold`, `multi_day_double_bottom`,
 `inside_day_reclaim`, `vwap_reclaim`. Shorts, resistance and weekly/monthly NOTICE
 rules stay out — the redesign delivers long entries, and the feed shows the trade set.
-`style_for()` already classifies all of them as `day_trade`, so they land in the **Day**
-feed; the 200-level swing rules keep their Swing bucket.
+
+`style_for()` resolves **all 16** of these to `day_trade` — including `ma_reclaim_200`
+and `ema_reclaim_200`, which are NOT routed to Swing (`isSwingAlert` only marks the
+`ma_bounce_long_v3_*200` TradingView family as swing). The scanner's entire entry set
+lands in the **Day** feed; nothing from it reaches Swing.
+
+Two of the six named types — `inside_day_reclaim` and `vwap_reclaim` — are **not in
+`ENABLED_RULES`** today, so they cannot fire. They stay in the allow-list so they
+surface in the feed if they are ever re-enabled; the four live ones are
+`prior_day_low_reclaim`, `prior_day_high_breakout`, `pdh_retest_hold` and
+`multi_day_double_bottom`.
+
+Every one of the 16 has a plain-English description, so its feed card carries an
+explanation subline: the ladder is described by rule in `describe_alert_type()` /
+`setupBlurb()`, the six named types by explicit entries in `ALERT_TYPE_DESCRIPTIONS`
+and the TS `NAMES` / `BLURB` maps.
 
 ### 2.2 Delivery is global
 
@@ -141,7 +155,7 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 | `alert_config.py` | `ma_reclaim_8` / `ma_reclaim_21` enabled |
 | `alerting/notifier.py` | `_pretty_setup` names the MA ladder |
 | `api/app/background/monitor.py` | global delivery, confluence audit + label, suppressed_reason, push payload |
-| `api/app/models/alert_type_config.py` | `describe_alert_type` explains the ladder rules |
+| `api/app/models/alert_type_config.py` | `describe_alert_type` explains the ladder rules by regex + the six named scanner entries by table |
 | `web/src/lib/alertFormat.ts` | `isScannerEntry`, ladder names + blurbs |
 | `web/src/pages/TradingPageV2.tsx` | labels for the new suppression reasons |
 | `web/src/hooks/useSignalNotifications.ts` | confluence in the body; suppressed alerts stay silent |
@@ -149,8 +163,10 @@ extracted into `prior_day`, added to `_reclaim_pairs`, enabled in `ENABLED_RULES
 ## Tests
 
 `tests/test_ma_reclaim.py` (6) — the rule.
-`tests/test_scanner_delivery.py` (9) — the merge keeps its audit rows, the label fits
-its column, setup naming parity, SMA 8/21 wired end to end.
+`tests/test_scanner_delivery.py` (12) — the merge keeps its audit rows, the label fits
+its column, setup naming parity, SMA 8/21 wired end to end, and the feed contract:
+every type `isScannerEntry()` admits resolves to `day_trade`, carries a description,
+and (for the four non-ladder entries) is actually in `ENABLED_RULES`.
 
 `test_intraday_rules.py`: 635 pass, 4 fail — the same 4 SPY-regime failures as on `main`.
 

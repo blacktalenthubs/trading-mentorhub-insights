@@ -121,6 +121,14 @@ export function formatSetup(alertType?: string): string {
     // These are only the fallback when that text is missing.
     last4h_long: "Last 4H reclaim / break",
     last4h_short: "Last 4H reject / breakdown",
+    // Scanner long entries (scanner redesign) — the non-ladder rules the Day feed
+    // shows. Without these the card falls back to raw title-case.
+    prior_day_low_reclaim: "PDL reclaim",
+    prior_day_high_breakout: "PDH breakout",
+    pdh_retest_hold: "PDH retest / hold",
+    multi_day_double_bottom: "Double bottom",
+    inside_day_reclaim: "Inside-day reclaim",
+    vwap_reclaim: "VWAP reclaim",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
@@ -245,6 +253,14 @@ export function setupBlurb(alertType?: string): string {
     weekly_10w_reclaim: "Reclaimed the 10-week moving average.",
     weekly_30w_held: "Held the 30-week moving average as support.",
     weekly_30w_reclaim: "Reclaimed the 30-week moving average.",
+    // Scanner long entries — mirrors ALERT_TYPE_DESCRIPTIONS in
+    // api/app/models/alert_type_config.py.
+    prior_day_low_reclaim: "Dipped below yesterday's low and closed back above it — the breakdown failed. Entry = the level, stop just below it.",
+    prior_day_high_breakout: "Broke above yesterday's high on confirming volume — resistance taken out.",
+    pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
+    multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
+    inside_day_reclaim: "Dipped below the inside-day low and closed back above it — the range held.",
+    vwap_reclaim: "Put in the session low, then reclaimed VWAP and closed above it — the morning reversal.",
   };
   return BLURB[t] ?? "";
 }

@@ -167,6 +167,46 @@ def test_sma_8_21_reclaim_fires():
     assert sig.direction == "BUY"
 
 
+# ── 4. Feed contract: every admitted type is a Day trade and explains itself ──
+
+# The types web/src/lib/alertFormat.ts::isScannerEntry admits to the feed.
+_SCANNER_FEED_TYPES = [
+    "ma_reclaim_8", "ma_reclaim_21", "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
+    "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    "prior_day_low_reclaim", "prior_day_high_breakout", "pdh_retest_hold",
+    "multi_day_double_bottom", "inside_day_reclaim", "vwap_reclaim",
+]
+
+
+def test_every_scanner_entry_is_a_day_trade():
+    """All 16 land in the Day feed — including the 200s, which are NOT swings here."""
+    sys.path.insert(0, str(_ROOT / "api"))
+    from app.models.alert_type_config import style_for
+
+    for t in _SCANNER_FEED_TYPES:
+        assert style_for(t) == "day_trade", f"{t} would land in the {style_for(t)} feed"
+
+
+def test_every_scanner_entry_has_a_description():
+    """A feed card with no explanation subline is the thing this redesign removed."""
+    sys.path.insert(0, str(_ROOT / "api"))
+    from app.models.alert_type_config import describe_alert_type
+
+    missing = [t for t in _SCANNER_FEED_TYPES if not describe_alert_type(t)]
+    assert not missing, f"no plain-English description for: {missing}"
+
+
+def test_live_named_entries_are_enabled():
+    """The four non-ladder entries the feed shows must actually be able to fire.
+
+    inside_day_reclaim / vwap_reclaim are deliberately NOT enabled — they stay in
+    the allow-list so they surface if re-enabled. Documented in the spec.
+    """
+    for t in ("prior_day_low_reclaim", "prior_day_high_breakout",
+              "pdh_retest_hold", "multi_day_double_bottom"):
+        assert t in ENABLED_RULES, f"{t} is in the feed allow-list but can never fire"
+
+
 def test_daily_data_exposes_sma_8_21():
     """prior_day must carry ma8/ma21 or the ladder pairs are always None."""
     import inspect
