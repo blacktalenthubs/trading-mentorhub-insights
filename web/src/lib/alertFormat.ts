@@ -27,9 +27,10 @@ export function formatSetup(alertType?: string): string {
   // alerting/notifier.py so the feed, Telegram and the push notification all name
   // the setup identically. Matched before the v3 family so these don't fall
   // through to the raw title-case ("Ema Reclaim 21").
-  const ladder = t.match(/^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
+  const ladder = t.match(/^(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
-    const kind = ladder[1] === "ma" ? "SMA" : "EMA";
+    // wema = the WEEKLY EMA, labelled to match the chart's "8 EMA (W)".
+    const kind = ladder[1] === "ma" ? "SMA" : ladder[1] === "wema" ? "EMA (W)" : "EMA";
     // A rejection is a liquidity grab: price sweeps through the level, takes the
     // stops sitting above it, and closes back below. Named for the pattern.
     const verb = ladder[2] === "rejection"
@@ -203,9 +204,9 @@ export function setupBlurb(alertType?: string): string {
   // Scanner MA ladder, spelled out — the redesign's core rule and its mirror.
   // Long: the level was SUPPORT at the open, not resistance being ramped into.
   // Short: the level was RESISTANCE at the open, not support being lost.
-  const ladder = t.match(/^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
+  const ladder = t.match(/^(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
-    const kind = ladder[1] === "ma" ? "SMA" : "EMA";
+    const kind = ladder[1] === "ma" ? "SMA" : ladder[1] === "wema" ? "EMA (W)" : "EMA";
     const lvl = `${ladder[3]} ${kind}`;
     if (ladder[2] === "reclaim") {
       return `Opened ABOVE the ${lvl}, wicked down to tag it, and closed back above — the level held as support. Entry = the reclaim close, stop 0.5% below the level.`;
@@ -290,7 +291,7 @@ const SCANNER_ENTRY_TYPES = new Set([
 /** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, and its short
  *  mirror ma_rejection_8/21/50 (open-BELOW, index-only). Reclaims/rejections
  *  only: the bounce rules were deprecated by the redesign and cannot fire. */
-const SCANNER_LADDER_RE = /^(ma|ema)_(reclaim|rejection)_\d{1,3}$/;
+const SCANNER_LADDER_RE = /^(ma|ema|wema)_(reclaim|rejection)_\d{1,3}$/;
 
 export function isScannerEntry(alertType?: string): boolean {
   const t = alertType ?? "";

@@ -272,9 +272,9 @@ def _pretty_setup(rule: str, note: str | None = None) -> str:
     # Scanner MA ladder — ma_reclaim_50 → "50 SMA Reclaim", ema_bounce_21 → "21 EMA Bounce".
     # Matched before the v3 family below so the plain ladder keys don't fall through
     # to the raw title-case ("Ma Reclaim 50").
-    m = _re.match(r"^(ma|ema)_(reclaim|rejection|bounce)_(\d{1,3})$", t)
+    m = _re.match(r"^(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$", t)
     if m:
-        kind = "SMA" if m.group(1) == "ma" else "EMA"
+        kind = {"ma": "SMA", "ema": "EMA", "wema": "EMA (W)"}[m.group(1)]
         # A rejection is a liquidity grab — swept through the level, closed back
         # below. Named for the pattern; mirrors formatSetup in alertFormat.ts.
         verb = "Liquidity Grab" if m.group(2) == "rejection" else m.group(2).capitalize()

@@ -127,6 +127,27 @@ def test_entries_at_different_levels_do_not_merge():
 # ── 2. Human setup names (feed / Telegram / push parity) ─────────────
 
 
+def test_weekly_ema_levels_are_wired():
+    """The chart plots 8/21 EMA (W); the scanner must compute and use them."""
+    import inspect
+
+    from analytics import intraday_data
+
+    src = inspect.getsource(intraday_data)
+    assert '"wema8"' in src and '"wema21"' in src, "prior_day must carry the weekly EMAs"
+    assert src.count("_done_wk") >= 2, "both prior_day builders need the weekly EMA"
+
+    rules = (_ROOT / "analytics" / "intraday_rules.py").read_text()
+    assert "AlertType.WEMA_RECLAIM_8, wema8" in rules
+    assert "AlertType.WEMA_RECLAIM_21, wema21" in rules
+
+
+def test_weekly_ema_names_match_the_chart():
+    """"8 EMA (W)" is how the level is labelled on the chart — say the same."""
+    assert _pretty_setup("wema_reclaim_8") == "8 EMA (W) Reclaim"
+    assert _pretty_setup("wema_reclaim_21") == "21 EMA (W) Reclaim"
+
+
 def test_ladder_rules_get_human_names():
     assert _pretty_setup("ma_reclaim_50") == "50 SMA Reclaim"
     assert _pretty_setup("ema_reclaim_21") == "21 EMA Reclaim"
@@ -176,10 +197,13 @@ _SCANNER_FEED_TYPES = [
     "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
     "prior_day_low_reclaim", "prior_day_high_breakout", "pdh_retest_hold",
     "multi_day_double_bottom",
+    # Weekly 8/21 EMA — the chart's "8 EMA (W)" / "21 EMA (W)".
+    "wema_reclaim_8", "wema_reclaim_21",
     # Shorts — index-only (SHORT_UNIVERSE).
     "pdh_rejection",
     "ma_rejection_8", "ma_rejection_21", "ma_rejection_50",
     "ema_rejection_8", "ema_rejection_21", "ema_rejection_50",
+    "wema_rejection_8", "wema_rejection_21",
 ]
 
 

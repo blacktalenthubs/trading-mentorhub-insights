@@ -1063,6 +1063,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 # Weekly resampling
                 prior_week_high = None
                 prior_week_low = None
+                wema8 = None
+                wema21 = None
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
                     if len(weekly) >= 2:
@@ -1070,6 +1072,18 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                         pw = weekly.iloc[-2] if last_bar_date <= _lwd else weekly.iloc[-1]
                         prior_week_high = pw["High"]
                         prior_week_low = pw["Low"]
+                    # Weekly 8/21 EMA — the levels the Pine chart plots as
+                    # "8 EMA (W)" / "21 EMA (W)". Built from COMPLETED weeks only,
+                    # same as the monthly EMAs below, so a partial week can't move
+                    # the level intraday.
+                    _wk_close = hist["Close"].resample("W-FRI").last().dropna()
+                    if len(_wk_close) >= 2:
+                        _lwc = _wk_close.index[-1].normalize()
+                        _done_wk = _wk_close.iloc[:-1] if last_bar_date <= _lwc else _wk_close
+                        if len(_done_wk) >= 8:
+                            wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
+                        if len(_done_wk) >= 21:
+                            wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
                 except Exception:
                     pass
 
@@ -1102,6 +1116,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "low": last["Low"], "close": last["Close"],
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
+                    "wema8": wema8, "wema21": wema21,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
@@ -1228,7 +1243,19 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         # Weekly resampling: prior week high/low from existing hist
         prior_week_high = None
         prior_week_low = None
+        wema8 = None
+        wema21 = None
         try:
+            # Weekly 8/21 EMA — "8 EMA (W)" / "21 EMA (W)" on the Pine chart.
+            # COMPLETED weeks only, so a partial week can't move the level.
+            _wk_close = hist["Close"].resample("W-FRI").last().dropna()
+            if len(_wk_close) >= 2:
+                _lwc = _wk_close.index[-1].normalize()
+                _done_wk = _wk_close.iloc[:-1] if last_bar_date <= _lwc else _wk_close
+                if len(_done_wk) >= 8:
+                    wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
+                if len(_done_wk) >= 21:
+                    wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
             weekly = hist[["High", "Low"]].resample("W-FRI").agg({
                 "High": "max", "Low": "min",
             }).dropna()
@@ -1319,6 +1346,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "volume": last["Volume"],
             "ma8": ma8,
             "ma21": ma21,
+            "wema8": wema8,
+            "wema21": wema21,
             "ma20": ma20,
             "ma50": ma50,
             "ma100": ma100,
