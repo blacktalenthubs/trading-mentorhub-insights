@@ -23,6 +23,7 @@ import pandas as pd
 logger = logging.getLogger("intraday_rules")
 
 from alert_config import (
+    SHORT_UNIVERSE,
     BOUNCE_ALERT_TYPES,
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
@@ -2028,23 +2029,42 @@ def check_pdh_rejection(
     bar: pd.Series,
     prior_day_high: float,
     prior_close: float | None = None,
+    prior_day: dict | None = None,
+    other_levels: dict[str, float | None] | None = None,
 ) -> AlertSignal | None:
-    """Price rallies into prior day high and gets rejected — bearish warning.
+    """Price trades THROUGH the prior-day high and closes back below it — SHORT.
 
-    Conditions (mirrors check_ema_resistance pattern):
-    - Bar high within PDH_REJECTION_PROXIMITY_PCT of prior day high (touched)
-    - Bar close is BELOW prior day high (rejection confirmed)
-    - Directional guard: prior close below PDH (approaching from below = resistance)
+    A WICK through the level and a close back below it — the push was made and
+    lost. Conditions (user 2026-09):
+    - Bar high is ABOVE prior day high — price actually moved through it. A bar
+      that merely rallies NEAR the PDH has not been rejected by it.
+    - Bar close is BELOW prior day high — the push failed.
+    - Bar OPEN is at or below the PDH, so the level sits above the body and the
+      excursion through it is a wick. If the bar opened above the PDH the level
+      was inside the body — that's losing support, not being turned away by
+      resistance.
+    - Directional guard: prior close below PDH (approaching from below =
+      resistance, not a pullback into it from above where PDH is support)
+
+    Entry = the rejection close, stop just above the PDH — same shape as the
+    open-below MA rejection ladder. Index-only, gated by SHORT_UNIVERSE at the
+    call site.
     """
     if prior_day_high <= 0:
         return None
 
-    proximity = abs(bar["High"] - prior_day_high) / prior_day_high
-    if proximity > PDH_REJECTION_PROXIMITY_PCT:
+    # Must have traded THROUGH the level — a near-miss is not a rejection.
+    if bar["High"] <= prior_day_high:
         return None
 
-    # Must close below prior day high — confirmed rejection
+    # Must close below prior day high — the break failed.
     if bar["Close"] >= prior_day_high:
+        return None
+
+    # The level must sit ABOVE the body — a wick through it, not a body through
+    # it. An open above the PDH means price was already through the level and is
+    # losing it, which is a breakdown, not a rejection.
+    if bar["Open"] > prior_day_high:
         return None
 
     # Directional guard: if prior close was ABOVE PDH, price is pulling back
@@ -2052,16 +2072,26 @@ def check_pdh_rejection(
     if prior_close is not None and prior_close > prior_day_high:
         return None
 
-    msg = f"PRIOR DAY HIGH REJECTION — rejected at ${prior_day_high:.2f}, closed ${bar['Close']:.2f}"
-    if prior_close is not None and prior_close < prior_day_high:
-        msg += " — approaching from below, acting as resistance"
+    entry = round(float(bar["Close"]), 2)
+    stop = round(prior_day_high * (1 + MA_RECLAIM_STOP_OFFSET_PCT), 2)
+    if stop - entry <= 0:
+        return None
+    t1, t2 = _targets_for_short(entry, stop, prior_day, emas_below=other_levels)
 
     return AlertSignal(
         symbol=symbol,
         alert_type=AlertType.PDH_REJECTION,
-        direction="SELL",
-        price=bar["High"],
-        message=msg,
+        direction="SHORT",
+        price=float(bar["Close"]),
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence="medium",
+        message=(
+            f"PDH rejection — pushed through ${prior_day_high:.2f} "
+            f"(high ${bar['High']:.2f}) and closed back below at ${bar['Close']:.2f}"
+        ),
     )
 
 
@@ -5561,7 +5591,9 @@ def check_ma_rejection(
     Qualifies ONLY when today's candle:
       1. OPENED BELOW the level (today_open < ma_level) — it was RESISTANCE
          overhead, not support the stock is breaking down through.
-      2. RALLIED UP to tag it (session high >= ma_level).
+      2. Traded THROUGH it (session high > ma_level). A bar that rallies up to
+         the level without breaking it has not been rejected by it — same rule
+         as the PDH rejection (user 2026-09).
       3. Is back BELOW it now (last close < ma_level).
       4. Hasn't already fallen too far below it (staleness guard).
 
@@ -5580,10 +5612,11 @@ def check_ma_rejection(
     if today_open >= ma_level:
         return None
 
-    # 2. RALLIED UP to the level (today's session high tagged it)
+    # 2. Traded THROUGH the level — a rally that stops short of it is not a
+    #    rejection by it. Strictly above, so an exact touch does not qualify.
     session_high = float(bars["High"].max())
-    if session_high < ma_level:
-        return None  # never reached the level — nothing was rejected
+    if session_high <= ma_level:
+        return None  # never broke the level — nothing was rejected
 
     last_bar = bars.iloc[-1]
     last_close = float(last_bar["Close"])
@@ -8670,7 +8703,6 @@ def evaluate_rules(
         # --- Open-below MA REJECTION (short mirror of the reclaim ladder) ---
         # Index-only: SPY / QQQ / SMH. The fast MAs (8/21/50) are where an index
         # that gapped down gets turned away on the retest.
-        from alert_config import SHORT_UNIVERSE
         if symbol.upper() in SHORT_UNIVERSE:
             _rejection_pairs = [
                 (AlertType.MA_REJECTION_8, ma8, "8MA"),
@@ -8831,9 +8863,20 @@ def evaluate_rules(
             sig.session_phase = phase
             signals.append(sig)
 
-    sig = check_pdh_rejection(symbol, last_bar, prior_high, prior_close)
-    if sig:
-        signals.append(sig)
+    # PDH rejection — index-only short, same gate as the MA rejection ladder.
+    # Was previously called unconditionally, for every symbol, ignoring
+    # ENABLED_RULES entirely.
+    if AlertType.PDH_REJECTION.value in ENABLED_RULES and symbol.upper() in SHORT_UNIVERSE:
+        sig = check_pdh_rejection(
+            symbol, last_bar, prior_high, prior_close,
+            prior_day=prior_day,
+            other_levels={
+                "EMA8": ema8, "EMA21": ema21, "EMA50": ema50,
+                "EMA100": ema100, "EMA200": ema200,
+            },
+        )
+        if sig:
+            signals.append(sig)
 
     # --- PDH Failed Breakout (SHORT) ---
     if AlertType.PDH_FAILED_BREAKOUT.value in ENABLED_RULES:

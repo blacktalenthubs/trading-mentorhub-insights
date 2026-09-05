@@ -361,7 +361,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "prior_day_high_breakout": "Price broke above yesterday's high on confirming volume — resistance taken out.",
     "pdh_retest_hold": "After breaking above yesterday's high, price pulled back to retest it and held — PDH flipped from resistance to support. The re-entry if you missed the breakout.",
     "multi_day_double_bottom": "A daily swing-low zone that has already been tested twice is being retested intraday — buyers defended this price before.",
-    "pdh_rejection": "Price rallied up to yesterday's high, tagged it and closed back below — the level held as resistance. Short; stop above the high. Index-only (SPY/QQQ/SMH).",
+    "pdh_rejection": "Liquidity grab at yesterday's high: price wicked THROUGH it — taking the stops resting above — then closed back below. The push was made and lost. Short; stop above the high. Index + ETH only.",
 
     # Held-as-support — prior high acted as a floor after price reclaimed it.
     "staged_pdh_held": "Stock pulled back to yesterday's high and bounced — yesterday's resistance is now acting as support.",
@@ -457,9 +457,10 @@ def describe_alert_type(alert_type: str) -> str:
             )
         if m.group(2) == "rejection":
             return (
-                f"Opened BELOW the {level}, rallied up to tag it, and closed back "
-                f"below — the level held as resistance. Entry = the rejection close, "
-                f"stop 0.5% above the level. Index-only (SPY/QQQ/SMH)."
+                f"Liquidity grab at the {level}: opened BELOW it, wicked up THROUGH "
+                f"it — taking the stops resting above — then closed back below. The "
+                f"level held as resistance. Entry = the close, stop 0.5% above the "
+                f"level. Index + ETH only."
             )
         return f"Intraday price pulled back to the {level} and bounced off it."
     return ""

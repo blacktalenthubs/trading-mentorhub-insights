@@ -516,9 +516,10 @@ SPY_SHORT_STOP_OFFSET_PCT = 0.003  # 0.3% above broken level for stop
 SPY_SHORT_SYMBOLS = {"SPY", "QQQ", "AIQ", "NDX"}    # index/index-style symbols for short entries + NOTICE alerts
 
 # Scanner redesign (2026-09) — the ONLY symbols allowed to produce a short.
-# PDH rejection + the open-below 8/21/50 MA rejections, indexes only. Every
-# other symbol in SCANNER_UNIVERSE is long-only.
-SHORT_UNIVERSE = {"SPY", "QQQ", "SMH"}
+# PDH rejection + the open-below 8/21/50 MA rejections. Indexes plus ETH (added
+# 2026-09-05: it trades 24/7, so it's the one name that can be validated on a
+# weekend). Every other symbol in SCANNER_UNIVERSE is long-only.
+SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "ETH-USD"}
 
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
