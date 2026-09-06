@@ -12,6 +12,7 @@
 //   • 8 EMA (weekly) reclaim   -> swing_8ema_w_reclaim
 //   • 21 EMA (weekly) reclaim  -> swing_21ema_w_reclaim
 //   • 30-week MA reclaim       -> swing_30w_reclaim
+//   • 50 SMA (daily) reclaim   -> swing_sma50_reclaim
 //   • 200 SMA (daily) reclaim  -> swing_sma200_reclaim
 //   • RSI(14) reclaims 30      -> swing_rsi_30
 //   • 5/20 EMA bullish cross   -> ema_5_20_cross
@@ -24,6 +25,7 @@ gM    = "Entries"
 en8w  = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gM)
 en21w = input.bool(true, "21 EMA (weekly) reclaim", group = gM)
 en30w = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gM)
+en50  = input.bool(true, "50 SMA (daily) reclaim", group = gM)
 en200 = input.bool(true, "200 SMA (daily) reclaim", group = gM)
 enR   = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
 en520 = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
@@ -32,6 +34,7 @@ onBand= input.float(0.5, "Reclaim on-the-line band (%)", group = gM, minval = 0.
 
 // ── params ───────────────────────────────────────────────────────────────────
 gP     = "Params"
+len50  = input.int(50,  "50 SMA length", group = gP, minval = 2)
 len200 = input.int(200, "200 SMA length", group = gP, minval = 2)
 rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
 rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
@@ -49,8 +52,9 @@ lineLen  = input.int(60, "Line length (bars back)", group = gL, minval = 10, max
 show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
 show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
 show30w  = input.bool(true, "Draw 30W MA line", group = gL)
+show50   = input.bool(true, "Draw 50 SMA line", group = gL)
 show200  = input.bool(true, "Draw 200 SMA line", group = gL)
-maProx   = input.bool(true, "Proximity-gate 30W / 200 SMA (hide when far — 8/21 EMA always show)", group = gL, tooltip = "The 30-week MA and 200 SMA can sit far from price; hide them until price is within the structural-levels distance band (Hide beyond %). The 8/21 weekly EMA always draw.")
+maProx   = input.bool(true, "Proximity-gate 30W / 50 SMA / 200 SMA (hide when far — 8/21 EMA always show)", group = gL, tooltip = "The 30-week MA, 50 SMA and 200 SMA can sit far from price; hide them until price is within the structural-levels distance band (Hide beyond %). The 8/21 weekly EMA always draw.")
 show8sw  = input.bool(false, "Compare: 8 SMA (weekly) dashed",  group = gL, tooltip = "Optional visual only (no alert) — draws the WEEKLY 8 SMA dashed so you can compare it against the 8 EMA. SMA lags more in chop.")
 show21sw = input.bool(false, "Compare: 21 SMA (weekly) dashed", group = gL)
 enOpen   = input.bool(true, "Draw today's OPEN line + tag (faint)", group = gL, tooltip = "A faint dotted line at today's session open, with an end tag showing the open and which two drawn lines it sits between — so you can read at a glance whether the open is ABOVE the line a reclaim needs.")
@@ -74,6 +78,8 @@ s8w   = request.security(tid, "W", ta.sma(close, 8)[1],  lookahead = barmerge.lo
 s21w  = request.security(tid, "W", ta.sma(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 SMA weekly (optional visual — compare vs EMA)
 e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
 w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
+flat50  = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
+sma50   = flatMode ? flat50 : ta.sma(close, len50)
 flat200 = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
 sma200  = flatMode ? flat200 : ta.sma(close, len200)
 dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
@@ -98,6 +104,7 @@ f_wReclaim(float L) => not na(L) and not na(wOpen) and wOpen > L and close > L a
 rc8w  = en8w  and conf and f_wReclaim(e8w)
 rc21w = en21w and conf and f_wReclaim(e21w)
 rc30w = en30w and conf and f_wReclaim(w30)
+rc50  = en50  and conf and f_reclaim(sma50)
 rc200 = en200 and conf and f_reclaim(sma200)
 rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
 rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)
@@ -137,6 +144,7 @@ if barstate.islast
     f_sr(e8w,     "8 EMA (W)",  show8w, line.style_solid)
     f_sr(e21w,    "21 EMA (W)", show21w, line.style_solid)
     f_sr(w30,     "30W MA",     show30w and (not maProx or f_near(w30)),     line.style_solid)
+    f_sr(flat50,  "50 SMA",     show50 and (not maProx or f_near(flat50)),   line.style_solid)
     f_sr(flat200, "200 SMA",    show200 and (not maProx or f_near(flat200)), line.style_solid)
     f_sr(s8w,     "8 SMA (W)",  show8sw,  line.style_dashed)
     f_sr(s21w,    "21 SMA (W)", show21sw, line.style_dashed)
@@ -189,6 +197,7 @@ if barstate.islast
     f_mark(show8w,  e8w)
     f_mark(show21w, e21w)
     f_mark(show30w, w30)
+    f_mark(show50,  flat50)
     f_mark(show200, flat200)
     f_mark(lvPW, pwh)
     f_mark(lvPW, pwl)
@@ -212,6 +221,9 @@ if barstate.islast
         if show30w
             array.push(_allv, w30)
             array.push(_alln, "30W MA")
+        if show50
+            array.push(_allv, flat50)
+            array.push(_alln, "50 SMA")
         if show200
             array.push(_allv, flat200)
             array.push(_alln, "200 SMA")
@@ -260,6 +272,8 @@ if enAl and rc21w
     alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc30w
     alert(f_pay("swing_30w_reclaim", "30-week MA reclaim at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc50
+    alert(f_pay("swing_sma50_reclaim", "50 SMA reclaim at " + str.tostring(sma50, format.mintick) + " · the medium-term trend line recovered (opened above, wicked to it, closed back above). Stop = the swept low; invalid on a close below " + str.tostring(sma50, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rc200
     alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered (the line institutions defend). Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
 if enAl and rcR
