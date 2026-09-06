@@ -219,6 +219,7 @@ def _merge_confluence(signals: list) -> list:
 def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.user import Subscription, User  # noqa: E402
     from app.models.watchlist import WatchlistItem  # noqa: E402
+    from app.models.alert_type_pref import UserAlertTypePref  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
     from app.models.paper_trade import RealTrade  # noqa: E402
 
@@ -278,12 +279,36 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         user_symbols: Dict[int, List[str]] = {}
         all_symbols: set[str] = set()
         for user_id in pro_users:
-            # Scanner redesign — hardcoded eval universe, NOT the per-user watchlist.
-            user_symbols[user_id] = list(SCANNER_UNIVERSE)
-            all_symbols.update(SCANNER_UNIVERSE)
+            # Scanner universe = the user's EDITABLE watchlist (add/remove from the
+            # UI). Falls back to the hardcoded SCANNER_UNIVERSE only when the
+            # watchlist is empty, so the scanner never runs an empty universe.
+            _wl = db.execute(
+                select(WatchlistItem.symbol).where(WatchlistItem.user_id == user_id)
+            ).scalars().all()
+            _syms = list(dict.fromkeys(s.strip().upper() for s in _wl if s and s.strip()))
+            if not _syms:
+                _syms = list(SCANNER_UNIVERSE)
+                logger.info("User %d has no watchlist rows — using SCANNER_UNIVERSE fallback", user_id)
+            user_symbols[user_id] = _syms
+            all_symbols.update(_syms)
 
         for uid, syms in user_symbols.items():
             logger.info("User %d watchlist: %s", uid, ", ".join(syms) if syms else "(empty)")
+
+        # Per-rule opt-out — the SCAN user's silenced rules (UserAlertTypePref.enabled
+        # = False, set from Settings). Scanner delivery is default-ON; only an explicit
+        # OFF suppresses (still recorded to the feed, never pushed). Loaded once/poll.
+        _disabled_rules: Dict[int, set] = {}
+        try:
+            for _uid, _atv in db.execute(
+                select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type).where(
+                    UserAlertTypePref.user_id.in_(pro_users),
+                    UserAlertTypePref.enabled.is_(False),
+                )
+            ).all():
+                _disabled_rules.setdefault(_uid, set()).add(_atv)
+        except Exception:
+            logger.debug("per-rule toggles unavailable — delivering all", exc_info=True)
 
         if not all_symbols:
             return 0
@@ -990,6 +1015,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if _suppressed:
                         # Set upstream by _merge_confluence — recorded, never delivered.
                         _send_notification = False
+
+                    # Per-rule opt-out (Settings toggle) — deliver unless the user
+                    # explicitly silenced THIS rule. Default ON (absence delivers);
+                    # a silenced rule is still recorded to the feed, just not pushed.
+                    if _send_notification and _at_val in _disabled_rules.get(user_id, ()):
+                        _send_notification = False
+                        _suppressed = "rule_toggled_off"
 
                     # ── What gets delivered (2026-09, user): ENTRIES ONLY ─────
                     #   • the 14 long entries, any symbol in SCANNER_UNIVERSE

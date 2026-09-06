@@ -1,0 +1,263 @@
+//@version=5
+// =============================================================================
+// SWING RECLAIM ENTRIES — 21 EMA (weekly) + 200 SMA (daily) + 30-week MA + RSI-30 + 5/20 cross
+//   + W/M/Q structural levels (PROXIMITY-based: nearest N above / N below price)
+// =============================================================================
+// The condensed, structural swing book. The MA/EMA entry lines are drawn ALWAYS.
+// The prior week / month / quarter high-low levels are drawn PROXIMITY-based —
+// only the N nearest ABOVE price and N nearest BELOW (default 2 / 2), role-coloured
+// (green = support / price above, red = resistance / price below). Non-repainting
+// (settled [1] + lookahead_on).
+//
+//   • 8 EMA (weekly) reclaim   -> swing_8ema_w_reclaim
+//   • 21 EMA (weekly) reclaim  -> swing_21ema_w_reclaim
+//   • 30-week MA reclaim       -> swing_30w_reclaim
+//   • 200 SMA (daily) reclaim  -> swing_sma200_reclaim
+//   • RSI(14) reclaims 30      -> swing_rsi_30
+//   • 5/20 EMA bullish cross   -> ema_5_20_cross
+//   • PWH/PWL · PMH/PML · PQH/PQL — proximity levels (VISUAL, no alerts)
+// =============================================================================
+indicator("weekly-swing-levels", overlay = true, max_lines_count = 24, max_labels_count = 200, max_bars_back = 510)
+
+// ── entries ──────────────────────────────────────────────────────────────────
+gM    = "Entries"
+en8w  = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gM)
+en21w = input.bool(true, "21 EMA (weekly) reclaim", group = gM)
+en30w = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gM)
+en200 = input.bool(true, "200 SMA (daily) reclaim", group = gM)
+enR   = input.bool(true, "RSI-30 reclaim (oversold turn)", group = gM)
+en520 = input.bool(true, "5/20 EMA bullish cross (Burns)", group = gM)
+enAl  = input.bool(true, "Fire alerts (on bar close)", group = gM)
+onBand= input.float(0.5, "Reclaim on-the-line band (%)", group = gM, minval = 0.0, maxval = 3) / 100.0
+
+// ── params ───────────────────────────────────────────────────────────────────
+gP     = "Params"
+len200 = input.int(200, "200 SMA length", group = gP, minval = 2)
+rsiLen = input.int(14,  "RSI length", group = gP, minval = 2)
+rsiOS  = input.int(30,  "RSI oversold level", group = gP, minval = 5, maxval = 50)
+emaFast= input.int(5,   "5/20 cross — fast EMA", group = gP, minval = 2)
+emaSlow= input.int(20,  "5/20 cross — slow EMA", group = gP, minval = 3)
+
+// ── flat / lock + line style ───────────────────────────────────────────────
+gL       = "Flat / lock + lines"
+flatMode = input.bool(true, "FLAT — lock the 200 SMA / RSI / 5-20 to a fixed TF (bind intraday)", group = gL, tooltip = "The weekly 8/21 EMA + 30W MA are ALWAYS weekly-locked & flat. This locks the 200 SMA / RSI / 5-20 to the lock TF (default Daily) so you can bind intraday and still trade the daily levels.")
+lockTf   = input.timeframe("D", "200 SMA / RSI / 5-20 lock timeframe", group = gL)
+supCol   = input.color(#26A69A, "Support (price above)",    group = gL)
+resCol   = input.color(#EF5350, "Resistance (price below)", group = gL)
+lineW    = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
+lineLen  = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
+show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
+show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
+show30w  = input.bool(true, "Draw 30W MA line", group = gL)
+show200  = input.bool(true, "Draw 200 SMA line", group = gL)
+show8sw  = input.bool(false, "Compare: 8 SMA (weekly) dashed",  group = gL, tooltip = "Optional visual only (no alert) — draws the WEEKLY 8 SMA dashed so you can compare it against the 8 EMA. SMA lags more in chop.")
+show21sw = input.bool(false, "Compare: 21 SMA (weekly) dashed", group = gL)
+enOpen   = input.bool(true, "Draw today's OPEN line + tag (faint)", group = gL, tooltip = "A faint dotted line at today's session open, with an end tag showing the open and which two drawn lines it sits between — so you can read at a glance whether the open is ABOVE the line a reclaim needs.")
+
+// ── W/M/Q structural levels — PROXIMITY (nearest N above / N below price) ─────
+gSL  = "Structural levels (proximity)"
+enLv = input.bool(true, "Draw W/M/Q levels — proximity", group = gSL)
+lvUp = input.int(2, "Levels ABOVE price", minval = 0, maxval = 8, inline = "lv", group = gSL)
+lvDn = input.int(2, "BELOW",              minval = 0, maxval = 8, inline = "lv", group = gSL)
+lvMax= input.float(30, "Hide beyond (% from price)", minval = 0, maxval = 200, group = gSL, tooltip = "A level is hidden until price is within this % of it — so far-away levels stay off the chart until price approaches. 0 = no distance gate (show the nearest N regardless of distance).") / 100.0
+lvRcl= input.bool(true, "Reclaim arrow on line interaction (levels + MAs)", group = gSL, tooltip = "Marks a bar that DEFENDED / RECLAIMED a line — a W/M/Q level OR a moving-average line (8/21 EMA weekly, 30W, 200 SMA): it OPENED ABOVE the line, came down to it (wicked below, OR touched within the held-band), and CLOSED back above. A breakout that opened below and blew through does NOT count. One rule for every drawn line. Visual only, no alert.")
+lvHeld= input.float(0.25, "Held-touch band (% above line)", minval = 0.0, maxval = 3, group = gSL, tooltip = "How close the low must come to the line to count as a HELD test (no wick below needed). 0.25% = the low reached within a quarter-percent of the line and closed above. A wick BELOW the line always counts regardless. 0 = only wicks-below qualify.") / 100.0
+lvPW = input.bool(true, "PWH / PWL (weekly)",    inline = "lvt", group = gSL)
+lvPM = input.bool(true, "PMH / PML (monthly)",   inline = "lvt", group = gSL)
+lvPQ = input.bool(true, "PQH / PQL (quarterly)", inline = "lvt", group = gSL)
+
+// ── levels (settled [1] + lookahead → FLAT, non-repainting) ──────────────────
+tid   = syminfo.tickerid
+e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 EMA weekly
+s8w   = request.security(tid, "W", ta.sma(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 SMA weekly  (optional visual — compare vs EMA)
+s21w  = request.security(tid, "W", ta.sma(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 SMA weekly (optional visual — compare vs EMA)
+e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
+w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
+flat200 = request.security(tid, lockTf, ta.sma(close, len200)[1], lookahead = barmerge.lookahead_on)
+sma200  = flatMode ? flat200 : ta.sma(close, len200)
+dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
+rsi     = flatMode ? request.security(tid, lockTf, ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off) : ta.rsi(close, rsiLen)
+emaFastV= flatMode ? request.security(tid, lockTf, ta.ema(close, emaFast), lookahead = barmerge.lookahead_off) : ta.ema(close, emaFast)
+emaSlowV= flatMode ? request.security(tid, lockTf, ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off) : ta.ema(close, emaSlow)
+// prior week / month / quarter high-low — the structural proximity book
+pwh = request.security(tid, "W",  high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(tid, "W",  low[1],  lookahead = barmerge.lookahead_on)
+pmh = request.security(tid, "M",  high[1], lookahead = barmerge.lookahead_on)
+pml = request.security(tid, "M",  low[1],  lookahead = barmerge.lookahead_on)
+pqh = request.security(tid, "3M", high[1], lookahead = barmerge.lookahead_on)
+pql = request.security(tid, "3M", low[1],  lookahead = barmerge.lookahead_on)
+conf    = barstate.isconfirmed
+
+// ── reclaim guards ───────────────────────────────────────────────────────────
+// DAILY reclaim (200 SMA): opened clearly ABOVE (it was support) + wicked/tested it + closed back above.
+f_reclaim(float L) => not na(L) and not na(dOpen) and dOpen > L * (1.0 + onBand) and low <= L and close > L
+// WEEKLY reclaims fire on the CHART-BAR close — INTRADAY entry off the WEEKLY level.
+wOpen = request.security(tid, "W", open, lookahead = barmerge.lookahead_on)
+f_wReclaim(float L) => not na(L) and not na(wOpen) and wOpen > L and close > L and close[1] <= L
+rc8w  = en8w  and conf and f_wReclaim(e8w)
+rc21w = en21w and conf and f_wReclaim(e21w)
+rc30w = en30w and conf and f_wReclaim(w30)
+rc200 = en200 and conf and f_reclaim(sma200)
+rcR   = enR   and conf and ta.crossover(rsi, rsiOS)
+rc520 = en520 and conf and ta.crossover(emaFastV, emaSlowV)
+// Reclaim arrows are drawn in the islast scan below (f_mark): every candle in the drawn window that opened ABOVE a line,
+// wicked to/below it, and closed back above — measured against the line AS DRAWN (its current flat value). One rule for
+// the MA lines and the W/M/Q levels alike. (The rc8w / rc200 / rcR / rc520 booleans above still drive the ALERTS, unchanged.)
+
+// ── flat S/R lines (green = support / price above, red = resistance / below) ──
+var line[]  _lns = array.new_line(0)
+var label[] _lbs = array.new_label(0)
+f_sr(float lv, string nm, bool show, string lstyle) =>
+    if show and not na(lv)
+        sup = close > lv
+        col = sup ? supCol : resCol
+        array.push(_lns, line.new(bar_index - lineLen, lv, bar_index + 6, lv, color = col, width = lineW, style = lstyle))
+        array.push(_lbs, label.new(bar_index + 6, lv, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lv, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+// Mark every candle in the drawn window that DEFENDED / RECLAIMED a line AS DRAWN (its current flat value `lvl`):
+// it OPENED ABOVE the line, came DOWN to it (wicked below it, OR touched within the held-band), and CLOSED back above.
+// Opening above is required — a breakout that opened BELOW the line and blew through it is NOT a support hold.
+// Uses the chart candle's own open/low/close so the arrow always agrees with the candle on screen.
+f_mark(bool en, float lvl) =>
+    if en and lvRcl and not na(lvl)
+        for i = 0 to lineLen
+            if not na(open[i]) and open[i] > lvl and low[i] <= lvl * (1.0 + lvHeld) and close[i] > lvl
+                array.push(_lbs, label.new(bar_index - i, na, yloc = yloc.belowbar, style = label.style_triangleup, color = color.new(#3B82F6, 0), size = size.small))
+if barstate.islast
+    for _l in _lns
+        line.delete(_l)
+    for _b in _lbs
+        label.delete(_b)
+    array.clear(_lns)
+    array.clear(_lbs)
+    // MA / EMA entry lines — always drawn
+    f_sr(e8w,     "8 EMA (W)",  show8w, line.style_solid)
+    f_sr(e21w,    "21 EMA (W)", show21w, line.style_solid)
+    f_sr(w30,     "30W MA",     show30w, line.style_solid)
+    f_sr(flat200, "200 SMA",    show200, line.style_solid)
+    f_sr(s8w,     "8 SMA (W)",  show8sw,  line.style_dashed)
+    f_sr(s21w,    "21 SMA (W)", show21sw, line.style_dashed)
+
+    // ── W/M/Q levels — nearest-N proximity (N above price + N below), dotted ──
+    if enLv
+        _cv = array.new<float>()
+        _cn = array.new<string>()
+        if lvPW and not na(pwh)
+            array.push(_cv, pwh)
+            array.push(_cn, "PWH")
+        if lvPW and not na(pwl)
+            array.push(_cv, pwl)
+            array.push(_cn, "PWL")
+        if lvPM and not na(pmh)
+            array.push(_cv, pmh)
+            array.push(_cn, "PMH")
+        if lvPM and not na(pml)
+            array.push(_cv, pml)
+            array.push(_cn, "PML")
+        if lvPQ and not na(pqh)
+            array.push(_cv, pqh)
+            array.push(_cn, "PQH")
+        if lvPQ and not na(pql)
+            array.push(_cv, pql)
+            array.push(_cn, "PQL")
+        // split into above / below price, take the nearest N of each
+        _ab = array.new<float>()
+        _bl = array.new<float>()
+        if array.size(_cv) > 0
+            for _i = 0 to array.size(_cv) - 1
+                _v = array.get(_cv, _i)
+                if _v > close
+                    array.push(_ab, _v)
+                else if _v < close
+                    array.push(_bl, _v)
+        array.sort(_ab, order.ascending)
+        array.sort(_bl, order.descending)
+        _brkHi = lvUp <= 0 or array.size(_ab) == 0 ? (lvUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(lvUp, array.size(_ab)) - 1)
+        _brkLo = lvDn <= 0 or array.size(_bl) == 0 ? (lvDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(lvDn, array.size(_bl)) - 1)
+        if array.size(_cv) > 0
+            for _j = 0 to array.size(_cv) - 1
+                _w = array.get(_cv, _j)
+                // distance gate: skip a level while price is farther than lvMax% from it
+                _near = lvMax <= 0 or (close > 0 and math.abs(_w - close) / close <= lvMax)
+                if _w <= _brkHi and _w >= _brkLo and _near
+                    f_sr(_w, array.get(_cn, _j), true, line.style_dotted)
+
+    // reclaim arrows — candles that opened above a line, came down to it, and closed back above (MAs + W/M/Q levels)
+    f_mark(show8w,  e8w)
+    f_mark(show21w, e21w)
+    f_mark(show30w, w30)
+    f_mark(show200, flat200)
+    f_mark(lvPW, pwh)
+    f_mark(lvPW, pwl)
+    f_mark(lvPM, pmh)
+    f_mark(lvPM, pml)
+    f_mark(lvPQ, pqh)
+    f_mark(lvPQ, pql)
+
+    // faint today's-OPEN line + end tag: the open, the nearest RESISTANCE above it and nearest SUPPORT below it
+    // (by name) — so you read the week's box: which line caps it (R) and which line it sits on (S).
+    if enOpen and not na(dOpen)
+        _op = dOpen
+        _allv = array.new<float>()
+        _alln = array.new<string>()
+        if show8w
+            array.push(_allv, e8w)
+            array.push(_alln, "8 EMA (W)")
+        if show21w
+            array.push(_allv, e21w)
+            array.push(_alln, "21 EMA (W)")
+        if show30w
+            array.push(_allv, w30)
+            array.push(_alln, "30W MA")
+        if show200
+            array.push(_allv, flat200)
+            array.push(_alln, "200 SMA")
+        if lvPW
+            array.push(_allv, pwh)
+            array.push(_alln, "PWH")
+            array.push(_allv, pwl)
+            array.push(_alln, "PWL")
+        if lvPM
+            array.push(_allv, pmh)
+            array.push(_alln, "PMH")
+            array.push(_allv, pml)
+            array.push(_alln, "PML")
+        if lvPQ
+            array.push(_allv, pqh)
+            array.push(_alln, "PQH")
+            array.push(_allv, pql)
+            array.push(_alln, "PQL")
+        _below = float(na)
+        _above = float(na)
+        _belowNm = ""
+        _aboveNm = ""
+        for _k = 0 to array.size(_allv) - 1
+            _lv = array.get(_allv, _k)
+            if not na(_lv)
+                if _lv <= _op and (na(_below) or _lv > _below)
+                    _below := _lv
+                    _belowNm := array.get(_alln, _k)
+                if _lv >= _op and (na(_above) or _lv < _above)
+                    _above := _lv
+                    _aboveNm := array.get(_alln, _k)
+        _rTxt = na(_above) ? "R …" : "R " + _aboveNm + " " + str.tostring(_above, format.mintick)
+        _sTxt = na(_below) ? "S …" : "S " + _belowNm + " " + str.tostring(_below, format.mintick)
+        array.push(_lns, line.new(bar_index - lineLen, _op, bar_index + 6, _op, color = color.new(#787B86, 62), width = 1, style = line.style_dotted))
+        array.push(_lbs, label.new(bar_index + 6, _op, "OPEN " + str.tostring(_op, format.mintick) + "    " + _rTxt + "    " + _sTxt, style = label.style_label_left, color = color.new(#787B86, 8), textcolor = color.white, size = size.small))
+
+// ── entry markers ──────────────────────────────────────────────────────────
+// (Reclaim arrows are drawn as blue triangles in the islast scan above — one rule for MAs + W/M/Q levels.)
+
+f_pay(string rule, string note) => '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"BUY","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","note":"' + note + '"}'
+
+if enAl and rc8w
+    alert(f_pay("swing_8ema_w_reclaim", "8 EMA (weekly) reclaim at " + str.tostring(e8w, format.mintick) + " — the week opened above the weekly 8 EMA (fast trend spine) and price reclaimed it, an early trend re-entry. Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc21w
+    alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc30w
+    alert(f_pay("swing_30w_reclaim", "30-week MA reclaim at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc200
+    alert(f_pay("swing_sma200_reclaim", "200 SMA reclaim at " + str.tostring(sma200, format.mintick) + " · structural support recovered (the line institutions defend). Stop = the swept low; invalid on a close below " + str.tostring(sma200, format.mintick)), alert.freq_once_per_bar_close)
+if enAl and rcR
+    alert(f_pay("swing_rsi_30", "RSI reclaimed 30 (oversold turn) — momentum turning up from a washout. Stop = the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc520
+    alert(f_pay("ema_5_20_cross", "5/20 EMA bullish cross (Burns) — the " + str.tostring(emaFast) + " EMA crossed ABOVE the " + str.tostring(emaSlow) + " EMA at " + str.tostring(emaSlowV, format.mintick) + " · short-term trend flip up (a swing entry, hold days). Stop = the swept low; invalid on a close back under the " + str.tostring(emaSlow) + " EMA."), alert.freq_once_per_bar_close)

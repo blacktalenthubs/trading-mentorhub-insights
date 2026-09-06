@@ -277,7 +277,35 @@ _MA_CATALOG: list[tuple[str, str, str, bool]] = [
     for suffix, malabel in _MA_TOGGLES
 ]
 
-ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = _BASE_CATALOG + _MA_CATALOG
+# Scanner (open-above reclaim redesign, 2026-09) — every rule the LIVE scanner
+# fires today, registered so it shows in Settings and can be toggled OFF to
+# silence noise. Keys mirror alert_config.ENABLED_RULES (single source of truth),
+# minus the exit/lifecycle types (recorded, never delivered — nothing to toggle).
+# Default ON: the scanner delivers these, and the toggle is opt-OUT (the delivery
+# gate suppresses only an explicit OFF). Deduped against the base catalog above.
+def _scanner_catalog() -> list[tuple[str, str, str, bool]]:
+    try:
+        from alert_config import ENABLED_RULES as _rules
+    except Exception:
+        return []
+    _exits = {"auto_stop_out", "stop_loss_hit", "target_1_hit", "target_2_hit"}
+    _existing = {k for k, _l, _c, _d in (_BASE_CATALOG + _MA_CATALOG)}
+    out: list[tuple[str, str, str, bool]] = []
+    for k in _rules:
+        if k in _exits or k in _existing:
+            continue
+        cat = "Swing" if k.startswith("swing_reclaim_") else "Scanner Levels"
+        # Human label via the notifier's setup namer (same names the feed uses).
+        try:
+            from alerting.notifier import _pretty_setup
+            label = _pretty_setup(k)
+        except Exception:
+            label = k.replace("_", " ").title()
+        out.append((k, label, cat, True))
+    return out
+
+
+ALERT_TYPE_CATALOG: list[tuple[str, str, str, bool]] = _BASE_CATALOG + _MA_CATALOG + _scanner_catalog()
 
 
 # ── Trade-STYLE classification (day_trade / swing / long_term) ───────

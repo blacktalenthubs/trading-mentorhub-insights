@@ -185,6 +185,14 @@ class AlertType(str, Enum):
     PDH_RETEST_HOLD = "pdh_retest_hold"
     PWH_BREAKOUT_RETEST = "pwh_breakout_retest"
     PMH_BREAKOUT_RETEST = "pmh_breakout_retest"
+    # Open-above DEFEND / hold of the W/M/Q structural levels (support holding
+    # intraday) — same rule as the MA reclaims, run on the regular intraday ladder.
+    PWH_RECLAIM = "pwh_reclaim"
+    PWL_RECLAIM = "pwl_reclaim"
+    PMH_RECLAIM = "pmh_reclaim"
+    PML_RECLAIM = "pml_reclaim"
+    PQH_RECLAIM = "pqh_reclaim"
+    PQL_RECLAIM = "pql_reclaim"
     RSI_30_35 = "rsi_30_35"
     INSIDE_DAY_BREAKOUT = "inside_day_breakout"
     INSIDE_DAY_BREAKDOWN = "inside_day_breakdown"
@@ -323,6 +331,13 @@ class AlertType(str, Enum):
     SWING_RECLAIM_21WEMA = "swing_reclaim_21wema"
     SWING_RECLAIM_30W = "swing_reclaim_30w"
     SWING_RECLAIM_200SMA = "swing_reclaim_200sma"
+    # 2-hour SWING confirm of the W/M/Q structural levels — still holding after 2h.
+    SWING_RECLAIM_PWH = "swing_reclaim_pwh"
+    SWING_RECLAIM_PWL = "swing_reclaim_pwl"
+    SWING_RECLAIM_PMH = "swing_reclaim_pmh"
+    SWING_RECLAIM_PML = "swing_reclaim_pml"
+    SWING_RECLAIM_PQH = "swing_reclaim_pqh"
+    SWING_RECLAIM_PQL = "swing_reclaim_pql"
     WEMA_REJECTION_8 = "wema_rejection_8"
     WEMA_REJECTION_21 = "wema_rejection_21"
     # Informational — inside day forming (today's range within yesterday's)
@@ -5762,10 +5777,12 @@ def check_swing_2h_reclaims(
 ) -> list["AlertSignal"]:
     """2-hour SWING reclaims of the big structural levels.
 
-    For the 8 EMA (weekly), 21 EMA (weekly), 30-week MA, and 200 SMA (daily),
-    fire the SAME open-above reclaim — but judged on the 2H candle: today opened
-    above the level, the 2h candle wicked to it, closed back above. Higher-
-    timeframe swing entries, checked on a 2h cadence. Returns a list (0-4).
+    For the 8 EMA (weekly), 21 EMA (weekly), 30-week MA, 200 SMA (daily), and the
+    W/M/Q structural levels (PWH/PWL, PMH/PML, PQH/PQL), fire the SAME open-above
+    reclaim — but judged on the 2H candle: today opened above the level, the 2h
+    candle wicked to it, closed back above. Higher-timeframe swing entries /
+    "still holding after 2h" confirmation, checked on a 2h cadence. Returns a
+    list (0-10).
     """
     if prior_day is None or bars_2h is None or bars_2h.empty:
         return []
@@ -5774,6 +5791,12 @@ def check_swing_2h_reclaims(
         (AlertType.SWING_RECLAIM_21WEMA, prior_day.get("wema21"), "21 EMA (W)"),
         (AlertType.SWING_RECLAIM_30W,    prior_day.get("w30"),    "30-week MA"),
         (AlertType.SWING_RECLAIM_200SMA, prior_day.get("ma200"),  "200 SMA"),
+        (AlertType.SWING_RECLAIM_PWH,    prior_day.get("prior_week_high"),    "PWH"),
+        (AlertType.SWING_RECLAIM_PWL,    prior_day.get("prior_week_low"),     "PWL"),
+        (AlertType.SWING_RECLAIM_PMH,    prior_day.get("prior_month_high"),   "PMH"),
+        (AlertType.SWING_RECLAIM_PML,    prior_day.get("prior_month_low"),    "PML"),
+        (AlertType.SWING_RECLAIM_PQH,    prior_day.get("prior_quarter_high"), "PQH"),
+        (AlertType.SWING_RECLAIM_PQL,    prior_day.get("prior_quarter_low"),  "PQL"),
     ]
     out: list[AlertSignal] = []
     for _at, _lvl, _lbl in _levels:
@@ -8565,6 +8588,32 @@ def evaluate_rules(
                 sig = check_level_breakout_retest(
                     symbol, intraday_bars, _br_lvl, _br_lbl, _br_at,
                     prior_day=prior_day, other_emas=_other_emas_br,
+                )
+                if sig:
+                    sig.message += f" ({phase})"
+                    if vwap_pos:
+                        sig.message += f" — price {vwap_pos}"
+                    sig.message += caution_suffix
+                    signals.append(sig)
+
+        # --- W/M/Q level DEFEND / hold (open-above reclaim of the structural levels) ---
+        # Same open-above defend rule as the MA reclaims (check_ma_reclaim): the
+        # prior week/month/quarter level was SUPPORT the stock opened above,
+        # wicked to it intraday, and closed back above — the level is HOLDING.
+        # Distinct from the PWH/PMH breakout-retest above (which flips resistance
+        # to support from below). Checked on the regular intraday ladder.
+        for _lv_at, _lv_lvl, _lv_lbl in [
+            (AlertType.PWH_RECLAIM, prior_day.get("prior_week_high"), "PWH"),
+            (AlertType.PWL_RECLAIM, prior_day.get("prior_week_low"), "PWL"),
+            (AlertType.PMH_RECLAIM, prior_day.get("prior_month_high"), "PMH"),
+            (AlertType.PML_RECLAIM, prior_day.get("prior_month_low"), "PML"),
+            (AlertType.PQH_RECLAIM, prior_day.get("prior_quarter_high"), "PQH"),
+            (AlertType.PQL_RECLAIM, prior_day.get("prior_quarter_low"), "PQL"),
+        ]:
+            if _lv_at.value in ENABLED_RULES and _lv_lvl:
+                sig = check_ma_reclaim(
+                    symbol, intraday_bars, _lv_lvl, _lv_lbl, _lv_at, today_open,
+                    prior_day=prior_day, other_levels=_other_emas_br,
                 )
                 if sig:
                     sig.message += f" ({phase})"
