@@ -103,6 +103,15 @@ async def list_alert_config(
         select(UserAlertTypePref).where(UserAlertTypePref.user_id == user.id)
     )).scalars().all()
     enabled_by_type = {p.alert_type: bool(p.enabled) for p in prefs}
+    # Scanner rules are opt-OUT: the live scanner delivers them by default, and the
+    # monitor's delivery gate suppresses only an explicit OFF. So a scanner rule with
+    # NO pref row shows ON here (matches what actually delivers); every other catalog
+    # type keeps the opt-in default (no row = OFF).
+    try:
+        from alert_config import ENABLED_RULES as _scanner_rules
+    except Exception:
+        _scanner_rules = set()
+    _scanner_rules = set(_scanner_rules)
     return [
         {
             "alert_type": r.alert_type,
@@ -110,7 +119,7 @@ async def list_alert_config(
             "category": r.category,
             "trade_group": _group_for(r.alert_type, r.category),
             "direction": _direction_for(r.alert_type),
-            "enabled": enabled_by_type.get(r.alert_type, False),
+            "enabled": enabled_by_type.get(r.alert_type, r.alert_type in _scanner_rules),
             "description": describe_alert_type(r.alert_type),
         }
         for r in rows
