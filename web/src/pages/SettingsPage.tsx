@@ -17,6 +17,7 @@ import {
   useTelegramUnlink,
   useAlertConfig,
   useToggleAllAlertConfig,
+  useToggleAlertConfig,
   useMarketGate,
   useUpdateMarketGate,
   useOpenBracketAllowlist,
@@ -609,6 +610,8 @@ function Toggle({ on, onClick, disabled, partial }: { on: boolean; onClick: () =
 function AlertTypesSection() {
   const { data: types, isLoading } = useAlertConfig();
   const toggleAll = useToggleAllAlertConfig();
+  const toggleOne = useToggleAlertConfig();
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
 
   const GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"];
   const GROUP_DESC: Record<string, string> = {
@@ -655,13 +658,37 @@ function AlertTypesSection() {
                 {cats.map((cat) => {
                   const list = items.filter((i) => i.category === cat);
                   const on = list.filter((i) => i.enabled).length;
+                  const open = expandedCat === cat;
                   return (
-                    <div key={cat} className="flex items-center justify-between rounded-md bg-surface-1/60 px-2.5 py-2">
-                      <div className="flex flex-col">
-                        <span className="text-[12px] font-semibold text-text-secondary">{CAT_LABEL[cat] ?? cat}</span>
-                        <span className="text-[10px] text-text-faint">{list.length} signal{list.length > 1 ? "s" : ""} · {on} on</span>
+                    <div key={cat} className="rounded-md bg-surface-1/60">
+                      <div className="flex items-center justify-between px-2.5 py-2">
+                        <button
+                          type="button"
+                          className="flex flex-1 items-center gap-1.5 text-left"
+                          onClick={() => setExpandedCat(open ? null : cat)}
+                        >
+                          <ChevronRight className={`h-3 w-3 text-text-faint transition-transform ${open ? "rotate-90" : ""}`} />
+                          <span className="flex flex-col">
+                            <span className="text-[12px] font-semibold text-text-secondary">{CAT_LABEL[cat] ?? cat}</span>
+                            <span className="text-[10px] text-text-faint">{list.length} signal{list.length > 1 ? "s" : ""} · {on} on · tap to pick individual</span>
+                          </span>
+                        </button>
+                        <Toggle on={on === list.length && list.length > 0} partial={on > 0 && on < list.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: on < list.length, category: cat })} />
                       </div>
-                      <Toggle on={on === list.length && list.length > 0} partial={on > 0 && on < list.length} disabled={busy} onClick={() => toggleAll.mutate({ enabled: on < list.length, category: cat })} />
+                      {open && (
+                        <div className="space-y-0.5 border-t border-border-subtle px-2.5 py-1.5">
+                          {list.map((sig) => (
+                            <div key={sig.alert_type} className="flex items-center justify-between gap-2 py-1">
+                              <span className="text-[11px] leading-snug text-text-muted">{sig.label}</span>
+                              <Toggle
+                                on={sig.enabled}
+                                disabled={toggleOne.isPending}
+                                onClick={() => toggleOne.mutate({ alert_type: sig.alert_type, enabled: !sig.enabled })}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
