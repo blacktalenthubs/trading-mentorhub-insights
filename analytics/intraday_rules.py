@@ -5663,8 +5663,16 @@ def check_ma_reclaim(
         return None
 
     entry = round(last_close, 2)
+    # The (risk-capped) stop must still sit BELOW the reclaimed level — that's the
+    # setup: the level is the support, invalid on a close under it. On a chased /
+    # late fill the risk cap tightens the stop toward the (higher) entry, and it can
+    # land AT or ABOVE the level — then it no longer protects the support (ETH-USD
+    # PQH 2026-09: entry ran ~1% above the level, the capped stop sat above it — a
+    # no-edge trade). In that case price ran too far past the level → SKIP.
     stop = round(ma_level * (1 - MA_RECLAIM_STOP_OFFSET_PCT), 2)
     stop = _cap_risk(entry, stop, symbol=symbol)
+    if stop >= ma_level:
+        return None  # capped stop sits above the reclaimed level — entry chased, skip
     risk = entry - stop
     if risk <= 0:
         return None

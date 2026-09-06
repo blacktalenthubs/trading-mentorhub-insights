@@ -53,10 +53,10 @@ def test_swing_2h_check_covers_wmq_levels():
         "prior_week_low": 61.00, "prior_month_low": 60.00,
         "prior_week_high": 70.00, "prior_month_high": 75.00, "prior_quarter_high": 80.00,
     }
-    # A 2h candle that opened above PQL 62.17, wicked to it, closed back above.
-    bars_2h = _bars([(62.30, 62.60, 61.70, 62.40),
-                     (62.40, 63.10, 62.20, 63.00)])
-    sigs = check_swing_2h_reclaims("RKLB", bars_2h, prior, today_open=62.30)
+    # A 2h candle that opened above PQL 62.17, wicked to it, closed back above (near it).
+    bars_2h = _bars([(62.20, 62.50, 61.70, 62.25),
+                     (62.25, 62.40, 62.15, 62.30)])
+    sigs = check_swing_2h_reclaims("RKLB", bars_2h, prior, today_open=62.20)
     types = {s.alert_type for s in sigs}
     assert AlertType.SWING_RECLAIM_PQL in types
     assert all((s.message or "").startswith("2h swing · ") for s in sigs)
@@ -65,15 +65,14 @@ def test_swing_2h_check_covers_wmq_levels():
 def test_pql_defend_qualifies_open_above_wick_reclaim():
     """Opened above the prior-quarter low, wicked to it, closed back above → hold."""
     lvl = 62.17
-    bars = _bars([(62.30, 62.60, 61.70, 62.40),   # opened above, wicked below the level
-                  (62.40, 63.10, 62.20, 63.00)])   # closed back above
+    bars = _bars([(62.20, 62.50, 61.70, 62.25),   # opened above, wicked below the level
+                  (62.25, 62.40, 62.15, 62.30)])   # closed back just above the level (near it)
     sig = check_ma_reclaim("RKLB", bars, lvl, "PQL",
-                           AlertType.PQL_RECLAIM, today_open=62.30)
+                           AlertType.PQL_RECLAIM, today_open=62.20)
     assert sig is not None
     assert sig.alert_type == AlertType.PQL_RECLAIM
     assert sig.direction == "BUY"
-    assert sig.entry > lvl          # reclaimed — entry is back above the level
-    assert 0 < sig.stop < sig.entry  # valid stop below entry (risk-capping may lift it toward the level)
+    assert sig.stop < lvl < sig.entry  # stop sits BELOW the reclaimed support, entry above
 
 
 def test_pqh_rejects_open_below_ramp_through():
@@ -84,6 +83,29 @@ def test_pqh_rejects_open_below_ramp_through():
     sig = check_ma_reclaim("NOW", bars, lvl, "PQH",
                            AlertType.PQH_RECLAIM, today_open=139.00)
     assert sig is None  # open below the level → not a defend
+
+
+def test_chased_reclaim_skipped_stop_would_sit_above_support():
+    """ETH-USD PQH case (2026-09): entry ran ~1% above the level, so the stop
+    just below the level is a bigger risk than the budget. Old code fake-tightened
+    the stop ABOVE the support (no-edge trade); now it must SKIP."""
+    lvl = 2466.50
+    bars = _bars([(2470.0, 2472.0, 2460.0, 2470.0),    # opened above, wicked to the level
+                  (2470.0, 2495.0, 2469.0, 2492.20)])   # ran up, closed ~1% above the level
+    sig = check_ma_reclaim("ETH-USD", bars, lvl, "PQH",
+                           AlertType.PQH_RECLAIM, today_open=2470.0)
+    assert sig is None  # stop-below-support exceeds risk budget → chased → skip
+
+
+def test_reclaim_near_level_fires_with_stop_below_the_level():
+    """When price is still near the level, it fires AND the stop sits below it."""
+    lvl = 2466.50
+    bars = _bars([(2468.0, 2470.0, 2462.0, 2468.0),
+                  (2468.0, 2472.0, 2465.0, 2470.0)])    # closed just 0.14% above the level
+    sig = check_ma_reclaim("ETH-USD", bars, lvl, "PQH",
+                           AlertType.PQH_RECLAIM, today_open=2468.0)
+    assert sig is not None
+    assert sig.stop < lvl < sig.entry  # stop is BELOW the reclaimed support, entry above
 
 
 def test_prior_day_dict_exposes_quarter_levels():
