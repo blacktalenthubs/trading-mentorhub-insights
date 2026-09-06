@@ -50,6 +50,7 @@ show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
 show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
 show30w  = input.bool(true, "Draw 30W MA line", group = gL)
 show200  = input.bool(true, "Draw 200 SMA line", group = gL)
+maProx   = input.bool(true, "Proximity-gate 30W / 200 SMA (hide when far — 8/21 EMA always show)", group = gL, tooltip = "The 30-week MA and 200 SMA can sit far from price; hide them until price is within the structural-levels distance band (Hide beyond %). The 8/21 weekly EMA always draw.")
 show8sw  = input.bool(false, "Compare: 8 SMA (weekly) dashed",  group = gL, tooltip = "Optional visual only (no alert) — draws the WEEKLY 8 SMA dashed so you can compare it against the 8 EMA. SMA lags more in chop.")
 show21sw = input.bool(false, "Compare: 21 SMA (weekly) dashed", group = gL)
 enOpen   = input.bool(true, "Draw today's OPEN line + tag (faint)", group = gL, tooltip = "A faint dotted line at today's session open, with an end tag showing the open and which two drawn lines it sits between — so you can read at a glance whether the open is ABOVE the line a reclaim needs.")
@@ -113,6 +114,8 @@ f_sr(float lv, string nm, bool show, string lstyle) =>
         col = sup ? supCol : resCol
         array.push(_lns, line.new(bar_index - lineLen, lv, bar_index + 6, lv, color = col, width = lineW, style = lstyle))
         array.push(_lbs, label.new(bar_index + 6, lv, nm + (sup ? "  SUPPORT  " : "  RESIST  ") + str.tostring(lv, format.mintick), style = label.style_label_left, color = col, textcolor = color.white, size = size.small))
+// Within the proximity/distance band of price (same lvMax% used by the W/M/Q levels).
+f_near(float lvl) => lvMax <= 0 or (not na(lvl) and close > 0 and math.abs(lvl - close) / close <= lvMax)
 // Mark every candle in the drawn window that DEFENDED / RECLAIMED a line AS DRAWN (its current flat value `lvl`):
 // it OPENED ABOVE the line, came DOWN to it (wicked below it, OR touched within the held-band), and CLOSED back above.
 // Opening above is required — a breakout that opened BELOW the line and blew through it is NOT a support hold.
@@ -129,11 +132,12 @@ if barstate.islast
         label.delete(_b)
     array.clear(_lns)
     array.clear(_lbs)
-    // MA / EMA entry lines — always drawn
+    // MA / EMA lines — 8/21 EMA (W) ALWAYS drawn; 30W + 200 SMA proximity-gated
+    // (they can sit far from price, so hide them until price is within the band).
     f_sr(e8w,     "8 EMA (W)",  show8w, line.style_solid)
     f_sr(e21w,    "21 EMA (W)", show21w, line.style_solid)
-    f_sr(w30,     "30W MA",     show30w, line.style_solid)
-    f_sr(flat200, "200 SMA",    show200, line.style_solid)
+    f_sr(w30,     "30W MA",     show30w and (not maProx or f_near(w30)),     line.style_solid)
+    f_sr(flat200, "200 SMA",    show200 and (not maProx or f_near(flat200)), line.style_solid)
     f_sr(s8w,     "8 SMA (W)",  show8sw,  line.style_dashed)
     f_sr(s21w,    "21 SMA (W)", show21sw, line.style_dashed)
 
@@ -241,8 +245,9 @@ if barstate.islast
                     _aboveNm := array.get(_alln, _k)
         _rTxt = na(_above) ? "R …" : "R " + _aboveNm + " " + str.tostring(_above, format.mintick)
         _sTxt = na(_below) ? "S …" : "S " + _belowNm + " " + str.tostring(_below, format.mintick)
-        array.push(_lns, line.new(bar_index - lineLen, _op, bar_index + 6, _op, color = color.new(#787B86, 62), width = 1, style = line.style_dotted))
-        array.push(_lbs, label.new(bar_index + 6, _op, "OPEN " + str.tostring(_op, format.mintick) + "    " + _rTxt + "    " + _sTxt, style = label.style_label_left, color = color.new(#787B86, 8), textcolor = color.white, size = size.small))
+        // Tag pushed well RIGHT of the level-tag column (+6) so it never covers the S/R tags.
+        array.push(_lns, line.new(bar_index - lineLen, _op, bar_index + 38, _op, color = color.new(#787B86, 62), width = 1, style = line.style_dotted))
+        array.push(_lbs, label.new(bar_index + 38, _op, "OPEN " + str.tostring(_op, format.mintick) + "    " + _rTxt + "    " + _sTxt, style = label.style_label_left, color = color.new(#787B86, 8), textcolor = color.white, size = size.small))
 
 // ── entry markers ──────────────────────────────────────────────────────────
 // (Reclaim arrows are drawn as blue triangles in the islast scan above — one rule for MAs + W/M/Q levels.)
