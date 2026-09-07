@@ -1,0 +1,86 @@
+//@version=5
+// =============================================================================
+// GOLDEN POCKET · Strategy — backtestable, NON-REPAINTING
+// =============================================================================
+// Turns the golden-pocket idea into a testable strategy so the Strategy Tester
+// gives REAL numbers (win rate, profit factor, avg R) across the full history.
+//
+// How it stays honest (non-repainting):
+//   1. A swing high is a CONFIRMED pivot high (piv bars after the top) — so the
+//      pocket is frozen only AFTER the top is real, never redrawn with hindsight.
+//   2. Swing low = lowest low over the lookback as of the pivot bar.
+//   3. Pocket = 0.618 → 0.786 retrace of that low→high move; stop floor = 0.85.
+//   4. LONG when price pulls back INTO the pocket. Stop below the 0.85 floor,
+//      target a set R (or the swing high). One trade per swing; the setup expires
+//      if price doesn't reach the pocket within `maxWait` bars, or breaks the floor.
+//
+// Long-only (it's a buy zone). Read the results in the Strategy Tester and
+// compare across your watchlist — if the pocket beats a coin flip, it's real edge.
+// =============================================================================
+strategy("Golden Pocket · Strategy", "GP Strat", overlay = true, initial_capital = 10000, default_qty_type = strategy.percent_of_equity, default_qty_value = 100, commission_type = strategy.commission.percent, commission_value = 0.03, slippage = 2, process_orders_on_close = true, calc_on_every_tick = false, max_bars_back = 600)
+
+gS       = "Swing"
+piv      = input.int(5,  "Pivot strength (bars each side)", minval = 1, maxval = 50, group = gS, tooltip = "A swing high is confirmed this many bars after the top. Bigger = only major swings.")
+lookback = input.int(40, "Swing-low lookback before the high (bars)", minval = 5, maxval = 500, group = gS)
+maxWait  = input.int(60, "Pocket valid for (bars after the high)", minval = 5, maxval = 500, group = gS, tooltip = "Abandon the setup if price doesn't reach the pocket within this many bars.")
+
+gF       = "Fib pocket"
+fGpLo    = input.float(0.618, "Pocket upper (.618)", group = gF, step = 0.001)
+fGpHi    = input.float(0.786, "Pocket lower (.786)", group = gF, step = 0.001)
+fSm      = input.float(0.85,  "Stop floor (.85)",    group = gF, step = 0.01)
+
+gT       = "Trade"
+tgtMode  = input.string("R multiple", "Target", options = ["R multiple", "Swing high (100%)"], group = gT)
+tgtR     = input.float(2.0, "Target R (if R multiple)", minval = 0.5, maxval = 10, step = 0.5, group = gT)
+
+// ── swing detection: a CONFIRMED pivot high tops the up-move; freeze the pocket ──
+ph = ta.pivothigh(high, piv, piv)
+
+var float swHi      = na
+var float swLo      = na
+var float gpHi      = na   // 0.618 — pocket upper edge
+var float gpLo      = na   // 0.786 — pocket lower edge
+var float smLo      = na   // 0.85  — stop floor
+var int   pocketBar = na
+
+if not na(ph)
+    _hi = ph
+    _lo = ta.lowest(low, lookback)[piv]   // lowest low as of the pivot bar
+    if not na(_lo) and _hi > _lo
+        _rng      = _hi - _lo
+        swHi     := _hi
+        swLo     := _lo
+        gpHi     := _hi - fGpLo * _rng
+        gpLo     := _hi - fGpHi * _rng
+        smLo     := _hi - fSm   * _rng
+        pocketBar := bar_index
+
+pocketActive = not na(gpHi) and not na(smLo)
+
+// invalidate: broke below the stop floor, or the setup went stale
+if pocketActive and (close < smLo or (not na(pocketBar) and bar_index - pocketBar > maxWait))
+    gpHi := na
+    gpLo := na
+    smLo := na
+
+// ── entry: price pulls back INTO the pocket (low tags the .618 edge), flat ──
+pocketNow = not na(gpHi) and not na(smLo)
+enterLong = pocketNow and strategy.position_size == 0 and low <= gpHi and close > smLo
+
+if enterLong
+    _entry  = close
+    _stop   = smLo
+    _risk   = _entry - _stop
+    _target = tgtMode == "Swing high (100%)" ? swHi : _entry + tgtR * _risk
+    if _risk > 0 and _target > _entry
+        strategy.entry("GP", strategy.long)
+        strategy.exit("GPx", "GP", stop = _stop, limit = _target)
+    // consume the pocket — one trade per swing
+    gpHi := na
+    gpLo := na
+    smLo := na
+
+// ── visuals — the frozen pocket levels (line breaks when invalidated/consumed) ──
+plot(gpHi, "Pocket .618", color = color.new(color.blue,   0),  style = plot.style_linebr, linewidth = 1)
+plot(gpLo, "Pocket .786", color = color.new(color.blue,   55), style = plot.style_linebr, linewidth = 1)
+plot(smLo, "Stop .85",    color = color.new(color.purple, 0),  style = plot.style_linebr, linewidth = 1)
