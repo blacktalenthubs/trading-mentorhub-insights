@@ -89,6 +89,12 @@ class PriorDayResponse(BaseModel):
     ma50: Optional[float] = None
     ma100: Optional[float] = None
     ma200: Optional[float] = None
+    # Flat 8/21 EMA — daily (ema8/ema21) + weekly (wema8/wema21), settled/non-repainting.
+    # Computed in fetch_prior_day; exposed for the chart's flat EMA reference lines.
+    ema8: Optional[float] = None
+    ema21: Optional[float] = None
+    wema8: Optional[float] = None
+    wema21: Optional[float] = None
     pattern: str
     direction: str
     is_inside: bool

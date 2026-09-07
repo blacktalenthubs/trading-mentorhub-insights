@@ -13,6 +13,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   useScanner,
   useOHLCV,
+  usePriorDay,
   useAlertsToday,
   useAlertSessionDates,
   useAlertsForDate,
@@ -1482,6 +1483,7 @@ export default function TradingPageV2() {
       : null);
   const tf = TIMEFRAMES[tfIdx];
   const { data: ohlcv } = useOHLCV(selectedSymbol ?? "", tf.period, tf.interval);
+  const { data: priorDay } = usePriorDay(selectedSymbol ?? "");
 
   /* ── User S/R levels ── */
   const { data: userLevels } = useChartLevels(selectedSymbol ?? "");
@@ -1517,6 +1519,17 @@ export default function TradingPageV2() {
     if (kl.pdl != null) lvls.push({ id: -2, symbol: sym, price: kl.pdl, label: "PDL", color: "#ef4444" });
     if (kl.pwh != null) lvls.push({ id: -3, symbol: sym, price: kl.pwh, label: "PWH", color: "#14b8a6" });
     if (kl.pwl != null) lvls.push({ id: -4, symbol: sym, price: kl.pwl, label: "PWL", color: "#f97316" });
+    // Flat 8/21 EMA reference (settled value, drawn as a horizontal line) — reflects the
+    // chart timeframe: daily EMA on the 1d chart, weekly EMA on the 1wk chart.
+    const pd = priorDay as Record<string, number | null | undefined> | undefined;
+    if (pd && (tf.interval === "1d" || tf.interval === "1wk")) {
+      const wk = tf.interval === "1wk";
+      const e8 = wk ? pd.wema8 : pd.ema8;
+      const e21 = wk ? pd.wema21 : pd.ema21;
+      const tag = wk ? "(W)" : "(D)";
+      if (e8 != null) lvls.push({ id: -5, symbol: sym, price: e8, label: `8 EMA ${tag}`, color: "#3b82f6" });
+      if (e21 != null) lvls.push({ id: -6, symbol: sym, price: e21, label: `21 EMA ${tag}`, color: "#8b5cf6" });
+    }
     return lvls;
   })();
 
