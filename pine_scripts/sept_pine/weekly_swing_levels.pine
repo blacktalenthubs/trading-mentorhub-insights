@@ -338,20 +338,24 @@ if barstate.islast
     box.delete(gpSBox)
     if enGP and not na(gpSh) and not na(gpSl) and gpSh > gpSl
         _grng = gpSh - gpSl
-        _p618 = gpSh - gpF618 * _grng
+        _p618 = gpSh - gpF618 * _grng   // top of the golden pocket
         _p786 = gpSh - gpF786 * _grng
-        _pSm  = gpSh - gpFSm  * _grng
-        _glb  = bar_index - gpLook
-        _grb  = bar_index + gpExt
-        gpIBox := box.new(_glb, math.max(_p618, _p786), _grb, math.min(_p618, _p786), border_color = color.new(color.blue, 45), bgcolor = gpColI, text = "Institutional Buy Zone", text_color = gpTxt, text_size = size.normal, text_halign = text.align_center, text_valign = text.align_center)
-        gpSBox := box.new(_glb, math.max(_p786, _pSm), _grb, math.min(_p786, _pSm), border_color = color.new(color.purple, 30), bgcolor = gpColS, text = "Smart Money Zone", text_color = gpTxt, text_size = size.small, text_halign = text.align_center, text_valign = text.align_center)
-        // 3 price-tagged boundary lines (like the other level tags): .618 · .786 · .85
-        array.push(_lns, line.new(bar_index - lineLen, _p618, bar_index + 6, _p618, color = color.new(color.blue, 25), width = 1, style = line.style_dotted))
-        array.push(_lbs, label.new(bar_index + 6, _p618, "GP .618  " + str.tostring(_p618, format.mintick), style = label.style_label_left, color = color.new(color.blue, 15), textcolor = color.white, size = size.small))
-        array.push(_lns, line.new(bar_index - lineLen, _p786, bar_index + 6, _p786, color = color.new(color.blue, 25), width = 1, style = line.style_dotted))
-        array.push(_lbs, label.new(bar_index + 6, _p786, "GP .786  " + str.tostring(_p786, format.mintick), style = label.style_label_left, color = color.new(color.blue, 15), textcolor = color.white, size = size.small))
-        array.push(_lns, line.new(bar_index - lineLen, _pSm, bar_index + 6, _pSm, color = color.new(color.purple, 20), width = 1, style = line.style_dotted))
-        array.push(_lbs, label.new(bar_index + 6, _pSm, "SM .85  " + str.tostring(_pSm, format.mintick), style = label.style_label_left, color = color.new(color.purple, 10), textcolor = color.white, size = size.small))
+        _pSm  = gpSh - gpFSm  * _grng   // bottom (0.85 floor)
+        // Only show when price has REACHED the zone — touching it / inside it / below it.
+        // Hidden while price is entirely ABOVE the pocket (low still over the .618 top).
+        if low <= _p618
+            _glb  = bar_index - gpLook
+            _grb  = bar_index + gpExt
+            gpIBox := box.new(_glb, math.max(_p618, _p786), _grb, math.min(_p618, _p786), border_color = color.new(color.blue, 45), bgcolor = gpColI, text = "Institutional Buy Zone", text_color = gpTxt, text_size = size.normal, text_halign = text.align_center, text_valign = text.align_center)
+            gpSBox := box.new(_glb, math.max(_p786, _pSm), _grb, math.min(_p786, _pSm), border_color = color.new(color.purple, 30), bgcolor = gpColS, text = "Smart Money Zone", text_color = gpTxt, text_size = size.small, text_halign = text.align_center, text_valign = text.align_center)
+            // 3 boundary lines with price tags at the box's RIGHT edge (+gpExt) — clear of
+            // the level-tag column at +6, so they don't collide with the MA/level tags.
+            array.push(_lns, line.new(bar_index - lineLen, _p618, _grb, _p618, color = color.new(color.blue, 25), width = 1, style = line.style_dotted))
+            array.push(_lbs, label.new(_grb, _p618, "GP .618  " + str.tostring(_p618, format.mintick), style = label.style_label_left, color = color.new(color.blue, 15), textcolor = color.white, size = size.small))
+            array.push(_lns, line.new(bar_index - lineLen, _p786, _grb, _p786, color = color.new(color.blue, 25), width = 1, style = line.style_dotted))
+            array.push(_lbs, label.new(_grb, _p786, "GP .786  " + str.tostring(_p786, format.mintick), style = label.style_label_left, color = color.new(color.blue, 15), textcolor = color.white, size = size.small))
+            array.push(_lns, line.new(bar_index - lineLen, _pSm, _grb, _pSm, color = color.new(color.purple, 20), width = 1, style = line.style_dotted))
+            array.push(_lbs, label.new(_grb, _pSm, "SM .85  " + str.tostring(_pSm, format.mintick), style = label.style_label_left, color = color.new(color.purple, 10), textcolor = color.white, size = size.small))
 
 // ── entry markers ──────────────────────────────────────────────────────────
 // (Reclaim arrows are drawn as blue triangles in the islast scan above — one rule for MAs + W/M/Q levels.)
