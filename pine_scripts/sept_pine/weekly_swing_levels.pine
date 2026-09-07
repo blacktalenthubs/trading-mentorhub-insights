@@ -11,6 +11,7 @@
 //
 //   • 8 EMA (weekly) reclaim   -> swing_8ema_w_reclaim
 //   • 21 EMA (weekly) reclaim  -> swing_21ema_w_reclaim
+//   • 50 EMA (weekly) reclaim  -> swing_50ema_w_reclaim
 //   • 30-week MA reclaim       -> swing_30w_reclaim
 //   • 50 SMA (daily) reclaim   -> swing_sma50_reclaim
 //   • 200 SMA (daily) reclaim  -> swing_sma200_reclaim
@@ -24,6 +25,7 @@ indicator("weekly-swing-levels", overlay = true, max_lines_count = 24, max_label
 gM    = "Entries"
 en8w  = input.bool(true, "8 EMA (weekly) reclaim — fast trend spine", group = gM)
 en21w = input.bool(true, "21 EMA (weekly) reclaim", group = gM)
+en50w = input.bool(true, "50 EMA (weekly) reclaim", group = gM)
 en30w = input.bool(true, "30-week MA reclaim (Weinstein Stage-2)", group = gM)
 en50  = input.bool(true, "50 SMA (daily) reclaim", group = gM)
 en200 = input.bool(true, "200 SMA (daily) reclaim", group = gM)
@@ -51,6 +53,7 @@ lineW    = input.int(2,  "Line width", group = gL, minval = 1, maxval = 5)
 lineLen  = input.int(60, "Line length (bars back)", group = gL, minval = 10, maxval = 500)
 show8w   = input.bool(true, "Draw 8 EMA (weekly) line",  group = gL)
 show21w  = input.bool(true, "Draw 21 EMA (weekly) line", group = gL)
+show50w  = input.bool(true, "Draw 50 EMA (weekly) line", group = gL)
 show30w  = input.bool(true, "Draw 30W MA line", group = gL)
 show50   = input.bool(true, "Draw 50 SMA line", group = gL)
 show200  = input.bool(true, "Draw 200 SMA line", group = gL)
@@ -77,6 +80,7 @@ e8w   = request.security(tid, "W", ta.ema(close, 8)[1],  lookahead = barmerge.lo
 s8w   = request.security(tid, "W", ta.sma(close, 8)[1],  lookahead = barmerge.lookahead_on)   // 8 SMA weekly  (optional visual — compare vs EMA)
 s21w  = request.security(tid, "W", ta.sma(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 SMA weekly (optional visual — compare vs EMA)
 e21w  = request.security(tid, "W", ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)   // 21 EMA weekly
+e50w  = request.security(tid, "W", ta.ema(close, 50)[1], lookahead = barmerge.lookahead_on)   // 50 EMA weekly
 w30   = request.security(tid, "W", ta.sma(close, 30)[1], lookahead = barmerge.lookahead_on)   // 30-week MA
 flat50  = request.security(tid, lockTf, ta.sma(close, len50)[1],  lookahead = barmerge.lookahead_on)
 sma50   = flatMode ? flat50 : ta.sma(close, len50)
@@ -103,6 +107,7 @@ wOpen = request.security(tid, "W", open, lookahead = barmerge.lookahead_on)
 f_wReclaim(float L) => not na(L) and not na(wOpen) and wOpen > L and close > L and close[1] <= L
 rc8w  = en8w  and conf and f_wReclaim(e8w)
 rc21w = en21w and conf and f_wReclaim(e21w)
+rc50w = en50w and conf and f_wReclaim(e50w)
 rc30w = en30w and conf and f_wReclaim(w30)
 rc50  = en50  and conf and f_reclaim(sma50)
 rc200 = en200 and conf and f_reclaim(sma200)
@@ -143,6 +148,7 @@ if barstate.islast
     // (they can sit far from price, so hide them until price is within the band).
     f_sr(e8w,     "8 EMA (W)",  show8w, line.style_solid)
     f_sr(e21w,    "21 EMA (W)", show21w, line.style_solid)
+    f_sr(e50w,    "50 EMA (W)", show50w, line.style_solid)
     f_sr(w30,     "30W MA",     show30w and (not maProx or f_near(w30)),     line.style_solid)
     f_sr(flat50,  "50 SMA",     show50 and (not maProx or f_near(flat50)),   line.style_solid)
     f_sr(flat200, "200 SMA",    show200 and (not maProx or f_near(flat200)), line.style_solid)
@@ -196,6 +202,7 @@ if barstate.islast
     // reclaim arrows — candles that opened above a line, came down to it, and closed back above (MAs + W/M/Q levels)
     f_mark(show8w,  e8w)
     f_mark(show21w, e21w)
+    f_mark(show50w, e50w)
     f_mark(show30w, w30)
     f_mark(show50,  flat50)
     f_mark(show200, flat200)
@@ -218,6 +225,9 @@ if barstate.islast
         if show21w
             array.push(_allv, e21w)
             array.push(_alln, "21 EMA (W)")
+        if show50w
+            array.push(_allv, e50w)
+            array.push(_alln, "50 EMA (W)")
         if show30w
             array.push(_allv, w30)
             array.push(_alln, "30W MA")
@@ -270,6 +280,8 @@ if enAl and rc8w
     alert(f_pay("swing_8ema_w_reclaim", "8 EMA (weekly) reclaim at " + str.tostring(e8w, format.mintick) + " — the week opened above the weekly 8 EMA (fast trend spine) and price reclaimed it, an early trend re-entry. Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc21w
     alert(f_pay("swing_21ema_w_reclaim", "21 EMA (weekly) reclaim at " + str.tostring(e21w, format.mintick) + " — the week opened above the weekly 21 EMA and price reclaimed it (trend spine held). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
+if enAl and rc50w
+    alert(f_pay("swing_50ema_w_reclaim", "50 EMA (weekly) reclaim at " + str.tostring(e50w, format.mintick) + " — the week opened above the weekly 50 EMA (the slow trend anchor) and price reclaimed it. Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc30w
     alert(f_pay("swing_30w_reclaim", "30-week MA reclaim at " + str.tostring(w30, format.mintick) + " — back above the 30-week MA (Weinstein Stage-2 re-entry / long-hold trend). Stop = a weekly close back below / the swept low."), alert.freq_once_per_bar_close)
 if enAl and rc50
