@@ -66,7 +66,8 @@ confPct  = input.float(0.4, "Confluence — merge MA/EMA lines within ± %", min
 // ── Golden Pocket zones (auto recent range) ─────────────────────────────────
 gGP      = "Golden Pocket"
 enGP     = input.bool(true, "Draw Golden Pocket zones", group = gGP, tooltip = "Fib the recent high↔low: Institutional Buy Zone = 0.618→0.786, Smart Money Zone = 0.786→0.85. Uses the highest high / lowest low over the recent window (not pivots). For uptrends this zone tends to sit around the rising 200 SMA / 50W-EMA confluence.")
-gpLook   = input.int(40, "Recent window (bars)", minval = 5, maxval = 500, group = gGP, tooltip = "Golden pocket = highest high & lowest low over this many recent bars. On a weekly chart ~30–52 captures the recent big swing.")
+gpTf     = input.timeframe("W", "Lock the pocket to timeframe", group = gGP, tooltip = "The pocket's swing (highest high / lowest low) is measured on THIS timeframe, so it stays FIXED when you drop to a lower chart timeframe — it won't recompute off the lower-TF bars. Weekly = the weekly swing; Daily = the daily swing. `Recent window` is counted in bars of this timeframe.")
+gpLook   = input.int(40, "Recent window (bars of lock TF)", minval = 5, maxval = 500, group = gGP, tooltip = "Golden pocket = highest high & lowest low over this many recent bars OF THE LOCK TIMEFRAME (e.g. 40 = 40 weeks when locked to W). ~30–52 weeks captures the recent big swing.")
 gpF618   = input.float(0.618, "Golden Pocket — low (.618)",  group = gGP, step = 0.001)
 gpF786   = input.float(0.786, "Golden Pocket — high (.786)", group = gGP, step = 0.001)
 gpFSm    = input.float(0.85,  "Smart Money floor (deepest)", group = gGP, step = 0.01)
@@ -109,9 +110,10 @@ e50w_up = request.security(tid, "W", ta.ema(close, 50)[1]  > ta.ema(close, 50)[1
 w30_up  = request.security(tid, "W", ta.sma(close, 30)[1]  > ta.sma(close, 30)[1 + slpW],  lookahead = barmerge.lookahead_on)
 f50_up  = request.security(tid, lockTf, ta.sma(close, len50)[1]  > ta.sma(close, len50)[1 + slpD],  lookahead = barmerge.lookahead_on)
 f200_up = request.security(tid, lockTf, ta.sma(close, len200)[1] > ta.sma(close, len200)[1 + slpD], lookahead = barmerge.lookahead_on)
-// Golden Pocket — recent high / low over the window
-gpSh = ta.highest(high, gpLook)
-gpSl = ta.lowest(low, gpLook)
+// Golden Pocket — recent high / low over the window, LOCKED to gpTf so lower chart
+// timeframes don't recompute it (same request.security lock as the 200 SMA / RSI).
+gpSh = request.security(tid, gpTf, ta.highest(high, gpLook), lookahead = barmerge.lookahead_on)
+gpSl = request.security(tid, gpTf, ta.lowest(low, gpLook),   lookahead = barmerge.lookahead_on)
 var box gpIBox = na
 var box gpSBox = na
 dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
@@ -344,7 +346,7 @@ if barstate.islast
         // Only show when price has REACHED the zone — touching it / inside it / below it.
         // Hidden while price is entirely ABOVE the pocket (low still over the .618 top).
         if low <= _p618
-            _glb  = bar_index - gpLook
+            _glb  = bar_index - lineLen
             _grb  = bar_index + gpExt
             gpIBox := box.new(_glb, math.max(_p618, _p786), _grb, math.min(_p618, _p786), border_color = color.new(color.blue, 45), bgcolor = gpColI, text = "Institutional Buy Zone", text_color = gpTxt, text_size = size.normal, text_halign = text.align_center, text_valign = text.align_center)
             gpSBox := box.new(_glb, math.max(_p786, _pSm), _grb, math.min(_p786, _pSm), border_color = color.new(color.purple, 30), bgcolor = gpColS, text = "Smart Money Zone", text_color = gpTxt, text_size = size.small, text_halign = text.align_center, text_valign = text.align_center)
