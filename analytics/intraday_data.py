@@ -1080,6 +1080,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 prior_week_low = None
                 wema8 = None
                 wema21 = None
+                wema50 = None
                 w30 = None
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
@@ -1100,6 +1101,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                             wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
                         if len(_done_wk) >= 21:
                             wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
+                        if len(_done_wk) >= 50:
+                            wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
                         if len(_done_wk) >= 30:
                             w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
                 except Exception:
@@ -1147,7 +1150,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "low": last["Low"], "close": last["Close"],
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
-                    "wema8": wema8, "wema21": wema21, "w30": w30,
+                    "wema8": wema8, "wema21": wema21, "wema50": wema50, "w30": w30,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
@@ -1277,6 +1280,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         prior_week_low = None
         wema8 = None
         wema21 = None
+        wema50 = None
         w30 = None
         try:
             # Weekly 8/21 EMA — "8 EMA (W)" / "21 EMA (W)" on the Pine chart.
@@ -1289,6 +1293,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
                 if len(_done_wk) >= 21:
                     wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
+                if len(_done_wk) >= 50:
+                    wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
                 if len(_done_wk) >= 30:
                     w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
             weekly = hist[["High", "Low"]].resample("W-FRI").agg({
@@ -1400,6 +1406,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ma21": ma21,
             "wema8": wema8,
             "wema21": wema21,
+            "wema50": wema50,
             "w30": w30,
             "ma20": ma20,
             "ma50": ma50,

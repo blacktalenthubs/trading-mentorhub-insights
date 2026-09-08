@@ -24,6 +24,9 @@ interface Props {
   target?: number;
   height?: number;
   indicators?: IndicatorConfig[];
+  /** Weekly (locked) EMA values for the flat "*_flat" indicators — drawn as flat
+   *  horizontal lines regardless of the chart timeframe. */
+  weeklyEmas?: { ema8?: number | null; ema21?: number | null; ema50?: number | null };
   hideWicks?: boolean;
   /** Volume histogram + volume MA at the bottom of the chart. */
   showVolume?: boolean;
@@ -63,6 +66,7 @@ function CandlestickChartInner({
   target,
   height = 400,
   indicators = [],
+  weeklyEmas,
   hideWicks = false,
   showVolume = true,
   alertMarkers = [],
@@ -441,15 +445,14 @@ function CandlestickChartInner({
 
       let lineData: { time: string | number; value: number }[] = [];
 
-      // Flat (settled) MA reference: horizontal price line at the last COMPLETED bar's
-      // EMA/SMA value (reflects the chart timeframe — daily EMA on 1d, weekly on 1wk).
-      const flatMatch = ind.key.match(/^(ema|sma)(\d+)_flat$/);
+      // Flat WEEKLY EMA reference: a horizontal line at the settled weekly EMA value
+      // (from the backend), LOCKED to weekly — so it stays put on any lower chart TF.
+      const flatMatch = ind.key.match(/^ema(8|21|50)_flat$/);
       if (flatMatch) {
-        const period = parseInt(flatMatch[2]);
-        const series = flatMatch[1] === "ema" ? computeEMA(closes, period) : computeSMA(closes, period);
-        if (series.length >= 2) {
-          const val = series[series.length - 2].value;   // last COMPLETED bar → non-repainting
-          const label = `${flatMatch[1] === "ema" ? "EMA" : "SMA"} ${period} flat`;
+        const period = parseInt(flatMatch[1]);
+        const val = period === 8 ? weeklyEmas?.ema8 : period === 21 ? weeklyEmas?.ema21 : weeklyEmas?.ema50;
+        if (val != null) {
+          const label = `${period} EMA (W)`;
           flatLines.push({ price: val, color: ind.color, title: label });
           drawnIndicators.push({ key: ind.key, color: ind.color, label });
         }
@@ -606,7 +609,7 @@ function CandlestickChartInner({
     } else {
       timeScale.fitContent();
     }
-  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks, showVolume, alertMarkers]);
+  }, [data, levels, userLevels, entry, stop, target, indicators, weeklyEmas, hideWicks, showVolume, alertMarkers]);
 
   // Toggle pan/zoom off while drawing so a click drops a level cleanly.
   useEffect(() => {

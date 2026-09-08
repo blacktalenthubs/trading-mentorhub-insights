@@ -95,6 +95,7 @@ class PriorDayResponse(BaseModel):
     ema21: Optional[float] = None
     wema8: Optional[float] = None
     wema21: Optional[float] = None
+    wema50: Optional[float] = None
     pattern: str
     direction: str
     is_inside: bool
