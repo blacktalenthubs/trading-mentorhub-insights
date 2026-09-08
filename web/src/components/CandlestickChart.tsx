@@ -350,6 +350,9 @@ function CandlestickChartInner({
     }));
 
     const drawnIndicators: { key: string; color: string; label: string }[] = [];
+    // Flat MA price lines are created AFTER the price-line cleanup below (otherwise
+    // they'd be wiped) — collect them here during the indicator loop.
+    const flatLines: { price: number; color: string; title: string }[] = [];
     for (const ind of indicators) {
       // Fair Value Bands — 20-period SMA basis ± 2σ. Mirrors the weekly Fair Value Swing pine: on the
       // "W" timeframe this IS the weekly fair value (buy pullbacks to a rising basis, trim at the upper
@@ -447,11 +450,7 @@ function CandlestickChartInner({
         if (series.length >= 2) {
           const val = series[series.length - 2].value;   // last COMPLETED bar → non-repainting
           const label = `${flatMatch[1] === "ema" ? "EMA" : "SMA"} ${period} flat`;
-          const line = seriesRef.current!.createPriceLine({
-            price: val, color: ind.color, lineWidth: 1, lineStyle: 0,
-            axisLabelVisible: true, title: label,
-          });
-          priceLinesRef.current.push(line);
+          flatLines.push({ price: val, color: ind.color, title: label });
           drawnIndicators.push({ key: ind.key, color: ind.color, label });
         }
         continue;
@@ -501,6 +500,16 @@ function CandlestickChartInner({
       } catch { /* already removed */ }
     }
     priceLinesRef.current = [];
+
+    // Flat MA reference lines (collected in the indicator loop) — created here, after
+    // the cleanup above, so they survive to render.
+    for (const fl of flatLines) {
+      const line = seriesRef.current!.createPriceLine({
+        price: fl.price, color: fl.color, lineWidth: 1, lineStyle: 0,
+        axisLabelVisible: true, title: fl.title,
+      });
+      priceLinesRef.current.push(line);
+    }
 
     // Price lines — short labels + nearby-dedup.
     //
