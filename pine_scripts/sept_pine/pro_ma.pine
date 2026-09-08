@@ -115,6 +115,7 @@ slPM     = input.bool(true,  "  · PMH / PML", inline = "slf", group = gSL)
 slPQ     = input.bool(false, "  · PQH / PQL", inline = "slf", group = gSL)
 slW      = input.int(2, "  Level thickness", minval = 1, maxval = 6, group = gSL)
 slFade   = input.int(25, "  Level fade", minval = 0, maxval = 95, group = gSL)
+lvlStyle = input.string("dashed", "  Level line style — MAs stay solid, levels break", options = ["dashed", "dotted", "solid"], group = gSL, tooltip = "PDH/PDL and the W/M/Q levels draw with a BROKEN line so a structural level never reads as a moving average. The MAs keep the solid style set under Style. When a level and a MA confluence into one line, the MA wins and the merged line stays solid (it's a real MA level).")
 
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
@@ -138,7 +139,7 @@ extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", 
 // One style for EVERY line — MAs, PDH/PDL, structural levels, the open. Mixing solid, dashed
 // and dotted made the chart look like the differences meant something they didn't; the ROLE
 // tag and the colour already carry the meaning. Default solid = unbroken lines.
-lineStyle = input.string("solid", "Line style — applies to every line", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "One setting for all of them. Solid draws unbroken lines across the chart. Dashed/dotted make every line broken the same way — the point is that they MATCH, so a style difference never reads as a category difference.")
+lineStyle = input.string("solid", "MA line style (solid = straight MA/EMA)", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "Style for the MA/EMA lines (and any confluence line that includes a MA). Default solid = straight, unbroken. Structural levels have their OWN style under 'Structural levels' (default dashed) so a level always looks different from a moving average.")
 tagSize   = input.string("tiny", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
 hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
 styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
@@ -280,6 +281,7 @@ f_xoff(float price) =>
 _tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
 _hudSz = hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
 _lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+_lvlStyle = lvlStyle == "dotted" ? line.style_dotted : lvlStyle == "solid" ? line.style_solid : line.style_dashed
 _lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
 var float[]  _qv = array.new_float()
 var string[] _qn = array.new_string()
@@ -462,7 +464,7 @@ if barstate.islast
             _qsup = close > _qnear
             _qcol = _qsup ? supCol : resCol
             _qx   = f_xoff(_qnear)                              // residual collisions still fan…
-            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qdt ? _lvlStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
             _qi := _qj
 
@@ -509,12 +511,12 @@ if barstate.islast
         if _lHasDn
             _dxo = f_xoff(_lDn)
             _dc  = close > _lDn ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = _lvlStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = _tagSz))
         if _lHasUp
             _uxo = f_xoff(_lUp)
             _uc  = close > _lUp ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lvlStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = _tagSz))
     // the faint open line — subtle, never competing with the MAs
     if enOpenLn and not na(dayOpen)
