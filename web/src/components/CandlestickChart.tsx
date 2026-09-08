@@ -438,6 +438,25 @@ function CandlestickChartInner({
 
       let lineData: { time: string | number; value: number }[] = [];
 
+      // Flat (settled) MA reference: horizontal price line at the last COMPLETED bar's
+      // EMA/SMA value (reflects the chart timeframe — daily EMA on 1d, weekly on 1wk).
+      const flatMatch = ind.key.match(/^(ema|sma)(\d+)_flat$/);
+      if (flatMatch) {
+        const period = parseInt(flatMatch[2]);
+        const series = flatMatch[1] === "ema" ? computeEMA(closes, period) : computeSMA(closes, period);
+        if (series.length >= 2) {
+          const val = series[series.length - 2].value;   // last COMPLETED bar → non-repainting
+          const label = `${flatMatch[1] === "ema" ? "EMA" : "SMA"} ${period} flat`;
+          const line = seriesRef.current!.createPriceLine({
+            price: val, color: ind.color, lineWidth: 1, lineStyle: 0,
+            axisLabelVisible: true, title: label,
+          });
+          priceLinesRef.current.push(line);
+          drawnIndicators.push({ key: ind.key, color: ind.color, label });
+        }
+        continue;
+      }
+
       const smaMatch = ind.key.match(/^sma(\d+)$/);
       const emaMatch = ind.key.match(/^ema(\d+)$/);
       // Which-line-is-which-MA label. Lives in the compact top-left legend
