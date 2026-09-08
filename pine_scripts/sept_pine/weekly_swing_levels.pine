@@ -65,9 +65,8 @@ confPct  = input.float(0.4, "Confluence — merge MA/EMA lines within ± %", min
 
 // ── Golden Pocket zones (auto recent range) ─────────────────────────────────
 gGP      = "Golden Pocket"
-enGP     = input.bool(true, "Draw Golden Pocket zones", group = gGP, tooltip = "Fib the recent high↔low: Institutional Buy Zone = 0.618→0.786, Smart Money Zone = 0.786→0.85. Uses the highest high / lowest low over the recent window (not pivots). For uptrends this zone tends to sit around the rising 200 SMA / 50W-EMA confluence.")
-gpTf     = input.timeframe("W", "Lock the pocket to timeframe", group = gGP, tooltip = "The pocket's swing (highest high / lowest low) is measured on THIS timeframe, so it stays FIXED when you drop to a lower chart timeframe — it won't recompute off the lower-TF bars. Weekly = the weekly swing; Daily = the daily swing. `Recent window` is counted in bars of this timeframe.")
-gpLook   = input.int(40, "Recent window (bars of lock TF)", minval = 5, maxval = 500, group = gGP, tooltip = "Golden pocket = highest high & lowest low over this many recent bars OF THE LOCK TIMEFRAME (e.g. 40 = 40 weeks when locked to W). ~30–52 weeks captures the recent big swing.")
+enGP     = input.bool(true, "Draw Golden Pocket zones (Daily/Weekly charts only)", group = gGP, tooltip = "Fib the recent high↔low: Institutional Buy Zone = 0.618→0.786, Smart Money Zone = 0.786→0.85. Uses the highest high / lowest low over the recent window on the CURRENT chart timeframe — so a Daily chart shows the daily swing, a Weekly chart the weekly swing. Hidden entirely on intraday charts (4h and below). For uptrends this zone tends to sit around the rising 200 SMA / 50W-EMA confluence.")
+gpLook   = input.int(40, "Recent window (bars)", minval = 5, maxval = 500, group = gGP, tooltip = "Golden pocket = highest high & lowest low over this many recent bars of the current chart timeframe (e.g. 40 daily bars on a Daily chart, 40 weeks on a Weekly chart).")
 gpF618   = input.float(0.618, "Golden Pocket — low (.618)",  group = gGP, step = 0.001)
 gpF786   = input.float(0.786, "Golden Pocket — high (.786)", group = gGP, step = 0.001)
 gpFSm    = input.float(0.85,  "Smart Money floor (deepest)", group = gGP, step = 0.01)
@@ -110,10 +109,10 @@ e50w_up = request.security(tid, "W", ta.ema(close, 50)[1]  > ta.ema(close, 50)[1
 w30_up  = request.security(tid, "W", ta.sma(close, 30)[1]  > ta.sma(close, 30)[1 + slpW],  lookahead = barmerge.lookahead_on)
 f50_up  = request.security(tid, lockTf, ta.sma(close, len50)[1]  > ta.sma(close, len50)[1 + slpD],  lookahead = barmerge.lookahead_on)
 f200_up = request.security(tid, lockTf, ta.sma(close, len200)[1] > ta.sma(close, len200)[1 + slpD], lookahead = barmerge.lookahead_on)
-// Golden Pocket — recent high / low over the window, LOCKED to gpTf so lower chart
-// timeframes don't recompute it (same request.security lock as the 200 SMA / RSI).
-gpSh = request.security(tid, gpTf, ta.highest(high, gpLook), lookahead = barmerge.lookahead_on)
-gpSl = request.security(tid, gpTf, ta.lowest(low, gpLook),   lookahead = barmerge.lookahead_on)
+// Golden Pocket — recent high / low over the window ON THE CURRENT CHART TIMEFRAME.
+// Only drawn on Daily / Weekly / higher charts (gated below); hidden on intraday.
+gpSh = ta.highest(high, gpLook)
+gpSl = ta.lowest(low, gpLook)
 var box gpIBox = na
 var box gpSBox = na
 dOpen   = flatMode ? request.security(tid, lockTf, open, lookahead = barmerge.lookahead_on) : open
@@ -338,7 +337,7 @@ if barstate.islast
     // Golden Pocket zones (auto recent range) — Institutional (.618–.786) + Smart Money (.786–.85)
     box.delete(gpIBox)
     box.delete(gpSBox)
-    if enGP and not na(gpSh) and not na(gpSl) and gpSh > gpSl
+    if enGP and not timeframe.isintraday and not na(gpSh) and not na(gpSl) and gpSh > gpSl
         _grng = gpSh - gpSl
         _p618 = gpSh - gpF618 * _grng   // top of the golden pocket
         _p786 = gpSh - gpF786 * _grng
