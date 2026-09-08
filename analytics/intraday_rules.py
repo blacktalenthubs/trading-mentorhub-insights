@@ -8708,18 +8708,20 @@ def evaluate_rules(
                 sig.message += caution_suffix
                 signals.append(sig)
 
-        # --- Session Low Double-Bottom ---
-        sig = check_session_low_retest(
-            symbol, intraday_bars, last_bar, bar_vol, avg_vol,
-        )
-        if sig:
-            sig.message += f" ({phase})"
-            if spy.get("spy_bouncing"):
-                sig.confidence = "high"
-                spy_low = spy.get("spy_intraday_low", 0)
-                sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
-            sig.message += caution_suffix
-            signals.append(sig)
+        # --- Session Low Double-Bottom (gated by ENABLED_RULES like the double top;
+        #     disabled unless session_low_double_bottom is enabled) ---
+        if AlertType.SESSION_LOW_DOUBLE_BOTTOM.value in ENABLED_RULES:
+            sig = check_session_low_retest(
+                symbol, intraday_bars, last_bar, bar_vol, avg_vol,
+            )
+            if sig:
+                sig.message += f" ({phase})"
+                if spy.get("spy_bouncing"):
+                    sig.confidence = "high"
+                    spy_low = spy.get("spy_intraday_low", 0)
+                    sig.message += f" | SPY double-bottom at ${spy_low:.2f}"
+                sig.message += caution_suffix
+                signals.append(sig)
 
     # --- Session High Double Top (SHORT) ---
     if AlertType.SESSION_HIGH_DOUBLE_TOP.value in ENABLED_RULES:
