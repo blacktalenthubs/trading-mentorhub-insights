@@ -22,6 +22,8 @@ def main() -> int:
     ap.add_argument("symbol", help="underlying ticker, e.g. SPY")
     ap.add_argument("--exp", required=True, help="expiration date YYYY-MM-DD")
     ap.add_argument("--type", default="both", choices=["call", "put", "both"])
+    ap.add_argument("--band", type=float, default=15.0,
+                    help="± %% moneyness band around live price (0 = all strikes)")
     args = ap.parse_args()
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,16 +31,18 @@ def main() -> int:
     from brokers.robinhood import RobinhoodError
 
     try:
-        rows = fetch_option_greeks(args.symbol.upper(), args.exp, args.type)
+        data = fetch_option_greeks(args.symbol.upper(), args.exp, args.type, args.band / 100.0)
     except RobinhoodError as exc:
         print(f"FAIL: {exc}")
         return 1
 
+    rows = data["rows"]
     if not rows:
-        print("(no contracts returned — check the symbol/expiration)")
+        print("(no contracts returned — check the symbol/expiration/band)")
         return 0
 
-    print(f"{args.symbol.upper()} {args.exp}  ({len(rows)} contracts)\n")
+    print(f"{args.symbol.upper()} {args.exp}  underlying ${data['underlying_price']:.2f}  "
+          f"(±{args.band:g}% band · {len(rows)} contracts)\n")
     hdr = (f"{'type':4} {'strike':>9} {'mark':>8} {'delta':>7} {'theta':>7} "
            f"{'gamma':>7} {'vega':>7} {'IV':>7} {'vol':>8} {'OI':>8}")
     print(hdr)

@@ -21,9 +21,14 @@ def fetch_option_greeks(
     symbol: str,
     expiration_date: str,
     option_type: str = "both",
+    moneyness_pct: float = 0.15,
     client: RobinhoodClient | None = None,
-) -> list[dict]:
-    """Return option rows (strike, greeks, quote) for `symbol` at `expiration_date`.
+) -> dict:
+    """Return {underlying_price, rows} for `symbol` at `expiration_date`.
+
+    Robinhood returns the ENTIRE chain (every strike ever listed), so we fetch
+    the live underlying price and keep only strikes within `moneyness_pct` of it
+    (default ±15%) — the relevant, near-the-money contracts. 0 = no filter.
 
     option_type: "call" | "put" | "both". READ-ONLY — no order is ever placed.
     `client` is injectable for tests. Raises RobinhoodError on failure.
@@ -36,6 +41,14 @@ def fetch_option_greeks(
     if client is None:
         client = RobinhoodClient()
         client.login()
+
+    # Live underlying price — the anchor for the moneyness filter.
+    price = 0.0
+    try:
+        lp = rh.get_latest_price([symbol]) or []
+        price = _f(lp[0]) if lp else 0.0
+    except Exception:
+        price = 0.0
 
     try:
         raw = rh.find_options_by_expiration(
@@ -65,5 +78,10 @@ def fetch_option_greeks(
             "volume": _f(o.get("volume")),
             "open_interest": _f(o.get("open_interest")),
         })
+    # Keep only strikes near the money (unless disabled or price unknown).
+    if price > 0 and moneyness_pct and moneyness_pct > 0:
+        lo, hi = price * (1 - moneyness_pct), price * (1 + moneyness_pct)
+        rows = [r for r in rows if lo <= r["strike"] <= hi]
+
     rows.sort(key=lambda r: (r["type"], r["strike"]))
-    return rows
+    return {"underlying_price": round(price, 2), "rows": rows}
