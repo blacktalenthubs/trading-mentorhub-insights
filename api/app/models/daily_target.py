@@ -39,6 +39,12 @@ class DailyTrade(Base):
     target: Mapped[Optional[str]] = mapped_column(String(60))   # structural TARGET (e.g. 50 SMA, PWH) — where you plan to take profit
     stop: Mapped[Optional[str]] = mapped_column(String(60))     # structural STOP (e.g. 200 SMA, PDL) — where the thesis is wrong
     is_open: Mapped[bool] = mapped_column(Boolean, server_default="0", default=False)  # still holding — no exit / not realized yet
+    # Broker-import provenance. NULL for a hand-logged trade; for an imported one
+    # it is the broker's own order id, uniquely indexed per user so the daily job
+    # can re-run without duplicating a fill. Also tells the UI which rows were
+    # auto-filled (and so still want a human note / exit_reason).
+    external_id: Mapped[Optional[str]] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(String(20), server_default="manual", default="manual")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
