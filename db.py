@@ -1689,7 +1689,9 @@ def get_existing_external_ids(user_id: int, external_ids: list[str]) -> set[str]
                 f"WHERE user_id=? AND external_id IN ({placeholders})",
                 (user_id, *chunk),
             ).fetchall()
-            found.update(r[0] for r in rows if r[0])
+            # Name access, not r[0]: Postgres rows are RealDictCursor dicts (r[0]
+            # raises KeyError: 0); sqlite3.Row supports name access too.
+            found.update(r["external_id"] for r in rows if r["external_id"])
     return found
 
 
