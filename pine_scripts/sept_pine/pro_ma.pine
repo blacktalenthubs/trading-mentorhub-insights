@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY MAs · FLAT — 8/21/50/100/200 SMA + 5/8/21/50/100/200 EMA as flat levels. NO structural levels.
+// PROXIMITY MAs · FLAT — 21/50/100/200 SMA + 8/21/50/100/200 EMA + 30W SMA as flat levels.
 // =============================================================================
 // The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
 // as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
@@ -53,12 +53,10 @@ indicator("pro-allmas-signal", overlay = true, max_lines_count = 60, max_labels_
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
 maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/21/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
-en8    = input.bool(true, "8 SMA",   inline = "ma1", group = gMA)
 en21   = input.bool(true, "21 SMA",  inline = "ma1", group = gMA)
 en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
 en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
 en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
-en5e   = input.bool(true, "5 EMA",   inline = "ma3", group = gMA)
 en8e   = input.bool(true, "8 EMA",   inline = "ma3", group = gMA)
 en21e  = input.bool(true, "21 EMA",  inline = "ma3", group = gMA)
 en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
@@ -75,19 +73,11 @@ showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress 
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
 
-// ── weekly MAs — ALWAYS weekly-locked, on their OWN proximity count ───────────────
-// The swing-trend spine: 8/21/50 EMA (W) + the 30-week SMA (Weinstein Stage-2), drawn flat on any
-// chart TF just like the daily MAs. They carry their OWN nearest-N bracket (default 1 above / 1 below)
-// so the chart is never buried under four extra lines — only the ones hugging price load — and they
-// flow into the SAME confluence merge, so a weekly EMA sitting on a daily MA collapses to one line.
-gW    = "Weekly MAs (own proximity)"
-enW   = input.bool(true, "Load weekly MAs — 8/21/50 EMA (W) + 30W SMA (weekly-locked, flat)", group = gW, tooltip = "The weekly trend spine, drawn flat on any timeframe. Gated by their OWN proximity count below (not the daily one), and confluence-merged with the daily MAs/levels.")
-enW8  = input.bool(true, "8 EMA (W)",  inline = "w1", group = gW)
-enW21 = input.bool(true, "21 EMA (W)", inline = "w1", group = gW)
-enW30 = input.bool(true, "30W SMA",    inline = "w1", group = gW)
-enW50 = input.bool(true, "50 EMA (W)", inline = "w1", group = gW)
-wUp   = input.int(1, "Weekly MAs to show ABOVE price", group = gW, minval = 0, maxval = 6, inline = "wn", tooltip = "The N nearest weekly MAs above price and N below — separate from the daily count, so weekly lines load only when price is near them. Default 1/1 = one weekly wall overhead, one underneath. The ± % gate above still applies on top of this.")
-wDn   = input.int(1, "BELOW", group = gW, minval = 0, maxval = 6, inline = "wn")
+// ── weekly MA — the 30-week SMA (Weinstein Stage-2), always weekly-locked, drawn flat on any chart TF.
+// Folded into the SAME pool as the daily MAs, so it shares their proximity gate, confluence merge,
+// and — crucially — the open-line bracket. No separate weekly proximity to reason about.
+gW    = "Weekly MA"
+en30w = input.bool(true, "30W SMA (weekly-locked, flat)", group = gW, tooltip = "The 30-week SMA (Weinstein Stage-2), always weekly, drawn flat on any timeframe. Treated exactly like the daily MAs — same proximity gate, confluence merge, and open-line bracket.")
 
 // ── reclaim marker ──────────────────────────────────────────────────────────────
 gR      = "Reclaim marker"
@@ -150,9 +140,6 @@ lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval =
 // ── values — SETTLED higher-TF MA ([1] + lookahead_on), the ma_ema_daily idiom. Flat, non-repainting.
 // (each call written out in full — a request.security wrapped in a helper that also branches is the
 //  one shape that bites; this is the exact form proximity_levels_pure / ma_ema_daily already use)
-[_r_sma8v, _r_sma8vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 8)[1], ta.sma(close, 8)[2]], lookahead = barmerge.lookahead_on)
-sma8v = en8 ? _r_sma8v : na
-sma8vp = en8 ? _r_sma8vp : na
 [_r_sma21v, _r_sma21vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 21)[1], ta.sma(close, 21)[2]], lookahead = barmerge.lookahead_on)
 sma21v = en21 ? _r_sma21v : na
 sma21vp = en21 ? _r_sma21vp : na
@@ -165,9 +152,6 @@ sma100vp = en100 ? _r_sma100vp : na
 [_r_sma200v, _r_sma200vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 200)[1], ta.sma(close, 200)[2]], lookahead = barmerge.lookahead_on)
 sma200v = en200 ? _r_sma200v : na
 sma200vp = en200 ? _r_sma200vp : na
-[_r_ema5v, _r_ema5vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 5)[1], ta.ema(close, 5)[2]], lookahead = barmerge.lookahead_on)
-ema5v = en5e ? _r_ema5v : na
-ema5vp = en5e ? _r_ema5vp : na
 [_r_ema8v, _r_ema8vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 8)[1], ta.ema(close, 8)[2]], lookahead = barmerge.lookahead_on)
 ema8v = en8e ? _r_ema8v : na
 ema8vp = en8e ? _r_ema8vp : na
@@ -183,19 +167,10 @@ ema100vp = en100e ? _r_ema100vp : na
 [_r_ema200v, _r_ema200vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 200)[1], ta.ema(close, 200)[2]], lookahead = barmerge.lookahead_on)
 ema200v = en200e ? _r_ema200v : na
 ema200vp = en200e ? _r_ema200vp : na
-// ── weekly MAs — always the WEEKLY settled value ([1] + lookahead_on), independent of maTf. Flat. ──
-[_r_e8wv, _r_e8wvp]   = request.security(syminfo.tickerid, "W", [ta.ema(close, 8)[1],  ta.ema(close, 8)[2]],  lookahead = barmerge.lookahead_on)
-e8wv  = enW and enW8  ? _r_e8wv  : na
-e8wvp = enW and enW8  ? _r_e8wvp : na
-[_r_e21wv, _r_e21wvp] = request.security(syminfo.tickerid, "W", [ta.ema(close, 21)[1], ta.ema(close, 21)[2]], lookahead = barmerge.lookahead_on)
-e21wv  = enW and enW21 ? _r_e21wv  : na
-e21wvp = enW and enW21 ? _r_e21wvp : na
+// ── weekly 30W SMA — always the WEEKLY settled value ([1] + lookahead_on), independent of maTf. Flat.
 [_r_w30v, _r_w30vp]   = request.security(syminfo.tickerid, "W", [ta.sma(close, 30)[1], ta.sma(close, 30)[2]], lookahead = barmerge.lookahead_on)
-w30v  = enW and enW30 ? _r_w30v  : na
-w30vp = enW and enW30 ? _r_w30vp : na
-[_r_e50wv, _r_e50wvp] = request.security(syminfo.tickerid, "W", [ta.ema(close, 50)[1], ta.ema(close, 50)[2]], lookahead = barmerge.lookahead_on)
-e50wv  = enW and enW50 ? _r_e50wv  : na
-e50wvp = enW and enW50 ? _r_e50wvp : na
+w30v  = en30w ? _r_w30v  : na
+w30vp = en30w ? _r_w30vp : na
 
 // ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -260,13 +235,9 @@ var line[]   _ln = array.new_line()
 var label[]  _lb = array.new_label()
 var float[]  _maV = array.new_float()
 var string[] _maN = array.new_string()
-var float[]  _wmaV = array.new_float()     // weekly MAs — own pool, own bracket
-var string[] _wmaN = array.new_string()
 var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
 var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
 var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
-var float    _wBrkHi = 1.0e18              // weekly bracket top (own count)
-var float    _wBrkLo = -1.0                // weekly bracket bottom
 f_xoff(float price) =>
     _cnt = 0
     if array.size(_drawnY) > 0
@@ -301,17 +272,6 @@ f_collect(float v, string nm) =>
     if not na(v) and v > 0
         array.push(_maV, v)
         array.push(_maN, nm)
-// weekly MAs — same idea, own pool + own bracket, then queued so they merge with everything else
-f_collectW(float v, string nm) =>
-    if not na(v) and v > 0
-        array.push(_wmaV, v)
-        array.push(_wmaN, nm)
-f_drawW(float v, string nm) =>
-    _inBr = v <= _wBrkHi and v >= _wBrkLo
-    _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
-    if not na(v) and v > 0 and (showAll or (_inBr and _cap))
-        f_queue(v, nm, false)
-
 _hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
 var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
 
@@ -324,23 +284,20 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_maV)
     array.clear(_maN)
-    array.clear(_wmaV)
-    array.clear(_wmaN)
     array.clear(_drawnY)
     array.clear(_qv)
     array.clear(_qn)
     array.clear(_qdot)
-    f_collect(sma8v,   "8 SMA" + f_slope(sma8v, sma8vp))
     f_collect(sma21v,  "21 SMA" + f_slope(sma21v, sma21vp))
     f_collect(sma50v,  "50 SMA" + f_slope(sma50v, sma50vp))
     f_collect(sma100v, "100 SMA" + f_slope(sma100v, sma100vp))
     f_collect(sma200v, "200 SMA" + f_slope(sma200v, sma200vp))
-    f_collect(ema5v,   "5 EMA" + f_slope(ema5v, ema5vp))
     f_collect(ema8v,   "8 EMA" + f_slope(ema8v, ema8vp))
     f_collect(ema21v,  "21 EMA" + f_slope(ema21v, ema21vp))
     f_collect(ema50v,  "50 EMA" + f_slope(ema50v, ema50vp))
     f_collect(ema100v, "100 EMA" + f_slope(ema100v, ema100vp))
     f_collect(ema200v, "200 EMA" + f_slope(ema200v, ema200vp))
+    f_collect(w30v,    "30W SMA" + f_slope(w30v, w30vp))
     // ── NEAREST-N bracket — the N closest MAs above price and N closest below ──
     _ab = array.new_float()
     _bl = array.new_float()
@@ -364,32 +321,6 @@ if barstate.islast
         for _mi2 = 0 to _n - 1
             _ms = array.get(_ord, _mi2)
             f_draw(array.get(_maV, _ms), array.get(_maN, _ms))
-
-    // ── WEEKLY MAs — their OWN nearest-N bracket (default 1 above / 1 below), then queued so the
-    //    merge pass below confluences them with any daily MA / level sitting at the same price.
-    if enW
-        f_collectW(e8wv,  "8 EMA (W)"  + f_slope(e8wv, e8wvp))
-        f_collectW(e21wv, "21 EMA (W)" + f_slope(e21wv, e21wvp))
-        f_collectW(w30v,  "30W SMA"    + f_slope(w30v, w30vp))
-        f_collectW(e50wv, "50 EMA (W)" + f_slope(e50wv, e50wvp))
-        _wab = array.new_float()
-        _wbl = array.new_float()
-        if array.size(_wmaV) > 0
-            for _wi = 0 to array.size(_wmaV) - 1
-                _wv = array.get(_wmaV, _wi)
-                if _wv > close
-                    array.push(_wab, _wv)
-                else if _wv < close
-                    array.push(_wbl, _wv)
-        array.sort(_wab, order.ascending)
-        array.sort(_wbl, order.descending)
-        _wBrkHi := wUp <= 0 or array.size(_wab) == 0 ? (wUp <= 0 ? -1.0 : 1.0e18) : array.get(_wab, math.min(wUp, array.size(_wab)) - 1)
-        _wBrkLo := wDn <= 0 or array.size(_wbl) == 0 ? (wDn <= 0 ? 1.0e18 : -1.0) : array.get(_wbl, math.min(wDn, array.size(_wbl)) - 1)
-        if array.size(_wmaV) > 0
-            _word = array.sort_indices(_wmaV, order.ascending)
-            for _wmi = 0 to array.size(_wmaV) - 1
-                _wms = array.get(_word, _wmi)
-                f_drawW(array.get(_wmaV, _wms), array.get(_wmaN, _wms))
 
     // ── STRUCTURAL LEVELS — PDH/PDL always; the rest earn their place via their own count,
     //    kept apart from the MA count so a cluster of MAs can never hide the weekly line.
@@ -579,8 +510,6 @@ _upTxt = ""
 _dnTxt = ""
 _pdTxt = ""
 _pdDnTxt = ""
-_upTxt := f_add(_upTxt, f_hold(sma8v) or (f_cross(sma8v) and (not rcConf or _conf)), "8 SMA")
-_pdTxt := f_add(_pdTxt, f_cross(sma8v) and rcConf and not _conf, "8 SMA")
 _upTxt := f_add(_upTxt, f_hold(sma21v) or (f_cross(sma21v) and (not rcConf or _conf)), "21 SMA")
 _pdTxt := f_add(_pdTxt, f_cross(sma21v) and rcConf and not _conf, "21 SMA")
 _upTxt := f_add(_upTxt, f_hold(sma50v) or (f_cross(sma50v) and (not rcConf or _conf)), "50 SMA")
@@ -589,8 +518,6 @@ _upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v) and (not rcConf or 
 _pdTxt := f_add(_pdTxt, f_cross(sma100v) and rcConf and not _conf, "100 SMA")
 _upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v) and (not rcConf or _conf)), "200 SMA")
 _pdTxt := f_add(_pdTxt, f_cross(sma200v) and rcConf and not _conf, "200 SMA")
-_upTxt := f_add(_upTxt, f_hold(ema5v) or (f_cross(ema5v) and (not rcConf or _conf)), "5 EMA")
-_pdTxt := f_add(_pdTxt, f_cross(ema5v) and rcConf and not _conf, "5 EMA")
 _upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v) and (not rcConf or _conf)), "8 EMA")
 _pdTxt := f_add(_pdTxt, f_cross(ema8v) and rcConf and not _conf, "8 EMA")
 _upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v) and (not rcConf or _conf)), "21 EMA")
@@ -613,8 +540,6 @@ _upTxt := f_add(_upTxt, f_hold(lPmh) or (f_cross(lPmh) and (not rcConf or _conf)
 _pdTxt := f_add(_pdTxt, f_cross(lPmh) and rcConf and not _conf, "PMH")
 _upTxt := f_add(_upTxt, f_hold(lPml) or (f_cross(lPml) and (not rcConf or _conf)), "PML")
 _pdTxt := f_add(_pdTxt, f_cross(lPml) and rcConf and not _conf, "PML")
-_dnTxt := f_add(_dnTxt, f_holdDn(sma8v) or (f_crossDn(sma8v) and (not rcConf or _conf)), "8 SMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma8v) and rcConf and not _conf, "8 SMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(sma21v) or (f_crossDn(sma21v) and (not rcConf or _conf)), "21 SMA")
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma21v) and rcConf and not _conf, "21 SMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(sma50v) or (f_crossDn(sma50v) and (not rcConf or _conf)), "50 SMA")
@@ -623,8 +548,6 @@ _dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v) and (not rcConf
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v) and rcConf and not _conf, "100 SMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v) and (not rcConf or _conf)), "200 SMA")
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v) and rcConf and not _conf, "200 SMA")
-_dnTxt := f_add(_dnTxt, f_holdDn(ema5v) or (f_crossDn(ema5v) and (not rcConf or _conf)), "5 EMA")
-_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema5v) and rcConf and not _conf, "5 EMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v) and (not rcConf or _conf)), "8 EMA")
 _pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v) and rcConf and not _conf, "8 EMA")
 _dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v) and (not rcConf or _conf)), "21 EMA")
