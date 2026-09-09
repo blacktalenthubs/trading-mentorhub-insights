@@ -48,7 +48,7 @@
 // (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
 //
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 60, max_labels_count = 500)
+indicator("pro-allmas-signal", overlay = true, max_lines_count = 60, max_labels_count = 500)
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
@@ -504,8 +504,14 @@ if barstate.islast
     _lHasUp = _lUp < 1.0e17
     _lHasDn = _lDn > 0
     _boxed  = _hasUp and _hasDn
-    // the level phrasing, reused by both the line label and the HUD row
-    _lvlTxt = not enLvl ? "" : _lHasUp and _lHasDn ? "BTW " + _lUpN + " and " + _lDnN : _lHasUp ? "under " + _lUpN : _lHasDn ? "over " + _lDnN : "no levels"
+    // Bracket the open MA-FIRST: name the nearest MA/EMA on each side (a MA carries more weight than
+    // a level), and only the side with NO MA falls back to the nearest structural level. So "open
+    // above all MAs" still reads off the closest MA below and the next level above — e.g. price that
+    // opened over every MA with the 50 SMA just under it and PMH overhead → "Open BTW PMH and 50 SMA".
+    _obUpN = _hasUp ? _oUpN : (_lHasUp ? _lUpN : "")
+    _obDnN = _hasDn ? _oDnN : (_lHasDn ? _lDnN : "")
+    _obUp  = _hasUp or _lHasUp
+    _obDn  = _hasDn or _lHasDn
     // draw the two bracketing levels only when the stack has failed (that's the fallback)
     if enLvl and enLvlDraw and not _boxed
         if _lHasDn
@@ -522,7 +528,7 @@ if barstate.islast
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
-        _oTag = _boxed ? "Open BTW " + _oUpN + " and " + _oDnN : _hasDn ? "Open ABOVE all MAs · " + _lvlTxt : _hasUp ? "Open BELOW all MAs · " + _lvlTxt : "Open"
+        _oTag = _obUp and _obDn ? "Open BTW " + _obUpN + " and " + _obDnN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
     // ── HUD ──
     if enHud
