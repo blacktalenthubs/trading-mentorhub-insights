@@ -174,8 +174,8 @@ def upsert_daily_trades(rows: list[dict], user_id: int) -> DailyTargetSyncResult
                     """UPDATE daily_trades
                        SET exit_price=?, pnl=?, is_open=?, quantity=?, position_size=?
                        WHERE id=?""",
-                    (row["exit_price"], row["pnl"], int(row["is_open"]),
-                     row["quantity"], row["position_size"], existing[0]),
+                    (row["exit_price"], row["pnl"], bool(row["is_open"]),
+                     row["quantity"], row["position_size"], existing["id"]),
                 )
                 result.updated += 1
                 continue
@@ -189,7 +189,7 @@ def upsert_daily_trades(rows: list[dict], user_id: int) -> DailyTargetSyncResult
                 (user_id, row["session_date"], row["symbol"], row["instrument"],
                  row["trade_type"], row["setup"], row["direction"],
                  row["entry_price"], row["exit_price"], row["quantity"],
-                 row["position_size"], row["pnl"], int(row["is_open"]),
+                 row["position_size"], row["pnl"], bool(row["is_open"]),
                  row["target"], row["stop"], row["external_id"], row["source"]),
             )
             result.inserted += 1
