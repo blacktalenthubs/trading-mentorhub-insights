@@ -6,14 +6,17 @@ scheduled 16:45 ET job does not turn out to be the first login attempt.
 Usage:
     export ROBINHOOD_USERNAME="you@example.com"
     export ROBINHOOD_PASSWORD="..."
+    # OPTIONAL — only if you have an authenticator app set up:
     export ROBINHOOD_TOTP_SECRET="JBSWY3DPEHPK3PXP"   # the setup key, not a 6-digit code
     python3 scripts/test_robinhood_login.py
 
+TOTP_SECRET is optional. With it, login is fully unattended. WITHOUT it (no
+authenticator on the account), robin_stocks prompts for the SMS/email code and
+stores a session pickle that later runs reuse until it expires — so run this
+INTERACTIVELY the first time to seed that session.
+
 Read-only: it logs in, prints today's filled orders, and writes NOTHING to the
 database. Exits 0 when login and fetch both work.
-
-Stage 1 runs with no network at all — if the seed is malformed you find out
-before an authentication attempt is ever made against the account.
 """
 from __future__ import annotations
 
@@ -30,30 +33,34 @@ def main() -> int:
     if not username or not password:
         print("FAIL: ROBINHOOD_USERNAME / ROBINHOOD_PASSWORD not set")
         return 1
-    if not secret:
-        print("FAIL: ROBINHOOD_TOTP_SECRET not set — unattended login needs the")
-        print("      authenticator SETUP KEY (base32), not a 6-digit code.")
-        return 1
 
-    # ── Stage 1: the seed itself, offline ────────────────────────────
-    try:
-        import pyotp
-    except ImportError:
-        print("FAIL: pyotp not installed — pip install pyotp")
-        return 1
-
-    try:
-        code = pyotp.TOTP(secret).now()
-    except Exception as exc:
-        print(f"FAIL: TOTP secret is not valid base32 ({type(exc).__name__}).")
-        print("      Copy the setup key from Robinhood's 'Can't scan it?' screen —")
-        print("      letters A-Z and digits 2-7 only, no spaces.")
-        return 1
-
-    print(f"TOTP secret parses. Current code: {code}")
-    print("  -> Compare this against your phone's authenticator RIGHT NOW.")
-    print("     If they differ, the seed is from a different account or was mistyped,")
-    print("     and every unattended login will fail.\n")
+    # TOTP is OPTIONAL. With a seed, login is fully unattended. Without one
+    # (no authenticator app on the account), robin_stocks prompts for the SMS/
+    # email code interactively and stores a session pickle — reused on later
+    # runs until it expires. That pickle is what an unattended job then rides.
+    code = None
+    if secret:
+        # ── Stage 1: the seed itself, offline ────────────────────────
+        try:
+            import pyotp
+        except ImportError:
+            print("FAIL: pyotp not installed — pip install pyotp")
+            return 1
+        try:
+            code = pyotp.TOTP(secret).now()
+        except Exception as exc:
+            print(f"FAIL: TOTP secret is not valid base32 ({type(exc).__name__}).")
+            print("      Copy the setup key from Robinhood's 'Can't scan it?' screen —")
+            print("      letters A-Z and digits 2-7 only, no spaces.")
+            return 1
+        print(f"TOTP secret parses. Current code: {code}")
+        print("  -> Compare this against your phone's authenticator RIGHT NOW.")
+        print("     If they differ, the seed is from a different account or was mistyped,")
+        print("     and every unattended login will fail.\n")
+    else:
+        print("No ROBINHOOD_TOTP_SECRET — using the interactive session-pickle path.")
+        print("  robin_stocks will prompt for the SMS/email code below; the resulting")
+        print("  session is stored and reused until it expires (weeks, not months).\n")
 
     # ── Stage 2: live login ──────────────────────────────────────────
     try:
@@ -63,12 +70,14 @@ def main() -> int:
         return 1
 
     try:
+        # mfa_code=None makes robin_stocks prompt interactively for the SMS code
+        # (or ride an existing stored session if one is still valid).
         rh.login(username=username, password=password, mfa_code=code, store_session=True)
     except Exception as exc:
         # Never echo the exception body — it can carry request details.
         print(f"FAIL: login rejected ({type(exc).__name__})")
-        print("      Common causes: 2FA still set to SMS rather than an authenticator app;")
-        print("      a device-approval prompt waiting in the Robinhood app or your email.")
+        print("      Common causes: a device-approval prompt waiting in the Robinhood app")
+        print("      or your email; or a mistyped SMS code.")
         return 1
 
     print("Login OK. Session stored — later runs will usually skip the MFA round-trip.\n")
