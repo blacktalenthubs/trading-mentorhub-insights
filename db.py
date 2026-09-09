@@ -775,6 +775,7 @@ def init_db():
     _migrate_add_ai_review()
     _migrate_add_ai_conviction()
     _migrate_seed_subscriptions()
+    _migrate_trades_monthly_external_id()
 
 
 def _migrate_add_user_id():
@@ -943,6 +944,57 @@ def _migrate_ensure_default_watchlist():
             "INSERT INTO watchlist (user_id, symbol) VALUES (?, ?) ON CONFLICT(user_id, symbol) DO NOTHING",
             [(uid, s) for s in DEFAULT_WATCHLIST],
         )
+
+
+def _migrate_trades_monthly_external_id():
+    """Add external_id to trades_monthly for broker-import idempotency.
+
+    A PDF statement is imported once by hand, but the Robinhood daily job re-runs
+    (retry, redeploy, manual backfill) over an overlapping window. Storing the
+    broker's own order id and uniquely indexing it per user makes a re-run a
+    no-op instead of double-counting a fill. NULL for statement-parsed rows —
+    Postgres and SQLite both allow repeated NULLs in a UNIQUE index.
+    """
+    # Best-effort throughout. This migration exists only to make a broker import
+    # idempotent; nothing else depends on it, so it must never be the reason
+    # init_db() raises and the app fails to boot. _DB_OPERATIONAL_ERRORS covers
+    # only DuplicateColumn/DuplicateTable on Postgres, so a narrower except here
+    # would let an UndefinedColumn or ProgrammingError escape and take down
+    # startup — hence the broad catches.
+    try:
+        with get_db() as conn:
+            _safe_add_column(conn, "ALTER TABLE trades_monthly ADD COLUMN external_id TEXT")
+
+            # Only index if the data can actually satisfy it. A UNIQUE index is a
+            # hard constraint on a SHARED table: once it exists, a later migration
+            # that backfills user_id (see _migrate_add_user_id) can trip over it.
+            # With duplicates already present, fall back to a plain index —
+            # insert_broker_fills still de-dupes by pre-filtering on external_id.
+            try:
+                dupes = conn.execute(
+                    "SELECT 1 FROM trades_monthly WHERE external_id IS NOT NULL "
+                    "GROUP BY user_id, external_id HAVING COUNT(*) > 1 LIMIT 1"
+                ).fetchone()
+            except Exception:
+                # Column missing or table unreadable — skip indexing entirely
+                # rather than guess; the pre-filter dedup still holds.
+                return
+
+            if dupes:
+                print("WARNING: trades_monthly has duplicate external_id rows — "
+                      "creating a non-unique index; de-duplicate them to restore "
+                      "the constraint")
+            unique = "" if dupes else "UNIQUE "
+            try:
+                conn.execute(
+                    f"CREATE {unique}INDEX IF NOT EXISTS idx_trades_monthly_external "
+                    "ON trades_monthly(user_id, external_id)"
+                )
+            except Exception:
+                pass
+    except Exception:
+        print("WARNING: trades_monthly external_id migration skipped "
+              "(broker import will de-dupe without the index)")
 
 
 def _migrate_real_trades_swing():
@@ -1619,6 +1671,64 @@ def insert_trades_monthly(trades: list[TradeMonthly], import_id: int, user_id: i
         )
 
 
+def get_existing_external_ids(user_id: int, external_ids: list[str]) -> set[str]:
+    """Which of these broker order ids are already stored for this user.
+
+    Queried in chunks because SQLite caps a statement at 999 bound parameters
+    and a backfill window can exceed that.
+    """
+    if not external_ids:
+        return set()
+    found: set[str] = set()
+    with get_db() as conn:
+        for start in range(0, len(external_ids), 500):
+            chunk = external_ids[start:start + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"SELECT external_id FROM trades_monthly "
+                f"WHERE user_id=? AND external_id IN ({placeholders})",
+                (user_id, *chunk),
+            ).fetchall()
+            found.update(r[0] for r in rows if r[0])
+    return found
+
+
+def insert_broker_fills(
+    fills: list[tuple[str, TradeMonthly]],
+    import_id: int,
+    user_id: int,
+) -> int:
+    """Insert (external_id, TradeMonthly) pairs, skipping ones already stored.
+
+    Returns the number of rows actually written. The pre-filter keeps the common
+    re-run cheap; the unique index on (user_id, external_id) is the real
+    guarantee against a concurrent second job double-writing the same fill.
+    """
+    if not fills:
+        return 0
+
+    existing = get_existing_external_ids(user_id, [ext for ext, _ in fills])
+    fresh = [(ext, t) for ext, t in fills if ext not in existing]
+    if not fresh:
+        return 0
+
+    with get_db() as conn:
+        conn.executemany(
+            """INSERT INTO trades_monthly
+               (import_id, user_id, account, description, symbol, cusip, acct_type,
+                transaction_type, trade_date, quantity, price, amount,
+                is_option, option_detail, is_recurring, asset_type, category,
+                underlying_symbol, external_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            [(import_id, user_id, t.account, t.description, t.symbol, t.cusip, t.acct_type,
+              t.transaction_type, t.trade_date.isoformat(), t.quantity, t.price, t.amount,
+              int(t.is_option), t.option_detail, int(t.is_recurring),
+              t.asset_type, t.category, t.underlying_symbol, ext)
+             for ext, t in fresh],
+        )
+    return len(fresh)
+
+
 def get_trades_monthly(user_id: int, account: Optional[str] = None) -> pd.DataFrame:
     with get_db() as conn:
         query = "SELECT * FROM trades_monthly WHERE user_id=?"
@@ -1651,6 +1761,23 @@ def insert_matched_trades(trades: list[MatchedTrade], user_id: int):
               t.holding_period_type, t.underlying_symbol)
              for t in trades],
         )
+
+
+def replace_matched_trades_for_account(trades: list[MatchedTrade], user_id: int, account: str):
+    """Rebuild one account's matched trades from scratch.
+
+    FIFO pairing is a function of the WHOLE fill history for an account, so a
+    new day's sells can pair against lots bought weeks ago. Appending would
+    duplicate every previously matched pair, so the account's rows are dropped
+    and rewritten. Scoped to one account so statement-imported brokerages are
+    untouched.
+    """
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM matched_trades WHERE user_id=? AND account=?",
+            (user_id, account),
+        )
+    insert_matched_trades(trades, user_id)
 
 
 def get_matched_trades(user_id: int) -> pd.DataFrame:

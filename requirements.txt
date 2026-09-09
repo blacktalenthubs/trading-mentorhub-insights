@@ -41,6 +41,13 @@ redis>=5.0.0
 # graceful no-op if vars unset. See api/app/services/apns.py.
 aioapns>=3.0.0
 
+# Robinhood daily fill import (brokers/robinhood.py). Robinhood has no official
+# API, so this is the unofficial reverse-engineered client — gated behind
+# ROBINHOOD_IMPORT_ENABLED and imported lazily, so the app runs fine without it.
+# pyotp generates the TOTP for unattended re-login.
+robin_stocks>=3.0.0
+pyotp>=2.9.0
+
 # Google Sign-In — verifies ID tokens server-side at /auth/google.
 # Gated by GOOGLE_CLIENT_ID env var; import is lazy in the endpoint so
 # missing this dep would only surface when the endpoint is hit.

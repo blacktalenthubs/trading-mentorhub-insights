@@ -137,6 +137,20 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
 
+        # Migration: broker-import provenance on daily_trades. The Robinhood
+        # daily job upserts by external_id, so the unique index is what makes a
+        # re-run a no-op instead of a duplicate row on the Daily Target page.
+        for col_def in [
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS external_id VARCHAR(120)",
+            "ALTER TABLE daily_trades ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'manual'",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_daily_trades_external "
+            "ON daily_trades(user_id, external_id)",
+        ]:
+            try:
+                await conn.execute(text(col_def))
+            except Exception:
+                pass
+
         # Migration: structured AI brief + extra metrics on symbol_fundamentals
         for col_def in [
             "ALTER TABLE symbol_fundamentals ADD COLUMN IF NOT EXISTS ai_brief TEXT",
@@ -515,6 +529,50 @@ async def lifespan(app: FastAPI):
             logger.info("Morning-focus push scheduled (8:50 + 9:10 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register morning-focus push job")
+
+        # Robinhood daily trade import + evaluation. Runs at 16:45 ET so the
+        # 16:00 close and any late fills have settled into the order feed.
+        # Both halves are inert unless ROBINHOOD_IMPORT_ENABLED is true, so
+        # registering the job unconditionally costs a no-op tick per weekday.
+        try:
+            from apscheduler.triggers.cron import CronTrigger as _CronRH
+            from zoneinfo import ZoneInfo as _ZIRH
+            _etrh = _ZIRH("America/New_York")
+
+            def _run_robinhood_daily():
+                from analytics.daily_trade_eval import send_daily_eval
+                from brokers.robinhood import ROBINHOOD_ACCOUNT_LABEL, ROBINHOOD_USER_ID
+                from brokers.robinhood_sync import sync_robinhood_fills
+
+                result = sync_robinhood_fills()
+                if result.skipped:
+                    logger.debug("Robinhood import skipped: %s", result.skipped)
+                    return
+                if result.error:
+                    # Fail loudly — a silent import failure looks identical to a
+                    # day with no trades, and would go unnoticed for weeks.
+                    logger.error("Robinhood import FAILED: %s", result.error)
+                    try:
+                        from alerting.notifier import _send_telegram
+                        _send_telegram(f"Robinhood import failed: {result.error}")
+                    except Exception:
+                        logger.exception("Could not report Robinhood import failure")
+                    return
+                logger.info(
+                    "Robinhood import: %d fills imported, $%.2f realized",
+                    result.fills_imported, result.realized_pnl,
+                )
+                send_daily_eval(ROBINHOOD_USER_ID, session_date=result.session_date,
+                                account=ROBINHOOD_ACCOUNT_LABEL)
+
+            scheduler.add_job(
+                _run_robinhood_daily,
+                _CronRH(hour=16, minute=45, day_of_week="mon-fri", timezone=_etrh),
+                id="robinhood_daily_import", replace_existing=True,
+            )
+            logger.info("Robinhood daily import + evaluation scheduled (16:45 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Robinhood daily import job")
 
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
