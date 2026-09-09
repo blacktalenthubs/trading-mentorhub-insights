@@ -955,35 +955,46 @@ def _migrate_trades_monthly_external_id():
     no-op instead of double-counting a fill. NULL for statement-parsed rows —
     Postgres and SQLite both allow repeated NULLs in a UNIQUE index.
     """
-    with get_db() as conn:
-        _safe_add_column(conn, "ALTER TABLE trades_monthly ADD COLUMN external_id TEXT")
+    # Best-effort throughout. This migration exists only to make a broker import
+    # idempotent; nothing else depends on it, so it must never be the reason
+    # init_db() raises and the app fails to boot. _DB_OPERATIONAL_ERRORS covers
+    # only DuplicateColumn/DuplicateTable on Postgres, so a narrower except here
+    # would let an UndefinedColumn or ProgrammingError escape and take down
+    # startup — hence the broad catches.
+    try:
+        with get_db() as conn:
+            _safe_add_column(conn, "ALTER TABLE trades_monthly ADD COLUMN external_id TEXT")
 
-        # Only index if the data can actually satisfy it. A UNIQUE index here is
-        # a hard constraint on a SHARED table: once it exists, any later
-        # migration that backfills user_id (see _migrate_add_user_id) can trip
-        # over it and abort init_db entirely — bricking startup over an import
-        # nicety. If duplicates are already present, fall back to a plain index;
-        # insert_broker_fills still de-dupes by pre-filtering on external_id.
-        try:
-            dupes = conn.execute(
-                "SELECT 1 FROM trades_monthly WHERE external_id IS NOT NULL "
-                "GROUP BY user_id, external_id HAVING COUNT(*) > 1 LIMIT 1"
-            ).fetchone()
-        except _DB_OPERATIONAL_ERRORS:
-            dupes = None
+            # Only index if the data can actually satisfy it. A UNIQUE index is a
+            # hard constraint on a SHARED table: once it exists, a later migration
+            # that backfills user_id (see _migrate_add_user_id) can trip over it.
+            # With duplicates already present, fall back to a plain index —
+            # insert_broker_fills still de-dupes by pre-filtering on external_id.
+            try:
+                dupes = conn.execute(
+                    "SELECT 1 FROM trades_monthly WHERE external_id IS NOT NULL "
+                    "GROUP BY user_id, external_id HAVING COUNT(*) > 1 LIMIT 1"
+                ).fetchone()
+            except Exception:
+                # Column missing or table unreadable — skip indexing entirely
+                # rather than guess; the pre-filter dedup still holds.
+                return
 
-        unique = "" if dupes else "UNIQUE "
-        if dupes:
-            print("WARNING: trades_monthly has duplicate external_id rows — "
-                  "creating a non-unique index; de-duplicate them to restore "
-                  "the constraint")
-        try:
-            conn.execute(
-                f"CREATE {unique}INDEX IF NOT EXISTS idx_trades_monthly_external "
-                "ON trades_monthly(user_id, external_id)"
-            )
-        except (*_DB_OPERATIONAL_ERRORS, *_DB_INTEGRITY_ERRORS):
-            pass
+            if dupes:
+                print("WARNING: trades_monthly has duplicate external_id rows — "
+                      "creating a non-unique index; de-duplicate them to restore "
+                      "the constraint")
+            unique = "" if dupes else "UNIQUE "
+            try:
+                conn.execute(
+                    f"CREATE {unique}INDEX IF NOT EXISTS idx_trades_monthly_external "
+                    "ON trades_monthly(user_id, external_id)"
+                )
+            except Exception:
+                pass
+    except Exception:
+        print("WARNING: trades_monthly external_id migration skipped "
+              "(broker import will de-dupe without the index)")
 
 
 def _migrate_real_trades_swing():
