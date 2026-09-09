@@ -506,6 +506,15 @@ def _pretty_reason(alert_type: str, message: str = "") -> str:
     if m:
         return f"{m.group(1).upper()} {m.group(2)} proximity ↓"
 
+    # Legacy daily/weekly MA reclaim / bounce / rejection — spell out SMA vs EMA so a bare "MA"
+    # is never ambiguous. ma_ = SMA, ema_ = EMA, wema_ = weekly EMA.
+    #   ma_reclaim_50  -> "50 SMA reclaim"      ema_reclaim_21 -> "21 EMA reclaim"
+    #   wema_reclaim_8 -> "8 Weekly EMA reclaim"
+    m = re.match(r"^(wema|ema|ma)_(reclaim|bounce|rejection)_(\d+)$", t)
+    if m:
+        _kind = {"ma": "SMA", "ema": "EMA", "wema": "Weekly EMA"}[m.group(1)]
+        return f"{m.group(3)} {_kind} {m.group(2)}"
+
     if t in _REASON_EXACT:
         return _REASON_EXACT[t]
 
