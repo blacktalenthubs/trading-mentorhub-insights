@@ -89,10 +89,9 @@ rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
 rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
 
-// ── level fallback — what to say when the MA stack can't bracket the open ───────
-gL       = "Level fallback (open outside the MA stack)"
-enLvl    = input.bool(true, "Name the structural levels that bracket the open", group = gL, tooltip = "When the open is above (or below) EVERY MA, the stack has nothing to say about the day's range — so fall back to PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL and name the two that actually bracket the open. 'Open below all MAs · between PWL and PDL' beats 'below all MAs'.")
-enLvlDraw = input.bool(false, "  DRAW those two levels automatically (legacy — superseded below)", group = gL, tooltip = "ON by default: the moment the MA stack can't bracket the open, the two structural levels that DO bracket it are drawn beside the open line — so the day's range is on the chart without you going to find it. They appear ONLY in that case; while the open sits inside the MA stack nothing extra is drawn. Turn OFF if you also run 'Proximity Levels · Structural' and don't want the duplicate lines.")
+// ── open bracket — let the W/M/Q + PDH/PDL levels compete with the MAs for the open's neighbours ──
+gL       = "Open bracket"
+enLvl    = input.bool(true, "Let structural levels bracket the open too", group = gL, tooltip = "The open label names the nearest DRAWN line above the open and below it. With this on, the W/M/Q + PDH/PDL levels compete with the MAs on equal footing — whatever line is closest on each side wins. Off = only MAs bracket the open.")
 
 // ── structural levels — PDH/PDL always on, the rest on their OWN neighbour count ──
 gSL      = "Structural levels"
@@ -399,62 +398,39 @@ if barstate.islast
             array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
             _qi := _qj
 
-    // ── where did the day OPEN inside the stack? nearest MA above the open and nearest below ──
+    // ── where did the day OPEN? nearest DRAWN line above it and nearest below — whatever they are.
+    //    MAs and levels compete on equal footing: closest line up names the ceiling, closest line
+    //    down names the floor. No MA-vs-level preference. LOWER line named first.
     _oUp  = 1.0e18
     _oDn  = -1.0
     _oUpN = ""
     _oDnN = ""
-    if not na(dayOpen) and array.size(_maV) > 0
-        for _k = 0 to array.size(_maV) - 1
-            _v = array.get(_maV, _k)
-            if _v > dayOpen and _v < _oUp
-                _oUp  := _v
-                _oUpN := array.get(_maN, _k)
-            if _v < dayOpen and _v > _oDn
-                _oDn  := _v
-                _oDnN := array.get(_maN, _k)
-    _hasUp = _oUp < 1.0e17
-    _hasDn = _oDn > 0
-    // ── the MA stack can't bracket the open → fall back to the structural levels ──
-    _lUp  = 1.0e18
-    _lDn  = -1.0
-    _lUpN = ""
-    _lDnN = ""
-    if enLvl and not na(dayOpen)
-        _lv  = array.from(lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
-        _lnm = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
-        for _k = 0 to array.size(_lv) - 1
-            _v = array.get(_lv, _k)
-            if not na(_v) and _v > 0
-                if _v > dayOpen and _v < _lUp
-                    _lUp  := _v
-                    _lUpN := array.get(_lnm, _k)
-                if _v < dayOpen and _v > _lDn
-                    _lDn  := _v
-                    _lDnN := array.get(_lnm, _k)
-    _lHasUp = _lUp < 1.0e17
-    _lHasDn = _lDn > 0
-    _boxed  = _hasUp and _hasDn
-    // Bracket the open MA-FIRST: name the nearest MA/EMA on each side (a MA carries more weight than
-    // a level), and only the side with NO MA falls back to the nearest structural level. LOWER line
-    // named first. So "open above all MAs" reads off the closest MA below and the next level above —
-    // e.g. opened over every MA with the 50 SMA just under it and PMH overhead → "Open BTW 50 SMA and PMH".
-    _obUpN = _hasUp ? _oUpN : (_lHasUp ? _lUpN : "")
-    _obDnN = _hasDn ? _oDnN : (_lHasDn ? _lDnN : "")
-    _obUp  = _hasUp or _lHasUp
-    _obDn  = _hasDn or _lHasDn
-    // draw the two bracketing levels only when the stack has failed (that's the fallback)
-    if enLvl and enLvlDraw and not _boxed
-        if _lHasDn
-            _dxo = f_xoff(_lDn)
-            _dc  = close > _lDn ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lDn, bar_index + labelX, _lDn, color = _dc, width = wLine, style = _lvlStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _dxo, _lDn, _lDnN + (close > _lDn ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _dc, textcolor = color.white, size = _tagSz))
-        if _lHasUp
-            _uxo = f_xoff(_lUp)
-            _uc  = close > _lUp ? supCol : resCol
-            array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lvlStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = _tagSz))
+    if not na(dayOpen) and dayOpen > 0
+        if array.size(_maV) > 0
+            for _k = 0 to array.size(_maV) - 1
+                _v = array.get(_maV, _k)
+                if _v > dayOpen and _v < _oUp
+                    _oUp  := _v
+                    _oUpN := array.get(_maN, _k)
+                if _v < dayOpen and _v > _oDn
+                    _oDn  := _v
+                    _oDnN := array.get(_maN, _k)
+        if enLvl
+            _lv  = array.from(lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+            _lnm = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+            for _k = 0 to array.size(_lv) - 1
+                _v = array.get(_lv, _k)
+                if not na(_v) and _v > 0
+                    if _v > dayOpen and _v < _oUp
+                        _oUp  := _v
+                        _oUpN := array.get(_lnm, _k)
+                    if _v < dayOpen and _v > _oDn
+                        _oDn  := _v
+                        _oDnN := array.get(_lnm, _k)
+    _obUp  = _oUp < 1.0e17
+    _obDn  = _oDn > 0
+    _obUpN = _oUpN
+    _obDnN = _oDnN
     // the faint open line — subtle, never competing with the MAs. If the open sits ON an already-
     // drawn line (within the confluence band), a second line + tag would just cover it — so instead
     // append "· OPEN" to that line's tag and draw NO separate open line. Only when the open sits in
@@ -473,7 +449,8 @@ if barstate.islast
             _oxo = f_xoff(dayOpen)
             array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
             _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
-            array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
+            // the LABEL is bold and solid so it's easy to spot; the LINE stays faint (openCol)
+            array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = color.new(#EAB308, 0), textcolor = color.black, size = size.normal))
     // ── HUD ──
     if enHud
         _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
