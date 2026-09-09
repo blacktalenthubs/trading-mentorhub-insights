@@ -1577,6 +1577,19 @@ def check_import_exists(filename: str, file_type: str, user_id: int) -> bool:
         return row is not None
 
 
+def get_import_id(filename: str, file_type: str, user_id: int) -> int | None:
+    """The id of an existing import row, or None. Used when create_import collides
+    on UNIQUE(filename, file_type): reuse that row's id instead of a bogus 0, which
+    violates the trades_monthly.import_id foreign key on Postgres. Name access, not
+    row[0] — Postgres rows are RealDictCursor dicts."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM imports WHERE filename=? AND file_type=? AND user_id=?",
+            (filename, file_type, user_id),
+        ).fetchone()
+        return row["id"] if row else None
+
+
 def create_import(record: ImportRecord, user_id: int) -> int:
     with get_db() as conn:
         cur = conn.execute(
