@@ -1697,6 +1697,7 @@ def create_app() -> FastAPI:
         screener,    # Spec 62 — In-Play Volume Screener
         fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
         daily,  # Daily Target self-reporting page (gated to one account)
+        robinhood,  # Admin: UI-triggered fill import + read-only options greeks
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
@@ -1726,6 +1727,7 @@ def create_app() -> FastAPI:
     app.include_router(earnings.router, prefix="/api/v1/earnings", tags=["earnings"])
     app.include_router(fundamentals.router, prefix="/api/v1/fundamentals", tags=["fundamentals"])
     app.include_router(daily.router, prefix="/api/v1/daily", tags=["daily"])
+    app.include_router(robinhood.router, prefix="/api/v1/robinhood", tags=["robinhood"])
     # Phase 5a — TradingView webhook ingest at /tv/webhook (no /api/v1 prefix
     # so the URL traders paste into Pine Script is short and stable).
     app.include_router(tv_webhook.router, prefix="/tv", tags=["tradingview"])

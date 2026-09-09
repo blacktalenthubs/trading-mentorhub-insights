@@ -2684,3 +2684,54 @@ export function useUpdateDailyTrade() {
     onError: () => toast.error("Couldn't update the trade"),
   });
 }
+
+// ── Robinhood (admin) — on-demand import + read-only option chain ─────────────
+export interface RobinhoodImportResult {
+  session_date: string;
+  fills_seen: number;
+  fills_imported: number;
+  matched_trades: number;
+  daily_target_rows: number;
+  realized_pnl: number;
+  skipped: string;
+  error: string;
+}
+
+export function useRobinhoodImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { date?: string; lookback?: number }) => {
+      const p = new URLSearchParams();
+      if (v.date) p.set("date", v.date);
+      if (v.lookback != null) p.set("lookback", String(v.lookback));
+      return api.post<RobinhoodImportResult>(`/robinhood/import?${p.toString()}`, {});
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["daily-summary"] });
+      qc.invalidateQueries({ queryKey: ["daily-history"] });
+      if (r.error) toast.error(`Import error: ${r.error}`);
+      else if (r.skipped) toast.error(`Import skipped: ${r.skipped}`);
+      else toast.success(`Imported ${r.fills_imported} new fill(s)`);
+    },
+    onError: () => toast.error("Import failed"),
+  });
+}
+
+export interface OptionRow {
+  symbol: string; type: string; expiration: string; strike: number;
+  bid: number; ask: number; mark: number;
+  delta: number; theta: number; gamma: number; vega: number; iv: number;
+  volume: number; open_interest: number;
+}
+
+export function useOptionChain() {
+  return useMutation({
+    mutationFn: (v: { symbol: string; exp: string; type: string }) => {
+      const p = new URLSearchParams({ symbol: v.symbol, exp: v.exp, type: v.type });
+      return api.get<{ symbol: string; expiration: string; type: string; rows: OptionRow[] }>(
+        `/robinhood/options?${p.toString()}`
+      );
+    },
+    onError: () => toast.error("Couldn't load the option chain"),
+  });
+}

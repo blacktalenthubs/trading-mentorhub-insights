@@ -9,6 +9,7 @@ import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight,
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import { toast } from "../components/Toast";
+import { RobinhoodPanel } from "../components/RobinhoodPanel";
 import {
   useDailySummary,
   useDailyHistory,
@@ -864,6 +865,9 @@ export default function DailyTargetPage() {
           <h1 className="font-display text-xl font-bold text-text-primary">Daily Target</h1>
           <p className="mt-1 text-[11px] text-text-faint">{todayStr ?? "today"} · make your number, then stop</p>
         </div>
+
+        {/* Robinhood — owner-only import + option chain (read-only) */}
+        <RobinhoodPanel />
 
         {/* View switcher — Journal (log + history) vs Patterns (setup leaderboard) */}
         <div className="flex w-fit gap-1 rounded-lg border border-border-subtle bg-surface-1 p-1">

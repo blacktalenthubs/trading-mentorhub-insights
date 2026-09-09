@@ -111,6 +111,7 @@ def sync_robinhood_fills(
     lookback_days: int = 3,
     user_id: int | None = None,
     client: RobinhoodClient | None = None,
+    force: bool = False,
 ) -> SyncResult:
     """Import Robinhood fills for `session_date` and rebuild realized P&L.
 
@@ -122,7 +123,9 @@ def sync_robinhood_fills(
     user_id = user_id if user_id is not None else ROBINHOOD_USER_ID
     result = SyncResult(session_date=session_date)
 
-    if not ROBINHOOD_IMPORT_ENABLED:
+    if not ROBINHOOD_IMPORT_ENABLED and not force:
+        # force=True lets an explicit manual/UI trigger run even when the
+        # scheduled job is disabled; the scheduler always passes force=False.
         result.skipped = "ROBINHOOD_IMPORT_ENABLED is not true"
         return result
     if not user_id:

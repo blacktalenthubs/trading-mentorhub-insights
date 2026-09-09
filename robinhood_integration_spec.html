@@ -3,163 +3,92 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Robinhood Integration — Expansion Spec</title>
+<title>Robinhood — Core Features</title>
 <style>
   :root{
     --ink:#1a1f2b;--dim:#5b6472;--faint:#8a929e;--line:#e4e8ee;--bg:#fbfcfe;--panel:#f4f6f9;
-    --accent:#1f5fd6;--good:#137a45;--goodbg:#e7f6ee;--warn:#8a6100;--warnbg:#fdf3df;
-    --bad:#b4232a;--badbg:#fbeaea;--code:#0b3d63;--codebg:#eef2f7;
+    --accent:#1f5fd6;--good:#137a45;--goodbg:#e8f6ee;--warn:#8a6100;--warnbg:#fdf3df;--code:#0b3d63;--codebg:#eef2f7;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --ink:#e7ebf2;--dim:#a3adba;--faint:#7c8694;--line:#2a3140;--bg:#0f131a;--panel:#171d27;
-      --accent:#6aa0ff;--good:#57c98a;--goodbg:#12241a;--warn:#e0b24d;--warnbg:#2a2312;
-      --bad:#ef7178;--badbg:#2a1416;--code:#7fb3ff;--codebg:#141a24;
+      --accent:#6aa0ff;--good:#57c98a;--goodbg:#12241a;--warn:#e0b24d;--warnbg:#2a2312;--code:#7fb3ff;--codebg:#141a24;
     }
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased}
-  .wrap{max-width:1000px;margin:0 auto;padding:30px 32px 80px}
-  header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:20px}
-  h1{margin:0 0 4px;font-size:25px;letter-spacing:-.2px}
-  .sub{color:var(--dim);font-size:12.5px}
-  h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--accent);
-    margin:30px 0 10px;border-bottom:1px solid var(--line);padding-bottom:5px}
-  h3{font-size:15px;margin:20px 0 6px}
-  p{margin:7px 0}
-  code{background:var(--codebg);color:var(--code);padding:1px 5px;border-radius:4px;font-size:12px;
-    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  .cite{color:var(--faint);font-size:11px;font-family:ui-monospace,Menlo,monospace}
-  ul,ol{margin:6px 0;padding-left:22px}li{margin:5px 0}
-  table{width:100%;border-collapse:collapse;font-size:12.5px;margin:10px 0}
-  th{text-align:left;color:var(--dim);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;
-    padding:6px 9px;border-bottom:1.5px solid var(--line);vertical-align:bottom}
-  td{padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
-  tr td:first-child{white-space:nowrap}
-  .box{border-radius:7px;padding:12px 16px;margin:12px 0;font-size:13px}
-  .verdict{background:var(--goodbg);border-left:3px solid var(--good)}
-  .flag{background:var(--warnbg);border-left:3px solid var(--warn)}
-  .bug{background:var(--badbg);border-left:3px solid var(--bad)}
-  .good{color:var(--good);font-weight:700}.warn{color:var(--warn);font-weight:700}.bad{color:var(--bad);font-weight:700}
-  .pill{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
-    padding:2px 7px;border-radius:20px;vertical-align:middle}
-  .p1{background:var(--badbg);color:var(--bad)}.p2{background:var(--warnbg);color:var(--warn)}
-  .p3{background:var(--panel);color:var(--dim)}
-  .lead{font-size:15px;color:var(--ink)}
-  footer{margin-top:34px;padding-top:12px;border-top:1px solid var(--line);color:var(--faint);font-size:11.5px}
-  .num{font-variant-numeric:tabular-nums}
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto;padding:34px 30px 70px}
+  header{border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:8px}
+  h1{margin:0 0 4px;font-size:26px;letter-spacing:-.3px}
+  .sub{color:var(--dim);font-size:13px}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--accent);margin:34px 0 4px}
+  .lead{font-size:16px;margin:14px 0 4px}
+  .feat{border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:14px 0;background:var(--panel)}
+  .feat h3{margin:0 0 5px;font-size:17px;display:flex;align-items:center;gap:9px}
+  .feat p{margin:5px 0;color:var(--ink)}
+  .feat .you{color:var(--dim);font-size:13.5px;margin-top:8px}
+  .n{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;
+    background:var(--accent);color:#fff;font-size:13px;font-weight:700;flex:none}
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+    padding:2px 8px;border-radius:20px;margin-left:auto}
+  .now{background:var(--goodbg);color:var(--good)}.next{background:var(--warnbg);color:var(--warn)}
+  .box{border-radius:9px;padding:13px 17px;margin:16px 0;font-size:14px}
+  .out{background:var(--warnbg);border-left:3px solid var(--warn)}
+  .decide{background:var(--goodbg);border-left:3px solid var(--good)}
+  code{background:var(--codebg);color:var(--code);padding:1px 5px;border-radius:4px;font-size:12.5px;
+    font-family:ui-monospace,Menlo,monospace}
+  ul{margin:6px 0;padding-left:20px}li{margin:5px 0}
+  footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--line);color:var(--faint);font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
-  <h1>Robinhood Integration — Expansion Spec</h1>
-  <div class="sub">Richer broker data · UI-triggered import · per-day / per-week trade evaluation · 2026-09-09 · code-backed against <code>main</code></div>
+  <h1>Robinhood — Core Features</h1>
+  <div class="sub">Connect your trades → see and evaluate them in the app · 2026-09-09</div>
 </header>
 
-<p class="lead">The Robinhood daily import is live and merged: login (session-pickle path for no-authenticator accounts), full order fetch, FIFO match, Daily Target bridge, and a 16:45 ET scheduled job. This spec covers the next layer you asked for — <b>(1)</b> what more we should pull from robin_stocks, <b>(2)</b> running the import from the UI (you, the <code>vbolofinde</code> account), <b>(3)</b> clean per-day/week evaluation of trades, and <b>(4)</b> the critical things I'd add that aren't on your list.</p>
+<p class="lead">Your Robinhood account is connected. These are the features we're building on top of it — what you'll actually be able to do in the app.</p>
 
-<div class="flag"><b>Read this first — one decision blocks everything.</b> The scheduled import attributes every trade to <code>ROBINHOOD_USER_ID</code>, currently <b>185</b> (mentorhubnetworks). But the Daily Target UI is gated to <b>vbolofinde = user id 3</b> <span class="cite">daily.py:27 <code>_ALLOWED_EMAIL</code></span>. <span class="bad">So today's imported trades are written under 185 and are invisible on the page you'd view them on.</span> Nothing else in this spec matters until this is reconciled — see §2.</div>
+<h2>What we're adding</h2>
 
-<h2>1 · Current state (what exists today)</h2>
-<table>
-  <thead><tr><th>Piece</th><th>What it does</th><th>Where</th></tr></thead>
-  <tbody>
-    <tr><td><b>robin_stocks surface</b></td><td>Exactly 4 calls: <code>login</code>, <code>get_symbol_by_url</code>, <code>get_all_stock_orders</code>, <code>get_all_option_orders</code>. Nothing else.</td><td class="cite">robinhood.py:405,431,447,451</td></tr>
-    <tr><td><b>Fields kept per fill</b></td><td>symbol, side, qty, per-share price, signed amount (options ×100), <b>date only</b> (intraday time discarded), option detail, <code>external_id</code>. <b>Fees dropped.</b></td><td class="cite">robinhood.py:193-321</td></tr>
-    <tr><td><b>Write path</b></td><td>fills → <code>trades_monthly</code>; FIFO → <code>matched_trades</code>; bridge → <code>daily_trades</code>; run record → <code>imports</code>.</td><td class="cite">robinhood_sync.py:109-196</td></tr>
-    <tr><td><b>Schedule</b></td><td>Cron 16:45 ET Mon–Fri, id <code>robinhood_daily_import</code>, calls <code>sync_robinhood_fills()</code> with no args (→ env user), Telegram on failure, daily-eval on success.</td><td class="cite">main.py:537-575</td></tr>
-    <tr><td><b>On-demand</b></td><td>New CLI <code>scripts/robinhood_import.py --date --lookback</code> (this session, #1162) + <code>ROBINHOOD_SESSION_B64</code> restore (#1161). No UI trigger yet.</td><td class="cite">scripts/robinhood_import.py</td></tr>
-  </tbody>
-</table>
+<div class="feat">
+  <h3><span class="n">1</span> Import your trades on demand <span class="tag now">building</span></h3>
+  <p>Pull your Robinhood fills into the app whenever you want — pick a date (today, yesterday, any day) and hit a button. No waiting for a scheduled time, no terminal.</p>
+  <p class="you">You: open the app → Robinhood panel → choose a date → <b>Run import</b> → see how many trades came in.</p>
+</div>
 
-<h2>2 · Decision 1 — Actor vs Target (must resolve)</h2>
-<p><code>vbolofinde</code> is <b>user id 3</b> and is both an admin email <span class="cite">dependencies.py:22 <code>ADMIN_EMAILS</code></span> and the sole account the Daily Target page serves <span class="cite">daily.py:27</span>. The importer writes under <code>ROBINHOOD_USER_ID</code> = 185. Options:</p>
-<table>
-  <thead><tr><th>Option</th><th>What changes</th><th>Trade-off</th></tr></thead>
-  <tbody>
-    <tr><td><b>A. Set <code>ROBINHOOD_USER_ID=3</code></b> <span class="pill p1">recommended</span></td><td>One env var. Imports land under vbolofinde; Daily Target + all reads light up immediately.</td><td>Simplest; correct if this is your single trading account. Zero code.</td></tr>
-    <tr><td>B. Re-attribute at import</td><td>Pass <code>user_id</code> from the trigger (the logged-in admin) instead of the env default.</td><td>Needed only once we support more than one importing user.</td></tr>
-    <tr><td>C. Multi-account</td><td>Thread an <code>account</code> param through <code>fetch_orders</code> / normalizers / every <code>db.py</code> read+write.</td><td>Real work; defer to the SnapTrade multi-user path (§7).</td></tr>
-  </tbody>
-</table>
-<p><b>Recommendation:</b> ship <b>A</b> now (it's the fix that makes your own imported trades visible), design the endpoint in §5 to pass <code>user_id</code> explicitly so <b>B</b> is a natural follow-on.</p>
+<div class="feat">
+  <h3><span class="n">2</span> Clean trade reporting — per day / week / month <span class="tag next">next</span></h3>
+  <p>See your actual trades grouped by day, week, and month, with the numbers that matter: total P&amp;L, win rate, average win vs. loss, best and worst trade, and your win/loss streak. One view, a simple day / week / month toggle, plus your running P&amp;L curve.</p>
+  <p class="you">You: open the app → see "this week I'm +$X, 6 wins / 2 losses" instead of scrolling a raw list.</p>
+</div>
 
-<h2>3 · Workstream A — richer robin_stocks data</h2>
-<p>We fetch orders only. Ranked by evaluation value per unit of effort:</p>
-<table>
-  <thead><tr><th>Add</th><th>robin_stocks call</th><th>Why it matters</th><th>Effort</th></tr></thead>
-  <tbody>
-    <tr><td><b>Order fees / commissions</b> <span class="pill p1">P1</span></td><td>already in the fetched order payload — just dropped in normalize</td><td>Makes realized P&amp;L <b>accurate</b> (net, not gross). Cheapest win — mapping change + one column.</td><td>S</td></tr>
-    <tr><td><b>Account profile + transfers</b> <span class="pill p2">P2</span></td><td><code>load_phoenix_account</code>, <code>load_account_profile</code>, <code>get_bank_transfers</code></td><td>Cash, buying power, portfolio equity, deposits/withdrawals → real <b>% returns</b> and an equity curve separated from contributions.</td><td>M</td></tr>
-    <tr><td><b>Open positions / holdings</b> <span class="pill p2">P2</span></td><td><code>build_holdings</code>, <code>get_open_stock_positions</code></td><td>Live <b>unrealized</b> P&amp;L, average cost, current qty — without reconstructing from FIFO.</td><td>M</td></tr>
-    <tr><td>Open option positions + greeks</td><td><code>get_open_option_positions</code>, <code>get_option_market_data_by_id</code></td><td>Value/track still-open legs (today inferred only from unmatched buys); greeks/IV for option-trade quality.</td><td>M</td></tr>
-    <tr><td>Dividends / interest</td><td><code>get_dividends</code>, <code>get_interest_payments</code></td><td>Realized income that belongs in true account P&amp;L.</td><td>S</td></tr>
-    <tr><td>Historical portfolio series</td><td><code>get_historical_portfolio</code></td><td>Ready-made equity curve straight from Robinhood.</td><td>S</td></tr>
-  </tbody>
-</table>
-<p class="cite">Current normalization discards fees at robinhood.py:193-311; there is no positions/account/dividends call anywhere in brokers/.</p>
+<div class="feat">
+  <h3><span class="n">3</span> Option chains + greeks <span class="tag now">building</span></h3>
+  <p>Look up any symbol's option chain right in the app — every strike for an expiration with its delta, theta, gamma, IV, and open interest. For sizing and picking contracts, without leaving the platform.</p>
+  <p class="you">You: type a symbol + expiration → see the chain with greeks → pick the strike you want.</p>
+</div>
 
-<h2>4 · Workstream B — run the import from the UI</h2>
-<p>Auth is JWT <span class="cite">dependencies.py:36-60</span>; there is <b>no <code>is_admin</code> column</b> — admin is an email allowlist <code>is_admin_user()</code> that already includes <code>vbolofinde@gmail.com</code> <span class="cite">dependencies.py:22-33</span>. So "only I can run it" is already expressible. There is a clean template to copy:</p>
+<div class="feat">
+  <h3><span class="n">4</span> Did the signals actually work? <span class="tag next">later</span></h3>
+  <p>Tie your real trades back to the scanner alerts — which signals you acted on, and whether acting on them made money vs. the alert's plan. This is what tells you the platform's real edge, not just guesswork.</p>
+  <p class="you">You: see "PDL reclaim alerts you traded: 7 taken, 5 winners, +$X" — proof the signals work.</p>
+</div>
+
+<div class="box out"><b>Not doing: live buying &amp; selling from the app.</b> Placing real orders is a different, much riskier thing — real money through an unofficial connection, with rules about trading on people's behalf. We're deliberately staying read-only for now: see your trades, evaluate them, look up options. Execution is a separate decision for later.</div>
+
+<div class="box decide"><b>One thing to confirm:</b> these trades attach to <b>your</b> account (<code>vbolofinde</code>) so they show up on your pages. Today they're going to a different internal account — the UI import fixes that by attaching to whoever runs it (you).</div>
+
+<h2>Order we build</h2>
 <ul>
-  <li><b>Endpoint:</b> new <code>POST /robinhood/import</code> (body: <code>date</code>, <code>lookback</code>), modeled exactly on <code>POST /performance/strategy-analysis/refresh</code> <span class="cite">performance.py:640-655</span>: <code>is_admin_user</code> gate → <code>@limiter.limit("4/minute")</code> → <code>run_in_threadpool(sync_robinhood_fills, session_date=…, lookback_days=…, user_id=user.id)</code> (blocking network I/O must not block the event loop). Return the <code>SyncResult</code> as JSON.</li>
-  <li><b>UI:</b> a "Run import" control on <code>DailyTargetPage.tsx</code> <span class="cite">web/src/pages/DailyTargetPage.tsx</span> — a date picker (defaults to today) + lookback, a button that hits the endpoint and shows <code>fills imported / matched / realized P&amp;L</code>, disabled for non-admins.</li>
-  <li><b>Sibling admin jobs</b> already live at <code>/admin/run-weekly-retro</code>, <code>/admin/backfill-*</code> <span class="cite">admin.py:760-879</span> — same shape, so this is a well-worn pattern.</li>
-</ul>
-<div class="box flag">This makes "run when I want, for any date" a first-class UI action — the CLI (#1162) already proves the underlying <code>sync_robinhood_fills(session_date, lookback_days)</code> path; the endpoint is a thin admit-gated wrapper.</div>
-
-<h2>5 · Workstream C — clean per-day / per-week evaluation</h2>
-<p>What exists for <em>actual trades</em>: per-day <span class="cite">daily.py /daily/summary,/daily/history</span> and per-<b>month</b> <span class="cite">trades.py:96-129 /trades/monthly-stats</span> — but <span class="warn">no per-week rollup</span>, and the rich by-pattern/by-hour/by-symbol breakdown lives on a <em>different</em> table (<code>real_trades</code>) <span class="cite">real_trades.py:232-348</span>. Build:</p>
-<ol>
-  <li><b>Weekly (and daily/monthly) trade report</b> over <code>matched_trades</code> + <code>daily_trades</code>: P&amp;L, win rate, avg win/loss, <b>expectancy</b>, R-multiple, gross vs net (fees), by-symbol, <b>stock vs options</b>, best/worst trade, win/loss streaks. Reuse <code>_week_bounds</code> <span class="cite">performance.py:342-357</span> and port the breakdown logic from <code>real-trades/performance-breakdown</code> onto the imported-fills table.</li>
-  <li><b>One report surface</b> in the web app (extend the Daily Target page or a new "Trades" tab) with a day / week / month / all toggle and the equity curve — instead of today's single all-time running total <span class="cite">DailyTargetPage.tsx:788,981</span>.</li>
-  <li><b>The high-value one you didn't ask for — alert→fill attribution.</b> Join your Robinhood fills to the scanner alerts (<code>alerts</code> table) by symbol+date: <em>did you take the signal, and how did the trade play vs the alert's entry/stop/target?</em> That turns this from a P&amp;L viewer into a measurement of the platform's real edge — which alerts you act on, and whether acting on them makes money. This is the single most useful thing the broker data unlocks.</li>
-</ol>
-
-<h2>6 · Workstream D — correctness bug to fold in</h2>
-<div class="box bug"><b>Options realized P&amp;L is 100× too low in <code>matched_trades</code>.</b> The FIFO matcher computes P&amp;L from <b>per-share</b> prices with no contract multiplier <span class="cite">trade_matcher.py:52-53,74</span>, and <code>insert_matched_trades</code> stores it raw <span class="cite">db.py:1750-1763</span>. The ×100 multiplier exists <b>only</b> in the Daily Target bridge <span class="cite">daily_target_sync.py:35,99-100</span>, so <code>daily_trades.pnl</code> is right but <code>matched_trades.realized_pnl</code> is not — which corrupts <code>/trades/history</code>, <code>/trades/equity-curve</code>, <code>/trades/monthly-stats</code> <span class="cite">trades.py:82,335,112</span> and <code>SyncResult.realized_pnl</code>. <b>Fix at the <code>matched_trades</code> boundary</b> (in <code>trade_matcher</code> or at insert), and reconcile with the bridge's multiplier so it isn't double-applied. New Robinhood imports and old statement history are both affected — fixing it rewrites historical numbers, so it's a deliberate, announced change.</div>
-
-<h2>7 · Other thoughts (my additions)</h2>
-<ul>
-  <li><b>Fees &amp; slippage in P&amp;L.</b> Once fees are captured (§3 P1), report <b>net</b> P&amp;L and surface slippage vs the alert's intended entry — the difference between "the signal worked" and "I filled well."</li>
-  <li><b>Contributions vs performance.</b> Without transfers (<code>get_bank_transfers</code>), an equity curve conflates deposits with gains. Pull them before you show % returns.</li>
-  <li><b>Reconciliation.</b> Add a check that our computed account P&amp;L for a period is within a tolerance of Robinhood's own reported number — catches multiplier/fee/dedup drift early.</li>
-  <li><b>Session-expiry ops.</b> The <code>robin_stocks</code> session pickle expires in weeks (or on a password/security event). The job already Telegrams on login failure <span class="cite">main.py:556-557</span>; add a "session age / last-success" indicator to the UI so a silent stall is visible, and document the re-seed (local login → <code>base64</code> → <code>ROBINHOOD_SESSION_B64</code>).</li>
-  <li><b>Security.</b> <code>ROBINHOOD_SESSION_B64</code> and <code>ROBINHOOD_PASSWORD</code> are live credentials — Railway secrets only, never logged, never in the repo. The Postgres DSN has been exposed in chat during this work — rotate it.</li>
-  <li><b>Scale = SnapTrade, not <code>robin_stocks</code>.</b> The unofficial API + per-user password/pickle model does not scale to customers (ToS, credential custody, fragility). <b>PR #544</b> (SnapTrade, currently open) is the compliant multi-account path; treat <code>robin_stocks</code> as the founder-only bootstrap and SnapTrade as the productization step. Workstream C's reporting should read from a broker-agnostic <code>matched_trades</code>/<code>daily_trades</code> so it survives the swap.</li>
-  <li><b>Out of scope (flag, don't build):</b> tax lots / wash-sale accounting — leave to Robinhood's 1099, which the statement importer already parses.</li>
+  <li><b>Now:</b> on-demand import button + option-chain lookup — so you can test both in the app today.</li>
+  <li><b>Next:</b> the day / week / month reporting view.</li>
+  <li><b>Later:</b> signal-vs-trade edge report.</li>
 </ul>
 
-<h2>8 · Trade execution — deferred (read-only options first)</h2>
-<p><code>robin_stocks</code> can place live orders (<code>order_buy_market</code>, <code>order_sell_limit</code>, <code>order_buy_option_limit</code>, crypto, stop/limit, tif <code>gtc/gfd/ioc/opg</code>). The codebase places <b>zero</b> live orders today — everything is signals + <b>paper</b> (<code>paper_trades</code>, <code>alerting/paper_trader.py</code>). <span class="cite">grep: no order_* call anywhere</span></p>
-<div class="box bug"><b>Live execution is explicitly OUT of scope for now.</b> It's real, irreversible money through an unofficial ToS-violating API, with broker-dealer/adviser regulatory exposure the moment it touches anyone but the founder. If ever pursued: <b>your own account only</b>, <b>confirm-before-place</b> (never fire-and-forget on a signal), hard risk limits + kill-switch, dry-run default, full audit + reconciliation, paper-proven first, and a compliance review. Customer execution goes through SnapTrade + legal, not <code>robin_stocks</code>.</div>
-<div class="box verdict"><b>Chosen first step (decided 2026-09-09): read-only options analytics only.</b> Pull the options chain + greeks (delta/theta/gamma/vega/IV) via <code>rh.find_options_by_expiration(symbols, expirationDate, optionType)</code> and <code>get_option_market_data_by_id</code> — pure analysis, no execution risk. Feeds option-trade-quality evaluation (§5) and setup screening. This is where we start slow.</div>
-
-<h2>9 · Suggested phasing</h2>
-<table>
-  <thead><tr><th>Phase</th><th>Ships</th><th>Why first</th></tr></thead>
-  <tbody>
-    <tr><td><b>0 — unblock (hours)</b></td><td><code>ROBINHOOD_USER_ID=3</code> (§2A) + the 100× options fix (§6)</td><td>Makes your imported trades visible <em>and</em> correct — everything downstream depends on both.</td></tr>
-    <tr><td><b>1 — control + accuracy (days)</b></td><td>UI-triggered import endpoint + button (§4); capture fees (§3 P1)</td><td>You run it on demand; P&amp;L is net.</td></tr>
-    <tr><td><b>2 — evaluation (1 wk)</b></td><td>Per-day/week/month trade report + equity curve (§5.1-2)</td><td>The reporting you actually asked for.</td></tr>
-    <tr><td><b>3 — edge measurement</b></td><td>Alert→fill attribution (§5.3)</td><td>Turns trade data into a read on the platform's edge.</td></tr>
-    <tr><td><b>4 — account truth</b></td><td>Positions/holdings, account profile, transfers, dividends (§3 P2)</td><td>True account returns, live unrealized.</td></tr>
-    <tr><td><b>5 — productize</b></td><td>SnapTrade multi-account (PR #544)</td><td>Removes the re-auth tax; scales to customers.</td></tr>
-  </tbody>
-</table>
-
-<h2>10 · Open decisions for you</h2>
-<ol>
-  <li><b>Attribution:</b> set <code>ROBINHOOD_USER_ID=3</code> (your account), or keep it configurable per trigger? <span class="pill p1">blocks Phase 0</span></li>
-  <li><b>Historical P&amp;L rewrite:</b> the 100× fix corrects past numbers too — OK to rewrite history, or freeze old and fix forward only?</li>
-  <li><b>Report home:</b> extend the Daily Target page, or a new dedicated "Trades / Performance" tab?</li>
-  <li><b>How far now:</b> stop at trade-level P&amp;L (Phases 0–3), or go to full account truth (Phase 4) this round?</li>
-</ol>
-
-<footer>Spec only — no code changed. Line references verified against <code>main</code> on 2026-09-09. Companion to the merged Robinhood import (#1149-family, plus this session's #1160 no-TOTP login, #1161 session-from-env, #1162 on-demand CLI).</footer>
+<footer>Read-only features on the connected Robinhood account. No live trade execution. Companion to the on-demand import, option-greeks lookup, and session handling already shipped.</footer>
 </div>
 </body>
 </html>
