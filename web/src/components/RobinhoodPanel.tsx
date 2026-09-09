@@ -96,7 +96,8 @@ export function RobinhoodPanel() {
             ) : (
               <span className="text-text-secondary">
                 Imported <b className="text-text-primary">{res.fills_imported}</b> new fill(s) ·{" "}
-                {res.fills_seen} seen · {res.matched_trades} round-trips · realized P&amp;L on{" "}
+                {res.fills_seen} seen · {res.matched_trades} round-trips ·{" "}
+                <b className="text-text-primary">{res.daily_target_rows}</b> journal rows · realized P&amp;L on{" "}
                 {res.session_date}: <b className="text-text-primary">${res.realized_pnl.toFixed(2)}</b>
               </span>
             )}
