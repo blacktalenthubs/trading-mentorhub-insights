@@ -418,7 +418,7 @@ class TestPDLReclaimWidenedDistance:
             {"Open": 177.0, "High": close + 0.5, "Low": 177.60, "Close": close - 0.2, "Volume": 4000},  # reclaim
             {"Open": close - 0.2, "High": close + 0.5, "Low": 178.0, "Close": close, "Volume": 4000},  # hold
         ])
-        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
+        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl, today_open=178.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
         assert sig.entry == round(close, 2)
@@ -428,11 +428,11 @@ class TestPDLReclaimWidenedDistance:
         pdl = 100.0
         close = 101.9  # 1.9% above
         bars = _bars([
-            {"Open": 100, "High": 101, "Low": 99.5, "Close": 99.8, "Volume": 1000},  # dip
+            {"Open": 100.5, "High": 101, "Low": 99.5, "Close": 99.8, "Volume": 1000},  # opened above PDL, dip
             {"Open": 99.8, "High": 102.0, "Low": 99.9, "Close": 101.5, "Volume": 1200},  # reclaim
             {"Open": 101.5, "High": 102.0, "Low": 101.0, "Close": close, "Volume": 1100},  # hold
         ])
-        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=pdl)
+        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=pdl, today_open=100.5)
         assert sig is not None
 
     def test_no_fire_at_2_5pct_above_pdl(self):
@@ -451,11 +451,11 @@ class TestPDLReclaimWidenedDistance:
         Should fire within widened 2% threshold."""
         pdl = 177.88
         bars = _bars([
-            {"Open": 176.83, "High": 177.50, "Low": 175.56, "Close": 176.00, "Volume": 8000},
+            {"Open": 178.50, "High": 178.60, "Low": 175.56, "Close": 176.00, "Volume": 8000},  # opened above PDL, dipped
             {"Open": 176.00, "High": 178.50, "Low": 175.80, "Close": 178.20, "Volume": 7000},
             {"Open": 178.20, "High": 179.80, "Low": 178.00, "Close": 179.50, "Volume": 5000},
         ])
-        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl)
+        sig = check_prior_day_low_reclaim("NVDA", bars, prior_day_low=pdl, today_open=178.50)
         assert sig is not None
         assert sig.entry == 179.5
         assert sig.stop == round(pdl * (1 - 0.005), 2)
@@ -466,11 +466,11 @@ class TestPDLReclaimWidenedDistance:
 class TestPriorDayLowReclaim:
     def test_fires_on_dip_and_reclaim(self):
         bars = _bars([
-            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},  # dip
+            {"Open": 100, "High": 100.5, "Low": 98.5, "Close": 99.0, "Volume": 1000},  # opened above PDL, dip
             {"Open": 99.0, "High": 99.6, "Low": 98.8, "Close": 99.3, "Volume": 1200},  # reclaim
             {"Open": 99.3, "High": 99.8, "Low": 99.1, "Close": 99.5, "Volume": 1100},  # hold
         ])
-        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0)
+        sig = check_prior_day_low_reclaim("META", bars, prior_day_low=99.0, today_open=100.0)
         assert sig is not None
         assert sig.alert_type == AlertType.PRIOR_DAY_LOW_RECLAIM
         assert sig.direction == "BUY"
@@ -481,15 +481,29 @@ class TestPriorDayLowReclaim:
     def test_stop_is_pdl_based_not_session_low(self):
         """Stop should be just below PDL, not at the deep session low."""
         bars = _bars([
-            {"Open": 100, "High": 100.5, "Low": 96.0, "Close": 98.0, "Volume": 1000},  # dip
+            {"Open": 100.5, "High": 100.6, "Low": 96.0, "Close": 98.0, "Volume": 1000},  # opened above PDL, deep dip
             {"Open": 98.0, "High": 100.5, "Low": 99.2, "Close": 100.1, "Volume": 1200},  # reclaim
             {"Open": 100.1, "High": 100.6, "Low": 99.8, "Close": 100.2, "Volume": 1100},  # hold
         ])
-        sig = check_prior_day_low_reclaim("ETH-USD", bars, prior_day_low=100.0)
+        sig = check_prior_day_low_reclaim("ETH-USD", bars, prior_day_low=100.0, today_open=100.5)
         assert sig is not None
         # Stop = 100.0 * 0.995 = 99.50, NOT near session low of 96.0
         assert sig.stop == 99.50
         assert sig.stop > 99.0  # well above the session low
+
+    def test_no_fire_when_open_at_or_below_pdl(self):
+        """Open-above gate: a day that opened at/below PDL then ramped up through
+        it is a breakout-from-below, NOT a support hold — must not fire."""
+        pdl = 100.0
+        bars = _bars([
+            {"Open": 99.0, "High": 99.5, "Low": 98.0, "Close": 98.5, "Volume": 1000},   # opened BELOW PDL
+            {"Open": 98.5, "High": 100.6, "Low": 98.4, "Close": 100.3, "Volume": 1200}, # ramp up through
+            {"Open": 100.3, "High": 100.8, "Low": 100.1, "Close": 100.4, "Volume": 1100},
+        ])
+        # opened below the level
+        assert check_prior_day_low_reclaim("META", bars, prior_day_low=pdl, today_open=99.0) is None
+        # opened exactly at the level (also not open-above support)
+        assert check_prior_day_low_reclaim("META", bars, prior_day_low=pdl, today_open=100.0) is None
 
     def test_no_fire_when_price_ran_past_entry(self):
         """Price reclaimed but already ran >2% above entry — stale signal."""
