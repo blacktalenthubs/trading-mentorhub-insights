@@ -5,6 +5,7 @@
  * (note + chart), edit, or delete — even after a day is closed. */
 
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { useNavigate } from "react-router-dom";
 import { Plus, Trash2, Lock, Check, Pencil, Image as ImageIcon, X, ChevronRight, ClipboardPaste } from "lucide-react";
 import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
@@ -223,6 +224,24 @@ function Th({
 }
 
 // One day's / one setup's trades: a SORTABLE table on desktop, cards on mobile. Row expands to note + chart.
+/** Same-day churn: stocks traded MORE THAN ONCE in a day = overtrading. The goal
+ *  is one clean trade per stock (entry + stop), not repeated in/out. Returns the
+ *  re-traded symbols with their count + the net P/L across those churned trades. */
+function churnSymbols(trades: DailyTradeRow[]): { symbol: string; count: number; pnl: number }[] {
+  const agg: Record<string, { count: number; pnl: number }> = {};
+  for (const t of trades) {
+    const s = (t.symbol || "").toUpperCase();
+    if (!s) continue;
+    if (!agg[s]) agg[s] = { count: 0, pnl: 0 };
+    agg[s].count += 1;
+    agg[s].pnl += t.pnl || 0;
+  }
+  return Object.entries(agg)
+    .filter(([, v]) => v.count >= 2)
+    .map(([symbol, v]) => ({ symbol, count: v.count, pnl: Math.round(v.pnl * 100) / 100 }))
+    .sort((a, b) => b.count - a.count);
+}
+
 function DayTrades({
   trades,
   expandedId,
@@ -230,6 +249,7 @@ function DayTrades({
   onEdit,
   onDelete,
   onView,
+  onSymbol,
 }: {
   trades: DailyTradeRow[];
   expandedId: number | null;
@@ -237,6 +257,7 @@ function DayTrades({
   onEdit: (t: DailyTradeRow) => void;
   onDelete: (id: number) => void;
   onView: (src: string) => void;
+  onSymbol: (symbol: string) => void;
 }) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -311,7 +332,13 @@ function DayTrades({
                   >
                     <td className="whitespace-nowrap px-3 py-2.5 text-[12px] text-text-faint">{fmtWhen(t.created_at)}</td>
                     <td className="px-3 py-2.5">
-                      <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onSymbol(t.symbol); }}
+                        className="font-mono font-semibold text-text-primary hover:text-accent hover:underline"
+                        title={`Open ${t.symbol} chart`}
+                      >
+                        {t.symbol}
+                      </button>
                       {t.is_open && (
                         <span className="ml-1 rounded bg-accent/15 px-1 text-[9px] font-semibold uppercase text-accent">
                           open
@@ -399,7 +426,12 @@ function DayTrades({
               >
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="font-mono font-semibold text-text-primary">{t.symbol}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onSymbol(t.symbol); }}
+                      className="font-mono font-semibold text-text-primary hover:text-accent hover:underline"
+                    >
+                      {t.symbol}
+                    </button>
                     <span className="text-[10px] uppercase text-text-faint">{t.instrument}</span>
                     <span
                       className={`text-[10px] font-semibold uppercase ${
@@ -490,6 +522,8 @@ function DayTrades({
 export default function DailyTargetPage() {
   const user = useAuthStore((s) => s.user);
   const isOwner = (user?.email || "").toLowerCase() === OWNER_EMAIL;
+  const navigate = useNavigate();
+  const openChart = (symbol: string) => navigate(`/trading?symbol=${encodeURIComponent(symbol)}`);
 
   const { data: summary } = useDailySummary();
   const { data: history } = useDailyHistory();
@@ -535,6 +569,7 @@ export default function DailyTargetPage() {
   const [targetDraft, setTargetDraft] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
+  const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = useState(false);
   const [logOpen, setLogOpen] = useState(false); // the "Log a trade" form is collapsed by default (mobile-first)
   const [view, setView] = useState<"journal" | "patterns">("journal");
@@ -856,6 +891,7 @@ export default function DailyTargetPage() {
   }, [history, patternSort, groupBy, instFilter]);
 
   const isDayOpen = (date: string) => openDays[date] ?? date === todayStr;
+  const isWeekOpen = (week: string, idx: number) => openWeeks[week] ?? idx === 0;
 
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-5">
@@ -1108,6 +1144,10 @@ export default function DailyTargetPage() {
               <option value="swing">Swing</option>
             </select>
             <select className={inputCls} value={setup} onChange={(e) => setSetup(e.target.value)}>
+              {/* keep an imported/raw setup selectable so it shows + can be changed */}
+              {setup && !SETUPS.includes(setup) && (
+                <option value={setup}>{setup} (imported)</option>
+              )}
               {SETUPS.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -1278,10 +1318,24 @@ export default function DailyTargetPage() {
             No trades logged yet.
           </div>
         ) : (
-          weeks.map((wk) => (
-            <div key={wk.week} className="space-y-2">
-              <div className="flex items-center justify-between px-1 pt-2">
-                <div className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">{fmtWeek(wk.week)}</div>
+          weeks.map((wk, wkIdx) => {
+            const wkOpen = isWeekOpen(wk.week, wkIdx);
+            const wkChurn = churnSymbols(wk.days.flatMap((d) => d.trades)).length;
+            return (
+            <div key={wk.week} className="border border-border-subtle rounded-xl bg-surface-1/30 overflow-hidden">
+              <button
+                onClick={() => setOpenWeeks((o) => ({ ...o, [wk.week]: !wkOpen }))}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-2/30"
+              >
+                <div className="flex items-center gap-2">
+                  <ChevronRight className={`h-4 w-4 text-text-faint transition-transform ${wkOpen ? "rotate-90" : ""}`} />
+                  <span className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">{fmtWeek(wk.week)}</span>
+                  {wkChurn > 0 && (
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500" title="Stocks re-traded same day this week — overtrading">
+                      ⚠ {wkChurn} overtraded
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-3 text-[12px]">
                   <span className={`font-mono font-semibold ${wk.total < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
                     {usd(wk.total)}
@@ -1290,9 +1344,12 @@ export default function DailyTargetPage() {
                     {wk.hitDays}/{wk.days.length} days hit · {wk.wins}W {wk.losses}L
                   </span>
                 </div>
-              </div>
+              </button>
+              {wkOpen && (
+              <div className="space-y-2 border-t border-border-subtle p-2">
               {wk.days.map((d) => {
                 const open = isDayOpen(d.date);
+                const churn = churnSymbols(d.trades);
                 return (
                   <div key={d.date} className="bg-surface-1 border border-border-subtle rounded-xl overflow-hidden">
                     <button
@@ -1304,6 +1361,14 @@ export default function DailyTargetPage() {
                       />
                       <span className="font-semibold text-text-primary">{fmtDay(d.date)}</span>
                       {d.closed && <Lock className="h-3 w-3 text-text-faint" />}
+                      {churn.length > 0 && (
+                        <span
+                          className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500"
+                          title={"Same-day repeats (overtrading): " + churn.map((c) => `${c.symbol}×${c.count}`).join(", ")}
+                        >
+                          ⚠ {churn.map((c) => `${c.symbol}×${c.count}`).slice(0, 3).join(" ")}{churn.length > 3 ? " …" : ""}
+                        </span>
+                      )}
                       <span className={`ml-auto font-mono font-semibold ${d.total_pnl < 0 ? "text-bearish-text" : "text-bullish-text"}`}>
                         {usd(d.total_pnl)}
                       </span>
@@ -1323,14 +1388,18 @@ export default function DailyTargetPage() {
                             onEdit={startEdit}
                             onDelete={(id) => delTrade.mutate(id)}
                             onView={setLightbox}
+                            onSymbol={openChart}
                           />
                         </div>
                       ))}
                   </div>
                 );
               })}
+              </div>
+              )}
             </div>
-          ))
+            );
+          })
         )}
           </>
         )}
@@ -1452,6 +1521,7 @@ export default function DailyTargetPage() {
                           }}
                           onDelete={(id) => delTrade.mutate(id)}
                           onView={setLightbox}
+                          onSymbol={openChart}
                         />
                       </div>
                     )}
