@@ -36,6 +36,7 @@ export function RobinhoodPanel() {
   const [sym, setSym] = useState("");
   const [exp, setExp] = useState("");
   const [otype, setOtype] = useState("both");
+  const [band, setBand] = useState(15);
   const chainMut = useOptionChain();
   const rows: OptionRow[] = chainMut.data?.rows ?? [];
 
@@ -127,8 +128,16 @@ export function RobinhoodPanel() {
               <option value="put">Puts</option>
             </select>
           </label>
+          <label className="flex flex-col">
+            <span className={LABEL}>± % band</span>
+            <input
+              type="number" min={0} max={100} step={5} value={band}
+              onChange={(e) => setBand(Number(e.target.value))}
+              className={`${INPUT} w-20`}
+            />
+          </label>
           <button
-            onClick={() => chainMut.mutate({ symbol: sym, exp, type: otype })}
+            onClick={() => chainMut.mutate({ symbol: sym, exp, type: otype, band })}
             disabled={chainMut.isPending || !sym || !exp}
             className={BTN}
           >
@@ -136,6 +145,13 @@ export function RobinhoodPanel() {
             {chainMut.isPending ? "Loading…" : "Fetch chain"}
           </button>
         </div>
+        {chainMut.data && (
+          <div className="mt-2 text-[12px] text-text-faint">
+            {chainMut.data.symbol} underlying{" "}
+            <b className="text-text-secondary">${chainMut.data.underlying_price.toFixed(2)}</b>
+            {" · ±"}{band}% band · {rows.length} contract{rows.length === 1 ? "" : "s"}
+          </div>
+        )}
         {rows.length > 0 && (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-[12px] tabular-nums">

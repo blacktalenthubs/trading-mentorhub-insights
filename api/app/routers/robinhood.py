@@ -74,9 +74,10 @@ async def options_chain(
     symbol: str = Query(..., min_length=1, max_length=10),
     exp: str = Query(..., description="expiration date YYYY-MM-DD"),
     kind: str = Query("both", alias="type", pattern="^(call|put|both)$"),
+    band: float = Query(15, ge=0, le=100, description="± % moneyness band around the live price (0 = all strikes)"),
     user: User = Depends(get_current_user),
 ):
-    """Read-only options chain + greeks. No order is ever placed."""
+    """Read-only options chain + greeks, filtered to strikes near the money. No order is ever placed."""
     _require_admin(user)
     try:
         datetime.strptime(exp, "%Y-%m-%d")
@@ -87,7 +88,13 @@ async def options_chain(
     from brokers.robinhood_options import fetch_option_greeks
 
     try:
-        rows = await run_in_threadpool(fetch_option_greeks, symbol.upper(), exp, kind)
+        data = await run_in_threadpool(fetch_option_greeks, symbol.upper(), exp, kind, band / 100.0)
     except RobinhoodError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
-    return {"symbol": symbol.upper(), "expiration": exp, "type": kind, "rows": rows}
+    return {
+        "symbol": symbol.upper(),
+        "expiration": exp,
+        "type": kind,
+        "underlying_price": data["underlying_price"],
+        "rows": data["rows"],
+    }
