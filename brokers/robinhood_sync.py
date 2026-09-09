@@ -34,6 +34,7 @@ from brokers.robinhood import (
 )
 from db import (
     create_import,
+    get_import_id,
     get_trades_monthly,
     insert_broker_fills,
     replace_matched_trades_for_account,
@@ -168,8 +169,11 @@ def sync_robinhood_fills(
             try:
                 import_id = create_import(import_rec, user_id)
             except Exception:
+                # Same-day re-run: the imports row already exists (UNIQUE filename+
+                # file_type). Reuse its id — a 0 here violates the trades_monthly
+                # import_id FK on Postgres. None is FK-valid (nullable) as a fallback.
                 logger.info("Robinhood: import record for %s already exists", session_date)
-                import_id = 0
+                import_id = get_import_id(import_rec.filename, import_rec.file_type, user_id)
 
             result.fills_imported = insert_broker_fills(windowed, import_id, user_id)
             if import_id:
