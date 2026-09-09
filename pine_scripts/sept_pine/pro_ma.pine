@@ -455,12 +455,25 @@ if barstate.islast
             _uc  = close > _lUp ? supCol : resCol
             array.push(_ln, line.new(bar_index - lineLen, _lUp, bar_index + labelX, _lUp, color = _uc, width = wLine, style = _lvlStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _uxo, _lUp, _lUpN + (close > _lUp ? "  ▲ SUPPORT" : "  ▼ RESISTANCE"), style = label.style_label_left, color = _uc, textcolor = color.white, size = _tagSz))
-    // the faint open line — subtle, never competing with the MAs
-    if enOpenLn and not na(dayOpen)
-        _oxo = f_xoff(dayOpen)
-        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
-        _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
-        array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
+    // the faint open line — subtle, never competing with the MAs. If the open sits ON an already-
+    // drawn line (within the confluence band), a second line + tag would just cover it — so instead
+    // append "· OPEN" to that line's tag and draw NO separate open line. Only when the open sits in
+    // clear space does it get its own faint line + "Open BTW …" bracket.
+    if enOpenLn and not na(dayOpen) and dayOpen > 0
+        _openMerged = false
+        if array.size(_lb) > 0
+            for _li = 0 to array.size(_lb) - 1
+                _olbl = array.get(_lb, _li)
+                _oly  = label.get_y(_olbl)
+                if not na(_oly) and _oly > 0 and math.abs(_oly - dayOpen) / dayOpen <= mergePct
+                    label.set_text(_olbl, label.get_text(_olbl) + "  ◦ OPEN")
+                    _openMerged := true
+                    break
+        if not _openMerged
+            _oxo = f_xoff(dayOpen)
+            array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
+            _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
+            array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
     // ── HUD ──
     if enHud
         _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
