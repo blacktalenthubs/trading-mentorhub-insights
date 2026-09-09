@@ -69,6 +69,7 @@ gN        = "Proximity"
 nUp       = input.int(2, "MAs to show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest MAs above where price is NOW, and N below — set independently. A count, not a %, so every symbol shows the same-size near-price set. 0 = none that side, which is how you get a one-sided read (e.g. only what's overhead).")
 nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
 farCapPct = input.float(20, "Hide anything beyond ± % of price — MAs (daily + weekly) and W/M/Q levels; PDH/PDL exempt (0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "The load gate: any moving average or structural level farther than this % from price is not drawn at all, so a far 200 SMA or monthly level can never stretch the axis. PDH/PDL are the day's rails and stay exempt. 0 = off (fall back to the nearest-N counts only).") / 100.0
+proxPct   = input.float(10, "± % proximity — ALSO hide any line farther than this (ALL types, incl PDH/PDL; 0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "A third, independent gate ON TOP of the nearest-N counts and the far-cap above: any line — MA/EMA, W/M/Q level, AND the PDH/PDL rails — farther than this % from price is hidden. Uniform, no exemptions (unlike the far-cap, which spares PDH/PDL). 0 = off.") / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
@@ -265,7 +266,8 @@ f_queue(float v, string nm, bool dot) =>
 f_draw(float v, string nm) =>
     _inBr = v <= _brkHi and v >= _brkLo
     _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
-    if not na(v) and v > 0 and (showAll or (_inBr and _cap))
+    _prox = proxPct <= 0 or math.abs(close - v) / close <= proxPct
+    if not na(v) and v > 0 and (showAll or (_inBr and _cap and _prox))
         f_queue(v, nm, false)      // per-item style flag is vestigial — one setting styles every line now
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
@@ -327,7 +329,8 @@ if barstate.islast
         if slPdhPdl
             for _pi = 0 to 1
                 _pv = _pi == 0 ? lPdh : lPdl
-                if not na(_pv) and _pv > 0
+                _pProx = proxPct <= 0 or (not na(_pv) and _pv > 0 and math.abs(close - _pv) / close <= proxPct)
+                if not na(_pv) and _pv > 0 and _pProx
                     f_queue(_pv, _pi == 0 ? "PDH" : "PDL", true)
         _slV = array.new_float()
         _slN = array.new_string()
@@ -356,7 +359,8 @@ if barstate.islast
             for _si = 0 to array.size(_slV) - 1
                 _sv = array.get(_slV, _si)
                 _slCap = farCapPct <= 0 or math.abs(close - _sv) / close <= farCapPct
-                if _sv <= _slHi and _sv >= _slLo and _slCap
+                _slProx = proxPct <= 0 or math.abs(close - _sv) / close <= proxPct
+                if _sv <= _slHi and _sv >= _slLo and _slCap and _slProx
                     f_queue(_sv, array.get(_slN, _si), true)
 
     // ── ONE MERGE PASS over everything queued — MAs, PDH/PDL and structural levels together.
