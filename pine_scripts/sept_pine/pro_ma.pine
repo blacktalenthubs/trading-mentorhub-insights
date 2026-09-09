@@ -40,8 +40,8 @@
 //   50<200 · below both = BEARISH      50<200 · above both = RECOVERY WATCH   between = MIXED
 // It reads its own 50/200, so unticking those MAs hides the lines without blinding the regime read.
 //
-// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, UPPER name
-// first so it reads top-down the way the lines sit: "Open BTW 50 SMA and 21 SMA" tells you the 50 SMA is the ceiling to respect and not get carried away above.
+// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, LOWER name
+// first (floor → ceiling): "Open BTW 21 SMA and 50 SMA" — the 21 SMA is the floor under the open and the 50 SMA the ceiling to respect.
 // Boxed by two MAs —
 // that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
 // means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
@@ -505,9 +505,9 @@ if barstate.islast
     _lHasDn = _lDn > 0
     _boxed  = _hasUp and _hasDn
     // Bracket the open MA-FIRST: name the nearest MA/EMA on each side (a MA carries more weight than
-    // a level), and only the side with NO MA falls back to the nearest structural level. So "open
-    // above all MAs" still reads off the closest MA below and the next level above — e.g. price that
-    // opened over every MA with the 50 SMA just under it and PMH overhead → "Open BTW PMH and 50 SMA".
+    // a level), and only the side with NO MA falls back to the nearest structural level. LOWER line
+    // named first. So "open above all MAs" reads off the closest MA below and the next level above —
+    // e.g. opened over every MA with the 50 SMA just under it and PMH overhead → "Open BTW 50 SMA and PMH".
     _obUpN = _hasUp ? _oUpN : (_lHasUp ? _lUpN : "")
     _obDnN = _hasDn ? _oDnN : (_lHasDn ? _lDnN : "")
     _obUp  = _hasUp or _lHasUp
@@ -528,7 +528,7 @@ if barstate.islast
     if enOpenLn and not na(dayOpen)
         _oxo = f_xoff(dayOpen)
         array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
-        _oTag = _obUp and _obDn ? "Open BTW " + _obUpN + " and " + _obDnN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
+        _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
         array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = openCol, textcolor = color.black, size = _tagSz))
     // ── HUD ──
     if enHud
