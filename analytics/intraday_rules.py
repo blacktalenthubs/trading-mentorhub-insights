@@ -1218,6 +1218,17 @@ def check_prior_day_low_reclaim(
         )
         return None
 
+    # OPEN ABOVE — mandatory. The PDL must have been SUPPORT the stock opened
+    # above, not resistance the price ramped up into. A gap/open at or below PDL
+    # is a breakout-from-below, a different (weaker) setup — not a support hold.
+    # Same open-above defend rule as check_ma_reclaim.
+    if today_open is None or today_open <= 0 or today_open <= prior_day_low:
+        logger.debug(
+            "%s: PDL reclaim skip — not open-above (open=%s, pdl=%.2f)",
+            symbol, today_open, prior_day_low,
+        )
+        return None
+
     # Check if any bar dipped below prior day low
     min_dip = prior_day_low * (1 - PDL_DIP_MIN_PCT)
     bar_low_min = bars["Low"].min()
