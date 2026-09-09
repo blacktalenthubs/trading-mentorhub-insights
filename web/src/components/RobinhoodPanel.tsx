@@ -1,9 +1,20 @@
 /** Robinhood admin panel — on-demand trade import + read-only option chain.
  *  Rendered only for the owner account on the Daily Target page. No order
  *  placement: read-only import + option greeks lookup. */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import { useRobinhoodImport, useOptionChain, type OptionRow } from "../api/hooks";
+
+const COLS: { key: keyof OptionRow; label: string }[] = [
+  { key: "type", label: "Type" },
+  { key: "strike", label: "Strike" },
+  { key: "mark", label: "Mark" },
+  { key: "delta", label: "Δ" },
+  { key: "theta", label: "Θ" },
+  { key: "iv", label: "IV" },
+  { key: "volume", label: "Vol" },
+  { key: "open_interest", label: "OI" },
+];
 
 const INPUT =
   "mt-0.5 rounded-md bg-surface-2 border border-border-default px-2 py-1 text-[13px] text-text-primary focus:border-accent outline-none";
@@ -27,6 +38,22 @@ export function RobinhoodPanel() {
   const [otype, setOtype] = useState("both");
   const chainMut = useOptionChain();
   const rows: OptionRow[] = chainMut.data?.rows ?? [];
+
+  const [sortKey, setSortKey] = useState<keyof OptionRow>("strike");
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const sorted = useMemo(() => {
+    const arr = [...rows];
+    arr.sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey];
+      if (typeof av === "number" && typeof bv === "number") return (av - bv) * sortDir;
+      return String(av).localeCompare(String(bv)) * sortDir;
+    });
+    return arr;
+  }, [rows, sortKey, sortDir]);
+  const toggleSort = (k: keyof OptionRow) => {
+    if (sortKey === k) setSortDir((d) => (d === 1 ? -1 : 1));
+    else { setSortKey(k); setSortDir(1); }
+  };
 
   return (
     <div className="space-y-4">
@@ -114,18 +141,20 @@ export function RobinhoodPanel() {
             <table className="w-full text-[12px] tabular-nums">
               <thead>
                 <tr className="border-b border-border-subtle text-left text-text-faint">
-                  <th className="py-1 pr-3">Type</th>
-                  <th className="py-1 pr-3">Strike</th>
-                  <th className="py-1 pr-3">Mark</th>
-                  <th className="py-1 pr-3">Δ</th>
-                  <th className="py-1 pr-3">Θ</th>
-                  <th className="py-1 pr-3">IV</th>
-                  <th className="py-1 pr-3">Vol</th>
-                  <th className="py-1 pr-3">OI</th>
+                  {COLS.map((c) => (
+                    <th
+                      key={c.key}
+                      onClick={() => toggleSort(c.key)}
+                      className="cursor-pointer select-none py-1 pr-3 hover:text-text-secondary"
+                    >
+                      {c.label}
+                      {sortKey === c.key ? (sortDir === 1 ? " ↑" : " ↓") : ""}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => (
+                {sorted.map((r, i) => (
                   <tr key={i} className="border-b border-border-subtle/50 text-text-secondary">
                     <td className="py-1 pr-3">{r.type}</td>
                     <td className="py-1 pr-3">{r.strike.toFixed(2)}</td>
