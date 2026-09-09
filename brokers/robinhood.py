@@ -30,6 +30,7 @@ Required env (all read via alert_config._get_secret, so .env or Railway vars):
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date, datetime
 from typing import Any, Iterable
 
@@ -48,6 +49,10 @@ ROBINHOOD_IMPORT_ENABLED = _get_secret("ROBINHOOD_IMPORT_ENABLED", "false").lowe
 ROBINHOOD_USERNAME = _get_secret("ROBINHOOD_USERNAME")
 ROBINHOOD_PASSWORD = _get_secret("ROBINHOOD_PASSWORD")
 ROBINHOOD_TOTP_SECRET = _get_secret("ROBINHOOD_TOTP_SECRET")
+# base64 of a locally-generated ~/.tokens/robinhood.pickle — the ONLY way to seed an
+# unattended session on a host (Railway) that can't do interactive device-approval and
+# has no authenticator TOTP. Materialized at login when the pickle is otherwise absent.
+ROBINHOOD_SESSION_B64 = _get_secret("ROBINHOOD_SESSION_B64")
 ROBINHOOD_ACCOUNT_LABEL = _get_secret("ROBINHOOD_ACCOUNT_LABEL", "Robinhood")
 
 try:
@@ -58,6 +63,35 @@ except ValueError:
 
 class RobinhoodError(RuntimeError):
     """Raised when login or a fetch fails — always caught by the daily job."""
+
+
+def _restore_session_from_env() -> None:
+    """Materialize robin_stocks' session pickle from ROBINHOOD_SESSION_B64.
+
+    On a headless host (Railway) there is no interactive device-approval and,
+    without a TOTP seed, no way to authenticate from scratch. So a session
+    generated locally is shipped up as a base64 env var and written to the path
+    robin_stocks reads (~/.tokens/robinhood.pickle) before login.
+
+    Only writes when the pickle is ABSENT — a live local session always wins, so
+    this is a no-op on your laptop after you've logged in once.
+    """
+    if not ROBINHOOD_SESSION_B64:
+        return
+    path = os.path.join(os.path.expanduser("~"), ".tokens", "robinhood.pickle")
+    if os.path.exists(path):
+        return
+    try:
+        import base64
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(base64.b64decode(ROBINHOOD_SESSION_B64))
+        logger.info("Restored Robinhood session pickle from ROBINHOOD_SESSION_B64")
+    except Exception as exc:
+        # Never echo the value; the b64 is a live session token.
+        raise RobinhoodError(
+            f"could not restore Robinhood session from env: {type(exc).__name__}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +387,11 @@ class RobinhoodClient:
             raise RobinhoodError(
                 "robin_stocks is not installed — add it to requirements.txt"
             ) from exc
+
+        # Seed the stored session on a headless host that can't do interactive
+        # MFA/device-approval (Railway). No-op locally once you've logged in, and
+        # never clobbers a live local pickle.
+        _restore_session_from_env()
 
         mfa_code = None
         if ROBINHOOD_TOTP_SECRET:
