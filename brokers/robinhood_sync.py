@@ -132,6 +132,17 @@ def sync_robinhood_fills(
         result.skipped = "ROBINHOOD_USER_ID is not set"
         return result
 
+    # Self-heal the schema. The external_id column + unique index are added by
+    # db.py init_db(), which the FastAPI API service does NOT run (it uses the
+    # SQLAlchemy layer). Without this, a UI-triggered import fails on the dedup
+    # query ("column external_id does not exist") until the worker is restarted.
+    # The migration is idempotent, so calling it here is a safe no-op once applied.
+    try:
+        from db import _migrate_trades_monthly_external_id
+        _migrate_trades_monthly_external_id()
+    except Exception:
+        pass
+
     try:
         if client is None:
             client = RobinhoodClient()
