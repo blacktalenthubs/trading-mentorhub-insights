@@ -707,12 +707,27 @@ ENABLED_RULES: set[str] = {
     # Higher-timeframe breakout-retest + RSI oversold turn (scanner scope, 2026-09)
     "pwh_breakout_retest",
     "pmh_breakout_retest",
+    # W/M/Q structural levels — open-above DEFEND / hold (support holding intraday),
+    # same rule as the MA reclaims. PWH/PWL, PMH/PML, PQH/PQL. (scanner scope, 2026-09)
+    "pwh_reclaim",
+    "pwl_reclaim",
+    "pmh_reclaim",
+    "pml_reclaim",
+    "pqh_reclaim",
+    "pql_reclaim",
     "rsi_30_35",
     # 2-hour SWING reclaim — big structural levels, judged on the 2h candle
     "swing_reclaim_8wema",
     "swing_reclaim_21wema",
     "swing_reclaim_30w",
     "swing_reclaim_200sma",
+    # 2-hour SWING confirm of the W/M/Q levels — still holding after 2h
+    "swing_reclaim_pwh",
+    "swing_reclaim_pwl",
+    "swing_reclaim_pmh",
+    "swing_reclaim_pml",
+    "swing_reclaim_pqh",
+    "swing_reclaim_pql",
 
     # ── LONG: multi-day support structure ───────────────────────────────────
     "multi_day_double_bottom",

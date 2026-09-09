@@ -13,6 +13,7 @@ import { useSearchParams } from "react-router-dom";
 import {
   useScanner,
   useOHLCV,
+  usePriorDay,
   useAlertsToday,
   useAlertSessionDates,
   useAlertsForDate,
@@ -158,6 +159,11 @@ interface IndicatorDef {
 const ALL_INDICATORS: IndicatorDef[] = [
   { key: "ema8", label: "EMA 8", color: "#f472b6", group: "ema" },
   { key: "ema21", label: "EMA 21", color: "#60a5fa", group: "ema" },
+  // Flat WEEKLY EMA reference lines — horizontal at the settled weekly EMA, LOCKED to
+  // weekly so they stay put on any lower chart timeframe.
+  { key: "ema8_flat", label: "8 EMA (W) flat", color: "#3b82f6", group: "ema" },
+  { key: "ema21_flat", label: "21 EMA (W) flat", color: "#8b5cf6", group: "ema" },
+  { key: "ema50_flat", label: "50 EMA (W) flat", color: "#f59e0b", group: "ema" },
   { key: "ema50", label: "EMA 50", color: "#f59e0b", group: "ema" },
   { key: "ema100", label: "EMA 100", color: "#a78bfa", group: "ema" },
   { key: "ema200", label: "EMA 200", color: "#34d399", group: "ema" },
@@ -1482,6 +1488,13 @@ export default function TradingPageV2() {
       : null);
   const tf = TIMEFRAMES[tfIdx];
   const { data: ohlcv } = useOHLCV(selectedSymbol ?? "", tf.period, tf.interval);
+  // Weekly (locked) EMA values for the flat "*_flat" indicators — always weekly,
+  // regardless of the chart timeframe.
+  const { data: priorDay } = usePriorDay(selectedSymbol ?? "");
+  const weeklyEmas = (() => {
+    const pd = priorDay as Record<string, number | null | undefined> | undefined;
+    return { ema8: pd?.wema8 ?? null, ema21: pd?.wema21 ?? null, ema50: pd?.wema50 ?? null };
+  })();
 
   /* ── User S/R levels ── */
   const { data: userLevels } = useChartLevels(selectedSymbol ?? "");
@@ -2451,6 +2464,7 @@ export default function TradingPageV2() {
               drawMode={drawMode}
               onAddLevel={handleAddLevel}
               indicators={chartIndicators}
+              weeklyEmas={weeklyEmas}
               hideWicks={hideWicks}
               showVolume={showVolume}
               alertMarkers={symbolAlertMarkers}

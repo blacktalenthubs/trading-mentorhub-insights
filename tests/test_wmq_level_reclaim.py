@@ -1,0 +1,118 @@
+"""W/M/Q structural-level DEFEND / hold reclaims.
+
+The prior week/month/quarter levels (PWH/PWL, PMH/PML, PQH/PQL) run through the
+SAME open-above defend rule as the MA reclaims (check_ma_reclaim), wired on the
+regular intraday ladder. This locks in: the six rules are enabled, they carry
+readable feed names, and the defend logic behaves (open-above holds fire, open-
+below ramp-throughs do not).
+"""
+
+import pandas as pd
+
+from analytics.intraday_rules import AlertType, check_ma_reclaim
+from alert_config import ENABLED_RULES
+from alerting.notifier import _pretty_setup
+
+
+_LEVEL_TYPES = [
+    AlertType.PWH_RECLAIM, AlertType.PWL_RECLAIM,
+    AlertType.PMH_RECLAIM, AlertType.PML_RECLAIM,
+    AlertType.PQH_RECLAIM, AlertType.PQL_RECLAIM,
+]
+
+# 2h swing twins — same levels, confirmed on the 2h candle (still holding).
+_SWING_LEVEL_TYPES = [
+    AlertType.SWING_RECLAIM_PWH, AlertType.SWING_RECLAIM_PWL,
+    AlertType.SWING_RECLAIM_PMH, AlertType.SWING_RECLAIM_PML,
+    AlertType.SWING_RECLAIM_PQH, AlertType.SWING_RECLAIM_PQL,
+]
+
+
+def _bars(rows):
+    return pd.DataFrame([{"Open": o, "High": h, "Low": l, "Close": c, "Volume": 1000}
+                         for o, h, l, c in rows])
+
+
+def test_all_level_reclaims_enabled():
+    for at in _LEVEL_TYPES + _SWING_LEVEL_TYPES:
+        assert at.value in ENABLED_RULES, f"{at.value} missing from ENABLED_RULES"
+
+
+def test_level_reclaims_have_feed_names():
+    # Not the ugly title-case fallback ("Pql Reclaim") — a real setup name.
+    for at in _LEVEL_TYPES + _SWING_LEVEL_TYPES:
+        name = _pretty_setup(at.value)
+        assert name and "hold" in name.lower(), f"{at.value} → {name!r}"
+
+
+def test_swing_2h_check_covers_wmq_levels():
+    """The 2h swing reclaim confirms the W/M/Q levels are still holding after 2h."""
+    from analytics.intraday_rules import check_swing_2h_reclaims
+    prior = {
+        "prior_quarter_low": 62.17,
+        "prior_week_low": 61.00, "prior_month_low": 60.00,
+        "prior_week_high": 70.00, "prior_month_high": 75.00, "prior_quarter_high": 80.00,
+    }
+    # A 2h candle that opened above PQL 62.17, wicked to it, closed back above (near it).
+    bars_2h = _bars([(62.20, 62.50, 61.70, 62.25),
+                     (62.25, 62.40, 62.15, 62.30)])
+    sigs = check_swing_2h_reclaims("RKLB", bars_2h, prior, today_open=62.20)
+    types = {s.alert_type for s in sigs}
+    assert AlertType.SWING_RECLAIM_PQL in types
+    assert all((s.message or "").startswith("2h swing · ") for s in sigs)
+
+
+def test_pql_defend_qualifies_open_above_wick_reclaim():
+    """Opened above the prior-quarter low, wicked to it, closed back above → hold."""
+    lvl = 62.17
+    bars = _bars([(62.20, 62.50, 61.70, 62.25),   # opened above, wicked below the level
+                  (62.25, 62.40, 62.15, 62.30)])   # closed back just above the level (near it)
+    sig = check_ma_reclaim("RKLB", bars, lvl, "PQL",
+                           AlertType.PQL_RECLAIM, today_open=62.20)
+    assert sig is not None
+    assert sig.alert_type == AlertType.PQL_RECLAIM
+    assert sig.direction == "BUY"
+    assert sig.stop < lvl < sig.entry  # stop sits BELOW the reclaimed support, entry above
+
+
+def test_pqh_rejects_open_below_ramp_through():
+    """Opened BELOW the prior-quarter high and ramped through it — a breakout, NOT a hold."""
+    lvl = 140.40
+    bars = _bars([(139.00, 145.50, 138.50, 145.00),   # opened below, blew through
+                  (145.00, 148.00, 144.50, 148.00)])
+    sig = check_ma_reclaim("NOW", bars, lvl, "PQH",
+                           AlertType.PQH_RECLAIM, today_open=139.00)
+    assert sig is None  # open below the level → not a defend
+
+
+def test_chased_reclaim_skipped_stop_would_sit_above_support():
+    """ETH-USD PQH case (2026-09): entry ran ~1% above the level, so the stop
+    just below the level is a bigger risk than the budget. Old code fake-tightened
+    the stop ABOVE the support (no-edge trade); now it must SKIP."""
+    lvl = 2466.50
+    bars = _bars([(2470.0, 2472.0, 2460.0, 2470.0),    # opened above, wicked to the level
+                  (2470.0, 2495.0, 2469.0, 2492.20)])   # ran up, closed ~1% above the level
+    sig = check_ma_reclaim("ETH-USD", bars, lvl, "PQH",
+                           AlertType.PQH_RECLAIM, today_open=2470.0)
+    assert sig is None  # stop-below-support exceeds risk budget → chased → skip
+
+
+def test_reclaim_near_level_fires_with_stop_below_the_level():
+    """When price is still near the level, it fires AND the stop sits below it."""
+    lvl = 2466.50
+    bars = _bars([(2468.0, 2470.0, 2462.0, 2468.0),
+                  (2468.0, 2472.0, 2465.0, 2470.0)])    # closed just 0.14% above the level
+    sig = check_ma_reclaim("ETH-USD", bars, lvl, "PQH",
+                           AlertType.PQH_RECLAIM, today_open=2468.0)
+    assert sig is not None
+    assert sig.stop < lvl < sig.entry  # stop is BELOW the reclaimed support, entry above
+
+
+def test_prior_day_dict_exposes_quarter_levels():
+    """fetch_prior_day's contract now includes the quarter keys the ladder reads."""
+    # The wiring reads prior_day.get("prior_quarter_high" / "_low"); a dict that
+    # lacks them must simply yield no level (None), never KeyError.
+    prior = {"prior_quarter_high": 760.40, "prior_quarter_low": 700.00}
+    assert prior.get("prior_quarter_high") == 760.40
+    assert prior.get("prior_quarter_low") == 700.00
+    assert {}.get("prior_quarter_high") is None

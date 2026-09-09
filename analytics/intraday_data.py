@@ -1080,6 +1080,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 prior_week_low = None
                 wema8 = None
                 wema21 = None
+                wema50 = None
                 w30 = None
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
@@ -1100,6 +1101,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                             wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
                         if len(_done_wk) >= 21:
                             wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
+                        if len(_done_wk) >= 50:
+                            wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
                         if len(_done_wk) >= 30:
                             w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
                 except Exception:
@@ -1125,6 +1128,19 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 except Exception:
                     pass
 
+                # Quarterly resampling — prior quarter high/low (PQH / PQL)
+                prior_quarter_high = None
+                prior_quarter_low = None
+                try:
+                    quarterly = hist[["High", "Low"]].resample("QS").agg({"High": "max", "Low": "min"}).dropna()
+                    if len(quarterly) >= 2:
+                        _lqd = quarterly.index[-1].normalize()
+                        pq = quarterly.iloc[-2] if last_bar_date >= _lqd else quarterly.iloc[-1]
+                        prior_quarter_high = pq["High"]
+                        prior_quarter_low = pq["Low"]
+                except Exception:
+                    pass
+
                 from analytics.market_data import classify_day
                 pattern, direction = classify_day(last, prev)
                 is_inside = last["High"] <= prev["High"] and last["Low"] >= prev["Low"]
@@ -1134,7 +1150,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "low": last["Low"], "close": last["Close"],
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
-                    "wema8": wema8, "wema21": wema21, "w30": w30,
+                    "wema8": wema8, "wema21": wema21, "wema50": wema50, "w30": w30,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
@@ -1151,6 +1167,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "prev_close": prev["Close"],
                     "prior_week_high": prior_week_high, "prior_week_low": prior_week_low,
                     "prior_month_high": prior_month_high, "prior_month_low": prior_month_low,
+                    "prior_quarter_high": prior_quarter_high, "prior_quarter_low": prior_quarter_low,
                     "monthly_ema8": monthly_ema8, "monthly_ema20": monthly_ema20,
                     "rsi14": sym_rsi14, "rsi14_prev": rsi14_prev,
                     "adx14": _adx14, "adx14_prev": _adx14_prev,
@@ -1263,6 +1280,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         prior_week_low = None
         wema8 = None
         wema21 = None
+        wema50 = None
+        w30 = None
         try:
             # Weekly 8/21 EMA — "8 EMA (W)" / "21 EMA (W)" on the Pine chart.
             # COMPLETED weeks only, so a partial week can't move the level.
@@ -1274,6 +1293,10 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     wema8 = float(_done_wk.ewm(span=8, adjust=False).mean().iloc[-1])
                 if len(_done_wk) >= 21:
                     wema21 = float(_done_wk.ewm(span=21, adjust=False).mean().iloc[-1])
+                if len(_done_wk) >= 50:
+                    wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
+                if len(_done_wk) >= 30:
+                    w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
             weekly = hist[["High", "Low"]].resample("W-FRI").agg({
                 "High": "max", "Low": "min",
             }).dropna()
@@ -1315,6 +1338,23 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 if len(completed_monthly) >= 20:
                     m_ema20 = completed_monthly["Close"].ewm(span=20, adjust=False).mean()
                     monthly_ema20 = float(m_ema20.iloc[-1])
+        except Exception:
+            pass
+
+        # Quarterly resampling — prior quarter high/low (PQH / PQL), same pattern
+        # as monthly: settled quarter only, so the current partial quarter can't
+        # move the level intraday.
+        prior_quarter_high = None
+        prior_quarter_low = None
+        try:
+            quarterly = hist[["High", "Low"]].resample("QS").agg({
+                "High": "max", "Low": "min",
+            }).dropna()
+            if len(quarterly) >= 2:
+                _lqd = quarterly.index[-1].normalize()
+                pq = quarterly.iloc[-2] if last_bar_date >= _lqd else quarterly.iloc[-1]
+                prior_quarter_high = pq["High"]
+                prior_quarter_low = pq["Low"]
         except Exception:
             pass
 
@@ -1366,6 +1406,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ma21": ma21,
             "wema8": wema8,
             "wema21": wema21,
+            "wema50": wema50,
+            "w30": w30,
             "ma20": ma20,
             "ma50": ma50,
             "ma100": ma100,
@@ -1396,6 +1438,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "prior_week_low": prior_week_low,
             "prior_month_high": prior_month_high,
             "prior_month_low": prior_month_low,
+            "prior_quarter_high": prior_quarter_high,
+            "prior_quarter_low": prior_quarter_low,
             "monthly_ema8": monthly_ema8,
             "monthly_ema20": monthly_ema20,
             "rsi14": sym_rsi14,

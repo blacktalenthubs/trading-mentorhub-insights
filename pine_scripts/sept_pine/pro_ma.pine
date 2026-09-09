@@ -1,0 +1,579 @@
+//@version=5
+// =============================================================================
+// PROXIMITY MAs · FLAT — 21/50/100/200 SMA + 8/21/50/100/200 EMA + 30W SMA as flat levels.
+// =============================================================================
+// The moving-average half of Proximity Levels · Pure, on its own. Nothing but the MAs, each drawn
+// as a FLAT horizontal line at its current value — never a sloping curve. Role-colored by where
+// price is NOW: every tag spells the ROLE, not the price — "21 SMA ▼ RESISTANCE". The price is
+// already on the axis; the word is there so a wall always registers as a wall. Traders talk
+// themselves through resistance and give the gains back — this makes that harder to do.
+// Pair it with "Proximity Levels · Structural" for the PDH/PDL/PWH-type lines.
+//
+// EQUAL LENGTH: every line — MAs, PDH/PDL, structural levels, the open — terminates at the same
+// tag column. Only the LABEL fans right when two sit at nearly the same price, so a collision
+// moves text, never a line end. Line length carries no meaning and shouldn't vary.
+//
+// ONE show-rule, no exemptions: a MA draws only inside the nearest-N bracket — the N closest MAs
+// ABOVE price and the N closest BELOW, each side set independently (default 2 / 2). A far 200 EMA
+// stays hidden until price approaches, so it can never stretch the axis. N means N: nothing bypasses
+// the count and eats a slot, so 2 above puts exactly two lines overhead. 0 on a side draws none
+// there — a one-sided read when you only care what's above you.
+// MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
+//
+// NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
+// same idiom as active/ma_ema_daily.pine. That's yesterday's closed daily MA, which is what a flat
+// structural line should be; lookahead_off reads the developing value and shifts intrabar.
+//
+// RECLAIM MARKER: a small ⟲ tag under the bar that CLOSES back above a MA it was beneath, naming
+// which one ("⟲ 8 SMA · 21 EMA" when it takes several at once). Confirmed bars only — it never
+// paints on the live bar and then vanishes. The mirror (losing a MA) is one toggle away, off by default.
+//
+// LEVEL FALLBACK: when the open is above (or below) EVERY MA, the stack can't define the day — so the
+// two structural levels that DO bracket the open are named AND drawn automatically, right beside the
+// open line. Open above all MAs but inside yesterday's range → PDH and PDL appear. Open above the MAs
+// AND above PDH → the next pair up appears (PDH below, PMH above). Candidates: PDH/PDL · PWH/PWL ·
+// PMH/PML · PQH/PQL. They show up only in that case; inside the MA stack nothing extra is drawn.
+//
+// HUD (top center): daily RSI + the 50/200 TREND STATE. The state combines STRUCTURE (50 vs 200)
+// with PRICE POSITION, so a golden cross with price underneath reads as RECLAIM WATCH, not bullish:
+//   50>200 · above both = BULLISH      50>200 · below both = RECLAIM WATCH
+//   50<200 · below both = BEARISH      50<200 · above both = RECOVERY WATCH   between = MIXED
+// It reads its own 50/200, so unticking those MAs hides the lines without blinding the regime read.
+//
+// WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, LOWER name
+// first (floor → ceiling): "Open BTW 21 SMA and 50 SMA" — the 21 SMA is the floor under the open and the 50 SMA the ceiling to respect.
+// Boxed by two MAs —
+// that's the range they'll play, and those two lines are the day's rails. "ABOVE all MAs" (or below)
+// means the stack has nothing left to offer: no MA is in the way, so switch to the STRUCTURAL levels
+// (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
+//
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
+indicator("pro-allmas-signal", overlay = true, max_lines_count = 60, max_labels_count = 500)
+
+// ── which MAs ───────────────────────────────────────────────────────────────────
+gMA    = "Moving averages"
+maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/21/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
+en21   = input.bool(true, "21 SMA",  inline = "ma1", group = gMA)
+en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
+en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
+en200  = input.bool(true, "200 SMA", inline = "ma2", group = gMA)
+en8e   = input.bool(true, "8 EMA",   inline = "ma3", group = gMA)
+en21e  = input.bool(true, "21 EMA",  inline = "ma3", group = gMA)
+en50e  = input.bool(true, "50 EMA",  inline = "ma3", group = gMA)
+en100e = input.bool(true, "100 EMA", inline = "ma3", group = gMA)
+en200e = input.bool(true, "200 EMA", inline = "ma3", group = gMA)
+mergePct = input.float(0.20, "Merge MAs within (%) into one line", group = gMA, minval = 0.0, maxval = 2, step = 0.05, tooltip = "MAs within this % of each other collapse into ONE line naming all (e.g. '50 SMA · 200 EMA'). 0 = draw each separately.") / 100.0
+
+// ── proximity ───────────────────────────────────────────────────────────────────
+gN        = "Proximity"
+nUp       = input.int(2, "MAs to show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest MAs above where price is NOW, and N below — set independently. A count, not a %, so every symbol shows the same-size near-price set. 0 = none that side, which is how you get a one-sided read (e.g. only what's overhead).")
+nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
+farCapPct = input.float(20, "Hide anything beyond ± % of price — MAs (daily + weekly) and W/M/Q levels; PDH/PDL exempt (0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "The load gate: any moving average or structural level farther than this % from price is not drawn at all, so a far 200 SMA or monthly level can never stretch the axis. PDH/PDL are the day's rails and stay exempt. 0 = off (fall back to the nearest-N counts only).") / 100.0
+proxPct   = input.float(10, "± % proximity — ALSO hide any line farther than this (ALL types, incl PDH/PDL; 0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "A third, independent gate ON TOP of the nearest-N counts and the far-cap above: any line — MA/EMA, W/M/Q level, AND the PDH/PDL rails — farther than this % from price is hidden. Uniform, no exemptions (unlike the far-cap, which spares PDH/PDL). 0 = off.") / 100.0
+showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
+showPxProx = input.bool(true, "Show the price on level tags", group = gN)
+enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
+
+// ── weekly MA — the 30-week SMA (Weinstein Stage-2), always weekly-locked, drawn flat on any chart TF.
+// Folded into the SAME pool as the daily MAs, so it shares their proximity gate, confluence merge,
+// and — crucially — the open-line bracket. No separate weekly proximity to reason about.
+gW    = "Weekly MA"
+en30w = input.bool(true, "30W SMA (weekly-locked, flat)", group = gW, tooltip = "The 30-week SMA (Weinstein Stage-2), always weekly, drawn flat on any timeframe. Treated exactly like the daily MAs — same proximity gate, confluence merge, and open-line bracket.")
+
+// ── reclaim marker ──────────────────────────────────────────────────────────────
+gR      = "Reclaim marker"
+enRc    = input.bool(true,  "Mark the bar that CLOSES back ABOVE a MA (reclaim)", group = gR, tooltip = "A small ⟲ tag under the bar, naming every MA reclaimed on that close. This is the trigger side — price taking back a level it was trading under.")
+enLost  = input.bool(false, "Also mark the bar that CLOSES back BELOW a MA (lost)", group = gR, tooltip = "The mirror: a ▽ tag above the bar when price loses a MA it was holding. That's the exit side. OFF by default so the chart only shows reclaims.")
+enPend  = input.bool(true, "Show the FORMING signal on the live bar (faint, marked · forming)", group = gR, tooltip = "The wick has already happened — only the CLOSE is still unknown. This draws the tag faintly on the bar in progress so you can see the setup as it forms, and it firms up to a solid tag when the bar closes. If price closes back under, the faint tag simply disappears: nothing that repaints is ever presented as confirmed. On a daily chart this is the difference between seeing today's reclaim now and seeing it after 4pm.")
+rcConf  = input.bool(true,  "Require a confirmed CLOSE for a cross-up reclaim", group = gR, tooltip = "Applies to the CROSS pattern only — price coming from BELOW and ramping through a level, which can fail and close back under. A HOLD reclaim (opened above, wicked, back above) never needed a close and always prints live: price didn't lose the level, it defended a test. OFF = a cross marks intrabar too (repaints).")
+rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
+rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
+rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
+
+// ── open bracket — let the W/M/Q + PDH/PDL levels compete with the MAs for the open's neighbours ──
+gL       = "Open bracket"
+enLvl    = input.bool(true, "Let structural levels bracket the open too", group = gL, tooltip = "The open label names the nearest DRAWN line above the open and below it. With this on, the W/M/Q + PDH/PDL levels compete with the MAs on equal footing — whatever line is closest on each side wins. Off = only MAs bracket the open.")
+
+// ── structural levels — PDH/PDL always on, the rest on their OWN neighbour count ──
+gSL      = "Structural levels"
+enSLvls  = input.bool(true, "Draw structural levels", group = gSL)
+slPdhPdl = input.bool(true, "  PDH / PDL — ALWAYS drawn, never gated", group = gSL, tooltip = "The day's rails. They're exempt from every proximity count and from the candidate pool, so they can't be hidden and can't eat a slot another level should have had.")
+slUp     = input.int(2, "  Other levels ABOVE price", minval = 0, maxval = 8, group = gSL, inline = "sl")
+slDn     = input.int(2, "  BELOW", minval = 0, maxval = 8, group = gSL, inline = "sl")
+slPW     = input.bool(true,  "  · PWH / PWL", inline = "slf", group = gSL)
+slPM     = input.bool(true,  "  · PMH / PML", inline = "slf", group = gSL)
+slPQ     = input.bool(false, "  · PQH / PQL", inline = "slf", group = gSL)
+slW      = input.int(2, "  Level thickness", minval = 1, maxval = 6, group = gSL)
+slFade   = input.int(25, "  Level fade", minval = 0, maxval = 95, group = gSL)
+lvlStyle = input.string("dashed", "  Level line style — MAs stay solid, levels break", options = ["dashed", "dotted", "solid"], group = gSL, tooltip = "PDH/PDL and the W/M/Q levels draw with a BROKEN line so a structural level never reads as a moving average. The MAs keep the solid style set under Style. When a level and a MA confluence into one line, the MA wins and the merged line stays solid (it's a real MA level).")
+
+// ── daily RSI + open HUD ────────────────────────────────────────────────────────
+gH      = "Daily RSI + open (HUD)"
+enHud   = input.bool(true, "Show the HUD", group = gH, tooltip = "Two lines: today's DAILY RSI (locked to daily on any chart TF) and where the session OPENED inside the MA stack.")
+hudPos  = input.string("top_center", "HUD position", options = ["top_center", "top_right", "top_left", "bottom_center", "bottom_right"], group = gH)
+rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
+rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
+rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
+enState = input.bool(true, "Show the 50/200 trend state (second HUD row)", group = gH, tooltip = "Combines STRUCTURE (50 vs 200) with PRICE POSITION, so a golden cross with price underneath doesn't read as bullish. Uses its own 50/200 values, so it stays correct even if you untick those MAs above.")
+enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
+openCol  = input.color(color.new(#EAB308, 55), "Open line", inline = "ol", group = gH)
+openW    = input.int(1, "width", inline = "ol", group = gH, minval = 1, maxval = 5)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+supCol    = input.color(#26A69A, "Support (price above)",    group = gV)
+resCol    = input.color(#EF5350, "Resistance (price below)", group = gV)
+wLine     = input.int(2,  "Line width", group = gV, minval = 1, maxval = 5)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+// One style for EVERY line — MAs, PDH/PDL, structural levels, the open. Mixing solid, dashed
+// and dotted made the chart look like the differences meant something they didn't; the ROLE
+// tag and the colour already carry the meaning. Default solid = unbroken lines.
+lineStyle = input.string("solid", "MA line style (solid = straight MA/EMA)", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "Style for the MA/EMA lines (and any confluence line that includes a MA). Default solid = straight, unbroken. Structural levels have their OWN style under 'Structural levels' (default dashed) so a level always looks different from a moving average.")
+tagSize   = input.string("tiny", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
+hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
+styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── values — SETTLED higher-TF MA ([1] + lookahead_on), the ma_ema_daily idiom. Flat, non-repainting.
+// (each call written out in full — a request.security wrapped in a helper that also branches is the
+//  one shape that bites; this is the exact form proximity_levels_pure / ma_ema_daily already use)
+[_r_sma21v, _r_sma21vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 21)[1], ta.sma(close, 21)[2]], lookahead = barmerge.lookahead_on)
+sma21v = en21 ? _r_sma21v : na
+sma21vp = en21 ? _r_sma21vp : na
+[_r_sma50v, _r_sma50vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 50)[1], ta.sma(close, 50)[2]], lookahead = barmerge.lookahead_on)
+sma50v = en50 ? _r_sma50v : na
+sma50vp = en50 ? _r_sma50vp : na
+[_r_sma100v, _r_sma100vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 100)[1], ta.sma(close, 100)[2]], lookahead = barmerge.lookahead_on)
+sma100v = en100 ? _r_sma100v : na
+sma100vp = en100 ? _r_sma100vp : na
+[_r_sma200v, _r_sma200vp] = request.security(syminfo.tickerid, maTf, [ta.sma(close, 200)[1], ta.sma(close, 200)[2]], lookahead = barmerge.lookahead_on)
+sma200v = en200 ? _r_sma200v : na
+sma200vp = en200 ? _r_sma200vp : na
+[_r_ema8v, _r_ema8vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 8)[1], ta.ema(close, 8)[2]], lookahead = barmerge.lookahead_on)
+ema8v = en8e ? _r_ema8v : na
+ema8vp = en8e ? _r_ema8vp : na
+[_r_ema21v, _r_ema21vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 21)[1], ta.ema(close, 21)[2]], lookahead = barmerge.lookahead_on)
+ema21v = en21e ? _r_ema21v : na
+ema21vp = en21e ? _r_ema21vp : na
+[_r_ema50v, _r_ema50vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 50)[1], ta.ema(close, 50)[2]], lookahead = barmerge.lookahead_on)
+ema50v = en50e ? _r_ema50v : na
+ema50vp = en50e ? _r_ema50vp : na
+[_r_ema100v, _r_ema100vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 100)[1], ta.ema(close, 100)[2]], lookahead = barmerge.lookahead_on)
+ema100v = en100e ? _r_ema100v : na
+ema100vp = en100e ? _r_ema100vp : na
+[_r_ema200v, _r_ema200vp] = request.security(syminfo.tickerid, maTf, [ta.ema(close, 200)[1], ta.ema(close, 200)[2]], lookahead = barmerge.lookahead_on)
+ema200v = en200e ? _r_ema200v : na
+ema200vp = en200e ? _r_ema200vp : na
+// ── weekly 30W SMA — always the WEEKLY settled value ([1] + lookahead_on), independent of maTf. Flat.
+[_r_w30v, _r_w30vp]   = request.security(syminfo.tickerid, "W", [ta.sma(close, 30)[1], ta.sma(close, 30)[2]], lookahead = barmerge.lookahead_on)
+w30v  = en30w ? _r_w30v  : na
+w30vp = en30w ? _r_w30vp : na
+
+// ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
+rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+// lookahead_OFF for the open — it is known at the session's first tick, so there is nothing to
+// wait for. lookahead_on would hand back the enclosing daily bar's open on bars that precede it,
+// which lands the line on a neighbouring session's open. Settled values (high[1], low[1]) still
+// use lookahead_on: those bars are already closed. Same idiom as active/ma_ema_daily.pine.
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
+rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+// the trend state reads its OWN 50/200 — independent of the display toggles above, so unticking
+// "50 SMA" hides the line without blinding the regime read
+st50  = request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+st200 = request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+f_state() =>
+    string txt = na
+    color  col = na
+    if na(st50) or na(st200)
+        txt := "50/200 — no data"
+        col := color.new(color.gray, 20)
+    else
+        _golden = st50 > st200
+        _above  = close > st50 and close > st200
+        _below  = close < st50 and close < st200
+        if _golden and _above
+            txt := "BULLISH · 50>200 · price above both"
+            col := color.new(color.green, 10)
+        else if _golden and _below
+            txt := "RECLAIM WATCH · 50>200 but price below — wait for the 200 reclaim"
+            col := color.new(color.orange, 10)
+        else if not _golden and _below
+            txt := "BEARISH · 50<200 · price below both"
+            col := color.new(color.red, 10)
+        else if not _golden and _above
+            txt := "RECOVERY WATCH · 50<200 but price above — potential turn"
+            col := color.new(color.blue, 10)
+        else
+            txt := "MIXED · price between the 50 and the 200"
+            col := color.new(color.gray, 10)
+    [txt, col]
+[stateTxt, stateCol] = f_state()
+// structural levels — only consulted when the MA stack can't bracket the open. Settled + RTH, same as the levels pine.
+f_lvl(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
+lPdh = f_lvl("D",  high[1])
+lPdl = f_lvl("D",  low[1])
+lPwh = f_lvl("W",  high[1])
+lPwl = f_lvl("W",  low[1])
+lPmh = f_lvl("M",  high[1])
+lPml = f_lvl("M",  low[1])
+lPqh = f_lvl("3M", high[1])
+lPql = f_lvl("3M", low[1])
+
+// SLOPE. A flat line is readable as a LEVEL but throws away direction, and direction is half the
+// trade: reclaiming a RISING 21 EMA is continuation — the average is coming up to meet price.
+// Reclaiming a FALLING one is a counter-trend bounce into supply that is still descending onto you.
+// Same level, opposite trades. So each MA carries its prior-day value and the tag shows ↑ / ↓ / →.
+// (Day-over-day, not bar-over-bar: a daily MA has one value per day, so an intraday comparison
+//  would always read flat.)
+f_slope(float v, float vp) => not enSlope or na(v) or na(vp) ? "" : v > vp ? " ↑" : v < vp ? " ↓" : " →"
+
+// ── collection + flat-line drawing ──────────────────────────────────────────────
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _maV = array.new_float()
+var string[] _maN = array.new_string()
+var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
+var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+// EVERYTHING drawable is queued into ONE pool — MAs, PDH/PDL, structural levels — so the merge
+// pass below can collapse a MA and a level sitting at the same price into a single labelled line.
+// Merging only MAs against each other is what left three near-identical lines stacked on the chart.
+_tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+_hudSz = hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
+_lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+_lvlStyle = lvlStyle == "dotted" ? line.style_dotted : lvlStyle == "solid" ? line.style_solid : line.style_dashed
+_lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var bool[]   _qdot = array.new_bool()
+f_queue(float v, string nm, bool dot) =>
+    if not na(v) and v > 0
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qdot, dot)
+// ONE rule, no exemptions: a MA draws when it's inside the nearest-N bracket. N means N.
+f_draw(float v, string nm) =>
+    _inBr = v <= _brkHi and v >= _brkLo
+    _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
+    _prox = proxPct <= 0 or math.abs(close - v) / close <= proxPct
+    if not na(v) and v > 0 and (showAll or (_inBr and _cap and _prox))
+        f_queue(v, nm, false)      // per-item style flag is vestigial — one setting styles every line now
+f_collect(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_maV, v)
+        array.push(_maN, nm)
+_hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
+var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_maV)
+    array.clear(_maN)
+    array.clear(_drawnY)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qdot)
+    f_collect(sma21v,  "21 SMA" + f_slope(sma21v, sma21vp))
+    f_collect(sma50v,  "50 SMA" + f_slope(sma50v, sma50vp))
+    f_collect(sma100v, "100 SMA" + f_slope(sma100v, sma100vp))
+    f_collect(sma200v, "200 SMA" + f_slope(sma200v, sma200vp))
+    f_collect(ema8v,   "8 EMA" + f_slope(ema8v, ema8vp))
+    f_collect(ema21v,  "21 EMA" + f_slope(ema21v, ema21vp))
+    f_collect(ema50v,  "50 EMA" + f_slope(ema50v, ema50vp))
+    f_collect(ema100v, "100 EMA" + f_slope(ema100v, ema100vp))
+    f_collect(ema200v, "200 EMA" + f_slope(ema200v, ema200vp))
+    f_collect(w30v,    "30W SMA" + f_slope(w30v, w30vp))
+    // ── NEAREST-N bracket — the N closest MAs above price and N closest below ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_maV) > 0
+        for _i = 0 to array.size(_maV) - 1
+            v = array.get(_maV, _i)
+            if v > close
+                array.push(_ab, v)
+            else if v < close
+                array.push(_bl, v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
+    _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
+    _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
+    // MAs are queued by f_draw (bracket applied there); the single merge pass runs after the
+    // structural levels are queued too, so a MA and a level at one price become ONE line.
+    _n = array.size(_maV)
+    if _n > 0
+        _ord = array.sort_indices(_maV, order.ascending)
+        for _mi2 = 0 to _n - 1
+            _ms = array.get(_ord, _mi2)
+            f_draw(array.get(_maV, _ms), array.get(_maN, _ms))
+
+    // ── STRUCTURAL LEVELS — PDH/PDL always; the rest earn their place via their own count,
+    //    kept apart from the MA count so a cluster of MAs can never hide the weekly line.
+    if enSLvls
+        if slPdhPdl
+            for _pi = 0 to 1
+                _pv = _pi == 0 ? lPdh : lPdl
+                _pProx = proxPct <= 0 or (not na(_pv) and _pv > 0 and math.abs(close - _pv) / close <= proxPct)
+                if not na(_pv) and _pv > 0 and _pProx
+                    f_queue(_pv, _pi == 0 ? "PDH" : "PDL", true)
+        _slV = array.new_float()
+        _slN = array.new_string()
+        _slC  = array.from(lPwh,  lPwl,  lPmh,  lPml,  lPqh,  lPql)
+        _slCN = array.from("PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+        _slOn = array.from(slPW,  slPW,  slPM,  slPM,  slPQ,  slPQ)
+        for _si = 0 to array.size(_slC) - 1
+            _sv = array.get(_slC, _si)
+            if array.get(_slOn, _si) and not na(_sv) and _sv > 0
+                array.push(_slV, _sv)
+                array.push(_slN, array.get(_slCN, _si))
+        _slAb = array.new_float()
+        _slBl = array.new_float()
+        if array.size(_slV) > 0
+            for _si = 0 to array.size(_slV) - 1
+                _sv = array.get(_slV, _si)
+                if _sv > close
+                    array.push(_slAb, _sv)
+                else if _sv < close
+                    array.push(_slBl, _sv)
+        array.sort(_slAb, order.ascending)
+        array.sort(_slBl, order.descending)
+        _slHi = slUp <= 0 or array.size(_slAb) == 0 ? (slUp <= 0 ? -1.0 : 1.0e18) : array.get(_slAb, math.min(slUp, array.size(_slAb)) - 1)
+        _slLo = slDn <= 0 or array.size(_slBl) == 0 ? (slDn <= 0 ? 1.0e18 : -1.0) : array.get(_slBl, math.min(slDn, array.size(_slBl)) - 1)
+        if array.size(_slV) > 0
+            for _si = 0 to array.size(_slV) - 1
+                _sv = array.get(_slV, _si)
+                _slCap = farCapPct <= 0 or math.abs(close - _sv) / close <= farCapPct
+                _slProx = proxPct <= 0 or math.abs(close - _sv) / close <= proxPct
+                if _sv <= _slHi and _sv >= _slLo and _slCap and _slProx
+                    f_queue(_sv, array.get(_slN, _si), true)
+
+    // ── ONE MERGE PASS over everything queued — MAs, PDH/PDL and structural levels together.
+    //    A MA and a level at the same price collapse into a single line naming both, so the tag
+    //    keeps the detail ("21 EMA · PDH ·×2") without three near-identical lines stacked up.
+    //    The line sits on the member NEAREST price — a real level, never a fabricated average —
+    //    and the LABEL sits at the line's own end, so a tag can never float away from its line.
+    _qn2 = array.size(_qv)
+    if _qn2 > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qn2
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qdt  = array.get(_qdot, _qs)
+            _qcnt = 1
+            _qnear  = _qhi
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qn2
+                _qk  = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if mergePct > 0 and _qv2 <= _qhi * (1.0 + mergePct)
+                    _qhi := _qv2
+                    _qnm := _qnm + " · " + array.get(_qn, _qk)
+                    _qdt := _qdt and array.get(_qdot, _qk)      // solid wins — a MA keeps the cluster solid
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qcol = _qsup ? supCol : resCol
+            _qx   = f_xoff(_qnear)                              // residual collisions still fan…
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qdt ? _lvlStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
+            _qi := _qj
+
+    // ── where did the day OPEN? nearest DRAWN line above it and nearest below — whatever they are.
+    //    MAs and levels compete on equal footing: closest line up names the ceiling, closest line
+    //    down names the floor. No MA-vs-level preference. LOWER line named first.
+    _oUp  = 1.0e18
+    _oDn  = -1.0
+    _oUpN = ""
+    _oDnN = ""
+    if not na(dayOpen) and dayOpen > 0
+        if array.size(_maV) > 0
+            for _k = 0 to array.size(_maV) - 1
+                _v = array.get(_maV, _k)
+                if _v > dayOpen and _v < _oUp
+                    _oUp  := _v
+                    _oUpN := array.get(_maN, _k)
+                if _v < dayOpen and _v > _oDn
+                    _oDn  := _v
+                    _oDnN := array.get(_maN, _k)
+        if enLvl
+            _lv  = array.from(lPdh, lPdl, lPwh, lPwl, lPmh, lPml, lPqh, lPql)
+            _lnm = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+            for _k = 0 to array.size(_lv) - 1
+                _v = array.get(_lv, _k)
+                if not na(_v) and _v > 0
+                    if _v > dayOpen and _v < _oUp
+                        _oUp  := _v
+                        _oUpN := array.get(_lnm, _k)
+                    if _v < dayOpen and _v > _oDn
+                        _oDn  := _v
+                        _oDnN := array.get(_lnm, _k)
+    _obUp  = _oUp < 1.0e17
+    _obDn  = _oDn > 0
+    _obUpN = _oUpN
+    _obDnN = _oDnN
+    // the faint open line — subtle, never competing with the MAs. If the open sits ON an already-
+    // drawn line (within the confluence band), a second line + tag would just cover it — so instead
+    // append "· OPEN" to that line's tag and draw NO separate open line. Only when the open sits in
+    // clear space does it get its own faint line + "Open BTW …" bracket.
+    if enOpenLn and not na(dayOpen) and dayOpen > 0
+        _openMerged = false
+        if array.size(_lb) > 0
+            for _li = 0 to array.size(_lb) - 1
+                _olbl = array.get(_lb, _li)
+                _oly  = label.get_y(_olbl)
+                if not na(_oly) and _oly > 0 and math.abs(_oly - dayOpen) / dayOpen <= mergePct
+                    label.set_text(_olbl, label.get_text(_olbl) + "  ◦ OPEN")
+                    _openMerged := true
+                    break
+        if not _openMerged
+            _oxo = f_xoff(dayOpen)
+            array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + labelX, dayOpen, color = openCol, width = openW, style = _lnStyleO, extend = extendAll ? extend.both : extend.none))
+            _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
+            // the LABEL is bold and solid so it's easy to spot; the LINE stays faint (openCol)
+            array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = color.new(#EAB308, 0), textcolor = color.black, size = size.normal))
+    // ── HUD ──
+    if enHud
+        _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
+        table.set_position(_hudT, _hudPosC)
+        table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = _hudSz)
+        table.cell(_hudT, 0, 1, enState ? stateTxt : "", bgcolor = enState ? stateCol : color.new(color.gray, 100), text_color = color.white, text_size = _hudSz)
+    else
+        table.cell(_hudT, 0, 0, "")
+        table.cell(_hudT, 0, 1, "")
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
+// Every ta.crossover/crossunder is evaluated on EVERY bar at global scope (they're stateful —
+// calling them conditionally makes them miss crosses), then the names are assembled for the tag.
+// ═══════════════════════════════════════════════════════════════════════════════
+_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
+// ── TWO PATTERNS, GATED DIFFERENTLY — because they carry different risk.
+//
+// STATELESS BY DESIGN. Both tests read only THIS bar's open/high/low/close against the level —
+// no [1], no history, no barstate. That's the shape the production ma-bounce pine uses
+// (strict_long: low <= ma and close > ma and close > open) and it's why that one has always
+// worked. My earlier version compared close[1] against the MA's previous value, which put the
+// whole test at the mercy of per-call-site history and made it fire nothing.
+//
+// "Came from below" is now open <= v — the bar OPENED at or under the level. That is the same
+// fact the prior-close comparison was reaching for, available directly on the bar itself.
+//
+//   HOLD   open ABOVE the level, wick down to/through it, price back above.
+//          Qualifies IMMEDIATELY, no close required. Price never lost the level — it opened
+//          above and defended a test. There is nothing to confirm: the wick already happened.
+//
+//   CROSS  price coming from BELOW, ramping up through the level.
+//          Requires a CONFIRMED CLOSE above, on the chart's timeframe. A ramp through can fail
+//          and close back under, and that's the false signal the whole rule exists to prevent.
+//
+// So the confirmed-bar gate applies to CROSS only. A hold-reclaim prints live on any timeframe;
+// a cross-reclaim waits for the bar to close and shows faint "· forming" until it does.
+f_hold(float v) => not na(v) and open > v and low <= v and close > v
+f_cross(float v) => not na(v) and close > v and open <= v
+f_holdDn(float v) => not na(v) and open < v and high >= v and close < v
+f_crossDn(float v) => not na(v) and close < v and open >= v
+f_add(string acc, bool hit, string nm) => hit ? (str.length(acc) > 0 ? acc + " · " + nm : nm) : acc
+
+_conf = barstate.isconfirmed
+_upTxt = ""
+_dnTxt = ""
+_pdTxt = ""
+_pdDnTxt = ""
+_upTxt := f_add(_upTxt, f_hold(sma21v) or (f_cross(sma21v) and (not rcConf or _conf)), "21 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma21v) and rcConf and not _conf, "21 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma50v) or (f_cross(sma50v) and (not rcConf or _conf)), "50 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma50v) and rcConf and not _conf, "50 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma100v) or (f_cross(sma100v) and (not rcConf or _conf)), "100 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma100v) and rcConf and not _conf, "100 SMA")
+_upTxt := f_add(_upTxt, f_hold(sma200v) or (f_cross(sma200v) and (not rcConf or _conf)), "200 SMA")
+_pdTxt := f_add(_pdTxt, f_cross(sma200v) and rcConf and not _conf, "200 SMA")
+_upTxt := f_add(_upTxt, f_hold(ema8v) or (f_cross(ema8v) and (not rcConf or _conf)), "8 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema8v) and rcConf and not _conf, "8 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema21v) or (f_cross(ema21v) and (not rcConf or _conf)), "21 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema21v) and rcConf and not _conf, "21 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema50v) or (f_cross(ema50v) and (not rcConf or _conf)), "50 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema50v) and rcConf and not _conf, "50 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema100v) or (f_cross(ema100v) and (not rcConf or _conf)), "100 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema100v) and rcConf and not _conf, "100 EMA")
+_upTxt := f_add(_upTxt, f_hold(ema200v) or (f_cross(ema200v) and (not rcConf or _conf)), "200 EMA")
+_pdTxt := f_add(_pdTxt, f_cross(ema200v) and rcConf and not _conf, "200 EMA")
+_upTxt := f_add(_upTxt, f_hold(lPdh) or (f_cross(lPdh) and (not rcConf or _conf)), "PDH")
+_pdTxt := f_add(_pdTxt, f_cross(lPdh) and rcConf and not _conf, "PDH")
+_upTxt := f_add(_upTxt, f_hold(lPdl) or (f_cross(lPdl) and (not rcConf or _conf)), "PDL")
+_pdTxt := f_add(_pdTxt, f_cross(lPdl) and rcConf and not _conf, "PDL")
+_upTxt := f_add(_upTxt, f_hold(lPwh) or (f_cross(lPwh) and (not rcConf or _conf)), "PWH")
+_pdTxt := f_add(_pdTxt, f_cross(lPwh) and rcConf and not _conf, "PWH")
+_upTxt := f_add(_upTxt, f_hold(lPwl) or (f_cross(lPwl) and (not rcConf or _conf)), "PWL")
+_pdTxt := f_add(_pdTxt, f_cross(lPwl) and rcConf and not _conf, "PWL")
+_upTxt := f_add(_upTxt, f_hold(lPmh) or (f_cross(lPmh) and (not rcConf or _conf)), "PMH")
+_pdTxt := f_add(_pdTxt, f_cross(lPmh) and rcConf and not _conf, "PMH")
+_upTxt := f_add(_upTxt, f_hold(lPml) or (f_cross(lPml) and (not rcConf or _conf)), "PML")
+_pdTxt := f_add(_pdTxt, f_cross(lPml) and rcConf and not _conf, "PML")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma21v) or (f_crossDn(sma21v) and (not rcConf or _conf)), "21 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma21v) and rcConf and not _conf, "21 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma50v) or (f_crossDn(sma50v) and (not rcConf or _conf)), "50 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma50v) and rcConf and not _conf, "50 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma100v) or (f_crossDn(sma100v) and (not rcConf or _conf)), "100 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma100v) and rcConf and not _conf, "100 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(sma200v) or (f_crossDn(sma200v) and (not rcConf or _conf)), "200 SMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(sma200v) and rcConf and not _conf, "200 SMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema8v) or (f_crossDn(ema8v) and (not rcConf or _conf)), "8 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema8v) and rcConf and not _conf, "8 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema21v) or (f_crossDn(ema21v) and (not rcConf or _conf)), "21 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema21v) and rcConf and not _conf, "21 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema50v) or (f_crossDn(ema50v) and (not rcConf or _conf)), "50 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema50v) and rcConf and not _conf, "50 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema100v) or (f_crossDn(ema100v) and (not rcConf or _conf)), "100 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema100v) and rcConf and not _conf, "100 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(ema200v) or (f_crossDn(ema200v) and (not rcConf or _conf)), "200 EMA")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(ema200v) and rcConf and not _conf, "200 EMA")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdh) or (f_crossDn(lPdh) and (not rcConf or _conf)), "PDH")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdh) and rcConf and not _conf, "PDH")
+_dnTxt := f_add(_dnTxt, f_holdDn(lPdl) or (f_crossDn(lPdl) and (not rcConf or _conf)), "PDL")
+_pdDnTxt := f_add(_pdDnTxt, f_crossDn(lPdl) and rcConf and not _conf, "PDL")
+
+// ── FORMING tag on the live bar. The qualification is already satisfied — open above, wick
+// through, price back above — and only the close can still change it. Drawn faint with a
+// "· forming" suffix and REPLACED each tick, so it never accumulates and never claims to be
+// confirmed. It vanishes on its own if price closes back under.
+var label _pendUp = na
+var label _pendDn = na
+if barstate.islast
+    label.delete(_pendUp)
+    label.delete(_pendDn)
+    if enPend and not barstate.isconfirmed
+        if enRc and str.length(_pdTxt) > 0
+            _pendUp := label.new(bar_index, low, "⟲ " + _pdTxt + "  · forming", yloc = yloc.belowbar, style = label.style_label_up, color = color.new(rcUpCol, 55), textcolor = color.white, size = _rcSz)
+        if enLost and str.length(_pdDnTxt) > 0
+            _pendDn := label.new(bar_index, high, "▽ " + _pdDnTxt + "  · forming", yloc = yloc.abovebar, style = label.style_label_down, color = color.new(rcDnCol, 55), textcolor = color.white, size = _rcSz)
+
+// the tag sits UNDER the candle that did the work, naming which level it took
+if enRc and str.length(_upTxt) > 0
+    label.new(bar_index, low,  "⟲ " + _upTxt, yloc = yloc.belowbar, style = label.style_label_up,   color = rcUpCol, textcolor = color.white, size = _rcSz)
+if enLost and str.length(_dnTxt) > 0
+    label.new(bar_index, high, "▽ " + _dnTxt, yloc = yloc.abovebar, style = label.style_label_down, color = rcDnCol, textcolor = color.white, size = _rcSz)

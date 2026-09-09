@@ -24,6 +24,9 @@ interface Props {
   target?: number;
   height?: number;
   indicators?: IndicatorConfig[];
+  /** Weekly (locked) EMA values for the flat "*_flat" indicators — drawn as flat
+   *  horizontal lines regardless of the chart timeframe. */
+  weeklyEmas?: { ema8?: number | null; ema21?: number | null; ema50?: number | null };
   hideWicks?: boolean;
   /** Volume histogram + volume MA at the bottom of the chart. */
   showVolume?: boolean;
@@ -63,6 +66,7 @@ function CandlestickChartInner({
   target,
   height = 400,
   indicators = [],
+  weeklyEmas,
   hideWicks = false,
   showVolume = true,
   alertMarkers = [],
@@ -350,6 +354,9 @@ function CandlestickChartInner({
     }));
 
     const drawnIndicators: { key: string; color: string; label: string }[] = [];
+    // Flat MA price lines are created AFTER the price-line cleanup below (otherwise
+    // they'd be wiped) — collect them here during the indicator loop.
+    const flatLines: { price: number; color: string; title: string }[] = [];
     for (const ind of indicators) {
       // Fair Value Bands — 20-period SMA basis ± 2σ. Mirrors the weekly Fair Value Swing pine: on the
       // "W" timeframe this IS the weekly fair value (buy pullbacks to a rising basis, trim at the upper
@@ -438,6 +445,20 @@ function CandlestickChartInner({
 
       let lineData: { time: string | number; value: number }[] = [];
 
+      // Flat WEEKLY EMA reference: a horizontal line at the settled weekly EMA value
+      // (from the backend), LOCKED to weekly — so it stays put on any lower chart TF.
+      const flatMatch = ind.key.match(/^ema(8|21|50)_flat$/);
+      if (flatMatch) {
+        const period = parseInt(flatMatch[1]);
+        const val = period === 8 ? weeklyEmas?.ema8 : period === 21 ? weeklyEmas?.ema21 : weeklyEmas?.ema50;
+        if (val != null) {
+          const label = `${period} EMA (W)`;
+          flatLines.push({ price: val, color: ind.color, title: label });
+          drawnIndicators.push({ key: ind.key, color: ind.color, label });
+        }
+        continue;
+      }
+
       const smaMatch = ind.key.match(/^sma(\d+)$/);
       const emaMatch = ind.key.match(/^ema(\d+)$/);
       // Which-line-is-which-MA label. Lives in the compact top-left legend
@@ -482,6 +503,16 @@ function CandlestickChartInner({
       } catch { /* already removed */ }
     }
     priceLinesRef.current = [];
+
+    // Flat MA reference lines (collected in the indicator loop) — created here, after
+    // the cleanup above, so they survive to render.
+    for (const fl of flatLines) {
+      const line = seriesRef.current!.createPriceLine({
+        price: fl.price, color: fl.color, lineWidth: 1, lineStyle: 0,
+        axisLabelVisible: true, title: fl.title,
+      });
+      priceLinesRef.current.push(line);
+    }
 
     // Price lines — short labels + nearby-dedup.
     //
@@ -578,7 +609,7 @@ function CandlestickChartInner({
     } else {
       timeScale.fitContent();
     }
-  }, [data, levels, userLevels, entry, stop, target, indicators, hideWicks, showVolume, alertMarkers]);
+  }, [data, levels, userLevels, entry, stop, target, indicators, weeklyEmas, hideWicks, showVolume, alertMarkers]);
 
   // Toggle pan/zoom off while drawing so a click drops a level cleanly.
   useEffect(() => {
