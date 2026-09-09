@@ -287,15 +287,28 @@ const SCANNER_ENTRY_TYPES = new Set([
   "multi_day_double_bottom",
   // Index-only shorts (SPY / QQQ / SMH).
   "pdh_rejection",
+  // RSI oversold turn (2026-09 scanner scope).
+  "rsi_30_35",
+  // Higher-timeframe breakout-retest (2026-09).
+  "pwh_breakout_retest",
+  "pmh_breakout_retest",
+  // W/M/Q structural open-above DEFEND / holds (2026-09).
+  "pwh_reclaim", "pwl_reclaim",
+  "pmh_reclaim", "pml_reclaim",
+  "pqh_reclaim", "pql_reclaim",
 ]);
 /** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, and its short
  *  mirror ma_rejection_8/21/50 (open-BELOW, index-only). Reclaims/rejections
  *  only: the bounce rules were deprecated by the redesign and cannot fire. */
 const SCANNER_LADDER_RE = /^(ma|ema|wema)_(reclaim|rejection)_\d{1,3}$/;
+/** swing_reclaim_8wema / _21wema / _30w / _200sma / _pwh / _pwl / _pmh / _pml /
+ *  _pqh / _pql — the 2-hour SWING reclaims/holds of the big structural levels
+ *  (2026-09 scanner scope). One prefix covers the whole family. */
+const SCANNER_SWING_RE = /^swing_reclaim_/;
 
 export function isScannerEntry(alertType?: string): boolean {
   const t = alertType ?? "";
-  return SCANNER_ENTRY_TYPES.has(t) || SCANNER_LADDER_RE.test(t);
+  return SCANNER_ENTRY_TYPES.has(t) || SCANNER_LADDER_RE.test(t) || SCANNER_SWING_RE.test(t);
 }
 
 /** True for alerts that belong in the Signals feed — AI scans, TV signals and the
