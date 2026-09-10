@@ -288,6 +288,10 @@ def _pretty_setup(rule: str, note: str | None = None) -> str:
         else:
             level = "Last 4h"
         return f"{level} {verb}".strip()
+    # Weekly 30 MA (30-week SMA, the chart's "30w MA") — NOT an EMA, so it gets an
+    # explicit name before the wema ladder branch below (which would say "EMA (W)").
+    if t == "wema_reclaim_30":
+        return "30-week MA Reclaim"
     # Scanner MA ladder — ma_reclaim_50 → "50 SMA Reclaim", ema_bounce_21 → "21 EMA Bounce".
     # Matched before the v3 family below so the plain ladder keys don't fall through
     # to the raw title-case ("Ma Reclaim 50").

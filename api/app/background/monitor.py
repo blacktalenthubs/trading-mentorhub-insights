@@ -103,17 +103,13 @@ def poll_all_users(sync_session_factory) -> int:
         return 0
 
 
-# Scanner redesign (2026-09) — hardcoded eval universe (38). Replaces the per-user
-# watchlist so we validate on a fixed, controlled set before widening. ETH/BTC in
-# internal -USD form so is_crypto + the crypto data path pick them up (24/7).
+# Eval narrowing (2026-09-10) — fixed 17-symbol universe. Trader directive: scan
+# ONLY these so signal quality (reclaim-only rules) can be judged before widening.
+# This list is ENFORCED for every user (the per-user watchlist path is bypassed
+# below), not just a fallback.
 SCANNER_UNIVERSE: list[str] = [
-    "SNXX", "SNDK", "MUU", "MRVL", "DELL", "MU", "LITE", "VRT", "ETH-USD", "META",
-    "MRNA", "COHR", "BTC-USD", "QQQ", "JPM", "HOOD", "GOOGL", "MSFT", "PLTR", "SPCX",
-    "NOW", "LLY", "SPOT", "ANET", "NBIS", "SHOP", "CRWD", "NVDA", "AMZN", "APP",
-    "RKLB", "TSLA", "XLI", "SPY", "AVGO", "CRCL", "MSTR", "AAPL",
-    # Added 2026-09 for the index short set (SHORT_UNIVERSE = SPY/QQQ/SMH) —
-    # SPY and QQQ were already here; SMH was not, so it could never be evaluated.
-    "SMH",
+    "SPY", "NBIS", "NVDA", "SMH", "LITE", "QQQ", "SPCX", "AAPL", "DRAM",
+    "META", "GOOGL", "SNDK", "MSFT", "TSLA", "DELL", "CRWD", "CBRS",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
@@ -218,7 +214,6 @@ def _merge_confluence(signals: list) -> list:
 
 def _poll_all_users_inner(sync_session_factory) -> int:
     from app.models.user import Subscription, User  # noqa: E402
-    from app.models.watchlist import WatchlistItem  # noqa: E402
     from app.models.alert_type_pref import UserAlertTypePref  # noqa: E402
     from app.models.alert import ActiveEntry, Alert, Cooldown  # noqa: E402
     from app.models.paper_trade import RealTrade  # noqa: E402
@@ -279,16 +274,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         user_symbols: Dict[int, List[str]] = {}
         all_symbols: set[str] = set()
         for user_id in pro_users:
-            # Scanner universe = the user's EDITABLE watchlist (add/remove from the
-            # UI). Falls back to the hardcoded SCANNER_UNIVERSE only when the
-            # watchlist is empty, so the scanner never runs an empty universe.
-            _wl = db.execute(
-                select(WatchlistItem.symbol).where(WatchlistItem.user_id == user_id)
-            ).scalars().all()
-            _syms = list(dict.fromkeys(s.strip().upper() for s in _wl if s and s.strip()))
-            if not _syms:
-                _syms = list(SCANNER_UNIVERSE)
-                logger.info("User %d has no watchlist rows — using SCANNER_UNIVERSE fallback", user_id)
+            # Eval narrowing (2026-09-10): scan the FIXED SCANNER_UNIVERSE for every
+            # user, ignoring per-user watchlists, so the whole platform evaluates the
+            # same controlled 17-symbol set. Revert to the watchlist path when widening.
+            _syms = list(SCANNER_UNIVERSE)
             user_symbols[user_id] = _syms
             all_symbols.update(_syms)
 
