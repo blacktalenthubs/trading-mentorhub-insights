@@ -292,6 +292,8 @@ const SCANNER_ENTRY_TYPES = new Set([
   "prior_day_high_breakout",
   "pdh_retest_hold",
   "multi_day_double_bottom",
+  // Gap-and-go — momentum gap that opened above every daily MA (2026-09-10).
+  "gap_and_go",
   // Index-only shorts (SPY / QQQ / SMH).
   "pdh_rejection",
   // RSI oversold turn (2026-09 scanner scope).
@@ -304,10 +306,10 @@ const SCANNER_ENTRY_TYPES = new Set([
   "pmh_reclaim", "pml_reclaim",
   "pqh_reclaim", "pql_reclaim",
 ]);
-/** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, and its short
- *  mirror ma_rejection_8/21/50 (open-BELOW, index-only). Reclaims/rejections
- *  only: the bounce rules were deprecated by the redesign and cannot fire. */
-const SCANNER_LADDER_RE = /^(ma|ema|wema)_(reclaim|rejection)_\d{1,3}$/;
+/** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, its short mirror
+ *  ma_rejection_8/21/50 (open-BELOW, index-only), and (re-enabled 2026-09-10) the
+ *  pullback bounces ema_bounce_8/21/50/100/200 + ma_bounce_50/100/200. */
+const SCANNER_LADDER_RE = /^(ma|ema|wema)_(reclaim|rejection|bounce)_\d{1,3}$/;
 /** swing_reclaim_8wema / _21wema / _30w / _200sma / _pwh / _pwl / _pmh / _pml /
  *  _pqh / _pql — the 2-hour SWING reclaims/holds of the big structural levels
  *  (2026-09 scanner scope). One prefix covers the whole family. */
