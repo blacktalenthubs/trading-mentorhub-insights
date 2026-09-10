@@ -88,7 +88,10 @@ f_wk() =>
     [_ma, _e8, _e21, _slope, _stage, _b, _x, _trail, _inpos, _add8, _add21, _add30, _rcb, _rca, _e8_up, _e21_up]
 
 [ma, e8, e21, wslope, stage, buy_sig, exit_sig, trail, in_pos, add8, add21, add30, rc_below, rc_above, e8_up, e21_up] = request.security(syminfo.tickerid, "W", f_wk(), lookahead = barmerge.lookahead_off)
-wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
+// Weekly open uses lookahead_ON — the open is fixed at the week's first tick, so this is
+// NON-repainting, and it puts the CURRENT week's open on every lower-TF bar. lookahead_off
+// lags one period on a lower TF (shows last week's open), which is the drift you'd see intraday.
+wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_on)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(show_ema ? e8  : na, "8w EMA",  color = color.new(color.aqua, 15), linewidth = 1)
