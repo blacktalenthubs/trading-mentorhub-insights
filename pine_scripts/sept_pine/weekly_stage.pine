@@ -26,6 +26,7 @@ slope_lb  = input.int  (4,   "Slope lookback (weeks)", minval = 1, group = "Tren
 slope_thr = input.float(0.5, "Min |slope %| to count as rising/falling — below = FLAT (chop)", minval = 0.0, step = 0.05, group = "Trend")
 ctx_lb    = input.int  (12,  "Flat-MA context (disambiguate Stage 1 basing vs 3 topping)", minval = 4, group = "Trend")
 show_ema  = input.bool(true, "Draw the weekly 8 / 21 EMA", group = "Trend")
+show_200d = input.bool(true, "Draw the DAILY 200 SMA (long-term line in the sand)", group = "Trend")
 
 show_sig  = input.bool(true, "Entry / exit markers", group = "Display")
 show_bg   = input.bool(true, "Stage background tint", group = "Display")
@@ -92,11 +93,15 @@ f_wk() =>
 // NON-repainting, and it puts the CURRENT week's open on every lower-TF bar. lookahead_off
 // lags one period on a lower TF (shows last week's open), which is the drift you'd see intraday.
 wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_on)
+// DAILY 200 SMA — pulled from the "D" timeframe so it's the same 200-day line on any
+// chart TF. lookahead_off (updates live on the forming day, never leaks the future).
+sma200d = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(show_ema ? e8  : na, "8w EMA",  color = color.new(color.aqua, 15), linewidth = 1)
 plot(show_ema ? e21 : na, "21w EMA", color = color.new(#2962ff, 10),    linewidth = 1)
 plot(ma, "30wMA", color = stage_col, linewidth = 2)
+plot(show_200d ? sma200d : na, "200d SMA", color = color.new(#9c27b0, 0), linewidth = 2)
 plot(in_pos ? trail : na, "trailing stop", color = color.new(color.red, 10), style = plot.style_stepline, linewidth = 1)
 
 bg = stage == 2 ? color.new(color.lime, 92) : stage == 4 ? color.new(color.red, 92) : stage == 3 ? color.new(color.orange, 94) : stage == 1 ? color.new(color.gray, 95) : na
