@@ -1,0 +1,43 @@
+// @version=5
+//
+// Current Week Low / Current Month Low — two horizontal lines at the lowest low
+// printed SO FAR in the current week and the current month. Both are pulled from
+// the "W" / "M" timeframes via request.security with lookahead_OFF, so they:
+//   • show the SAME level on any chart TF (weekly, daily, 1h, 5m),
+//   • update live as a new intraperiod low prints (the running low),
+//   • never leak the future (non-repainting),
+//   • roll to a fresh level when a new week / month begins.
+//
+// Read them as the line in the sand for the period: lose the week low and the
+// week's trend is threatened; lose the month low and the month turns down.
+//
+indicator("Week / Month Low", "Wk/Mo Low", overlay = true, max_lines_count = 10)
+
+show_wk = input.bool(true,  "Current week low",  group = "Lines")
+wk_col  = input.color(color.new(color.orange, 0), "  color", inline = "wk", group = "Lines")
+wk_wid  = input.int(2, "width", minval = 1, maxval = 5, inline = "wk", group = "Lines")
+
+show_mo = input.bool(true,  "Current month low", group = "Lines")
+mo_col  = input.color(color.new(color.red, 0), "  color", inline = "mo", group = "Lines")
+mo_wid  = input.int(2, "width", minval = 1, maxval = 5, inline = "mo", group = "Lines")
+
+// Running low of the CURRENT period, same on every chart TF. lookahead_off =
+// non-repainting (the level only moves DOWN as the period prints a new low).
+wk_low = request.security(syminfo.tickerid, "W", low, lookahead = barmerge.lookahead_off)
+mo_low = request.security(syminfo.tickerid, "M", low, lookahead = barmerge.lookahead_off)
+
+// One horizontal line + label per level, redrawn on the last bar so it extends
+// across the chart and rolls to the new period's low automatically.
+f_draw(_show, _y, _txt, _col, _wid) =>
+    var line  _ln  = na
+    var label _lab = na
+    if _show and barstate.islast and not na(_y)
+        if not na(_ln)
+            line.delete(_ln)
+        if not na(_lab)
+            label.delete(_lab)
+        _ln := line.new(bar_index - 1, _y, bar_index, _y, xloc = xloc.bar_index, extend = extend.both, color = _col, width = _wid, style = line.style_solid)
+        _lab := label.new(bar_index, _y, _txt + " " + str.tostring(_y, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_col, 85), textcolor = _col, size = size.tiny)
+
+f_draw(show_wk, wk_low, "wk low", wk_col, wk_wid)
+f_draw(show_mo, mo_low, "mo low", mo_col, mo_wid)
