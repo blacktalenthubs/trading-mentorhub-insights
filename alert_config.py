@@ -654,159 +654,36 @@ DIVERGENCE_MIN_SWING_SIZE = 0.02   # 2% minimum swing size
 # ---------------------------------------------------------------------------
 ENABLED_RULES: set[str] = {
     # ============================================================================
-    # Phase 3a (2026-04-23 evening) — aggressive rule reduction.
-    # Trader's directive: focus on EMA (8/21/50/100/200) + PDH/PDL + multi-day
-    # supports. Everything else is noise. Keeps disabled entries as comments
-    # for traceability and easy re-enable.
-    # See: /Users/mentorhub/.claude/plans/go-over-the-code-inherited-hopcroft.md
+    # EVAL NARROWING (2026-09-10) — trader directive: cut the scanner to a small,
+    # fixed, evaluable surface so signal quality can be judged before widening.
+    # Kept: LONG reclaims only — daily EMA/SMA 8/21/50/100/200, weekly 8/21/30,
+    # PDL reclaim, PWL reclaim, PDH retest-hold. Everything else (PDH breakout,
+    # PWH/PMH/PQH/PML/PQL, RSI, all 2h swing_reclaim_*, multi-day double bottom,
+    # and the entire SHORT set) is OFF — add patterns back gradually.
+    # Scan universe is the fixed 17-symbol list in monitor.py SCANNER_UNIVERSE.
     # ============================================================================
 
-    # ── LONG: EMA support bounces (final set 8/21/50/100/200) ───────────────
-    # Phase 3b (2026-04-23 evening): added EMA8 (fast pullback) + EMA21
-    # (medium-trend, replaces EMA20). Function check_ema_bounce_20 + AlertType
-    # EMA_BOUNCE_20 retained for DB-historical compat but no longer fire.
-    # DEPRECATED (scanner redesign 2026-09): the bounce fires on ANY touch of the MA
-    # with NO open-above test — it can't tell support from resistance being ramped
-    # into. Replaced by the open-above ema_reclaim_* / ma_reclaim_* rules below.
-    # "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
-    # "ema_bounce_20"  — superseded by ema_bounce_21 (1-period diff)
-
-    # ── LONG: SMA support bounces — DEPRECATED (scanner redesign) → ma_reclaim_* ──
-    # "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
-    # "ma_bounce_20"
-
-    # ── LONG: EMA reclaims (final set 8/21/50/100/200) ──────────────────────
+    # ── LONG: daily EMA reclaims (8/21/50/100/200) ──────────────────────────
     "ema_reclaim_8",
     "ema_reclaim_21",
     "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    # DISABLED Phase 3b:
-    # "ema_reclaim_20"  — superseded by ema_reclaim_21
 
-    # ── LONG: SMA reclaims (8/21/50/100/200) — Phase 5c, same rationale as bounces.
-    # Scanner redesign (2026-09): 8/21 added — the enums shipped in Phase 1 but
-    # were never wired, so the fast SMA reclaims could not fire at all.
+    # ── LONG: daily SMA reclaims (8/21/50/100/200) ──────────────────────────
     "ma_reclaim_8",
     "ma_reclaim_21",
-    "ma_reclaim_50",
+    "ma_reclaim_50", "ma_reclaim_100", "ma_reclaim_200",
 
-    # ── LONG: WEEKLY 8/21 EMA reclaims ──────────────────────────────────────
-    # The chart's "8 EMA (W)" / "21 EMA (W)". Same open-above test as the daily
-    # ladder — a weekly level the day opened above, wicked to, and reclaimed.
+    # ── LONG: weekly EMA/MA reclaims (8/21 EMA + 30 MA) ─────────────────────
     "wema_reclaim_8",
     "wema_reclaim_21",
-    "ma_reclaim_100",
-    "ma_reclaim_200",
-    # Still disabled: "ma_reclaim_20"
+    "wema_reclaim_30",
 
-    # ── LONG: prior-day high/low (institutional levels) ─────────────────────
-    "prior_day_low_reclaim",
-    # DEPRECATED (scanner redesign): prior_day_low_bounce → use prior_day_low_reclaim.
-    # "prior_day_low_bounce",
-    "prior_day_high_breakout",
-    "pdh_retest_hold",
-    # Higher-timeframe breakout-retest + RSI oversold turn (scanner scope, 2026-09)
-    "pwh_breakout_retest",
-    "pmh_breakout_retest",
-    # W/M/Q structural levels — open-above DEFEND / hold (support holding intraday),
-    # same rule as the MA reclaims. PWH/PWL, PMH/PML, PQH/PQL. (scanner scope, 2026-09)
-    "pwh_reclaim",
-    "pwl_reclaim",
-    "pmh_reclaim",
-    "pml_reclaim",
-    "pqh_reclaim",
-    "pql_reclaim",
-    "rsi_30_35",
-    # 2-hour SWING reclaim — big structural levels, judged on the 2h candle
-    "swing_reclaim_8wema",
-    "swing_reclaim_21wema",
-    "swing_reclaim_30w",
-    "swing_reclaim_200sma",
-    # 2-hour SWING confirm of the W/M/Q levels — still holding after 2h
-    "swing_reclaim_pwh",
-    "swing_reclaim_pwl",
-    "swing_reclaim_pmh",
-    "swing_reclaim_pml",
-    "swing_reclaim_pqh",
-    "swing_reclaim_pql",
+    # ── LONG: prior-level reclaims + PDH retest-hold ────────────────────────
+    "prior_day_low_reclaim",   # PDL reclaim
+    "pwl_reclaim",             # PWL reclaim
+    "pdh_retest_hold",         # PDH retest + hold
 
-    # ── LONG: multi-day support structure ───────────────────────────────────
-    "multi_day_double_bottom",
-    # DISABLED Phase 3a:
-    # "session_low_double_bottom"  — overlaps with multi_day version + PDL
-    # "planned_level_touch"        — vague level definition
-    # "session_low_bounce_vwap"    — overlaps with vwap_bounce + double bottom
-    # "morning_low_retest"         — overlaps with PDL bounce most days
-    # "session_low_reversal"       — overlaps with double bottom
-
-    # ── Weekly/monthly levels — DISABLED (scanner redesign 2026-09) ─────────
-    # They only ever became NOTICEs: monitor.py stripped entry/stop/T1/T2 and
-    # entries-only delivery dropped them, so they were unreadable heads-up rows
-    # nobody could trade. The signal set is the entries below, nothing else.
-    # "weekly_level_touch", "weekly_high_breakout", "weekly_low_test",
-    # "weekly_high_resistance", "monthly_level_touch", "monthly_high_breakout",
-    # "monthly_low_test", "monthly_ema_touch", "monthly_high_resistance",
-
-    # ── SHORT: index-only (SHORT_UNIVERSE = SPY / QQQ / SMH) ────────────────
-    # PDH rejection + the open-below 8/21/50 MA rejections. The MA rejections
-    # mirror the long ladder exactly: opened BELOW the level (resistance),
-    # rallied up to tag it, closed back below.
-    "pdh_rejection",
-    "ma_rejection_8", "ma_rejection_21", "ma_rejection_50",
-    "ema_rejection_8", "ema_rejection_21", "ema_rejection_50",
-    # Weekly 8/21 EMA as resistance — the ASML case: "8 EMA (W) RESIST".
-    "wema_rejection_8", "wema_rejection_21",
-
-    # ── SHORT: DISABLED (scanner redesign 2026-09) ──────────────────────────
-    # Not in the agreed set — shorts are PDH rejection + the MA rejections only.
-    # "pdh_failed_breakout", "resistance_prior_high",
-    # "prior_day_low_breakdown", "prior_day_low_resistance",
-    # "ema_rejection_short"      — the un-gated 9-MA catch-all; no open-below
-    #                              test, superseded by ma_rejection_8/21/50.
-    # "ema_overhead_resistance"  — NOTICE, not a trade.
-    # DISABLED Phase 3a:
-    # "intraday_ema_rejection_short"        — overlap, lower trust
-    # "hourly_resistance_rejection_short"   — hourly rejections too noisy
-    # "session_high_double_top"             — drop session-high structure
-
-    # ── DISABLED Phase 3a — short side ──────────────────────────────────────
-    # "support_breakdown"                   — drop "loss of support" entirely
-    # "vwap_loss"                           — VWAP unreliable per trader
-    # "session_low_breakdown"               — drop intraday-low-breakdown family
-    # "morning_low_breakdown"               — same
-    # "weekly_low_breakdown"                — drop (use weekly NOTICE only)
-    # "monthly_low_breakdown"               — drop (use monthly NOTICE only)
-    # "consol_breakout_short"               — pattern-based, not level-based
-    # "consol_15m_breakout_short"           — same
-    # "spy_short_entry"                     — regime-based; rely on structural
-
-    # ── DISABLED Phase 3a — VWAP entries ────────────────────────────────────
-    # "vwap_reclaim"   — VWAP unreliable per trader's prior feedback
-    # "vwap_bounce"    — same
-
-    # ── DISABLED Phase 3a — pattern/volatility setups ───────────────────────
-    # "bb_squeeze_breakout"
-    # "gap_and_go"
-    # "fib_retracement_bounce"
-    # "consol_breakout_long"
-    # "consol_15m_breakout_long"
-
-    # ── DISABLED Phase 1 (2026-04-22) — inside-day family ───────────────────
-    # "inside_day_breakout"
-    # "inside_day_forming"
-    # "inside_day_breakdown"
-
-    # ── DISABLED earlier — noise alerts ─────────────────────────────────────
-    # "ma_approach", "ma_resistance", "ema_resistance"
-    # "hourly_consolidation", "session_high_retracement"
-    # "first_hour_summary", "first_hour_high_breakout"
-    # "opening_low_base", "intraday_support_bounce"
-    # "ma_reclaim_20"  — near-duplicate of ema_reclaim_21
-    # (ma_reclaim_50/100/200 re-enabled in Phase 5c above)
-    # "ema_loss_short", "macd_histogram_flip"
-    # "pdh_test", "weekly_high_test", "monthly_high_test"
-    # "resistance_prior_low"
-
-    # ── Trade management — exit alerts (always on) ──────────────────────────
+    # ── Trade management — exit alerts (always on, manage open positions) ────
     "target_1_hit",
     "target_2_hit",
     "stop_loss_hit",

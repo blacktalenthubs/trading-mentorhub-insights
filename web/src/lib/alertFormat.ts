@@ -27,6 +27,9 @@ export function formatSetup(alertType?: string): string {
   // alerting/notifier.py so the feed, Telegram and the push notification all name
   // the setup identically. Matched before the v3 family so these don't fall
   // through to the raw title-case ("Ema Reclaim 21").
+  // Weekly 30 MA (30-week SMA, the chart's "30w MA") — NOT an EMA, so name it
+  // explicitly before the wema ladder branch (which would render "30 EMA (W)").
+  if (t === "wema_reclaim_30") return swing("30-week MA Reclaim");
   const ladder = t.match(/^(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
     // wema = the WEEKLY EMA, labelled to match the chart's "8 EMA (W)".
@@ -204,6 +207,10 @@ export function setupBlurb(alertType?: string): string {
   // Scanner MA ladder, spelled out — the redesign's core rule and its mirror.
   // Long: the level was SUPPORT at the open, not resistance being ramped into.
   // Short: the level was RESISTANCE at the open, not support being lost.
+  // Weekly 30 MA (30-week SMA) — explicit before the ladder so it reads "MA", not "EMA".
+  if (t === "wema_reclaim_30") {
+    return `Opened ABOVE the 30-week MA, wicked down to tag it, and closed back above — the level held as support. Entry = the reclaim close, stop 0.5% below the level.`;
+  }
   const ladder = t.match(/^(ma|ema|wema)_(reclaim|rejection|bounce)_(\d{1,3})$/);
   if (ladder) {
     const kind = ladder[1] === "ma" ? "SMA" : ladder[1] === "wema" ? "EMA (W)" : "EMA";

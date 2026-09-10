@@ -326,6 +326,9 @@ class AlertType(str, Enum):
     # Same open-above / open-below tests as the daily ladder, on a bigger level.
     WEMA_RECLAIM_8 = "wema_reclaim_8"
     WEMA_RECLAIM_21 = "wema_reclaim_21"
+    # WEEKLY 30 MA reclaim — the "30w MA" on the weekly_stage chart (30-week SMA).
+    # Same open-above test as the 8/21 weekly, one level slower.
+    WEMA_RECLAIM_30 = "wema_reclaim_30"
     # 2-hour SWING reclaim — big structural levels, judged on the 2h candle.
     SWING_RECLAIM_8WEMA = "swing_reclaim_8wema"
     SWING_RECLAIM_21WEMA = "swing_reclaim_21wema"
@@ -8249,6 +8252,8 @@ def evaluate_rules(
     # treatment as the daily MAs, just a slower level.
     wema8 = prior_day.get("wema8")
     wema21 = prior_day.get("wema21")
+    # Weekly 30 MA (30-week SMA) — same source key the swing block uses.
+    wema30 = prior_day.get("w30")
     ma20 = prior_day.get("ma20")
     ma50 = prior_day.get("ma50")
     ma100 = prior_day.get("ma100")
@@ -8914,6 +8919,7 @@ def evaluate_rules(
             (AlertType.EMA_RECLAIM_200, ema200, "EMA200"),
             (AlertType.WEMA_RECLAIM_8, wema8, "8 EMA (W)"),
             (AlertType.WEMA_RECLAIM_21, wema21, "21 EMA (W)"),
+            (AlertType.WEMA_RECLAIM_30, wema30, "30 MA (W)"),
         ]
         for _at, _ma, _label in _reclaim_pairs:
             if _at.value in ENABLED_RULES and _ma:
