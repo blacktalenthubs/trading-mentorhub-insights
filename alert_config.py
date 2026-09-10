@@ -654,13 +654,12 @@ DIVERGENCE_MIN_SWING_SIZE = 0.02   # 2% minimum swing size
 # ---------------------------------------------------------------------------
 ENABLED_RULES: set[str] = {
     # ============================================================================
-    # EVAL NARROWING (2026-09-10) — trader directive: cut the scanner to a small,
-    # fixed, evaluable surface so signal quality can be judged before widening.
-    # Kept: LONG reclaims only — daily EMA/SMA 8/21/50/100/200, weekly 8/21/30,
-    # PDL reclaim, PWL reclaim, PDH retest-hold. Everything else (PDH breakout,
-    # PWH/PMH/PQH/PML/PQL, RSI, all 2h swing_reclaim_*, multi-day double bottom,
-    # and the entire SHORT set) is OFF — add patterns back gradually.
-    # Scan universe is the fixed 17-symbol list in monitor.py SCANNER_UNIVERSE.
+    # EVAL NARROWING (2026-09-10, extended 2026-09-10) — trader directive: a small,
+    # fixed, evaluable surface. LONG only, on the fixed 17-symbol universe
+    # (monitor.py SCANNER_UNIVERSE). Reclaims + bounces on the full MA ladder,
+    # day/week/month high breakouts, and gap-and-go (open-above-all). Still OFF:
+    # PWH/PMH/PQH/PML/PQL reclaims, RSI, all 2h swing_reclaim_*, multi-day double
+    # bottom, and the entire SHORT set.
     # ============================================================================
 
     # ── LONG: daily EMA reclaims (8/21/50/100/200) ──────────────────────────
@@ -678,10 +677,31 @@ ENABLED_RULES: set[str] = {
     "wema_reclaim_21",
     "wema_reclaim_30",
 
+    # ── LONG: EMA bounces (8/21/50/100/200) — pullback-to-the-average buys.
+    # A bounce ≠ a reclaim: it fires on ANY touch that holds, no open-above test.
+    "ema_bounce_8",
+    "ema_bounce_21",
+    "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
+
+    # ── LONG: SMA bounces — only 50/100/200 exist (no 8/21 SMA-bounce rule).
+    "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+
     # ── LONG: prior-level reclaims + PDH retest-hold ────────────────────────
     "prior_day_low_reclaim",   # PDL reclaim
     "pwl_reclaim",             # PWL reclaim
     "pdh_retest_hold",         # PDH retest + hold
+
+    # ── LONG: day / week / month HIGH breakouts ─────────────────────────────
+    # Day = plain PDH breakout on volume; week/month = breakout THEN retest-hold
+    # (the level flips resistance→support and holds), the only tradeable PWH/PMH
+    # breakout rules (the plain weekly/monthly breakouts are NOTICE-only).
+    "prior_day_high_breakout",   # PDH breakout (day)
+    "pwh_breakout_retest",       # PWH breakout + retest (week)
+    "pmh_breakout_retest",       # PMH breakout + retest (month)
+
+    # ── LONG: gap-and-go — gapped up ≥1% on 2× volume AND opened above EVERY
+    # daily MA (open-above-all gate added in intraday_rules). Clean momentum gap.
+    "gap_and_go",
 
     # ── Trade management — exit alerts (always on, manage open positions) ────
     "target_1_hit",

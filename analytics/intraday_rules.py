@@ -9057,6 +9057,21 @@ def evaluate_rules(
                 sig.message += f" ({phase})"
                 sig.message += caution_suffix
                 signals.append(sig)
+        elif AlertType.GAP_AND_GO.value in ENABLED_RULES:
+            # OPEN-ABOVE-ALL gate (2026-09-10): outside the premarket queue, fire
+            # gap-and-go only when today OPENED above EVERY daily MA — a clean
+            # momentum gap with no average overhead, not a gap into resistance.
+            _gap_mas = [m for m in (ema8, ema21, ema50, ema100, ema200, ma50, ma100, ma200)
+                        if m and m > 0]
+            if _gap_mas and today_open is not None and today_open > max(_gap_mas):
+                sig = check_gap_and_go(
+                    symbol, intraday_bars, prior_close, bar_vol, avg_vol,
+                )
+                if sig:
+                    sig.message += " (open above all MAs)"
+                    sig.message += f" ({phase})"
+                    sig.message += caution_suffix
+                    signals.append(sig)
 
         # --- Fibonacci Retracement Bounce ---
         if AlertType.FIB_RETRACEMENT_BOUNCE.value in ENABLED_RULES:
