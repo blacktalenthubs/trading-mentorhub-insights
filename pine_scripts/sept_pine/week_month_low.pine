@@ -1,43 +1,49 @@
-// @version=5
-//
-// Current Week Low / Current Month Low — two horizontal lines at the lowest low
-// printed SO FAR in the current week and the current month. Both are pulled from
-// the "W" / "M" timeframes via request.security with lookahead_OFF, so they:
+//@version=5
+// =============================================================================
+// WEEK / MONTH LOW — the running low of the current period
+// =============================================================================
+// Two horizontal levels at the lowest low printed SO FAR in the current week and
+// the current month. Both come from the "W" / "M" timeframes via request.security
+// with lookahead_OFF, so they:
 //   • show the SAME level on any chart TF (weekly, daily, 1h, 5m),
 //   • update live as a new intraperiod low prints (the running low),
-//   • never leak the future (non-repainting),
+//   • never leak the future (non-repainting — the level only moves DOWN),
 //   • roll to a fresh level when a new week / month begins.
 //
-// Read them as the line in the sand for the period: lose the week low and the
-// week's trend is threatened; lose the month low and the month turns down.
-//
-indicator("Week / Month Low", "Wk/Mo Low", overlay = true, max_lines_count = 10)
+// Read them as the period's line in the sand: lose the week low and the week's
+// trend is threatened; lose the month low and the month turns down.
+// =============================================================================
+indicator("week-month-low", overlay = true, max_lines_count = 4, max_labels_count = 4)
 
-show_wk = input.bool(true,  "Current week low",  group = "Lines")
-wk_col  = input.color(color.new(color.orange, 0), "  color", inline = "wk", group = "Lines")
-wk_wid  = input.int(2, "width", minval = 1, maxval = 5, inline = "wk", group = "Lines")
+gL      = "Levels"
+show_wk = input.bool(true, "Current week low",  group = gL)
+show_mo = input.bool(true, "Current month low", group = gL)
 
-show_mo = input.bool(true,  "Current month low", group = "Lines")
-mo_col  = input.color(color.new(color.red, 0), "  color", inline = "mo", group = "Lines")
-mo_wid  = input.int(2, "width", minval = 1, maxval = 5, inline = "mo", group = "Lines")
+gS      = "Style"
+lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
+lineW   = input.int(2, "Line width", minval = 1, maxval = 5, group = gS)
+wk_col  = input.color(#FF9800, "Week low colour",  group = gS)
+mo_col  = input.color(#EF5350, "Month low colour", group = gS)
+
+tid = syminfo.tickerid
 
 // Running low of the CURRENT period, same on every chart TF. lookahead_off =
 // non-repainting (the level only moves DOWN as the period prints a new low).
-wk_low = request.security(syminfo.tickerid, "W", low, lookahead = barmerge.lookahead_off)
-mo_low = request.security(syminfo.tickerid, "M", low, lookahead = barmerge.lookahead_off)
+wk_low = request.security(tid, "W", low, lookahead = barmerge.lookahead_off)
+mo_low = request.security(tid, "M", low, lookahead = barmerge.lookahead_off)
 
-// One horizontal line + label per level, redrawn on the last bar so it extends
-// across the chart and rolls to the new period's low automatically.
-f_draw(_show, _y, _txt, _col, _wid) =>
-    var line  _ln  = na
-    var label _lab = na
-    if _show and barstate.islast and not na(_y)
-        if not na(_ln)
-            line.delete(_ln)
-        if not na(_lab)
-            label.delete(_lab)
-        _ln := line.new(bar_index - 1, _y, bar_index, _y, xloc = xloc.bar_index, extend = extend.both, color = _col, width = _wid, style = line.style_solid)
-        _lab := label.new(bar_index, _y, _txt + " " + str.tostring(_y, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_col, 85), textcolor = _col, size = size.tiny)
-
-f_draw(show_wk, wk_low, "wk low", wk_col, wk_wid)
-f_draw(show_mo, mo_low, "mo low", mo_col, mo_wid)
+var line  _wln = na
+var label _wlb = na
+var line  _mln = na
+var label _mlb = na
+if barstate.islast
+    line.delete(_wln)
+    label.delete(_wlb)
+    line.delete(_mln)
+    label.delete(_mlb)
+    if show_wk and not na(wk_low)
+        _wln := line.new(bar_index - lineLen, wk_low, bar_index + 6, wk_low, color = wk_col, width = lineW)
+        _wlb := label.new(bar_index + 6, wk_low, "WEEK LOW  " + str.tostring(wk_low, format.mintick), style = label.style_label_left, color = wk_col, textcolor = color.white, size = size.small)
+    if show_mo and not na(mo_low)
+        _mln := line.new(bar_index - lineLen, mo_low, bar_index + 6, mo_low, color = mo_col, width = lineW)
+        _mlb := label.new(bar_index + 6, mo_low, "MONTH LOW  " + str.tostring(mo_low, format.mintick), style = label.style_label_left, color = mo_col, textcolor = color.white, size = size.small)
