@@ -394,8 +394,11 @@ if barstate.islast
     //    average there, so pull in the NEAREST STRUCTURAL level on that side (PDH/PDL + the enabled
     //    weekly/monthly/quarterly), even past the proximity/far-cap gates, so price always has a
     //    nearby reference. _ab / _bl are the MAs above / below price — empty = clear of the stack.
-    if enAnchor and enSLvls
-        _anV = array.from(lPdh,  lPdl,  slPW ? lPwh : na, slPW ? lPwl : na, slPM ? lPmh : na, slPM ? lPml : na, slPQ ? lPqh : na, slPQ ? lPql : na)
+    // Independent of "Draw structural levels" (enSLvls): the anchor draws the reference level even
+    // when the general structural display is OFF. It just needs a level to point to — PDH/PDL plus
+    // whatever W/M/Q are ticked. That's why an empty side still gets a line here.
+    if enAnchor
+        _anV = array.from(slPdhPdl ? lPdh : na, slPdhPdl ? lPdl : na, slPW ? lPwh : na, slPW ? lPwl : na, slPM ? lPmh : na, slPM ? lPml : na, slPQ ? lPqh : na, slPQ ? lPql : na)
         _anN = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
         if array.size(_ab) == 0     // price above EVERY MA → anchor the nearest level ABOVE
             _av = 1.0e18
