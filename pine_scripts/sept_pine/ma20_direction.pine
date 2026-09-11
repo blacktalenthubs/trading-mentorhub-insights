@@ -1,0 +1,111 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// 20 MA · DIRECTION & SLOPE — a NORMAL (curved) moving average, colored & scored by
+// the STRENGTH its slope implies. After the T3 Live "20MA is my #1 indicator" idea:
+//   • Rising 20MA = strength · Falling = weakness.
+//   • The ANGLE of the 20MA gauges how strong: ~45° is ideal, steeper is not
+//     sustainable (parabolic), shallower is too weak / lacks momentum, flat = chop.
+//
+// A true on-screen "degree" depends on your zoom/price-scale, so it can't be read
+// directly. Instead the angle here is SCALE-FREE: it measures the MA's rise in
+// ATRs per bar and converts that to degrees. Set "ATR/bar that reads as 45°" to
+// match how 45° looks on your own chart, and it's then comparable across symbols.
+//
+// It also reads the stock's EXTENSION — how far price is stretched from the 20MA
+// in ATRs (beyond a threshold = EXTENDED, snap-back likely; the MA is the magnet) —
+// and flags COILING (flat MA + contracting ATR → a rise in volatility tends to
+// follow). The MA line recolors live by state; a two-row HUD spells out
+// arrow · angle · state · % and the extension read. Angle, %-slope, and extension
+// (ATR + %) are published to the Data Window for querying / scanning.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("20 MA · Direction & Slope", "20MA-dir", overlay = true)
+
+// ── moving average ────────────────────────────────────────────────────────────
+gM     = "Moving average"
+maLen  = input.int(20, "Length", minval = 2, group = gM)
+maType = input.string("SMA", "Type", options = ["SMA", "EMA"], group = gM)
+src    = input.source(close, "Source", group = gM)
+maW    = input.int(2, "Line width", minval = 1, maxval = 6, group = gM)
+
+// ── slope / angle ─────────────────────────────────────────────────────────────
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure the MA's rise over this many bars — smooths out single-bar noise so the angle isn't jumpy.")
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS, tooltip = "The angle measures the MA's rise in ATRs PER BAR, then converts to degrees. A rise of THIS many ATRs per bar = 45°. Lower it if healthy trends read too shallow; raise it if everything looks steep. Tune once to match how 45° looks on your chart.")
+flatThr = input.float(12, "Flat threshold (°) — |angle| below = chop", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+// ── extension + coiling (T3 Live: "determine the stock's extension" / "anticipate a rise in vol") ──
+gE     = "Extension / volatility"
+extThr = input.float(3.0, "Extended when |price − MA| ≥ (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gE, tooltip = "How far price is stretched from the 20MA, in ATRs. Beyond this = EXTENDED — a snap-back / pause toward the MA becomes likely (mean reversion). The MA is the magnet.")
+coilPct = input.float(0.85, "Coiling when ATR < (× its 20-bar avg)", minval = 0.3, maxval = 1, step = 0.05, group = gE, tooltip = "When the MA is FLAT and ATR is below this fraction of its own 20-bar average, the stock is coiling — a rise in volatility (expansion) tends to follow.")
+
+// ── colors ────────────────────────────────────────────────────────────────────
+gV      = "Colors by state"
+colUpI  = input.color(#26A69A, "Rising · ideal (~45°)",             group = gV)
+colUpW  = input.color(#80CBC4, "Rising · shallow (weak)",           group = gV)
+colUpS  = input.color(#F59E0B, "Rising · steep (unsustainable)",    group = gV)
+colDnI  = input.color(#EF5350, "Falling · ideal",                   group = gV)
+colDnW  = input.color(#EF9A9A, "Falling · shallow",                 group = gV)
+colDnS  = input.color(#AB47BC, "Falling · steep",                   group = gV)
+colFlat = input.color(#9E9E9E, "Flat / chop",                       group = gV)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+gH     = "Readout (HUD)"
+enHud  = input.bool(true, "Show HUD", group = gH)
+hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
+hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
+
+// ── compute ───────────────────────────────────────────────────────────────────
+ma  = maType == "EMA" ? ta.ema(src, maLen) : ta.sma(src, maLen)
+atr = ta.atr(atrLen)
+// rise per bar over the lookback, normalised to ATRs/bar, then to a degree angle.
+perBar = (ma - ma[slopeLb]) / slopeLb
+angle  = na(atr) or atr == 0 or na(ma) or na(ma[slopeLb]) ? 0.0 : math.todegrees(math.atan(perBar / (atr * scale45)))
+pctLb  = na(ma) or ma == 0 ? 0.0 : (ma - ma[slopeLb]) / ma * 100.0   // % move of the MA over the lookback
+
+// ── classify ──────────────────────────────────────────────────────────────────
+_absA = math.abs(angle)
+_up   = angle >  flatThr
+_dn   = angle < -flatThr
+state = _absA <= flatThr ? "FLAT · chop" :
+         _up ? (_absA < idealLo ? "RISING · shallow (weak)" : _absA <= idealHi ? "RISING · IDEAL" : "RISING · steep (unsustainable)") :
+               (_absA < idealLo ? "FALLING · shallow"        : _absA <= idealHi ? "FALLING · IDEAL" : "FALLING · steep")
+maCol = _absA <= flatThr ? colFlat :
+         _up ? (_absA < idealLo ? colUpW : _absA <= idealHi ? colUpI : colUpS) :
+               (_absA < idealLo ? colDnW : _absA <= idealHi ? colDnI : colDnS)
+
+// extension — how far price is stretched from the MA, in ATRs and %
+extAtr = na(atr) or atr == 0 ? 0.0 : (close - ma) / atr
+extPct = na(ma) or ma == 0 ? 0.0 : (close - ma) / ma * 100.0
+_extended = math.abs(extAtr) >= extThr
+// coiling — flat MA + ATR below its own average → volatility expansion likely
+_atrAvg = ta.sma(atr, 20)
+_coiling = _absA <= flatThr and not na(_atrAvg) and _atrAvg > 0 and atr < _atrAvg * coilPct
+
+plot(ma, "20 MA", color = maCol, linewidth = maW)
+// queryable data (Data Window / data_get_study_values), no chart clutter
+plot(angle,  "MA angle (deg)",     display = display.data_window)
+plot(pctLb,  "MA % over lookback", display = display.data_window)
+plot(extAtr, "Extension (ATR)",    display = display.data_window)
+plot(extPct, "Extension (%)",      display = display.data_window)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+var table hud = table.new(_pos, 1, 2, border_width = 1, border_color = color.new(color.gray, 50))
+if barstate.islast
+    if enHud
+        _arrow = _up ? "↑" : _dn ? "↓" : "→"
+        _txt = str.tostring(maLen) + (maType == "EMA" ? " EMA  " : " SMA  ") + _arrow + " " + str.tostring(angle, "#.#") + "°   ·   " + state + "   ·   " + (pctLb >= 0 ? "+" : "") + str.tostring(pctLb, "#.##") + "% / " + str.tostring(slopeLb) + "b"
+        table.cell(hud, 0, 0, _txt, text_color = color.white, bgcolor = color.new(maCol, 12), text_size = _sz)
+        // extension / coiling row
+        _side = extAtr >= 0 ? "above" : "below"
+        _flag = _extended ? "  ·  EXTENDED " + (extAtr >= 0 ? "▲" : "▼") : _coiling ? "  ·  COILING (vol expansion likely)" : ""
+        _eBg  = _extended ? color.new(#F59E0B, 20) : _coiling ? color.new(#42A5F5, 25) : color.new(color.gray, 30)
+        _eTxt = "Extension  " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%) " + _side + " MA" + _flag
+        table.cell(hud, 0, 1, _eTxt, text_color = color.white, bgcolor = _eBg, text_size = _sz)
+    else
+        table.cell(hud, 0, 0, "")
+        table.cell(hud, 0, 1, "")
