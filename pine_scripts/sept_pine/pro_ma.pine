@@ -40,11 +40,13 @@
 // AND above PDH → the next pair up appears (PDH below, PMH above). Candidates: PDH/PDL · PWH/PWL ·
 // PMH/PML · PQH/PQL. They show up only in that case; inside the MA stack nothing extra is drawn.
 //
-// HUD (top center): daily RSI + the 50/200 TREND STATE. The state combines STRUCTURE (50 vs 200)
-// with PRICE POSITION, so a golden cross with price underneath reads as RECLAIM WATCH, not bullish:
-//   50>200 · above both = BULLISH      50>200 · below both = RECLAIM WATCH
-//   50<200 · below both = BEARISH      50<200 · above both = RECOVERY WATCH   between = MIXED
-// It reads its own 50/200, so unticking those MAs hides the lines without blinding the regime read.
+// HUD (top center): a two-column KEY LEVELS panel — Nearest Resistance / Nearest Support (each with
+// its distance %), Session (Open/Pre/After/Closed), Daily ATR (+ % of price), Open Vol (today's daily
+// volume vs its 20-day average, "Nx avg"), PDH / PDL, then Daily RSI and the 50/200 TREND STATE. The
+// nearest S/R respect the 50-floor, so the panel agrees with what's drawn. The trend state combines
+// STRUCTURE (50 vs 200) with PRICE POSITION, so a golden cross with price underneath reads as RECLAIM
+// WATCH, not bullish:  50>200·above=BULLISH · 50>200·below=RECLAIM WATCH · 50<200·below=BEARISH ·
+// 50<200·above=RECOVERY WATCH · between=MIXED. It reads its own 50/200, independent of the toggles.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, LOWER name
 // first (floor → ceiling): "Open BTW 21 SMA and 50 SMA" — the 21 SMA is the floor under the open and the 50 SMA the ceiling to respect.
@@ -187,6 +189,11 @@ rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 // use lookahead_on: those bars are already closed. Same idiom as active/ma_ema_daily.pine.
 dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
 rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+// HUD feeds: daily ATR (settled, non-repainting), today's developing daily volume, and the
+// 20-day average daily volume ([1] + lookahead_on) for the relative-volume read.
+atrD    = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+volD    = request.security(syminfo.tickerid, "D", volume, lookahead = barmerge.lookahead_off)
+avgVolD = request.security(syminfo.tickerid, "D", ta.sma(volume, 20)[1], lookahead = barmerge.lookahead_on)
 // the last CONFIRMED daily close (yesterday's, settled + non-repainting like the MAs). A MA is
 // SUPPORT only once a daily close prints above it — so its role is judged against THIS, not the
 // live intraday price, and stays fixed all day on any chart TF. Structural levels keep live-price role.
@@ -290,7 +297,7 @@ f_collect(float v, string nm) =>
         array.push(_maV, v)
         array.push(_maN, nm)
 _hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
-var table _hudT = table.new(_hudPosC, 1, 2, border_width = 1, border_color = color.new(color.gray, 40))
+var table _hudT = table.new(_hudPosC, 2, 9, border_width = 1, border_color = color.new(color.gray, 60))
 
 if barstate.islast
     for _l in _ln
@@ -473,16 +480,70 @@ if barstate.islast
             _oTag = _obUp and _obDn ? "Open BTW " + _obDnN + " and " + _obUpN : _obDn ? "Open over " + _obDnN : _obUp ? "Open under " + _obUpN : "Open"
             // the LABEL is bold and solid so it's easy to spot; the LINE stays faint (openCol)
             array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = color.new(#EAB308, 0), textcolor = color.black, size = size.normal))
-    // ── HUD ──
+    // ── HUD — two-column Key Levels panel ──
     if enHud
-        _rTxt = na(rsiD) ? "RSI-D —" : "RSI-D " + str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
-        _rCol = na(rsiD) ? color.new(color.gray, 20) : rsiD <= rsiOS ? color.new(color.green, 0) : rsiD >= rsiOB ? color.new(color.red, 0) : color.new(color.gray, 10)
+        // nearest drawn resistance/support — respects the 50-floor so the HUD agrees with the chart
+        _nRes = 1.0e18
+        _nSup = -1.0
+        if array.size(_maV) > 0
+            for _hi = 0 to array.size(_maV) - 1
+                _hv = array.get(_maV, _hi)
+                _hHide = hide50Below and not na(_r_sma50v) and close > _r_sma50v and _hv < _r_sma50v
+                if not _hHide
+                    if _hv > close and _hv < _nRes
+                        _nRes := _hv
+                    if _hv < close and _hv > _nSup
+                        _nSup := _hv
+        if enSLvls
+            _hudLv = array.from(slPdhPdl ? lPdh : na, slPdhPdl ? lPdl : na, slPW ? lPwh : na, slPW ? lPwl : na, slPM ? lPmh : na, slPM ? lPml : na, slPQ ? lPqh : na, slPQ ? lPql : na)
+            for _hi = 0 to array.size(_hudLv) - 1
+                _hv = array.get(_hudLv, _hi)
+                if not na(_hv) and _hv > 0
+                    if _hv > close and _hv < _nRes
+                        _nRes := _hv
+                    if _hv < close and _hv > _nSup
+                        _nSup := _hv
+        _resTxt = _nRes < 1.0e17 ? str.tostring(_nRes, format.mintick) + "  (" + str.tostring((_nRes - close) / close * 100, "#.##") + "%)" : "—"
+        _supTxt = _nSup > 0      ? str.tostring(_nSup, format.mintick) + "  (" + str.tostring((close - _nSup) / close * 100, "#.##") + "%)" : "—"
+        _sessTxt = session.ismarket ? "Open" : session.ispremarket ? "Pre-market" : session.ispostmarket ? "After-hours" : "Closed"
+        _atrTxt  = na(atrD) ? "—" : str.tostring(atrD, format.mintick) + "  (" + str.tostring(atrD / close * 100, "#.##") + "%)"
+        _relVol  = not na(volD) and not na(avgVolD) and avgVolD > 0 ? volD / avgVolD : na
+        _volTxt  = na(_relVol) ? "—" : str.tostring(_relVol, "#.##") + "x avg"
+        _volCol  = na(_relVol) ? color.new(color.gray, 10) : _relVol >= 1.0 ? color.new(#26A69A, 0) : color.new(#F59E0B, 0)
+        _pdTxt   = (na(lPdh) ? "—" : str.tostring(lPdh, format.mintick)) + " / " + (na(lPdl) ? "—" : str.tostring(lPdl, format.mintick))
+        _rsiTxt  = na(rsiD) ? "—" : str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rsiCol  = na(rsiD) ? color.new(color.gray, 10) : rsiD <= rsiOS ? color.new(#26A69A, 0) : rsiD >= rsiOB ? color.new(#EF5350, 0) : color.new(color.white, 0)
+        _trTxt   = enState and not na(stateTxt) ? array.get(str.split(stateTxt, " · "), 0) : ""
         table.set_position(_hudT, _hudPosC)
-        table.cell(_hudT, 0, 0, _rTxt, bgcolor = _rCol, text_color = color.white, text_size = _hudSz)
-        table.cell(_hudT, 0, 1, enState ? stateTxt : "", bgcolor = enState ? stateCol : color.new(color.gray, 100), text_color = color.white, text_size = _hudSz)
+        _hdBg  = color.new(#1E1B4B, 0)
+        _hdTx  = color.new(#A5B4FC, 0)
+        _cBg   = color.new(#0B0B12, 0)
+        _lblTx = color.new(#C7C9D9, 0)
+        _white = color.new(color.white, 0)
+        _red   = color.new(#EF5350, 0)
+        _grn   = color.new(#26A69A, 0)
+        table.cell(_hudT, 0, 0, "Key Levels",        bgcolor = _hdBg, text_color = _hdTx,   text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 0, syminfo.ticker,       bgcolor = _hdBg, text_color = _hdTx,   text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 1, "Nearest Resistance", bgcolor = _cBg,  text_color = _red,    text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 1, _resTxt,              bgcolor = _cBg,  text_color = _red,    text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 2, "Nearest Support",    bgcolor = _cBg,  text_color = _grn,    text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 2, _supTxt,              bgcolor = _cBg,  text_color = _grn,    text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 3, "Session",           bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 3, _sessTxt,             bgcolor = _cBg,  text_color = _white,  text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 4, "Daily ATR",         bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 4, _atrTxt,              bgcolor = _cBg,  text_color = _white,  text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 5, "Open Vol",          bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 5, _volTxt,              bgcolor = _cBg,  text_color = _volCol, text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 6, "PDH / PDL",         bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 6, _pdTxt,               bgcolor = _cBg,  text_color = _white,  text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 7, "Daily RSI",         bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 7, _rsiTxt,              bgcolor = _cBg,  text_color = _rsiCol, text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 8, "Trend",             bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 8, _trTxt,               bgcolor = _cBg,  text_color = enState ? stateCol : _white, text_size = _hudSz, text_halign = text.align_right)
     else
-        table.cell(_hudT, 0, 0, "")
-        table.cell(_hudT, 0, 1, "")
+        for _rr = 0 to 8
+            table.cell(_hudT, 0, _rr, "", bgcolor = color.new(color.gray, 100))
+            table.cell(_hudT, 1, _rr, "", bgcolor = color.new(color.gray, 100))
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // RECLAIM / LOST MARKERS — the bar that CLOSES back through a MA, naming which one.
