@@ -119,7 +119,7 @@ lvlStyle = input.string("dashed", "  Level line style — MAs stay solid, levels
 // ── daily RSI + open HUD ────────────────────────────────────────────────────────
 gH      = "Daily RSI + open (HUD)"
 enHud   = input.bool(true, "Show the HUD", group = gH, tooltip = "Two lines: today's DAILY RSI (locked to daily on any chart TF) and where the session OPENED inside the MA stack.")
-hudPos  = input.string("top_center", "HUD position", options = ["top_center", "top_right", "top_left", "bottom_center", "bottom_right"], group = gH)
+hudPos  = input.string("top_right", "HUD position", options = ["top_center", "top_right", "top_left", "bottom_center", "bottom_right"], group = gH)
 rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
@@ -140,7 +140,7 @@ extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", 
 // tag and the colour already carry the meaning. Default solid = unbroken lines.
 lineStyle = input.string("solid", "MA line style (solid = straight MA/EMA)", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "Style for the MA/EMA lines (and any confluence line that includes a MA). Default solid = straight, unbroken. Structural levels have their OWN style under 'Structural levels' (default dashed) so a level always looks different from a moving average.")
 tagSize   = input.string("tiny", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
-hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
+hudSize   = input.string("normal", "HUD text size", options = ["tiny", "small", "normal", "large"], group = gV)
 styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
 labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
 lblGap    = input.float(0.5, "Fan tags apart when MAs are within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
@@ -264,7 +264,7 @@ f_xoff(float price) =>
 // pass below can collapse a MA and a level sitting at the same price into a single labelled line.
 // Merging only MAs against each other is what left three near-identical lines stacked on the chart.
 _tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
-_hudSz = hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
+_hudSz = hudSize == "large" ? size.large : hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
 _lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
 _lvlStyle = lvlStyle == "dotted" ? line.style_dotted : lvlStyle == "solid" ? line.style_solid : line.style_dashed
 _lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
