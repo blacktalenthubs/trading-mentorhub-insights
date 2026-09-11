@@ -43,7 +43,9 @@
 // HUD (top center): a two-column KEY LEVELS panel — Nearest Resistance / Nearest Support (each with
 // its distance %), Session (Open/Pre/After/Closed), Daily ATR (+ % of price), Open Vol (today's daily
 // volume vs its 20-day average, "Nx avg"), PDH / PDL, then Daily RSI and the 8/21 EMA TREND STATE. The
-// nearest S/R respect the 50-floor, so the panel agrees with what's drawn. TREND is the 8/21 EMA
+// nearest S/R are MOVING AVERAGES (SMA/EMA), respecting the 50-floor; a side falls back to the
+// PDH/PDL + weekly PWH/PWL rails only when price is completely above (no MA overhead) or below (no
+// MA beneath) the stack. The tag names the source ("100 EMA", "PWH"). TREND is the 8/21 EMA
 // read — where price sits vs the 8 and 21 EMA:  above both = UPTREND · below both = DOWNTREND ·
 // straddling = MIXED, with the 8-vs-21 stack (8>21 / 8<21) appended as the alignment tell. It reads
 // its own 8/21, independent of the display toggles.
@@ -478,9 +480,14 @@ if barstate.islast
             array.push(_lb, label.new(bar_index + _oxo, dayOpen, _oTag, style = label.style_label_left, color = color.new(#EAB308, 0), textcolor = color.black, size = size.normal))
     // ── HUD — two-column Key Levels panel ──
     if enHud
-        // nearest drawn resistance/support — respects the 50-floor so the HUD agrees with the chart
+        // Nearest resistance / support are MOVING AVERAGES (SMA/EMA) first, respecting the 50-floor
+        // so the HUD agrees with the chart. Only when price is COMPLETELY above the MA stack (no MA
+        // overhead) or completely below it (no MA beneath) does that side fall back to the STRUCTURAL
+        // rails — PDH/PDL and the weekly PWH/PWL — for the nearest level.
         _nRes = 1.0e18
+        _nResN = ""
         _nSup = -1.0
+        _nSupN = ""
         if array.size(_maV) > 0
             for _hi = 0 to array.size(_maV) - 1
                 _hv = array.get(_maV, _hi)
@@ -488,19 +495,27 @@ if barstate.islast
                 if not _hHide
                     if _hv > close and _hv < _nRes
                         _nRes := _hv
+                        _nResN := array.get(_maN, _hi)
                     if _hv < close and _hv > _nSup
                         _nSup := _hv
-        if enSLvls
-            _hudLv = array.from(slPdhPdl ? lPdh : na, slPdhPdl ? lPdl : na, slPW ? lPwh : na, slPW ? lPwl : na, slPM ? lPmh : na, slPM ? lPml : na, slPQ ? lPqh : na, slPQ ? lPql : na)
-            for _hi = 0 to array.size(_hudLv) - 1
-                _hv = array.get(_hudLv, _hi)
-                if not na(_hv) and _hv > 0
-                    if _hv > close and _hv < _nRes
-                        _nRes := _hv
-                    if _hv < close and _hv > _nSup
-                        _nSup := _hv
-        _resTxt = _nRes < 1.0e17 ? str.tostring(_nRes, format.mintick) + "  (" + str.tostring((_nRes - close) / close * 100, "#.##") + "%)" : "—"
-        _supTxt = _nSup > 0      ? str.tostring(_nSup, format.mintick) + "  (" + str.tostring((close - _nSup) / close * 100, "#.##") + "%)" : "—"
+                        _nSupN := array.get(_maN, _hi)
+        // fallback pool = PDH/PDL + weekly PWH/PWL, consulted per side only when no MA is on that side
+        _fbV = array.from(lPdh,  lPdl,  lPwh,  lPwl)
+        _fbN = array.from("PDH", "PDL", "PWH", "PWL")
+        if _nRes >= 1.0e17    // completely above the MA stack → structural resistance
+            for _fi = 0 to array.size(_fbV) - 1
+                _fv = array.get(_fbV, _fi)
+                if not na(_fv) and _fv > close and _fv < _nRes
+                    _nRes := _fv
+                    _nResN := array.get(_fbN, _fi)
+        if _nSup <= 0         // completely below the MA stack → structural support
+            for _fi = 0 to array.size(_fbV) - 1
+                _fv = array.get(_fbV, _fi)
+                if not na(_fv) and _fv > 0 and _fv < close and _fv > _nSup
+                    _nSup := _fv
+                    _nSupN := array.get(_fbN, _fi)
+        _resTxt = _nRes < 1.0e17 ? str.tostring(_nRes, format.mintick) + "  " + _nResN + "  (" + str.tostring((_nRes - close) / close * 100, "#.##") + "%)" : "—"
+        _supTxt = _nSup > 0      ? str.tostring(_nSup, format.mintick) + "  " + _nSupN + "  (" + str.tostring((close - _nSup) / close * 100, "#.##") + "%)" : "—"
         _sessTxt = session.ismarket ? "Open" : session.ispremarket ? "Pre-market" : session.ispostmarket ? "After-hours" : "Closed"
         _atrTxt  = na(atrD) ? "—" : str.tostring(atrD, format.mintick) + "  (" + str.tostring(atrD / close * 100, "#.##") + "%)"
         _relVol  = not na(volD) and not na(avgVolD) and avgVolD > 0 ? volD / avgVolD : na
