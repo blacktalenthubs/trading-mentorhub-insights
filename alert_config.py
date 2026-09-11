@@ -689,6 +689,7 @@ ENABLED_RULES: set[str] = {
     # ── LONG: prior-level reclaims + PDH retest-hold ────────────────────────
     "prior_day_low_reclaim",   # PDL reclaim
     "pwl_reclaim",             # PWL reclaim
+    "pml_reclaim",             # PML reclaim
     "pdh_retest_hold",         # PDH retest + hold
 
     # ── LONG: day / week / month HIGH breakouts ─────────────────────────────
