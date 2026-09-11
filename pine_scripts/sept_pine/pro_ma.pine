@@ -26,8 +26,9 @@
 // beneath it are noise; the sub-50 lines only come back once price loses the 50.
 // ANCHOR (on by default): when price is CLEAR of the whole MA stack on a side — above EVERY MA (even
 // the 8 EMA, nothing overhead) or below EVERY MA (below the 200, nothing beneath) — that side has no
-// average to react to, so the NEAREST structural level there (PDH/PDL + weekly/monthly/quarterly) is
-// drawn as the reference, even past the proximity/far-cap gates, so price is never left unbracketed.
+// average to react to, so the N NEAREST structural levels there (PDH/PDL + weekly/monthly/quarterly,
+// HIGH or LOW — whichever are closest) are drawn as the reference, even past the proximity/far-cap
+// gates. E.g. price below yesterday's range → the two nearest overhead are PDL then PDH (both upside).
 // MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
 //
 // NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
@@ -86,7 +87,8 @@ farCapPct = input.float(20, "Hide anything beyond ± % of price — MAs (daily +
 proxPct   = input.float(10, "± % proximity — ALSO hide any line farther than this (ALL types, incl PDH/PDL; 0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "A third, independent gate ON TOP of the nearest-N counts and the far-cap above: any line — MA/EMA, W/M/Q level, AND the PDH/PDL rails — farther than this % from price is hidden. Uniform, no exemptions (unlike the far-cap, which spares PDH/PDL). 0 = off.") / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
 hide50Below = input.bool(true, "Above the 50-day: hide every MA BELOW the 50-day (declutter)", group = gN, tooltip = "When price is trading ABOVE the 50-day SMA, no moving average that sits BELOW the 50 is drawn — not even if proximity, the far-cap, or Show-ALL would include it. Holding above the 50, the faster averages beneath it are just noise; you only want to see what's below once price actually loses the 50. The 50-day SMA is the floor.")
-enAnchor    = input.bool(true, "Anchor: clear of the MA stack → show the nearest structural level on that side", group = gN, tooltip = "When price is trading ABOVE every moving average (nothing overhead) or BELOW every one (nothing beneath), that side has no MA to react to — so the nearest structural level there (PDH/PDL + the enabled weekly/monthly/quarterly) is drawn as the reference, even past the proximity and far-cap gates. This is what fills the gap when price is completely above the 8 EMA or below the 200. Off = leave the empty side blank.")
+enAnchor    = input.bool(true, "Anchor: clear of the MA stack → show the nearest structural levels on that side", group = gN, tooltip = "When price is trading ABOVE every moving average (nothing overhead) or BELOW every one (nothing beneath), that side has no MA to react to — so the nearest structural levels there (PDH/PDL + the enabled weekly/monthly/quarterly, high OR low, whichever are closest) are drawn as the reference, even past the proximity and far-cap gates. E.g. NBIS below yesterday's range → the two nearest overhead are PDL then PDH. Off = leave the empty side blank.")
+anchorN     = input.int(2, "  Anchor: how many nearest levels to show on the clear side", group = gN, minval = 1, maxval = 6)
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
 
@@ -400,36 +402,49 @@ if barstate.islast
     if enAnchor
         _anV = array.from(slPdhPdl ? lPdh : na, slPdhPdl ? lPdl : na, slPW ? lPwh : na, slPW ? lPwl : na, slPM ? lPmh : na, slPM ? lPml : na, slPQ ? lPqh : na, slPQ ? lPql : na)
         _anN = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL")
-        if array.size(_ab) == 0     // price above EVERY MA → anchor the nearest level ABOVE
-            _av = 1.0e18
-            _an = ""
+        // ABOVE side clear of MAs → draw the anchorN NEAREST structural levels above price (high OR
+        // low, whichever are closest — e.g. NBIS below yesterday's range shows PDL then PDH overhead).
+        if array.size(_ab) == 0
+            _upV = array.new_float()
+            _upN = array.new_string()
             for _ai = 0 to array.size(_anV) - 1
                 _v = array.get(_anV, _ai)
-                if not na(_v) and _v > close and _v < _av
-                    _av := _v
-                    _an := array.get(_anN, _ai)
-            _dupA = false
-            if array.size(_qv) > 0
-                for _di = 0 to array.size(_qv) - 1
-                    if _av > 0 and math.abs(array.get(_qv, _di) - _av) / _av <= mergePct
-                        _dupA := true
-            if _av < 1.0e17 and not _dupA
-                f_queue(_av, _an, true)
-        if array.size(_bl) == 0     // price below EVERY MA → anchor the nearest level BELOW
-            _bv = -1.0
-            _bn = ""
+                if not na(_v) and _v > close
+                    array.push(_upV, _v)
+                    array.push(_upN, array.get(_anN, _ai))
+            if array.size(_upV) > 0
+                _uord = array.sort_indices(_upV, order.ascending)   // nearest above first
+                for _oi = 0 to math.min(anchorN, array.size(_upV)) - 1
+                    _idx = array.get(_uord, _oi)
+                    _uv  = array.get(_upV, _idx)
+                    _dup = false
+                    if array.size(_qv) > 0
+                        for _di = 0 to array.size(_qv) - 1
+                            if math.abs(array.get(_qv, _di) - _uv) / _uv <= mergePct
+                                _dup := true
+                    if not _dup
+                        f_queue(_uv, array.get(_upN, _idx), true)
+        // BELOW side clear of MAs → draw the anchorN NEAREST structural levels below price.
+        if array.size(_bl) == 0
+            _dnV = array.new_float()
+            _dnN = array.new_string()
             for _ai = 0 to array.size(_anV) - 1
                 _v = array.get(_anV, _ai)
-                if not na(_v) and _v > 0 and _v < close and _v > _bv
-                    _bv := _v
-                    _bn := array.get(_anN, _ai)
-            _dupB = false
-            if array.size(_qv) > 0
-                for _di = 0 to array.size(_qv) - 1
-                    if _bv > 0 and math.abs(array.get(_qv, _di) - _bv) / _bv <= mergePct
-                        _dupB := true
-            if _bv > 0 and not _dupB
-                f_queue(_bv, _bn, true)
+                if not na(_v) and _v > 0 and _v < close
+                    array.push(_dnV, _v)
+                    array.push(_dnN, array.get(_anN, _ai))
+            if array.size(_dnV) > 0
+                _dord = array.sort_indices(_dnV, order.descending)  // nearest below first
+                for _oi = 0 to math.min(anchorN, array.size(_dnV)) - 1
+                    _idx = array.get(_dord, _oi)
+                    _dv  = array.get(_dnV, _idx)
+                    _dup = false
+                    if array.size(_qv) > 0
+                        for _di = 0 to array.size(_qv) - 1
+                            if math.abs(array.get(_qv, _di) - _dv) / _dv <= mergePct
+                                _dup := true
+                    if not _dup
+                        f_queue(_dv, array.get(_dnN, _idx), true)
 
     // ── ONE MERGE PASS over everything queued — MAs, PDH/PDL and structural levels together.
     //    A MA and a level at the same price collapse into a single line naming both, so the tag
