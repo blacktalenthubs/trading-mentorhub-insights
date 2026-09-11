@@ -42,11 +42,11 @@
 //
 // HUD (top center): a two-column KEY LEVELS panel — Nearest Resistance / Nearest Support (each with
 // its distance %), Session (Open/Pre/After/Closed), Daily ATR (+ % of price), Open Vol (today's daily
-// volume vs its 20-day average, "Nx avg"), PDH / PDL, then Daily RSI and the 50/200 TREND STATE. The
-// nearest S/R respect the 50-floor, so the panel agrees with what's drawn. The trend state combines
-// STRUCTURE (50 vs 200) with PRICE POSITION, so a golden cross with price underneath reads as RECLAIM
-// WATCH, not bullish:  50>200·above=BULLISH · 50>200·below=RECLAIM WATCH · 50<200·below=BEARISH ·
-// 50<200·above=RECOVERY WATCH · between=MIXED. It reads its own 50/200, independent of the toggles.
+// volume vs its 20-day average, "Nx avg"), PDH / PDL, then Daily RSI and the 8/21 EMA TREND STATE. The
+// nearest S/R respect the 50-floor, so the panel agrees with what's drawn. TREND is the 8/21 EMA
+// read — where price sits vs the 8 and 21 EMA:  above both = UPTREND · below both = DOWNTREND ·
+// straddling = MIXED, with the 8-vs-21 stack (8>21 / 8<21) appended as the alignment tell. It reads
+// its own 8/21, independent of the display toggles.
 //
 // WHERE THE DAY OPENED rides on the OPEN LINE's own label, not the HUD. Short, no price, LOWER name
 // first (floor → ceiling): "Open BTW 21 SMA and 50 SMA" — the 21 SMA is the floor under the open and the 50 SMA the ceiling to respect.
@@ -123,7 +123,7 @@ hudPos  = input.string("top_center", "HUD position", options = ["top_center", "t
 rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
-enState = input.bool(true, "Show the 50/200 trend state (second HUD row)", group = gH, tooltip = "Combines STRUCTURE (50 vs 200) with PRICE POSITION, so a golden cross with price underneath doesn't read as bullish. Uses its own 50/200 values, so it stays correct even if you untick those MAs above.")
+enState = input.bool(true, "Show the 8/21 EMA trend state (HUD Trend row)", group = gH, tooltip = "Trend = where price sits vs the 8 and 21 EMA: above both = UPTREND, below both = DOWNTREND, straddling = MIXED. The 8-vs-21 stack (8>21 / 8<21) is appended. Uses its own 8/21 values, so it stays correct even if you untick those EMAs above.")
 enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
 openCol  = input.color(color.new(#EAB308, 55), "Open line", inline = "ol", group = gH)
 openW    = input.int(1, "width", inline = "ol", group = gH, minval = 1, maxval = 5)
@@ -198,34 +198,30 @@ avgVolD = request.security(syminfo.tickerid, "D", ta.sma(volume, 20)[1], lookahe
 // SUPPORT only once a daily close prints above it — so its role is judged against THIS, not the
 // live intraday price, and stays fixed all day on any chart TF. Structural levels keep live-price role.
 dailyClose = request.security(syminfo.tickerid, "D", close[1], lookahead = barmerge.lookahead_on)
-// the trend state reads its OWN 50/200 — independent of the display toggles above, so unticking
-// "50 SMA" hides the line without blinding the regime read
-st50  = request.security(syminfo.tickerid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
-st200 = request.security(syminfo.tickerid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+// TREND reads its OWN 8/21 EMA — independent of the display toggles above, so unticking the 8/21
+// lines hides them without blinding the trend read. Trend = where price sits vs the 8 and 21 EMA:
+// above both = UPTREND, below both = DOWNTREND, straddling = MIXED. The 8-vs-21 stack (8>21 / 8<21)
+// is appended as the alignment tell.
+st8  = request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)
+st21 = request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)
 f_state() =>
     string txt = na
     color  col = na
-    if na(st50) or na(st200)
-        txt := "50/200 — no data"
+    if na(st8) or na(st21)
+        txt := "8/21 — no data"
         col := color.new(color.gray, 20)
     else
-        _golden = st50 > st200
-        _above  = close > st50 and close > st200
-        _below  = close < st50 and close < st200
-        if _golden and _above
-            txt := "BULLISH · 50>200 · price above both"
+        _above = close > st8 and close > st21
+        _below = close < st8 and close < st21
+        _stk   = st8 >= st21 ? "8>21" : "8<21"
+        if _above
+            txt := "UPTREND · above 8 & 21 EMA · " + _stk
             col := color.new(color.green, 10)
-        else if _golden and _below
-            txt := "RECLAIM WATCH · 50>200 but price below — wait for the 200 reclaim"
-            col := color.new(color.orange, 10)
-        else if not _golden and _below
-            txt := "BEARISH · 50<200 · price below both"
+        else if _below
+            txt := "DOWNTREND · below 8 & 21 EMA · " + _stk
             col := color.new(color.red, 10)
-        else if not _golden and _above
-            txt := "RECOVERY WATCH · 50<200 but price above — potential turn"
-            col := color.new(color.blue, 10)
         else
-            txt := "MIXED · price between the 50 and the 200"
+            txt := "MIXED · between the 8 & 21 EMA · " + _stk
             col := color.new(color.gray, 10)
     [txt, col]
 [stateTxt, stateCol] = f_state()
