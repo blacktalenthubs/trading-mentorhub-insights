@@ -35,6 +35,7 @@ hud_pos_s = input.string("top_right", "  HUD position", options = ["top_right", 
 show_wo   = input.bool(true, "Weekly open line (horizontal, rolls each Monday)", group = "Display")
 wo_color  = input.color(color.new(color.green, 0), "  Weekly open — color", group = "Display")
 wo_width  = input.int(2, "  Weekly open — thickness", minval = 1, maxval = 5, group = "Display")
+tag_x     = input.int(10, "Tag column — bars right of the last bar (open + base tags)", minval = 2, maxval = 40, group = "Display", tooltip = "The weekly-open and base lines extend LEFT across history and END at this column to the right of the last bar, where their tag sits — so the label lands in clear space, not on the candles.")
 
 exit_mode = input.string("Prior week low", "Trailing stop / exit rule", options = ["Prior week low", "Swing low", "30-week MA"], group = "Exit")
 piv_lb    = input.int(3, "Swing-low strength (Swing-low mode only)", minval = 1, group = "Exit")
@@ -125,8 +126,8 @@ if show_wo and barstate.islast
         line.delete(wo_line)
     if not na(wo_lab)
         label.delete(wo_lab)
-    wo_line := line.new(bar_index - 1, wk_open, bar_index, wk_open, xloc = xloc.bar_index, extend = extend.both, color = wo_color, width = wo_width, style = line.style_dashed)
-    wo_lab := label.new(bar_index, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(wo_color, 85), textcolor = wo_color, size = size.tiny)
+    wo_line := line.new(bar_index, wk_open, bar_index + tag_x, wk_open, xloc = xloc.bar_index, extend = extend.left, color = wo_color, width = wo_width, style = line.style_dashed)
+    wo_lab := label.new(bar_index + tag_x, wk_open, "wk open " + str.tostring(wk_open, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(wo_color, 85), textcolor = wo_color, size = size.tiny)
 
 // Weekly base floor — a flat line where K of the last M weekly lows cluster at one price.
 var line  base_line = na
@@ -162,8 +163,8 @@ if show_base and barstate.islast
             _lj = array.get(_bLows, _bj)
             if math.abs(_lj - _bCand) / _bCand <= base_tol
                 _bmin := math.min(_bmin, _lj)
-        base_line := line.new(bar_index - 1, _bmin, bar_index, _bmin, xloc = xloc.bar_index, extend = extend.both, color = base_col, width = 2, style = line.style_solid)
-        base_lab  := label.new(bar_index, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " (" + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_bLows)) + "w)", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(base_col, 80), textcolor = base_col, size = size.tiny)
+        base_line := line.new(bar_index, _bmin, bar_index + tag_x, _bmin, xloc = xloc.bar_index, extend = extend.left, color = base_col, width = 2, style = line.style_solid)
+        base_lab  := label.new(bar_index + tag_x, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " (" + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_bLows)) + "w)", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(base_col, 80), textcolor = base_col, size = size.tiny)
 
 // Markers — the weekly value repeats across LTF bars, so fire once with "and not [1]".
 plotshape(show_sig and buy_sig and not buy_sig[1], title = "entry", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small, text = "BUY")
