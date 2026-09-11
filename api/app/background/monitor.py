@@ -103,15 +103,20 @@ def poll_all_users(sync_session_factory) -> int:
         return 0
 
 
-# Eval narrowing (2026-09-10) — fixed 19-symbol universe. Trader directive: scan
-# ONLY these so signal quality (reclaim-only rules) can be judged before widening.
-# This list is ENFORCED for every user (the per-user watchlist path is bypassed
-# below), not just a fallback. BTC/ETH in internal -USD form so is_crypto + the
-# crypto data path pick them up (24/7).
+# Eval narrowing (2026-09-10) — fixed universe. Trader directive: scan ONLY these
+# so signal quality (reclaim-only rules) can be judged before widening. This list
+# is ENFORCED for every user (the per-user watchlist path is bypassed below), not
+# just a fallback. BTC/ETH in internal -USD form so is_crypto + the crypto data
+# path pick them up (24/7). We scan the UNDERLYINGS, not their leveraged ETFs — the
+# leverage is an execution choice, and a 2x/3x ETF chart has distorted, decayed
+# levels (added 2026-09-11: the underlyings behind the single-stock LETFs).
 SCANNER_UNIVERSE: list[str] = [
     "SPY", "NBIS", "NVDA", "SMH", "LITE", "QQQ", "SPCX", "AAPL", "DRAM",
     "META", "GOOGL", "SNDK", "MSFT", "TSLA", "DELL", "CRWD", "CBRS",
     "BTC-USD", "ETH-USD",
+    # Underlyings behind the leveraged ETFs (scan the stock, trade the LETF).
+    "AMD", "MU", "AVGO", "TSM", "MRVL", "COHR", "AMZN", "ORCL", "PLTR",
+    "APP", "SMCI", "MSTR", "HOOD",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
