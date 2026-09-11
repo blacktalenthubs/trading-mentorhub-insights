@@ -11,12 +11,14 @@
 // ATRs per bar and converts that to degrees. Set "ATR/bar that reads as 45°" to
 // match how 45° looks on your own chart, and it's then comparable across symbols.
 //
-// It also reads the stock's EXTENSION — how far price is stretched from the 20MA
-// in ATRs (beyond a threshold = EXTENDED, snap-back likely; the MA is the magnet) —
-// and flags COILING (flat MA + contracting ATR → a rise in volatility tends to
-// follow). The MA line recolors live by state; a two-row HUD spells out
-// arrow · angle · state · % and the extension read. Angle, %-slope, and extension
-// (ATR + %) are published to the Data Window for querying / scanning.
+// It also reads the stock's EXTENSION (how far price is stretched from the 20MA in
+// ATRs — beyond a threshold = EXTENDED, snap-back likely), flags COILING (flat MA +
+// contracting ATR → volatility expansion), and shows the 200 SMA for long-term
+// trend context. From all that it builds a SETUP on the 20: pull back to a rising
+// MA (long, support) or a falling MA (short, resistance); or, when extended, fade
+// back to the MA — each with Entry / Stop (beyond the MA) / Target (extension) and
+// a Risk:Reward that flags whether it's WITH or COUNTER the 200 trend. A clean
+// labeled HUD lays it out; angle, %-slope, extension, and R:R go to the Data Window.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("20 MA · Direction & Slope", "20MA-dir", overlay = true)
 
@@ -26,6 +28,14 @@ maLen  = input.int(20, "Length", minval = 2, group = gM)
 maType = input.string("SMA", "Type", options = ["SMA", "EMA"], group = gM)
 src    = input.source(close, "Source", group = gM)
 maW    = input.int(2, "Line width", minval = 1, maxval = 6, group = gM)
+
+// ── long-term trend (200 SMA) — CONTEXT only; entries stay on the 20 ──────────
+gL      = "Long-term trend (200 SMA)"
+en200   = input.bool(true, "Show the 200 SMA (context)", group = gL, tooltip = "The 200 is drawn for long-term trend context — above it = long-term uptrend, below = downtrend, and the R:R row flags whether the 20 setup is WITH or COUNTER that trend. The entry read stays on the 20.")
+len200  = input.int(200, "Length", minval = 20, group = gL)
+col200U = input.color(#2E7D32, "Rising", inline = "c2", group = gL)
+col200D = input.color(#B71C1C, "Falling", inline = "c2", group = gL)
+w200    = input.int(2, "Width", minval = 1, maxval = 6, group = gL)
 
 // ── slope / angle ─────────────────────────────────────────────────────────────
 gS      = "Slope / angle"
@@ -40,6 +50,11 @@ idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, g
 gE     = "Extension / volatility"
 extThr = input.float(3.0, "Extended when |price − MA| ≥ (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gE, tooltip = "How far price is stretched from the 20MA, in ATRs. Beyond this = EXTENDED — a snap-back / pause toward the MA becomes likely (mean reversion). The MA is the magnet.")
 coilPct = input.float(0.85, "Coiling when ATR < (× its 20-bar avg)", minval = 0.3, maxval = 1, step = 0.05, group = gE, tooltip = "When the MA is FLAT and ATR is below this fraction of its own 20-bar average, the stock is coiling — a rise in volatility (expansion) tends to follow.")
+
+// ── setup / risk-reward (the tradeable read) ──────────────────────────────────
+gT      = "Setup / risk-reward"
+stopBuf = input.float(0.5, "Stop buffer beyond the MA / entry (× ATR)", minval = 0.1, maxval = 3, step = 0.1, group = gT, tooltip = "How far past the moving average (trend pullback) or past the entry (extended fade) the stop sits, in ATRs. The MA is the line you're wrong below/above.")
+tgtExt  = input.float(3.0, "Trend target — extension from the MA (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gT, tooltip = "For a trend pullback (long a rising MA / short a falling MA), the target is this many ATRs of EXTENSION away from the MA — how far the move tends to stretch. For an EXTENDED fade, the target is the MA itself (the magnet).")
 
 // ── colors ────────────────────────────────────────────────────────────────────
 gV      = "Colors by state"
@@ -84,28 +99,100 @@ _extended = math.abs(extAtr) >= extThr
 _atrAvg = ta.sma(atr, 20)
 _coiling = _absA <= flatThr and not na(_atrAvg) and _atrAvg > 0 and atr < _atrAvg * coilPct
 
+// ── long-term trend context (200 SMA) ──
+ma200   = ta.sma(close, len200)
+_200up  = not na(ma200) and not na(ma200[slopeLb]) and ma200 > ma200[slopeLb]
+col200  = _200up ? col200U : col200D
+ltTrend = na(ma200) ? "—" : (close >= ma200 ? "UP · above 200" : "DOWN · below 200")
+
+// ── SETUP + risk-reward. Entry is on the 20: pull back to it in a trend, or fade
+//    to it when extended. Stop beyond the MA/entry; trend target = extension out.
+_stopBuf = stopBuf * atr
+_tgtExt  = tgtExt * atr
+sdir  = ""
+setup = "—"
+float entry = na
+float stop  = na
+float tgt   = na
+if _extended and extAtr > 0
+    sdir  := "SHORT"
+    setup := "fade to MA (extended above)"
+    entry := close
+    stop  := close + _stopBuf
+    tgt   := ma
+else if _extended
+    sdir  := "LONG"
+    setup := "snap to MA (extended below)"
+    entry := close
+    stop  := close - _stopBuf
+    tgt   := ma
+else if _dn
+    sdir  := "SHORT"
+    setup := "pullback to falling MA (resistance)"
+    entry := ma
+    stop  := ma + _stopBuf
+    tgt   := ma - _tgtExt
+else if _up
+    sdir  := "LONG"
+    setup := "pullback to rising MA (support)"
+    entry := ma
+    stop  := ma - _stopBuf
+    tgt   := ma + _tgtExt
+_risk = na(entry) or na(stop) ? na : math.abs(entry - stop)
+_rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
+rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
+align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
+
+plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 plot(ma, "20 MA", color = maCol, linewidth = maW)
 // queryable data (Data Window / data_get_study_values), no chart clutter
 plot(angle,  "MA angle (deg)",     display = display.data_window)
 plot(pctLb,  "MA % over lookback", display = display.data_window)
 plot(extAtr, "Extension (ATR)",    display = display.data_window)
 plot(extPct, "Extension (%)",      display = display.data_window)
+plot(na(rr) ? na : rr, "Setup R:R", display = display.data_window)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
-var table hud = table.new(_pos, 1, 2, border_width = 1, border_color = color.new(color.gray, 50))
+var table hud = table.new(_pos, 2, 9, border_width = 1, border_color = color.new(color.gray, 55))
+_cell(int col, int row, string txt, color bg, color tc, bool right) => table.cell(hud, col, row, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = right ? text.align_right : text.align_left)
 if barstate.islast
     if enHud
+        _lblBg = color.new(#0B0B12, 0)
+        _lblTx = color.new(#C7C9D9, 0)
+        _white = color.new(color.white, 0)
         _arrow = _up ? "↑" : _dn ? "↓" : "→"
-        _txt = str.tostring(maLen) + (maType == "EMA" ? " EMA  " : " SMA  ") + _arrow + " " + str.tostring(angle, "#.#") + "°   ·   " + state + "   ·   " + (pctLb >= 0 ? "+" : "") + str.tostring(pctLb, "#.##") + "% / " + str.tostring(slopeLb) + "b"
-        table.cell(hud, 0, 0, _txt, text_color = color.white, bgcolor = color.new(maCol, 12), text_size = _sz)
-        // extension / coiling row
-        _side = extAtr >= 0 ? "above" : "below"
-        _flag = _extended ? "  ·  EXTENDED " + (extAtr >= 0 ? "▲" : "▼") : _coiling ? "  ·  COILING (vol expansion likely)" : ""
-        _eBg  = _extended ? color.new(#F59E0B, 20) : _coiling ? color.new(#42A5F5, 25) : color.new(color.gray, 30)
-        _eTxt = "Extension  " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%) " + _side + " MA" + _flag
-        table.cell(hud, 0, 1, _eTxt, text_color = color.white, bgcolor = _eBg, text_size = _sz)
+        // header — 20 MA + angle
+        _cell(0, 0, str.tostring(maLen) + (maType == "EMA" ? " EMA " : " SMA ") + _arrow, color.new(maCol, 12), _white, false)
+        _cell(1, 0, str.tostring(angle, "#.#") + "°", color.new(maCol, 12), _white, true)
+        // trend (20 slope state)
+        _cell(0, 1, "Trend", _lblBg, _lblTx, false)
+        _cell(1, 1, state, _lblBg, _white, true)
+        // long-term trend (200)
+        _cell(0, 2, "200 SMA", _lblBg, _lblTx, false)
+        _cell(1, 2, ltTrend, _lblBg, (na(ma200) ? _white : (close >= ma200 ? color.new(#26A69A, 0) : color.new(#EF5350, 0))), true)
+        // extension
+        _extBg = _extended ? color.new(#F59E0B, 20) : _coiling ? color.new(#42A5F5, 28) : _lblBg
+        _extV  = (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%)" + (_extended ? " · EXTENDED" : _coiling ? " · COILING" : "")
+        _cell(0, 3, "Extension", _lblBg, _lblTx, false)
+        _cell(1, 3, _extV, _extBg, _white, true)
+        // setup
+        _sBg = sdir == "LONG" ? color.new(#1B5E20, 0) : sdir == "SHORT" ? color.new(#8E1D1D, 0) : color.new(color.gray, 35)
+        _cell(0, 4, "Setup", _lblBg, _lblTx, false)
+        _cell(1, 4, sdir == "" ? "— none (chop)" : sdir + " · " + setup, _sBg, _white, true)
+        // entry / stop / target
+        _cell(0, 5, "Entry", _lblBg, _lblTx, false)
+        _cell(1, 5, na(entry) ? "—" : str.tostring(entry, format.mintick), _lblBg, _white, true)
+        _cell(0, 6, "Stop", _lblBg, _lblTx, false)
+        _cell(1, 6, na(stop) ? "—" : str.tostring(stop, format.mintick), _lblBg, color.new(#EF5350, 0), true)
+        _cell(0, 7, "Target", _lblBg, _lblTx, false)
+        _cell(1, 7, na(tgt) ? "—" : str.tostring(tgt, format.mintick), _lblBg, color.new(#26A69A, 0), true)
+        // risk : reward + trend alignment
+        _rrBg = na(rr) ? color.new(color.gray, 35) : rr >= 2 ? color.new(#1B5E20, 0) : rr >= 1 ? color.new(#F59E0B, 15) : color.new(#8E1D1D, 0)
+        _cell(0, 8, "R : R", _lblBg, _lblTx, false)
+        _cell(1, 8, na(rr) ? "—" : str.tostring(rr, "#.#") + " : 1" + (align == "" ? "" : "  ·  " + align), _rrBg, _white, true)
     else
-        table.cell(hud, 0, 0, "")
-        table.cell(hud, 0, 1, "")
+        for _r = 0 to 8
+            table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
+            table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
