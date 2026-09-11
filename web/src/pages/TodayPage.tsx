@@ -136,6 +136,59 @@ function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => 
   );
 }
 
+type Ma20Row = { symbol: string; side: string; trigger: string; setup: string; angle: number; state: string; ext_atr: number; ext_pct: number; entry: number; stop: number; target: number; rr: number; close: number; lt_trend: string; with_trend: boolean };
+/** 20-MA Setups — names at a 20-day MA entry NOW (pullback to the MA in a trend, or a
+ *  fade back to it when extended), each with entry / stop / target / R:R and a with/counter
+ *  200-trend flag. Mirrors the ma20_direction Pine; populated by analytics/ma20_scan_report.py. */
+function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: Ma20Row[]; counts?: { long: number; short: number }; universe?: number; total?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  if (rows.length === 0) {
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No name is at a 20-MA entry right now — the scan runs on demand (analytics/ma20_scan_report.py).</div>;
+  }
+  const cell = (label: string, val: number | string, tone: string) => (
+    <div><div className="text-[8.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div><div className={`font-mono text-[12px] ${tone}`}>{val}</div></div>
+  );
+  const card = (x: Ma20Row) => {
+    const long = x.side === "LONG";
+    const pill = long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text";
+    return (
+      <button key={x.symbol} onClick={() => onChart(x.symbol)} className="group text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent hover:bg-surface-2/40">
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
+          <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${pill}`}>{x.side} · {x.trigger}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-text-muted">
+          <span className="font-mono">{x.angle}°</span><span>·</span>
+          <span>{x.state}</span><span>·</span>
+          <span className="font-mono">{x.ext_atr >= 0 ? "+" : ""}{x.ext_atr} ATR from MA</span>
+        </div>
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {cell("entry", x.entry, "text-text-primary")}
+          {cell("stop", x.stop, "text-bearish-text")}
+          {cell("tgt", x.target, "text-bullish-text")}
+          {cell("r:r", `${x.rr}`, "text-text-secondary")}
+        </div>
+        <div className="mt-2 flex items-center gap-1.5 text-[9.5px]">
+          <span className={`rounded px-1.5 py-0.5 font-medium ${x.with_trend ? "bg-bullish-subtle text-bullish-text" : "bg-amber-500/15 text-amber-400"}`}>{x.with_trend ? "with 200-trend ✓" : "counter 200-trend ⚠"}</span>
+          <span className="truncate text-text-faint">{x.setup}</span>
+        </div>
+      </button>
+    );
+  };
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold text-text-secondary">{parsed?.total ?? rows.length} setup{(parsed?.total ?? rows.length) === 1 ? "" : "s"}</span>
+        <span className="text-[10.5px] text-text-faint">{parsed?.counts?.long ?? 0} long · {parsed?.counts?.short ?? 0} short{parsed?.universe ? ` · scanned ${parsed.universe}` : ""}</span>
+      </div>
+      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now — a pullback to the MA in a trend, or a fade back to it when extended. Educational, not financial advice.</p>
+      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{rows.map(card)}</div>
+    </div>
+  );
+}
+
 type PmSignal = { symbol: string; alert_type: string; entry: number; level: number; stop: number; note: string; price: number; gap_pct: number };
 const PM_LABEL: Record<string, string> = {
   cml_reclaim: "reclaimed month low", cml_held: "held month low",
@@ -294,6 +347,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
   const sw = data?.swing_setups ?? null;
+  const ma20 = data?.ma20_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -356,6 +410,10 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-swing", time: "AFTER·CLOSE", title: "Swing setups", present: !!sw,
       wait: "The swing finder runs after the close (~4:25 PM ET).",
       render: () => <SwingSetups body={sw?.body ?? ""} onChart={onChart} /> },
+    // ── 20-MA setups — names at a 20-day MA entry now (on-demand scan). ──
+    { id: "sec-ma20", time: "ON·DEMAND", title: "20-MA setups", present: !!ma20,
+      wait: "Run analytics/ma20_scan_report.py to populate.",
+      render: () => <Ma20Setups body={ma20?.body ?? ""} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
