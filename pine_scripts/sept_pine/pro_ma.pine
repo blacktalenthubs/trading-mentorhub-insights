@@ -21,6 +21,9 @@
 // stays hidden until price approaches, so it can never stretch the axis. N means N: nothing bypasses
 // the count and eats a slot, so 2 above puts exactly two lines overhead. 0 on a side draws none
 // there — a one-sided read when you only care what's above you.
+// 50-FLOOR (on by default): when price is trading ABOVE the 50-day SMA, NO moving average below the
+// 50 is drawn — not even under proximity or Show-ALL. Holding above the 50, the faster averages
+// beneath it are noise; the sub-50 lines only come back once price loses the 50.
 // MERGE: MAs stacked within ±0.20% collapse into ONE line naming all of them ("50 SMA · 200 EMA").
 //
 // NON-REPAINTING: values are the SETTLED higher-TF MA (ta.sma(close,len)[1] + lookahead_on) — the
@@ -74,6 +77,7 @@ nDn       = input.int(2, "BELOW", group = gN, minval = 0, maxval = 8, inline = "
 farCapPct = input.float(20, "Hide anything beyond ± % of price — MAs (daily + weekly) and W/M/Q levels; PDH/PDL exempt (0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "The load gate: any moving average or structural level farther than this % from price is not drawn at all, so a far 200 SMA or monthly level can never stretch the axis. PDH/PDL are the day's rails and stay exempt. 0 = off (fall back to the nearest-N counts only).") / 100.0
 proxPct   = input.float(10, "± % proximity — ALSO hide any line farther than this (ALL types, incl PDH/PDL; 0 = off)", group = gN, minval = 0, maxval = 50, step = 0.5, tooltip = "A third, independent gate ON TOP of the nearest-N counts and the far-cap above: any line — MA/EMA, W/M/Q level, AND the PDH/PDL rails — farther than this % from price is hidden. Uniform, no exemptions (unlike the far-cap, which spares PDH/PDL). 0 = off.") / 100.0
 showAll   = input.bool(false, "Show ALL MAs (ignore proximity — will compress the scale)", group = gN)
+hide50Below = input.bool(true, "Above the 50-day: hide every MA BELOW the 50-day (declutter)", group = gN, tooltip = "When price is trading ABOVE the 50-day SMA, no moving average that sits BELOW the 50 is drawn — not even if proximity, the far-cap, or Show-ALL would include it. Holding above the 50, the faster averages beneath it are just noise; you only want to see what's below once price actually loses the 50. The 50-day SMA is the floor.")
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
 
@@ -270,11 +274,16 @@ f_queue(float v, string nm, bool dot) =>
         array.push(_qn, nm)
         array.push(_qdot, dot)
 // ONE rule, no exemptions: a MA draws when it's inside the nearest-N bracket. N means N.
+// PLUS the 50-floor: above the 50-day, nothing below the 50 draws (overrides even Show-ALL).
 f_draw(float v, string nm) =>
     _inBr = v <= _brkHi and v >= _brkLo
     _cap  = farCapPct <= 0 or math.abs(close - v) / close <= farCapPct
     _prox = proxPct <= 0 or math.abs(close - v) / close <= proxPct
-    if not na(v) and v > 0 and (showAll or (_inBr and _cap and _prox))
+    // 50-FLOOR: price holding above the 50-day → hide every MA that sits below the 50.
+    // Uses the raw settled 50 SMA (_r_sma50v) so the gate holds even if the 50 line is
+    // unticked. Absolute — it wins over proximity, the far-cap AND Show-ALL.
+    _hide50 = hide50Below and not na(_r_sma50v) and close > _r_sma50v and v < _r_sma50v
+    if not na(v) and v > 0 and not _hide50 and (showAll or (_inBr and _cap and _prox))
         f_queue(v, nm, false)      // per-item style flag is vestigial — one setting styles every line now
 f_collect(float v, string nm) =>
     if not na(v) and v > 0
