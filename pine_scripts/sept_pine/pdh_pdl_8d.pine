@@ -8,11 +8,11 @@
 // extended-hours prints never leak into the daily H/L) and non-repainting
 // (settled offsets + lookahead_on).
 //
-// PROXIMITY-GATED: only the N nearest levels ABOVE price and N nearest BELOW draw,
-// so a day whose H/L is far from price is hidden and never squashes the scale —
-// the closer a day's level is, the more likely it shows. A ± % cap can hide the
-// rest. Colored by ROLE vs price (green = support below · red = resistance above),
-// faded by age. Bind on any timeframe.
+// EVERY one of the last N days' PDH/PDL ALWAYS draws — this is a clean "last 8
+// sessions' rails" tool. An OPTIONAL ± % cap (off by default) hides only a day
+// whose H/L is very far from price, so a far day can't squash the scale; it never
+// drops a nearer day for a farther one. Colored by ROLE vs price (green = support
+// below · red = resistance above), faded by age. Bind on any timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("PDH/PDL · 8 Days", "pdh-pdl-8d", overlay = true, max_lines_count = 30, max_labels_count = 30)
 
@@ -29,11 +29,9 @@ lblSide   = input.string("Right", "Label side", options = ["Left", "Right"])
 showLbl   = input.bool(true, "Show labels")
 fadeOld   = input.bool(true, "Fade older days")
 
-// ── proximity — show only the levels near price ───────────────────────────────
-gP      = "Proximity"
-nUp     = input.int(3, "Show N nearest ABOVE price", group = gP, minval = 0, maxval = 16, inline = "n", tooltip = "The N closest day levels above where price is NOW, and N below — set independently. A count, so every symbol shows the same-size near-price set. 0 on a side = draw none there.")
-nDn     = input.int(3, "BELOW", group = gP, minval = 0, maxval = 16, inline = "n")
-proxPct = input.float(0, "Also hide anything beyond ± % of price (0 = off)", group = gP, minval = 0, maxval = 50, step = 0.5, tooltip = "A hard cap ON TOP of the nearest-N counts: any level farther than this % from price is hidden regardless. 0 = off (nearest-N only).") / 100.0
+// ── proximity — optional far-distance cap (all recent days draw by default) ───
+gP      = "Proximity (anti-compression — optional)"
+proxPct = input.float(0, "Hide a day level beyond ± % of price (0 = show all N days)", group = gP, minval = 0, maxval = 50, step = 0.5, tooltip = "By default EVERY one of the last N days' PDH/PDL draws. Set this above 0 to hide any day's H/L farther than this % from price, so a far day can't squash the scale. It NEVER drops a nearer day for a farther one — it's a distance cutoff, not a count.") / 100.0
 
 // ── RTH-accurate daily H/L for today + the last 8 sessions (settled, non-repainting) ──
 rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -84,24 +82,11 @@ if barstate.islast
             array.push(_T, "PDL " + _lab)
             array.push(_G, _a)
             array.push(_IH, false)
-    // ── PROXIMITY — keep only the N nearest levels above price and N nearest below ──
-    _ab = array.new_float()
-    _bl = array.new_float()
+    // ── draw EVERY gathered day level (all N recent days always show); an optional
+    //    ± % cap hides only the truly-far ones so they can't squash the scale.
     if array.size(_V) > 0
         for _i = 0 to array.size(_V) - 1
-            _v = array.get(_V, _i)
-            if _v > close
-                array.push(_ab, _v)
-            else if _v < close
-                array.push(_bl, _v)
-    array.sort(_ab, order.ascending)     // nearest-above first
-    array.sort(_bl, order.descending)    // nearest-below first
-    _brkHi = nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
-    _brkLo = nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
-    if array.size(_V) > 0
-        for _i = 0 to array.size(_V) - 1
-            _v    = array.get(_V, _i)
-            _inBr = _v <= _brkHi and _v >= _brkLo
-            _cap  = proxPct <= 0 or math.abs(close - _v) / close <= proxPct
-            if _inBr and _cap
+            _v   = array.get(_V, _i)
+            _cap = proxPct <= 0 or math.abs(close - _v) / close <= proxPct
+            if _cap
                 f_draw(_v, array.get(_T, _i), array.get(_G, _i), array.get(_IH, _i))
