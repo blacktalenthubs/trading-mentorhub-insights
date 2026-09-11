@@ -103,13 +103,15 @@ def poll_all_users(sync_session_factory) -> int:
         return 0
 
 
-# Eval narrowing (2026-09-10) — fixed 17-symbol universe. Trader directive: scan
+# Eval narrowing (2026-09-10) — fixed 19-symbol universe. Trader directive: scan
 # ONLY these so signal quality (reclaim-only rules) can be judged before widening.
 # This list is ENFORCED for every user (the per-user watchlist path is bypassed
-# below), not just a fallback.
+# below), not just a fallback. BTC/ETH in internal -USD form so is_crypto + the
+# crypto data path pick them up (24/7).
 SCANNER_UNIVERSE: list[str] = [
     "SPY", "NBIS", "NVDA", "SMH", "LITE", "QQQ", "SPCX", "AAPL", "DRAM",
     "META", "GOOGL", "SNDK", "MSFT", "TSLA", "DELL", "CRWD", "CBRS",
+    "BTC-USD", "ETH-USD",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
