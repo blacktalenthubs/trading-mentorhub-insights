@@ -3,10 +3,12 @@
 // PDH / PDL · 8 Days — STRICTLY the daily High & Low of the last N sessions.
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing but the prior-day highs & lows for the last N days (default 8) as FLAT
-// horizontal lines, tagged D-1 … D-8, plus today's open. No W/M/Q, no SMAs/EMAs —
-// just the raw daily rails. Coincident levels within the confluence % merge into
-// one thicker "CONF ×N" line. RTH-accurate (regular session, so extended-hours
-// prints never leak into the daily H/L) and non-repainting (settled + lookahead_on).
+// horizontal lines, plus today's open. Each is tagged by ROLE, not day number:
+// "PDH · RESISTANCE" when it's above price, "PDL · SUPPORT" when below — the day
+// count is dropped EXCEPT the recent day (D-1) / today, which are marked and drawn
+// crisp+thick since they matter most. No W/M/Q, no SMAs/EMAs — just the raw daily
+// rails. Coincident levels within the confluence % merge into one thicker "CONF
+// ×N" line. RTH-accurate and non-repainting (settled + lookahead_on).
 //
 // EVERY one of the last N days' PDH/PDL ALWAYS draws — this is a clean "last 8
 // sessions' rails" tool. An OPTIONAL ± % cap (off by default) hides only a day
@@ -52,12 +54,12 @@ dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 
-f_draw(float v, string nm, int age, bool isHigh, bool conf) =>
+f_draw(float v, string nm, int age, bool isHigh, bool conf, bool imp) =>
     if not na(v)
         _base = roleCol ? (v >= close ? colHi : colLo) : (isHigh ? colHi : colLo)
-        _fade = fadeOld ? math.min(70, age * 8) : 0        // today/D-1 solid, each older day fainter
+        _fade = fadeOld ? (age <= 1 ? 0 : math.min(78, (age - 1) * 12)) : 0   // today/D-1 crisp, older days fainter
         _col  = color.new(_base, _fade)
-        _w    = conf ? wLine + 1 : wLine
+        _w    = (conf or imp) ? wLine + 1 : wLine                             // D-1/today + confluences drawn thicker
         array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w, extend = extend.left))
         if showLbl
             _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
@@ -80,17 +82,16 @@ if barstate.islast
     _IH = array.new_bool()
     _start = inclToday ? 0 : 1
     for _a = _start to nDays
-        _lab = _a == 0 ? "today" : "D-" + str.tostring(_a)
         _hv  = array.get(_hs, _a)
         _lv  = array.get(_ls, _a)
         if not na(_hv)
             array.push(_V, _hv)
-            array.push(_T, "PDH " + _lab)
+            array.push(_T, "PDH")
             array.push(_G, _a)
             array.push(_IH, true)
         if not na(_lv)
             array.push(_V, _lv)
-            array.push(_T, "PDL " + _lab)
+            array.push(_T, "PDL")
             array.push(_G, _a)
             array.push(_IH, false)
     // ── nearest-N brackets (only used in "Nearest N neighbors" mode) ──
@@ -129,8 +130,12 @@ if barstate.islast
                 // proximity gate per the chosen mode
                 _pass = proxMode == "Percent band" ? (math.abs(close - _v) / close <= basePct) : proxMode == "Nearest N neighbors" ? (_v <= _brkHi and _v >= _brkLo) : true
                 if _pass
-                    _fnm = _cnt > 1 ? "CONF ×" + str.tostring(_cnt) + " · " + _nm : _nm
-                    f_draw(_v, _fnm, _age, _high, _cnt > 1)
+                    // ROLE tag by price position — a level ABOVE price is RESISTANCE, below is SUPPORT.
+                    // Day number is dropped EXCEPT the recent day (D-1) / today, which are called out.
+                    _role = _v >= close ? "RESISTANCE" : "SUPPORT"
+                    _dm   = _age == 0 ? " (today)" : _age == 1 ? " D-1" : ""
+                    _fnm  = _cnt > 1 ? "CONF ×" + str.tostring(_cnt) + _dm + " · " + _role : _nm + _dm + " · " + _role
+                    f_draw(_v, _fnm, _age, _high, _cnt > 1, _age <= 1)
 
     // ── subtle dotted OPEN line — today's open, tagged vs yesterday's (D-1) PDH / PDL ──
     if enOpen and not na(dayOpen)
