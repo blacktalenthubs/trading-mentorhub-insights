@@ -24,6 +24,9 @@
 // 50-FLOOR (on by default): when price is trading ABOVE the 50-day SMA, NO moving average below the
 // 50 is drawn — not even under proximity or Show-ALL. Holding above the 50, the faster averages
 // beneath it are noise; the sub-50 lines only come back once price loses the 50.
+// WEEKLY BASE (on by default): a flat floor where K of the last M weekly lows stack at one price —
+// the stock is basing, buyers defending one level. Drawn as a "BASE (Nx)" line, weekly-locked and
+// ALWAYS shown when it qualifies (exempt from the proximity/far-cap gates). Nothing when no cluster.
 // ANCHOR (on by default): when price is CLEAR of the whole MA stack on a side — above EVERY MA (even
 // the 8 EMA, nothing overhead) or below EVERY MA (below the 200, nothing beneath) — that side has no
 // average to react to, so the N NEAREST structural levels there (PDH/PDL + weekly/monthly/quarterly,
@@ -97,6 +100,16 @@ enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the 
 // and — crucially — the open-line bracket. No separate weekly proximity to reason about.
 gW    = "Weekly MA"
 en30w = input.bool(true, "30W SMA (weekly-locked, flat)", group = gW, tooltip = "The 30-week SMA (Weinstein Stage-2), always weekly, drawn flat on any timeframe. Treated exactly like the daily MAs — same proximity gate, confluence merge, and open-line bracket.")
+
+// ── weekly base — a flat floor where K of the last M weekly lows stack at one price (basing).
+// ALWAYS drawn when it qualifies (exempt from proximity/caps), weekly-locked on any chart TF.
+gBase   = "Weekly base"
+enBase  = input.bool(true, "Draw the weekly base floor (K of the last M weekly lows at one price)", group = gBase, tooltip = "A stock is BASING when its recent weekly lows stop making lower lows and stack at the SAME price. This finds the price where at least K of the last M weekly lows cluster within the tolerance, and draws it as a floor tagged 'BASE (Nx)'. Always shown when it qualifies — exempt from the proximity/far-cap gates. Nothing drawn when no cluster reaches K touches.")
+baseM   = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = gBase)
+baseK   = input.int(3, "  Min touches at the floor (K)", minval = 2, maxval = 10, group = gBase, tooltip = "3–5 is a tight base.")
+baseTol = input.float(2.0, "  Touch tolerance (%)", minval = 0.1, maxval = 10, step = 0.1, group = gBase, tooltip = "Two weekly lows count as the SAME floor when within this % of each other. Widen for a looser rounded base.") / 100.0
+baseAtS = input.string("lowest touch", "  Draw the floor at", options = ["lowest touch", "average of touches"], group = gBase)
+baseCol = input.color(#26A69A, "  Base colour", group = gBase)
 
 // ── reclaim marker ──────────────────────────────────────────────────────────────
 gR      = "Reclaim marker"
@@ -189,6 +202,9 @@ ema200vp = en200e ? _r_ema200vp : na
 [_r_w30v, _r_w30vp]   = request.security(syminfo.tickerid, "W", [ta.sma(close, 30)[1], ta.sma(close, 30)[2]], lookahead = barmerge.lookahead_on)
 w30v  = en30w ? _r_w30v  : na
 w30vp = en30w ? _r_w30vp : na
+// ── weekly base — the last 12 COMPLETED weekly lows (settled + lookahead_on), weekly-locked. The
+// base-detection loop below scans the first M of these for a shared floor. Non-repainting.
+[_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
 
 // ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -486,6 +502,45 @@ if barstate.islast
             array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qdt ? _lvlStyle : _lnStyle, extend = extendAll ? extend.both : extend.none))
             array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPxProx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
             _qi := _qj
+
+    // ── WEEKLY BASE — a flat floor where K of the last M weekly lows stack at one price (basing).
+    //    ALWAYS drawn when it qualifies (exempt from the proximity/far-cap gates), weekly-locked.
+    if enBase
+        _wLows = array.new_float()
+        _wAll  = array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12)
+        _wi = 0
+        while _wi < array.size(_wAll) and array.size(_wLows) < baseM
+            _wv = array.get(_wAll, _wi)
+            if not na(_wv) and _wv > 0
+                array.push(_wLows, _wv)
+            _wi += 1
+        // floor candidate = the weekly low with the MOST touches within tol; tie → the lower one
+        _bCnt = 0
+        float _bCand = na
+        if array.size(_wLows) > 0
+            for _bc = 0 to array.size(_wLows) - 1
+                _cand = array.get(_wLows, _bc)
+                _cnt = 0
+                for _bj = 0 to array.size(_wLows) - 1
+                    if math.abs(array.get(_wLows, _bj) - _cand) / _cand <= baseTol
+                        _cnt += 1
+                if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
+                    _bCnt := _cnt
+                    _bCand := _cand
+        if _bCnt >= baseK and not na(_bCand)
+            _bsum = 0.0
+            _bmin = _bCand
+            _bn = 0
+            for _bj = 0 to array.size(_wLows) - 1
+                _lj = array.get(_wLows, _bj)
+                if math.abs(_lj - _bCand) / _bCand <= baseTol
+                    _bsum += _lj
+                    _bmin := math.min(_bmin, _lj)
+                    _bn += 1
+            _blvl = baseAtS == "average of touches" ? _bsum / _bn : _bmin
+            _bxo  = f_xoff(_blvl)
+            array.push(_ln, line.new(bar_index - lineLen, _blvl, bar_index + _bxo, _blvl, color = baseCol, width = wLine + 1, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _bxo, _blvl, "BASE  " + str.tostring(_blvl, format.mintick) + "  (" + str.tostring(_bCnt) + "x / " + str.tostring(array.size(_wLows)) + "w)", style = label.style_label_left, color = baseCol, textcolor = color.white, size = _tagSz))
 
     // ── where did the day OPEN? nearest DRAWN line above it and nearest below — whatever they are.
     //    MAs and levels compete on equal footing: closest line up names the ceiling, closest line
