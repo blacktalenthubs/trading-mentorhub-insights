@@ -1,0 +1,77 @@
+//@version=5
+// =============================================================================
+// WEEKLY BASE LOW — a flat floor: K of the last M weekly lows stacked at one price
+// =============================================================================
+// A stock is BASING when its recent weekly lows stop making lower lows and instead
+// sit at the SAME price — buyers defending one floor. This scans the last M completed
+// weekly lows (default 5) and finds the price where at least K of them cluster within
+// a tolerance (default 3 touches within 2%). That level is the base support, and the
+// (Nx) count is how many of the M weeks tagged it. No cluster reaching K touches → no
+// base, nothing drawn — the stock isn't basing on this window.
+//
+//   • Scans the last M COMPLETED weekly lows (settled [1] + lookahead_on, non-repaint).
+//   • A "touch" = a weekly low within Touch-tolerance% of the candidate floor.
+//   • K = min touches to call it a base (3–5 = a tight base).
+//   • Works on ANY chart timeframe (weekly data via request.security).
+//   • VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
+// =============================================================================
+indicator("weekly-base-low", overlay = true, max_lines_count = 4, max_labels_count = 4, max_bars_back = 500)
+
+gB     = "Base"
+mWeeks = input.int(5, "Weeks to scan (M)", minval = 2, maxval = 12, group = gB, tooltip = "How many of the most recent COMPLETED weekly lows to scan for a shared floor.")
+kTouch = input.int(3, "Min touches at the floor (K)", minval = 2, maxval = 10, group = gB, tooltip = "A base needs at least this many of the M weekly lows sitting within the tolerance of ONE price. 3–5 is a tight base.")
+tolPct = input.float(2.0, "Touch tolerance (%)", minval = 0.1, maxval = 10, step = 0.1, group = gB, tooltip = "Two weekly lows count as the SAME floor when they're within this % of each other. Widen it to catch a looser, rounded base; tighten it for a razor-flat one.") / 100.0
+baseAt = input.string("lowest touch", "Draw the floor at", options = ["lowest touch", "average of touches"], group = gB, tooltip = "The floor line sits at either the LOWEST of the clustered lows (the true worst-case support) or their AVERAGE.")
+
+gS      = "Style"
+lineLen = input.int(60, "Line length (bars back)", minval = 10, maxval = 500, group = gS)
+col     = input.color(#26A69A, "Base colour", group = gS)
+lineW   = input.int(2, "Line width", minval = 1, maxval = 5, group = gS)
+showLbl = input.bool(true, "Show the touch-count label", group = gS)
+
+tid = syminfo.tickerid
+// the last 12 COMPLETED weekly lows (settled, non-repainting) — we scan the first M.
+[_w1, _w2, _w3, _w4, _w5, _w6, _w7, _w8, _w9, _w10, _w11, _w12] = request.security(tid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+
+var line  _ln = na
+var label _lb = na
+if barstate.islast
+    line.delete(_ln)
+    label.delete(_lb)
+    _all = array.from(_w1, _w2, _w3, _w4, _w5, _w6, _w7, _w8, _w9, _w10, _w11, _w12)
+    // take the first M valid weekly lows
+    _lows = array.new_float()
+    _i = 0
+    while _i < array.size(_all) and array.size(_lows) < mWeeks
+        _v = array.get(_all, _i)
+        if not na(_v) and _v > 0
+            array.push(_lows, _v)
+        _i += 1
+    // best floor = the weekly low with the MOST touches (others within tol); tie → the lower one
+    _bestCnt = 0
+    float _bestCand = na
+    if array.size(_lows) > 0
+        for _c = 0 to array.size(_lows) - 1
+            _cand = array.get(_lows, _c)
+            _cnt = 0
+            for _j = 0 to array.size(_lows) - 1
+                if math.abs(array.get(_lows, _j) - _cand) / _cand <= tolPct
+                    _cnt += 1
+            if _cnt > _bestCnt or (_cnt == _bestCnt and (na(_bestCand) or _cand < _bestCand))
+                _bestCnt := _cnt
+                _bestCand := _cand
+    // draw only when the floor qualifies as a base (>= K touches)
+    if _bestCnt >= kTouch and not na(_bestCand)
+        _sum = 0.0
+        _min = _bestCand
+        _n = 0
+        for _j = 0 to array.size(_lows) - 1
+            _lj = array.get(_lows, _j)
+            if math.abs(_lj - _bestCand) / _bestCand <= tolPct
+                _sum += _lj
+                _min := math.min(_min, _lj)
+                _n += 1
+        _lvl = baseAt == "average of touches" ? _sum / _n : _min
+        _ln := line.new(bar_index - lineLen, _lvl, bar_index + 6, _lvl, color = col, width = lineW)
+        if showLbl
+            _lb := label.new(bar_index + 6, _lvl, "BASE  " + str.tostring(_lvl, format.mintick) + "   (" + str.tostring(_bestCnt) + "x / " + str.tostring(array.size(_lows)) + " wks)", style = label.style_label_left, color = col, textcolor = color.white, size = size.small)
