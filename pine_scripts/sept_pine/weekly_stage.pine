@@ -49,7 +49,8 @@ show_rc_up = input.bool(true, "Mark RC above MA (gray ◆, in-uptrend dip)", gro
 show_base = input.bool(true, "Weekly base floor — K of the last M weekly lows at one price", group = "Base", tooltip = "A stock is BASING when its recent weekly lows stop making lower lows and sit at the SAME price. Draws the floor where at least K of the last M weekly lows cluster within the tolerance, tagged 'BASE (Nx)'. Nothing drawn when no cluster reaches K touches.")
 base_m    = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = "Base")
 base_k    = input.int(3, "  Min touches (K)", minval = 2, maxval = 10, group = "Base", tooltip = "3–5 = a tight base.")
-base_tol  = input.float(2.0, "  Touch tolerance (%)", minval = 0.1, maxval = 10, step = 0.1, group = "Base") / 100.0
+base_tol  = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = "Base", tooltip = "A coarse % cap on how far a weekly low can be from the floor and still count. The real tightness comes from the ATR gate below.") / 100.0
+base_atr  = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = "Base", tooltip = "The real tightness gate, volatility-aware: a weekly low only counts as a touch if it's within this many WEEKLY ATRs of the floor (and within the % cap above). A base on a calm ETF must be far tighter in % than one on a fast mover — that's why a 2% cluster on a low-vol name is NOT a base. Lower = stricter.")
 base_col  = input.color(color.new(color.teal, 0), "  Base color", group = "Base")
 // Visual only — the weekly ALERTS fire from levels-day-vwap (one TV alert slot
 // runs the whole watchlist); this indicator is just the chart you read.
@@ -106,6 +107,8 @@ wk_open = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.loo
 sma200d = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
 // Weekly base — the last 12 COMPLETED weekly lows (settled + lookahead_on, non-repainting).
 [wb1, wb2, wb3, wb4, wb5, wb6, wb7, wb8, wb9, wb10, wb11, wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+// weekly ATR — the volatility yardstick for base tightness (settled, non-repainting).
+watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 
 stage_col = stage == 2 ? color.lime : stage == 4 ? color.red : stage == 3 ? color.orange : stage == 1 ? color.gray : color.silver
 plot(show_ema ? e8  : na, "8w EMA",  color = color.new(color.aqua, 15), linewidth = 1)
@@ -150,18 +153,20 @@ if show_base and barstate.islast
     if array.size(_bLows) > 0
         for _bc = 0 to array.size(_bLows) - 1
             _cand = array.get(_bLows, _bc)
+            _tpC = na(watr) ? _cand * base_tol : math.min(_cand * base_tol, base_atr * watr)
             _cnt = 0
             for _bj = 0 to array.size(_bLows) - 1
-                if math.abs(array.get(_bLows, _bj) - _cand) / _cand <= base_tol
+                if math.abs(array.get(_bLows, _bj) - _cand) <= _tpC
                     _cnt += 1
             if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
                 _bCnt := _cnt
                 _bCand := _cand
     if _bCnt >= base_k and not na(_bCand)
+        _tpB = na(watr) ? _bCand * base_tol : math.min(_bCand * base_tol, base_atr * watr)
         _bmin = _bCand
         for _bj = 0 to array.size(_bLows) - 1
             _lj = array.get(_bLows, _bj)
-            if math.abs(_lj - _bCand) / _bCand <= base_tol
+            if math.abs(_lj - _bCand) <= _tpB
                 _bmin := math.min(_bmin, _lj)
         base_line := line.new(bar_index, _bmin, bar_index + tag_x, _bmin, xloc = xloc.bar_index, extend = extend.left, color = base_col, width = 2, style = line.style_solid)
         base_lab  := label.new(bar_index + tag_x, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " (" + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_bLows)) + "w)", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(base_col, 80), textcolor = base_col, size = size.tiny)

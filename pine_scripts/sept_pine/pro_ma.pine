@@ -107,7 +107,8 @@ gBase   = "Weekly base"
 enBase  = input.bool(true, "Draw the weekly base floor (K of the last M weekly lows at one price)", group = gBase, tooltip = "A stock is BASING when its recent weekly lows stop making lower lows and stack at the SAME price. This finds the price where at least K of the last M weekly lows cluster within the tolerance, and draws it as a floor tagged 'BASE (Nx)'. Always shown when it qualifies — exempt from the proximity/far-cap gates. Nothing drawn when no cluster reaches K touches.")
 baseM   = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = gBase)
 baseK   = input.int(3, "  Min touches at the floor (K)", minval = 2, maxval = 10, group = gBase, tooltip = "3–5 is a tight base.")
-baseTol = input.float(2.0, "  Touch tolerance (%)", minval = 0.1, maxval = 10, step = 0.1, group = gBase, tooltip = "Two weekly lows count as the SAME floor when within this % of each other. Widen for a looser rounded base.") / 100.0
+baseTol = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gBase, tooltip = "A coarse % cap on how far a weekly low can be from the floor and still count. The real tightness comes from the ATR gate below.") / 100.0
+baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gBase, tooltip = "The real tightness gate, volatility-aware: a weekly low counts as a touch only if it's within this many WEEKLY ATRs of the floor (and within the % cap). A base on a calm ETF must be far tighter in % than one on a fast mover — that's why a 2% cluster on a low-vol name is NOT a base. Lower = stricter.")
 baseAtS = input.string("lowest touch", "  Draw the floor at", options = ["lowest touch", "average of touches"], group = gBase)
 baseCol = input.color(#26A69A, "  Base colour", group = gBase)
 
@@ -205,6 +206,8 @@ w30vp = en30w ? _r_w30vp : na
 // ── weekly base — the last 12 COMPLETED weekly lows (settled + lookahead_on), weekly-locked. The
 // base-detection loop below scans the first M of these for a shared floor. Non-repainting.
 [_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+// weekly ATR — the volatility yardstick for base tightness (settled, non-repainting).
+_watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 
 // ── day open (RTH-accurate) + daily RSI — both locked to D regardless of chart TF ──
 rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
@@ -520,20 +523,22 @@ if barstate.islast
         if array.size(_wLows) > 0
             for _bc = 0 to array.size(_wLows) - 1
                 _cand = array.get(_wLows, _bc)
+                _tpC = na(_watr) ? _cand * baseTol : math.min(_cand * baseTol, baseAtr * _watr)
                 _cnt = 0
                 for _bj = 0 to array.size(_wLows) - 1
-                    if math.abs(array.get(_wLows, _bj) - _cand) / _cand <= baseTol
+                    if math.abs(array.get(_wLows, _bj) - _cand) <= _tpC
                         _cnt += 1
                 if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
                     _bCnt := _cnt
                     _bCand := _cand
         if _bCnt >= baseK and not na(_bCand)
+            _tpB = na(_watr) ? _bCand * baseTol : math.min(_bCand * baseTol, baseAtr * _watr)
             _bsum = 0.0
             _bmin = _bCand
             _bn = 0
             for _bj = 0 to array.size(_wLows) - 1
                 _lj = array.get(_wLows, _bj)
-                if math.abs(_lj - _bCand) / _bCand <= baseTol
+                if math.abs(_lj - _bCand) <= _tpB
                     _bsum += _lj
                     _bmin := math.min(_bmin, _lj)
                     _bn += 1
