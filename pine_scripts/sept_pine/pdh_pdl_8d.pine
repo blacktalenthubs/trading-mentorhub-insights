@@ -3,10 +3,10 @@
 // PDH / PDL · 8 Days — STRICTLY the daily High & Low of the last N sessions.
 // ─────────────────────────────────────────────────────────────────────────────
 // Nothing but the prior-day highs & lows for the last N days (default 8) as FLAT
-// horizontal lines, tagged D-1 … D-8. No W/M/Q, no SMAs/EMAs, no open line, no
-// confluence merge — just the raw daily rails. RTH-accurate (regular session, so
-// extended-hours prints never leak into the daily H/L) and non-repainting
-// (settled offsets + lookahead_on).
+// horizontal lines, tagged D-1 … D-8, plus today's open. No W/M/Q, no SMAs/EMAs —
+// just the raw daily rails. Coincident levels within the confluence % merge into
+// one thicker "CONF ×N" line. RTH-accurate (regular session, so extended-hours
+// prints never leak into the daily H/L) and non-repainting (settled + lookahead_on).
 //
 // EVERY one of the last N days' PDH/PDL ALWAYS draws — this is a clean "last 8
 // sessions' rails" tool. An OPTIONAL ± % cap (off by default) hides only a day
@@ -28,26 +28,37 @@ tagOff    = input.int(8, "Label offset (bars right)", minval = 0, maxval = 50)
 lblSide   = input.string("Right", "Label side", options = ["Left", "Right"])
 showLbl   = input.bool(true, "Show labels")
 fadeOld   = input.bool(true, "Fade older days")
+mergePct  = input.float(0.09, "Confluence — merge levels within (%) into one", minval = 0, maxval = 5, step = 0.01, tooltip = "Two day levels within this % of EACH OTHER collapse into ONE thicker line tagged 'CONF ×N · …'. Default 0.09%. 0 = never merge.") / 100.0
 
-// ── proximity — optional far-distance cap (all recent days draw by default) ───
-gP      = "Proximity (anti-compression — optional)"
-proxPct = input.float(0, "Hide a day level beyond ± % of price (0 = show all N days)", group = gP, minval = 0, maxval = 50, step = 0.5, tooltip = "By default EVERY one of the last N days' PDH/PDL draws. Set this above 0 to hide any day's H/L farther than this % from price, so a far day can't squash the scale. It NEVER drops a nearer day for a farther one — it's a distance cutoff, not a count.") / 100.0
+// ── proximity — how to choose which day levels draw (default: all N days) ─────
+gP       = "Proximity"
+proxMode = input.string("All (every day)", "Proximity mode", options = ["All (every day)", "Percent band", "Nearest N neighbors"], group = gP, tooltip = "All = draw every one of the last N days (default — the clean 'last 8 sessions' rails'). Percent band = only day levels within ± base % of price (anti-compression, keeps all that are near). Nearest N neighbors = the N closest levels above price and N below (a count).")
+basePct  = input.float(2.0, "  Percent band — ± % of price", group = gP, minval = 0.1, maxval = 30, step = 0.1, tooltip = "Percent-band mode: only day levels within this % of price draw.") / 100.0
+nUp      = input.int(3, "  Nearest N — ABOVE", group = gP, minval = 0, maxval = 16, inline = "n", tooltip = "Nearest-N mode: N closest levels above price and N below.")
+nDn      = input.int(3, "  BELOW", group = gP, minval = 0, maxval = 16, inline = "n")
+
+// ── today's open ──────────────────────────────────────────────────────────────
+gO      = "Day open"
+enOpen  = input.bool(true, "Mark today's open (subtle dotted) + tag vs D-1 PDH/PDL", group = gO)
+openCol = input.color(color.new(#EAB308, 0), "Open line", group = gO)
 
 // ── RTH-accurate daily H/L for today + the last 8 sessions (settled, non-repainting) ──
 rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 [dh0, dh1, dh2, dh3, dh4, dh5, dh6, dh7, dh8] = request.security(rthTid, "D", [high, high[1], high[2], high[3], high[4], high[5], high[6], high[7], high[8]], lookahead = barmerge.lookahead_on)
 [dl0, dl1, dl2, dl3, dl4, dl5, dl6, dl7, dl8] = request.security(rthTid, "D", [low,  low[1],  low[2],  low[3],  low[4],  low[5],  low[6],  low[7],  low[8]],  lookahead = barmerge.lookahead_on)
+dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_on)
 
 // ── draw (rebuilt on the last bar) ────────────────────────────────────────────
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 
-f_draw(float v, string nm, int age, bool isHigh) =>
+f_draw(float v, string nm, int age, bool isHigh, bool conf) =>
     if not na(v)
         _base = roleCol ? (v >= close ? colHi : colLo) : (isHigh ? colHi : colLo)
         _fade = fadeOld ? math.min(70, age * 8) : 0        // today/D-1 solid, each older day fainter
         _col  = color.new(_base, _fade)
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = wLine, extend = extend.left))
+        _w    = conf ? wLine + 1 : wLine
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, color = _col, width = _w, extend = extend.left))
         if showLbl
             _lx = lblSide == "Left" ? bar_index - lineLen : bar_index + tagOff
             _ls = lblSide == "Left" ? label.style_label_right : label.style_label_left
@@ -82,11 +93,48 @@ if barstate.islast
             array.push(_T, "PDL " + _lab)
             array.push(_G, _a)
             array.push(_IH, false)
-    // ── draw EVERY gathered day level (all N recent days always show); an optional
-    //    ± % cap hides only the truly-far ones so they can't squash the scale.
+    // ── nearest-N brackets (only used in "Nearest N neighbors" mode) ──
+    _ab = array.new_float()
+    _bl = array.new_float()
     if array.size(_V) > 0
         for _i = 0 to array.size(_V) - 1
-            _v   = array.get(_V, _i)
-            _cap = proxPct <= 0 or math.abs(close - _v) / close <= proxPct
-            if _cap
-                f_draw(_v, array.get(_T, _i), array.get(_G, _i), array.get(_IH, _i))
+            _v = array.get(_V, _i)
+            if _v > close
+                array.push(_ab, _v)
+            else if _v < close
+                array.push(_bl, _v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    _brkHi = nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
+    _brkLo = nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
+    // ── merge coincident levels within mergePct into ONE thicker CONF line, then draw ──
+    _U = array.new_bool(array.size(_V), false)
+    if array.size(_V) > 0
+        for _i = 0 to array.size(_V) - 1
+            if not array.get(_U, _i)
+                _v    = array.get(_V, _i)
+                _nm   = array.get(_T, _i)
+                _age  = array.get(_G, _i)
+                _high = array.get(_IH, _i)
+                _cnt  = 1
+                if mergePct > 0 and _i < array.size(_V) - 1
+                    for _j = _i + 1 to array.size(_V) - 1
+                        _vj = array.get(_V, _j)
+                        if not array.get(_U, _j) and math.abs(_vj - _v) / _v <= mergePct
+                            array.set(_U, _j, true)
+                            _nm  := _nm + " + " + array.get(_T, _j)
+                            _cnt := _cnt + 1
+                            _age := math.min(_age, array.get(_G, _j))
+                array.set(_U, _i, true)
+                // proximity gate per the chosen mode
+                _pass = proxMode == "Percent band" ? (math.abs(close - _v) / close <= basePct) : proxMode == "Nearest N neighbors" ? (_v <= _brkHi and _v >= _brkLo) : true
+                if _pass
+                    _fnm = _cnt > 1 ? "CONF ×" + str.tostring(_cnt) + " · " + _nm : _nm
+                    f_draw(_v, _fnm, _age, _high, _cnt > 1)
+
+    // ── subtle dotted OPEN line — today's open, tagged vs yesterday's (D-1) PDH / PDL ──
+    if enOpen and not na(dayOpen)
+        _oc = not na(dh1) and dayOpen > dh1 ? "  · above PDH ▲" : not na(dl1) and dayOpen < dl1 ? "  · below PDL ▼" : (not na(dh1) and not na(dl1) ? "  · inside PDH–PDL" : "")
+        array.push(_ln, line.new(bar_index - lineLen, dayOpen, bar_index + tagOff, dayOpen, color = color.new(openCol, 20), width = 1, style = line.style_dotted, extend = extend.left))
+        if showLbl
+            array.push(_lb, label.new(bar_index + tagOff, dayOpen, "Open " + str.tostring(dayOpen, format.mintick) + _oc, style = label.style_label_left, color = color.new(openCol, 15), textcolor = color.black, size = size.small))
