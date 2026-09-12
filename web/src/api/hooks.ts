@@ -1012,7 +1012,7 @@ export function useAddSymbol() {
     onError: (err, symbol, ctx) => {
       if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
       const status = (err as { status?: number })?.status;
-      if (status === 409) { toast(`${symbol} is already in your watchlist`); return; }
+      if (status === 409) { toast.info(`${symbol} is already in your watchlist`); return; }
       const detail = (err as { message?: string })?.message;
       toast.error(detail || "Failed to add symbol");
     },
