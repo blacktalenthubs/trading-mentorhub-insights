@@ -29,9 +29,10 @@ lblSz  = input.string("small", "Label size", options = ["tiny", "small", "normal
 
 gOB      = "Order blocks"
 showOB   = input.bool(true, "Show order blocks", group = gOB)
-obCount  = input.int(5, "How many to keep (each side)", minval = 1, maxval = 20, group = gOB)
+obCount  = input.int(3, "How many to keep (each side)", minval = 1, maxval = 20, group = gOB)
 obAtrMult= input.float(0.0, "Min block size (× ATR, 0 = off)", minval = 0, step = 0.1, group = gOB)
-obMitig  = input.string("Close", "Mitigation", options = ["Close", "Wick"], group = gOB, tooltip = "Remove a block once price CLOSES through it (Close) or merely wicks through (Wick).")
+obMitig  = input.string("Wick", "Mitigation", options = ["Close", "Wick"], group = gOB, tooltip = "Remove a block once price WICKS through it (Wick — clears faster, fewer stale boxes) or only when it CLOSES through (Close).")
+obNoOverlap = input.bool(true, "Skip a new block that overlaps the last one (declutter)", group = gOB, tooltip = "In a strong trend, back-to-back breaks stack near-identical blocks. On = a fresh block that overlaps the most recent same-side block is skipped, so you see distinct zones only.")
 obBullCol= input.color(color.new(#26A69A, 80), "Bull OB", inline = "ob", group = gOB)
 obBearCol= input.color(color.new(#EF5350, 80), "Bear OB", inline = "ob", group = gOB)
 
@@ -158,8 +159,13 @@ if not na(SHp) and close > SHp
         line.new(SHb, SHp, bar_index, SHp, xloc = xloc.bar_index, color = cBull, width = 1, style = line.style_dashed)
         label.new(int(math.avg(SHb, bar_index)), SHp, _c ? "CHoCH" : "BOS", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(cBull, 90), textcolor = cBull, size = _sz)
     if showOB and not na(lastDnBar) and (obAtrMult <= 0 or (lastDnHigh - lastDnLow) >= obAtrMult * atr)
-        array.push(obBull, box.new(lastDnBar, lastDnHigh, bar_index + 2, lastDnLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBullCol))
-        f_capOB(obBull)
+        _ov = false
+        if obNoOverlap and array.size(obBull) > 0
+            _p = array.get(obBull, array.size(obBull) - 1)
+            _ov := lastDnHigh >= box.get_bottom(_p) and lastDnLow <= box.get_top(_p)
+        if not _ov
+            array.push(obBull, box.new(lastDnBar, lastDnHigh, bar_index + 2, lastDnLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBullCol))
+            f_capOB(obBull)
     Str := 1
     SHp := na
 
@@ -170,8 +176,13 @@ if not na(SLp) and close < SLp
         line.new(SLb, SLp, bar_index, SLp, xloc = xloc.bar_index, color = cBear, width = 1, style = line.style_dashed)
         label.new(int(math.avg(SLb, bar_index)), SLp, _c ? "CHoCH" : "BOS", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(cBear, 90), textcolor = cBear, size = _sz)
     if showOB and not na(lastUpBar) and (obAtrMult <= 0 or (lastUpHigh - lastUpLow) >= obAtrMult * atr)
-        array.push(obBear, box.new(lastUpBar, lastUpHigh, bar_index + 2, lastUpLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBearCol))
-        f_capOB(obBear)
+        _ov = false
+        if obNoOverlap and array.size(obBear) > 0
+            _p = array.get(obBear, array.size(obBear) - 1)
+            _ov := lastUpHigh >= box.get_bottom(_p) and lastUpLow <= box.get_top(_p)
+        if not _ov
+            array.push(obBear, box.new(lastUpBar, lastUpHigh, bar_index + 2, lastUpLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBearCol))
+            f_capOB(obBear)
     Str := -1
     SLp := na
 
