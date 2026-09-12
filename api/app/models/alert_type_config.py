@@ -69,13 +69,10 @@ _MA_TOGGLES = (
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # W/M/Q level interactions (30m) — the wmq_levels arrows, per-user watchlist (2026-08-06)
     # swing_wq_reclaim_long / swing_wq_reject_short RETIRED 2026-08-07 → OBSOLETE (level reaction ≠ trend; visual lines only)
-    # Candle-close pings (2026-08-02) — scheduled heads-ups (NOT trade signals) to review charts at each
-    # 2h candle close. Per-user opt-in, delivered in-app (APNs push) + Telegram. TWO independent toggles
-    # so a user can pick equity-only, crypto-only, or both.
-    ("candle_ping_equity", "Candle pings · Equity — heads-up at each 2h stock candle close (4/session: 11:30/13:30/15:30/16:00 ET)", "Candle pings", False),
-    ("candle_ping_crypto", "Candle pings · Crypto — heads-up at each 2h crypto candle close (12/day, every 2h UTC incl. weekends)", "Candle pings", False),
-    # Hourly LEVELS agent (2026-08-02) — AI read of where SPY/BTC sits vs its MA/EMA stack + 4H levels.
-    ("levels_hourly", "Levels agent (hourly) — AI read of where SPY (RTH) & BTC (24/7) sit vs the MA/EMA stack + 4H levels", "Candle pings", False),
+    # candle_ping_equity / candle_ping_crypto / levels_hourly RETIRED 2026-09-12 (user: "keep swing,
+    # remove everything else — only 8 scanner signals"). Candle pings + the hourly levels agent are
+    # scheduled PUSH jobs gated only on user_alert_type_prefs, so the seed also purges those pref rows
+    # (see seed_alert_type_config) — otherwise an opted-in user would keep receiving them. → OBSOLETE.
 
     # Pullback continuation (uptrend-gated long entry — companion to MA bounce)
 
@@ -91,18 +88,9 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # 4H day-trade method (2026-07-25) — reactions to the last two 4h candles' H/L/C, 15m-close confirmed,
     # MASTER-optin like RC (bind the pine on a 15m chart). fourh_reclaim/reject = wick+close-back reversal;
     # fourh_breakup/breakdn = one close through. Isolated from dedup (see _FOURH_TYPES) for clean analysis.
-    ("fourh_reclaim", "4H reclaim (long) — a 15m candle wicked below one of the last two 4h candles' H/L/C & closed back above (support held). Bind the pine on 15m; opt in HERE.", "4H", False),
-    ("fourh_reject",  "4H rejection (short) — a 15m candle wicked above a prior 4h level & closed back below (resistance held). Bind on 15m; opt in HERE.", "4H", False),
-    ("fourh_breakup", "4H break-up (long) — a 15m candle closed up through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
-    ("fourh_breakdn", "4H break-down (short) — a 15m candle closed down through a prior 4h level. Bind on 15m; opt in HERE.", "4H", False),
-    # LAST 4H (2026-08-28) — the EXPERIMENT. Not the last two 4h candles' six levels: just the ONE
-    # candle the prior session ended on, and only its HIGH and LOW. Two lines, one long rule, one
-    # short rule. Deliberately its own pair of types (not folded into fourh_*) so the two-line read
-    # can be evaluated on its own numbers instead of being averaged into the six-level method — and
-    # so binding it alongside prior_4h_two_candles doesn't have the two pines fighting for one anchor.
-    # From prior_last_4h.pine. Default OFF; opt in per user in Settings.
-    ("last4h_long",  "Last 4H long — RECLAIM (wick + back above, fires at once) or BREAK (confirmed close) of yesterday's FINAL 4h candle's high or low. Two lines only. Bind prior_last_4h.pine; opt in HERE.", "Last 4H", False),
-    ("last4h_short", "Last 4H short — REJECT (poke + close back under, fires at once) or BREAKDOWN (confirmed close) of yesterday's FINAL 4h candle's high or low. Bind prior_last_4h.pine; opt in HERE.", "Last 4H", False),
+    # fourh_reclaim/reject/breakup/breakdn + last4h_long/short RETIRED 2026-09-12 (user: "keep swing,
+    # remove everything else — only 8 scanner signals"). These are Pine → TV-webhook types; once out of
+    # the catalog the webhook drops arrivals as unknown_type (no delivery). → OBSOLETE_ALERT_TYPES.
     # Structural-level DAY reclaims (weekly-low / monthly-low / prior-2-day-low) — 2026-08-05. Same
     # reclaim mechanic as the 4H reactions on the 15m close, LONG only, stop = the swept bar low. They
     # JOIN the 4H DB-anchored day dedup stream: a 4H reclaim + these compete as ONE (symbol,BUY) anchor,
@@ -121,12 +109,10 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # Open Bracket (2026-08-18) — the day's OPEN sets two neighbor levels (nearest resistance above, support below);
     # ONE live position reacts at them (break/reject/reclaim + gap-and-go), stop = entry-candle extreme, flips on a break.
     # Second day-trade signal alongside 4H. Per-user stock clamp via open_bracket_symbols. Bind proximity_levels_pure.pine on 15m.
-    ("open_bracket", "Open Bracket (day) — the open's nearest level above (R) and below (S) drive one position: break/reject at R, reclaim/hold at S, plus gap-and-go. Stop = entry-candle extreme; flips on a break.", "Open Bracket", False),  # own category = its own family toggle
-    ("structural_breakout", "Structural breakout (day) — gap/break/reclaim of a MAJOR level (PDH/PWH/PMH/PQH/pivot=long; PDL/PWL/PML/PQL break=short, reclaim=long). Bind proximity_levels_pure.pine on 15m.", "Structural Breakout", False),  # own family; replaces open_bracket
-    # Scanner level touch (day) — the Monitor watches live price against the nightly Scanner plan's
-    # marked levels and fires on a tap-and-hold of PDL / 8·20·50 EMA / 20·50 MA / PDH-as-support,
-    # plus a PDH break and gap-and-go. Own family toggle so it can be run in isolation.
-    ("planned_level_touch", "Scanner level touch (day) — price taps a Scanner-marked level (PDL / 8·20·50 EMA / 20·50 MA / PDH support) and holds, or breaks PDH / gaps-and-goes. Levels from the nightly Scanner plan.", "Scanner Levels", False),  # own family
+    # open_bracket / structural_breakout / planned_level_touch RETIRED 2026-09-12 (user: "keep swing,
+    # remove everything else — only 8 scanner signals"). Pine → TV-webhook day types; webhook drops
+    # arrivals as unknown_type once out of the catalog. planned_level_touch is not in ENABLED_RULES, so
+    # the live scanner never fired it anyway. → OBSOLETE_ALERT_TYPES.
 
     # Buy 2 — Prior-low held / wick test (spec 58, 2026-05-23)
     # staged_pdl_held (daily PDL held) RETIRED 2026-07-12 → folded into daily RC (rc_daily_long, directional). → OBSOLETE.
@@ -505,6 +491,16 @@ def describe_alert_type(alert_type: str) -> str:
 # the catalog doesn't orphan anything. The EOD scorecard can still surface
 # historical alerts by name; they just won't have a toggle anymore.
 OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
+    # 2026-09-12 — Settings pared to the scanner + Swing ONLY (user: "keep swing, remove everything
+    # else — only 8 scanner signals"). Retires the whole TV-webhook day book (4H, Last 4H, Open Bracket,
+    # Structural Breakout, Scanner-level touch) and the scheduled push notices (candle pings + hourly
+    # levels agent). Settings now shows exactly: Swing (5) + the 8 scanner rules. The webhook drops the
+    # Pine day types as unknown_type; the seed purges user_alert_type_prefs for these so the scheduled
+    # push notices (gated only on that pref) actually stop for anyone already opted in.
+    "candle_ping_equity", "candle_ping_crypto", "levels_hourly",
+    "fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn",
+    "last4h_long", "last4h_short",
+    "open_bracket", "structural_breakout", "planned_level_touch",
     # 2026-08-18 — consolidated to TWO day signals: Open Bracket + 4H. These are subsumed by open_bracket
     # (neighbor levels = PDL/PWL/PML; gap-and-go built in). User: "two toggle day signals only".
     "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim", "gap_and_go",
@@ -744,5 +740,14 @@ async def seed_alert_type_config(conn) -> None:
     for obsolete in OBSOLETE_ALERT_TYPES:
         await conn.execute(
             text("DELETE FROM alert_type_config WHERE alert_type = :at"),
+            {"at": obsolete},
+        )
+        # Also drop every user's opt-in for a retired type. The webhook gates Pine
+        # types on the catalog (a missing row = unknown_type = no delivery), but the
+        # SCHEDULED push notices (candle pings, hourly levels agent) gate ONLY on
+        # user_alert_type_prefs — so a lingering enabled pref would keep delivering
+        # a type that no longer exists in Settings. Purging the pref closes that path.
+        await conn.execute(
+            text("DELETE FROM user_alert_type_prefs WHERE alert_type = :at"),
             {"at": obsolete},
         )

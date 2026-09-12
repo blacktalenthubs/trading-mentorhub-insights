@@ -615,18 +615,13 @@ function AlertTypesSection() {
 
   const GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"];
   const GROUP_DESC: Record<string, string> = {
-    "Day Trade": "In and out the same session. Each row is one system, toggled on its own — Open Bracket (the open's two neighbor levels), Structural Breakout (major-level gap/break/reclaim), 4H (the last two 4H candles' six levels) and Last 4H (just the final 4H candle's high and low). Bind the pine you're testing on 15m.",
-    "Swing Trade": "Hold days into weeks — all deduped. 21EMA-wk · 30W · 200SMA · RSI-30 · 5/20 · W/M/Q reclaim (Long); W/M/Q reject (Short · opt-in).",
-    "Notices": "Not trade signals — heads-up only. 2h candle-close pings and the hourly levels agent.",
+    "Day Trade": "The scanner signals — in and out the same session. Daily & hourly 20/200 SMA support holds, PDH breakout, PDL reclaim, PWH breakout, PWL reclaim. Nothing else fires.",
+    "Swing Trade": "Hold days into weeks — all deduped. 5/20 EMA cross · RSI-30 reclaim · 200 SMA reclaim · 200 EMA reclaim · 30-week MA bounce.",
   };
   // One toggle per signal FAMILY (category). Friendly label; fallback = the category name.
   const CAT_LABEL: Record<string, string> = {
-    "Open Bracket": "Open Bracket",
-    "4H": "4H signals",
-    "Last 4H": "Last 4H — two lines",
-    "Structural Breakout": "Structural Breakout",
+    "Scanner Levels": "Scanner signals",
     "Swing": "Swing",
-    "Candle pings": "Notices",
   };
   const grouped: Record<string, AlertTypeConfigItem[]> = {};
   for (const t of types ?? []) {
