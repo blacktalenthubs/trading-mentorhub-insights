@@ -1009,9 +1009,12 @@ export function useAddSymbol() {
       ]);
       return { prev };
     },
-    onError: (_err, _sym, ctx) => {
+    onError: (err, symbol, ctx) => {
       if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
-      toast.error("Failed to add symbol");
+      const status = (err as { status?: number })?.status;
+      if (status === 409) { toast(`${symbol} is already in your watchlist`); return; }
+      const detail = (err as { message?: string })?.message;
+      toast.error(detail || "Failed to add symbol");
     },
     onSuccess: (_data, symbol) => toast.success(`${symbol} added`),
     onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
