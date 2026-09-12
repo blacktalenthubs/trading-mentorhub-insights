@@ -9,8 +9,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ShieldCheck, ChevronDown } from "lucide-react";
-import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, type BottomWatchItem } from "../api/hooks";
+import { ShieldCheck, ChevronDown, Star } from "lucide-react";
+import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, useAddSymbol, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
@@ -140,13 +140,26 @@ type Ma20Row = { symbol: string; side: string; trigger: string; setup: string; a
 /** 20-MA Setups — names at a 20-day MA entry NOW (pullback to the MA in a trend, or a
  *  fade back to it when extended), each with entry / stop / target / R:R and a with/counter
  *  200-trend flag. Mirrors the ma20_direction Pine; populated by analytics/ma20_scan_report.py. */
+// buckets, in review order — long first, pullbacks before fades.
+const MA20_BUCKETS: { key: string; side: string; trigger: string; title: string; sub: string }[] = [
+  { key: "LONG-pullback",  side: "LONG",  trigger: "pullback", title: "Long · pullback",  sub: "rising 20-MA reclaim (support)" },
+  { key: "SHORT-pullback", side: "SHORT", trigger: "pullback", title: "Short · pullback", sub: "falling 20-MA reject (resistance)" },
+  { key: "LONG-fade",      side: "LONG",  trigger: "fade",     title: "Long · fade",      sub: "extended below → snap back to the MA" },
+  { key: "SHORT-fade",     side: "SHORT", trigger: "fade",     title: "Short · fade",     sub: "extended above → fade back to the MA" },
+];
 function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  const addSymbol = useAddSymbol();
+  const [openB, setOpenB] = useState<Set<string>>(() => new Set(MA20_BUCKETS.map((b) => b.key)));
   let parsed: { rows?: Ma20Row[]; counts?: { long: number; short: number }; universe?: number; total?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const rows = parsed?.rows ?? [];
   if (rows.length === 0) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No name is at a 20-MA entry right now — the scan runs on demand (analytics/ma20_scan_report.py).</div>;
   }
+  const byKey: Record<string, Ma20Row[]> = {};
+  for (const r of rows) { const k = `${r.side}-${r.trigger}`; (byKey[k] ??= []).push(r); }
+  const shown = MA20_BUCKETS.filter((b) => (byKey[b.key] ?? []).length > 0);
+  const toggle = (k: string) => setOpenB((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const cell = (label: string, val: number | string, tone: string) => (
     <div><div className="text-[8.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div><div className={`font-mono text-[12px] ${tone}`}>{val}</div></div>
   );
@@ -154,27 +167,32 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
     const long = x.side === "LONG";
     const pill = long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text";
     return (
-      <button key={x.symbol} onClick={() => onChart(x.symbol)} className="group text-left rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent hover:bg-surface-2/40">
+      <div key={x.symbol} className="rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
         <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[13px] font-bold text-text-primary">{x.symbol}</span>
-          <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${pill}`}>{x.side} · {x.trigger}</span>
+          <button onClick={() => onChart(x.symbol)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{x.symbol}</button>
+          <div className="flex items-center gap-1.5">
+            <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${pill}`}>{x.side} · {x.trigger}</span>
+            <button title="Add to favorites (watchlist)" aria-label={`Add ${x.symbol} to favorites`} onClick={() => addSymbol.mutate(x.symbol)} className="rounded p-1 text-text-faint transition-colors hover:bg-surface-2 hover:text-amber-400"><Star className="h-3.5 w-3.5" /></button>
+          </div>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-text-muted">
-          <span className="font-mono">{x.angle}°</span><span>·</span>
-          <span>{x.state}</span><span>·</span>
-          <span className="font-mono">{x.ext_atr >= 0 ? "+" : ""}{x.ext_atr} ATR from MA</span>
-        </div>
-        <div className="mt-2 grid grid-cols-4 gap-1.5">
-          {cell("entry", x.entry, "text-text-primary")}
-          {cell("stop", x.stop, "text-bearish-text")}
-          {cell("tgt", x.target, "text-bullish-text")}
-          {cell("r:r", `${x.rr}`, "text-text-secondary")}
-        </div>
-        <div className="mt-2 flex items-center gap-1.5 text-[9.5px]">
-          <span className={`rounded px-1.5 py-0.5 font-medium ${x.with_trend ? "bg-bullish-subtle text-bullish-text" : "bg-amber-500/15 text-amber-400"}`}>{x.with_trend ? "with 200-trend ✓" : "counter 200-trend ⚠"}</span>
-          <span className="truncate text-text-faint">{x.setup}</span>
-        </div>
-      </button>
+        <button onClick={() => onChart(x.symbol)} className="mt-1 block w-full text-left">
+          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-text-muted">
+            <span className="font-mono">{x.angle}°</span><span>·</span>
+            <span>{x.state}</span><span>·</span>
+            <span className="font-mono">{x.ext_atr >= 0 ? "+" : ""}{x.ext_atr} ATR from MA</span>
+          </div>
+          <div className="mt-2 grid grid-cols-4 gap-1.5">
+            {cell("entry", x.entry, "text-text-primary")}
+            {cell("stop", x.stop, "text-bearish-text")}
+            {cell("tgt", x.target, "text-bullish-text")}
+            {cell("r:r", `${x.rr}`, "text-text-secondary")}
+          </div>
+          <div className="mt-2 flex items-center gap-1.5 text-[9.5px]">
+            <span className={`rounded px-1.5 py-0.5 font-medium ${x.with_trend ? "bg-bullish-subtle text-bullish-text" : "bg-amber-500/15 text-amber-400"}`}>{x.with_trend ? "with 200-trend ✓" : "counter 200-trend ⚠"}</span>
+            <span className="truncate text-text-faint">{x.setup}</span>
+          </div>
+        </button>
+      </div>
     );
   };
   return (
@@ -183,8 +201,23 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
         <span className="text-[11px] font-bold text-text-secondary">{parsed?.total ?? rows.length} setup{(parsed?.total ?? rows.length) === 1 ? "" : "s"}</span>
         <span className="text-[10.5px] text-text-faint">{parsed?.counts?.long ?? 0} long · {parsed?.counts?.short ?? 0} short{parsed?.universe ? ` · scanned ${parsed.universe}` : ""}</span>
       </div>
-      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now — a pullback to the MA in a trend, or a fade back to it when extended. Educational, not financial advice.</p>
-      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{rows.map(card)}</div>
+      {shown.map((b) => {
+        const items = byKey[b.key] ?? [];
+        const isOpen = openB.has(b.key);
+        return (
+          <div key={b.key} className="overflow-hidden rounded-xl border border-border-subtle">
+            <button onClick={() => toggle(b.key)} className="flex w-full items-center gap-2 bg-surface-2/40 px-3 py-2 text-left transition-colors hover:bg-surface-2/70">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${b.side === "LONG" ? "bg-bullish-text" : "bg-bearish-text"}`} />
+              <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">{b.title}</span>
+              <span className="hidden truncate text-[10px] text-text-faint sm:inline">· {b.sub}</span>
+              <span className="ml-auto shrink-0 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] font-bold text-text-secondary">{items.length}</span>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
+            </button>
+            {isOpen && <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">{items.map(card)}</div>}
+          </div>
+        );
+      })}
+      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now, grouped by type. Tap a header to expand/collapse; ★ adds the name to your watchlist to review on the chart page. Educational, not financial advice.</p>
     </div>
   );
 }
