@@ -37,7 +37,7 @@ obBullCol= input.color(color.new(#26A69A, 80), "Bull OB", inline = "ob", group =
 obBearCol= input.color(color.new(#EF5350, 80), "Bear OB", inline = "ob", group = gOB)
 
 gFvg      = "Fair value gaps"
-showFvg   = input.bool(true, "Show FVG", group = gFvg)
+showFvg   = input.bool(false, "Show FVG (3-candle gaps — off by default; separate from order blocks)", group = gFvg)
 fvgAuto   = input.bool(true, "Auto threshold", group = gFvg, tooltip = "Auto: only gaps larger than a fraction of ATR draw (filters noise). Off: use the manual × ATR below.")
 fvgThr    = input.float(0.25, "Min gap (× ATR, manual)", minval = 0, step = 0.05, group = gFvg)
 fvgExtend = input.int(12, "Extend (bars)", minval = 0, maxval = 200, group = gFvg)
