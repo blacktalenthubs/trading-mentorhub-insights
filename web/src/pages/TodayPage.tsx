@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown, Star } from "lucide-react";
-import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, useAddSymbol, type BottomWatchItem } from "../api/hooks";
+import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, useToggleWatchlistFocus, useWatchlist, type BottomWatchItem } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
@@ -148,7 +148,9 @@ const MA20_BUCKETS: { key: string; side: string; trigger: string; title: string;
   { key: "SHORT-fade",     side: "SHORT", trigger: "fade",     title: "Short · fade",     sub: "extended above → fade back to the MA" },
 ];
 function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  const addSymbol = useAddSymbol();
+  const toggleFocus = useToggleWatchlistFocus();
+  const { data: wl } = useWatchlist();
+  const focused = new Set((wl ?? []).filter((w) => w.focus).map((w) => w.symbol));
   const [openB, setOpenB] = useState<Set<string>>(() => new Set(MA20_BUCKETS.map((b) => b.key)));
   let parsed: { rows?: Ma20Row[]; counts?: { long: number; short: number }; universe?: number; total?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
@@ -172,7 +174,9 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
           <button onClick={() => onChart(x.symbol)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{x.symbol}</button>
           <div className="flex items-center gap-1.5">
             <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${pill}`}>{x.side} · {x.trigger}</span>
-            <button title="Add to favorites (watchlist)" aria-label={`Add ${x.symbol} to favorites`} onClick={() => addSymbol.mutate(x.symbol)} className="rounded p-1 text-text-faint transition-colors hover:bg-surface-2 hover:text-amber-400"><Star className="h-3.5 w-3.5" /></button>
+            {(() => { const isFav = focused.has(x.symbol); return (
+              <button title={isFav ? `${x.symbol} in Focus — click to remove` : `Add ${x.symbol} to Focus`} aria-label={isFav ? `Remove ${x.symbol} from Focus` : `Add ${x.symbol} to Focus`} onClick={() => toggleFocus.mutate(x.symbol)} className={`rounded p-1 transition-colors hover:bg-surface-2 ${isFav ? "text-amber-400" : "text-text-faint hover:text-amber-400"}`}><Star className={`h-3.5 w-3.5 ${isFav ? "fill-amber-400" : ""}`} /></button>
+            ); })()}
           </div>
         </div>
         <button onClick={() => onChart(x.symbol)} className="mt-1 block w-full text-left">
@@ -217,7 +221,7 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
           </div>
         );
       })}
-      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now, grouped by type. Tap a header to expand/collapse; ★ adds the name to your watchlist to review on the chart page. Educational, not financial advice.</p>
+      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now, grouped by type. Tap a header to expand/collapse; ★ adds the name to your Focus list (the ★ tab on the Trading page) to review later. Educational, not financial advice.</p>
     </div>
   );
 }
