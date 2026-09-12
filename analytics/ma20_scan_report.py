@@ -44,6 +44,10 @@ NEAR_ATR   = 0.5     # |price - MA| ≤ this many ATRs = at the MA (pullback can
 STOP_BUF   = 0.5     # stop this many ATRs beyond the MA / entry
 TGT_EXT    = 3.0     # trend target = this many ATRs of extension out of the MA
 RR_FLOOR   = 1.5     # keep only setups with reward:risk ≥ this
+SIDE_TOL   = 0.2     # a pullback must be on the RIGHT side of the MA: a short only when
+                     # price is ≤ this many ATRs ABOVE a falling MA (rejecting it as
+                     # resistance), a long only when ≤ this many ATRs BELOW a rising MA
+                     # (holding it as support). Price the wrong side = not that setup.
 
 
 def _atr(df: pd.DataFrame, n: int) -> pd.Series:
@@ -102,9 +106,17 @@ def compute_ma20_setup(symbol: str, df: pd.DataFrame) -> Optional[dict]:
         side, trig, setup = "LONG", "fade", "snap to MA (extended below)"
         entry, stop, tgt = c, c - stop_buf, m
     elif not up:
+        # falling MA → short pullback, but ONLY if price is at/below it (rejecting the MA
+        # as resistance). Price ABOVE a falling MA = a reclaim, not a short.
+        if ext_atr > SIDE_TOL:
+            return None
         side, trig, setup = "SHORT", "pullback", "pullback to falling MA (resistance)"
         entry, stop, tgt = m, m + stop_buf, m - tgt_ext
     else:
+        # rising MA → long pullback, but ONLY if price is at/above it (holding support).
+        # Price BELOW a rising MA = support broke, not a long.
+        if ext_atr < -SIDE_TOL:
+            return None
         side, trig, setup = "LONG", "pullback", "pullback to rising MA (support)"
         entry, stop, tgt = m, m - stop_buf, m + tgt_ext
 
