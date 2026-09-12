@@ -727,7 +727,9 @@ async def seed_alert_type_config(conn) -> None:
     no longer drives the global flag. Existing rows are NOT downgraded (an admin
     who globally muted a type keeps that), so this only heals new/re-added rows.
     """
+    catalog_keys: set[str] = set()
     for alert_type, label, category, _default_enabled in ALERT_TYPE_CATALOG:
+        catalog_keys.add(alert_type)
         await conn.execute(
             text(
                 "INSERT INTO alert_type_config (alert_type, label, category, enabled) "
@@ -737,17 +739,24 @@ async def seed_alert_type_config(conn) -> None:
             ),
             {"at": alert_type, "label": label, "cat": category},
         )
-    for obsolete in OBSOLETE_ALERT_TYPES:
-        await conn.execute(
-            text("DELETE FROM alert_type_config WHERE alert_type = :at"),
-            {"at": obsolete},
-        )
-        # Also drop every user's opt-in for a retired type. The webhook gates Pine
-        # types on the catalog (a missing row = unknown_type = no delivery), but the
-        # SCHEDULED push notices (candle pings, hourly levels agent) gate ONLY on
-        # user_alert_type_prefs — so a lingering enabled pref would keep delivering
-        # a type that no longer exists in Settings. Purging the pref closes that path.
-        await conn.execute(
-            text("DELETE FROM user_alert_type_prefs WHERE alert_type = :at"),
-            {"at": obsolete},
-        )
+
+    # AUTHORITATIVE prune (2026-09-12): the table must MIRROR ALERT_TYPE_CATALOG, not
+    # just drop the hand-listed OBSOLETE_ALERT_TYPES. The old additive seed left any row
+    # that was seeded by a PAST version of the catalog but never added to the obsolete
+    # list — e.g. the 38 stale "Scanner Levels" rows (ema_bounce_*, ma_reclaim_8/21/50,
+    # wema_*, pqh_reclaim, …) from when ENABLED_RULES was large. They lingered forever
+    # and showed as "46 signals" in Settings. So delete EVERY config row (and its user
+    # prefs) whose type is not in the current catalog — one query, no key list to
+    # maintain. Purging prefs also closes the scheduled-push path (candle pings / hourly
+    # levels agent gate ONLY on user_alert_type_prefs, so a lingering opt-in would keep
+    # delivering a retired type). Done per-row for SQLite/Postgres param portability.
+    _existing = (await conn.execute(text("SELECT alert_type FROM alert_type_config"))).fetchall()
+    _stale = [row[0] for row in _existing if row[0] not in catalog_keys]
+    for _at in _stale:
+        await conn.execute(text("DELETE FROM alert_type_config WHERE alert_type = :at"), {"at": _at})
+    # Sweep prefs independently — a pref row can outlive its config row (or never have
+    # had one), so key off the prefs table's own contents, not just _stale above.
+    _pref_types = (await conn.execute(text("SELECT DISTINCT alert_type FROM user_alert_type_prefs"))).fetchall()
+    for row in _pref_types:
+        if row[0] not in catalog_keys:
+            await conn.execute(text("DELETE FROM user_alert_type_prefs WHERE alert_type = :at"), {"at": row[0]})
