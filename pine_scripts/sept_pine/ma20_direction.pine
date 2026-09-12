@@ -39,6 +39,7 @@ len200  = input.int(200, "Length", minval = 20, group = gL)
 col200U = input.color(#2E7D32, "Rising", inline = "c2", group = gL)
 col200D = input.color(#B71C1C, "Falling", inline = "c2", group = gL)
 w200    = input.int(2, "Width", minval = 1, maxval = 6, group = gL)
+hide200 = input.float(10, "Hide the 200 line when it's beyond ± % of price (0 = always show)", minval = 0, maxval = 50, step = 0.5, group = gL, tooltip = "When the 200 SMA is farther than this % from price it's HIDDEN from the chart (a far 200 just compresses the price scale) — but it still drives the HUD's 200-trend read and the with/counter-trend flag. 0 = always draw.") / 100.0
 
 // ── slope / angle ─────────────────────────────────────────────────────────────
 gS      = "Slope / angle"
@@ -84,6 +85,7 @@ enPmh  = input.bool(true, "PMH", inline = "pm", group = gLv)
 enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
 lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
 lvLoCol= input.color(color.new(#26A69A, 0), "Low color",  group = gLv)
+lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gLv, tooltip = "The level lines extend LEFT across history and END at this column right of the last bar, where the tag sits — so labels land in clear space, not on the candles (same idiom as the other level pines).")
 
 // ── compute — LOCKED to `lockTf` (default Daily). One request.security pulls the MA,
 //    its value `slopeLb` bars back, ATR, ATR's own average, the 200 SMA and its lag —
@@ -160,7 +162,9 @@ _rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
 rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
 align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
 
-plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
+// hide the 200 line when price is far from it (% band) — it still drives the HUD read.
+_far200 = hide200 > 0 and not na(ma200) and close != 0 and math.abs(close - ma200) / close > hide200
+plot(en200 and not _far200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 plot(ma, "20 MA", color = maCol, linewidth = maW)
 // queryable data (Data Window / data_get_study_values), no chart clutter
 plot(angle,  "MA angle (deg)",     display = display.data_window)
@@ -229,13 +233,15 @@ f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
     line  _l = ln
     label _b = lb
     if on and not na(px)
+        // house idiom: extend LEFT across history, terminate at a tag column on the right
+        // where the label sits (like pdh_pdl_8d / weekly_stage) — tag never covers price.
         if na(_l)
-            _l := line.new(bar_index - 1, px, bar_index, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.right)
-            _b := label.new(bar_index, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
+            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.left)
+            _b := label.new(bar_index + lvTagOff, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
         else
-            line.set_xy1(_l, bar_index - 1, px)
-            line.set_xy2(_l, bar_index, px)
-            label.set_xy(_b, bar_index, px)
+            line.set_xy1(_l, bar_index, px)
+            line.set_xy2(_l, bar_index + lvTagOff, px)
+            label.set_xy(_b, bar_index + lvTagOff, px)
             label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
     else
         if not na(_l)
