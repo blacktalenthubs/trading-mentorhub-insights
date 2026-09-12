@@ -42,7 +42,7 @@ w200    = input.int(2, "Width", minval = 1, maxval = 6, group = gL)
 // Auto-hide the 50/200 when they'd compress the chart — see the "Declutter" group.
 hideFar  = input.bool(true, "Auto-hide 50 / 200 when they'd compress the chart", group = "Declutter", tooltip = "A far 50/200 drags the price scale and squashes the candles — worst on a zoomed-in intraday chart, where the daily 200 can sit way below the visible range. This hides a line when it's farther from price than N× the RECENT range (below), so it stays on a daily chart (big range) but drops out when you zoom in (small range). The 200 still drives the HUD read either way. Off = always draw.")
 hideMult = input.float(1.0, "  ... farther than N× the recent visible range", minval = 0.2, maxval = 6, step = 0.1, group = "Declutter")
-hideLook = input.int(150, "  Recent range = highest−lowest over N bars", minval = 20, maxval = 500, group = "Declutter")
+hideLook = input.int(30, "  Recent range = highest−lowest over N bars", minval = 5, maxval = 500, group = "Declutter", tooltip = "Keep this SHORT (≈ the candles currently on screen). A long window folds in a prior run-up, so a 200 sitting at the bottom of that run reads as 'within range' and won't hide — even though it's far below where price is trading NOW. 30 ≈ the current cluster.")
 
 // ── mid-term trend (50 SMA) — CONTEXT only; entries stay on the 20 ─────────────
 gL50    = "Mid-term trend (50 SMA)"
