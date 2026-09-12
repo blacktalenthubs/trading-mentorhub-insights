@@ -172,6 +172,11 @@ from analytics.market_hours import (
     get_session_phase_for_symbol,
 )
 
+# 20/200 MA support scanner (2026-09-12): "rising" for the daily/hourly 20 SMA means the
+# MA's slope-angle (deg, ATR-normalised — the ma20_direction read) is at least this. 30 =
+# ideal-and-up; skips a flat/shallow 20 drifting sideways. See scanner_ma20_support_spec.md.
+MA_RISE_ANGLE_MIN = 30.0
+
 
 class AlertType(str, Enum):
     MA_BOUNCE_20 = "ma_bounce_20"
@@ -306,6 +311,9 @@ class AlertType(str, Enum):
     MA_RECLAIM_50 = "ma_reclaim_50"
     MA_RECLAIM_100 = "ma_reclaim_100"
     MA_RECLAIM_200 = "ma_reclaim_200"
+    # 20/200 support scanner — hourly 20 (rising) / 200 SMA support holds.
+    MA20_SUPPORT_1H = "ma20_support_1h"
+    MA200_SUPPORT_1H = "ma200_support_1h"
     # Phase 3b — EMA8 / EMA21 reclaim variants (final set 8/21/50/100/200).
     EMA_RECLAIM_8 = "ema_reclaim_8"
     EMA_RECLAIM_21 = "ema_reclaim_21"
@@ -8200,6 +8208,67 @@ def compute_spy_gate(spy_bars: pd.DataFrame, spy_vwap: pd.Series | None) -> dict
     return result
 
 
+def check_ma_support_1h(
+    symbol: str,
+    bars,
+    ma_len: int,
+    alert_type: "AlertType",
+    label: str,
+    require_rising: bool,
+    prox_pct: float = 0.006,
+    stop_off: float = 0.007,
+):
+    """HOURLY 20/200 SMA support hold — the 1h version of the daily reclaim, from raw
+    hourly bars (20/200 support scanner). Fires when the LAST completed hourly bar CLOSED
+    above the MA, its low came to the MA (a touch within prox_pct), and it either OPENED
+    above the MA (open-above hold) or wicked below and reclaimed. For the 20, also require
+    the hourly 20 to be RISING (angle ≥ MA_RISE_ANGLE_MIN). Returns an AlertSignal or None.
+    Pure over `bars` (a daily/OHLC frame) — defensive, never raises on bad data."""
+    try:
+        if bars is None or len(bars) < ma_len + 6:
+            return None
+        close = bars["Close"].astype(float)
+        ma_s = close.rolling(ma_len).mean()
+        ma = float(ma_s.iloc[-1])
+        if math.isnan(ma) or ma <= 0:
+            return None
+        o = float(bars["Open"].iloc[-1])
+        l = float(bars["Low"].iloc[-1])
+        c = float(bars["Close"].iloc[-1])
+        near = abs(l - ma) / ma <= prox_pct
+        held = c > ma
+        open_above = o >= ma
+        reclaimed = l < ma and c > ma
+        if not (held and near and (open_above or reclaimed)):
+            return None
+        if require_rising:
+            if len(ma_s) < 6 or pd.isna(ma_s.iloc[-6]):
+                return None
+            h = bars["High"].astype(float)
+            prev = close.shift(1)
+            tr = pd.concat([(h - bars["Low"].astype(float)), (h - prev).abs(),
+                            (bars["Low"].astype(float) - prev).abs()], axis=1).max(axis=1)
+            atr = float(tr.rolling(14).mean().iloc[-1])
+            if atr is None or math.isnan(atr) or atr <= 0:
+                return None
+            angle = math.degrees(math.atan(((ma - float(ma_s.iloc[-6])) / 5.0) / (atr * 0.15)))
+            if angle < MA_RISE_ANGLE_MIN:
+                return None
+        entry = round(ma, 2)
+        stop = round(ma * (1 - stop_off), 2)
+        risk = entry - stop
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol, alert_type=alert_type, direction="BUY", price=c,
+            entry=entry, stop=stop, target_1=round(entry + 2 * risk, 2),
+            target_2=round(entry + 3 * risk, 2), confidence="high",
+            message=f"{label} — price holding the hourly {label} as support",
+        )
+    except Exception:
+        return None
+
+
 def evaluate_rules(
     symbol: str,
     intraday_bars: pd.DataFrame,
@@ -8923,6 +8992,10 @@ def evaluate_rules(
         ]
         for _at, _ma, _label in _reclaim_pairs:
             if _at.value in ENABLED_RULES and _ma:
+                # Daily-20 support only fires when the 20 is RISING (angle ≥ threshold) —
+                # a flat 20 drifting up isn't the setup (20/200 support scanner).
+                if _at == AlertType.MA_RECLAIM_20 and (prior_day.get("ma20_angle") or 0.0) < MA_RISE_ANGLE_MIN:
+                    continue
                 # OPEN-ABOVE reclaim (redesign): today opened above the level,
                 # wicked to it, closed back above — the level was SUPPORT, not
                 # resistance being ramped into. Replaces the old cross-up

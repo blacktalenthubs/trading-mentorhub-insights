@@ -32,6 +32,24 @@ logger = logging.getLogger("intraday_data")
 ET = pytz.timezone("US/Eastern")
 
 
+def _ma_angle_deg(hist: pd.DataFrame, col: str, last_name, atr14, lb: int = 5, scale45: float = 0.15) -> float:
+    """Scale-free slope of a daily MA at row `last_name`, in DEGREES — the same read as
+    the ma20_direction Pine: the MA's rise over `lb` bars, in ATRs/bar, via atan. 0.0 on
+    any missing data. Used to gate the daily-20 support rule on the 20 actually RISING."""
+    import math
+    try:
+        pos = hist.index.get_loc(last_name)
+        if pos - lb < 0 or atr14 is None or atr14 <= 0:
+            return 0.0
+        now = hist[col].iloc[pos]
+        ago = hist[col].iloc[pos - lb]
+        if pd.isna(now) or pd.isna(ago):
+            return 0.0
+        return math.degrees(math.atan(((now - ago) / lb) / (atr14 * scale45)))
+    except Exception:
+        return 0.0
+
+
 def _compute_adx(daily_df: pd.DataFrame, period: int = 14) -> pd.Series:
     """Compute ADX from daily OHLC DataFrame using Wilder's smoothing."""
     high = daily_df["High"]
@@ -1160,6 +1178,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "ema50": ema50, "ema100": ema100, "ema200": ema200,
                     # Phase 4a — daily ATR(14) for structural-target floor.
                     "atr_daily": float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None,
+                    # 20/200 support scanner — daily MA slope (deg) to gate "rising".
+                    "ma20_angle": _ma_angle_deg(hist, "MA20", last.name, float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None),
+                    "ma200_angle": _ma_angle_deg(hist, "MA200", last.name, float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None),
                     "pattern": pattern, "direction": direction,
                     "is_inside": is_inside,
                     "parent_high": prev["High"], "parent_low": prev["Low"],
@@ -1425,6 +1446,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ema50": ema50,
             # Phase 4a — daily ATR(14) for structural-target floor.
             "atr_daily": float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None,
+            # 20/200 support scanner — daily MA slope (deg) to gate "rising".
+            "ma20_angle": _ma_angle_deg(hist, "MA20", last.name, float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None),
+            "ma200_angle": _ma_angle_deg(hist, "MA200", last.name, float(last["ATR14"]) if pd.notna(last.get("ATR14")) else None),
             "ema100": ema100,
             "ema200": ema200,
             "pattern": pattern,
