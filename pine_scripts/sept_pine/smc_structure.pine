@@ -1,0 +1,90 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// SMC · MARKET STRUCTURE — our own Break-of-Structure / Change-of-Character engine
+// ─────────────────────────────────────────────────────────────────────────────
+// The core of "Smart Money Concepts": it tracks swing highs & lows (pivots) and
+// marks when price BREAKS one —
+//   • BOS  (Break of Structure)   = a break WITH the current trend (continuation):
+//                                   an uptrend takes out its last swing high, or a
+//                                   downtrend takes out its last swing low.
+//   • CHoCH (Change of Character) = a break AGAINST the current trend (early reversal):
+//                                   a downtrend closes back above its last swing high,
+//                                   or an uptrend closes below its last swing low.
+// Optional swing-point tags (HH / HL / LH / LL) label each pivot's relation to the
+// prior one, so the trend reads at a glance. Built from the concepts (not LuxAlgo's
+// code) so you control every input. Non-repainting: a pivot is confirmed `len` bars
+// after it forms, and a break is judged on the CLOSE.
+//
+// NEXT LAYERS (say the word): internal structure (2nd pivot size), strong/weak
+// high-low, order blocks, fair value gaps, equal highs/lows, MTF levels.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("SMC · Market Structure", "SMC-struct", overlay = true, max_lines_count = 200, max_labels_count = 300)
+
+// ── inputs ────────────────────────────────────────────────────────────────────
+gS    = "Swing structure"
+len   = input.int(20, "Swing length (pivot strength, bars each side)", minval = 3, maxval = 100, group = gS, tooltip = "A bar is a swing high/low when its high/low is the most extreme across this many bars on EACH side. Higher = only the major swings; lower = every local one.")
+showS = input.bool(true, "Show BOS / CHoCH breaks", group = gS)
+bull  = input.color(#26A69A, "Bullish", inline = "c", group = gS)
+bear  = input.color(#EF5350, "Bearish", inline = "c", group = gS)
+lblSz = input.string("small", "Break label size", options = ["tiny", "small", "normal"], group = gS)
+extendBreak = input.bool(false, "Extend broken-level lines to the right", group = gS)
+
+gP    = "Swing points"
+showP = input.bool(true, "Mark swing points (HH / HL / LH / LL)", group = gP)
+ptCol = input.color(color.new(#787B86, 0), "Swing-point color", group = gP)
+
+_sz = lblSz == "tiny" ? size.tiny : lblSz == "normal" ? size.normal : size.small
+
+// ── pivots (confirmed `len` bars back — non-repainting) ─────────────────────────
+ph = ta.pivothigh(len, len)
+pl = ta.pivotlow(len, len)
+
+// ── swing-point tags: each new pivot vs the previous same-side pivot ─────────────
+var float prevPH = na
+var float prevPL = na
+if not na(ph)
+    _t = na(prevPH) ? "" : (ph > prevPH ? "HH" : "LH")
+    if showP and _t != ""
+        label.new(bar_index - len, ph, _t, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(ptCol, 100), textcolor = ptCol, size = size.tiny)
+    prevPH := ph
+if not na(pl)
+    _t = na(prevPL) ? "" : (pl > prevPL ? "HL" : "LL")
+    if showP and _t != ""
+        label.new(bar_index - len, pl, _t, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(ptCol, 100), textcolor = ptCol, size = size.tiny)
+    prevPL := pl
+
+// ── structure state: the last swing high/low we're watching to break, + trend ────
+var float shPrice = na   // last swing high price (level to break UP through)
+var int   shBar   = na
+var float slPrice = na   // last swing low price  (level to break DOWN through)
+var int   slBar   = na
+var int   trend   = 0    // +1 bullish · -1 bearish · 0 undetermined
+
+if not na(ph)
+    shPrice := ph
+    shBar   := bar_index - len
+if not na(pl)
+    slPrice := pl
+    slBar   := bar_index - len
+
+// break UP through the last swing high → BOS (if already bullish) or CHoCH (if bearish)
+if not na(shPrice) and close > shPrice
+    _choch = trend < 0
+    _txt   = _choch ? "CHoCH" : "BOS"
+    if showS
+        _x0 = na(shBar) ? bar_index - 1 : shBar
+        line.new(_x0, shPrice, bar_index, shPrice, xloc = xloc.bar_index, color = bull, width = 1, style = line.style_dashed, extend = extendBreak ? extend.right : extend.none)
+        label.new(math.max(bar_index - 1, int(math.avg(_x0, bar_index))), shPrice, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(bull, 90), textcolor = bull, size = _sz)
+    trend   := 1
+    shPrice := na        // consumed — wait for the next swing high to form
+
+// break DOWN through the last swing low → BOS (if already bearish) or CHoCH (if bullish)
+if not na(slPrice) and close < slPrice
+    _choch = trend > 0
+    _txt   = _choch ? "CHoCH" : "BOS"
+    if showS
+        _x0 = na(slBar) ? bar_index - 1 : slBar
+        line.new(_x0, slPrice, bar_index, slPrice, xloc = xloc.bar_index, color = bear, width = 1, style = line.style_dashed, extend = extendBreak ? extend.right : extend.none)
+        label.new(math.max(bar_index - 1, int(math.avg(_x0, bar_index))), slPrice, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(bear, 90), textcolor = bear, size = _sz)
+    trend   := -1
+    slPrice := na
