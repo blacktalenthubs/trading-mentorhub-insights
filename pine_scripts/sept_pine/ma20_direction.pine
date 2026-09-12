@@ -14,9 +14,12 @@
 // It also reads the stock's EXTENSION (how far price is stretched from the 20MA in
 // ATRs — beyond a threshold = EXTENDED, snap-back likely), flags COILING (flat MA +
 // contracting ATR → volatility expansion), and shows the 200 SMA for long-term
-// trend context. From all that it builds a SETUP on the 20: pull back to a rising
-// MA (long, support) or a falling MA (short, resistance); or, when extended, fade
-// back to the MA — each with Entry / Stop (beyond the MA) / Target (extension) and
+// trend context. From all that it builds a SETUP on the 20: LONG only when the MA
+// is RISING and price is at/above it (reclaim/hold of support); SHORT when the MA
+// is FALLING and price rallies to it and rejects (resistance), or when price is
+// very EXTENDED ABOVE the MA (fade the snap-back down). Extended BELOW a falling MA
+// is NOT a long — you wait for the rally to the MA to short. Each carries an
+// Entry / Stop (beyond the MA) / Target (extension) and
 // a Risk:Reward that flags whether it's WITH or COUNTER the 200 trend. A clean
 // labeled HUD lays it out; angle, %-slope, extension, and R:R go to the Data Window.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,6 +58,7 @@ coilPct = input.float(0.85, "Coiling when ATR < (× its 20-bar avg)", minval = 0
 gT      = "Setup / risk-reward"
 stopBuf = input.float(0.5, "Stop buffer beyond the MA / entry (× ATR)", minval = 0.1, maxval = 3, step = 0.1, group = gT, tooltip = "How far past the moving average (trend pullback) or past the entry (extended fade) the stop sits, in ATRs. The MA is the line you're wrong below/above.")
 tgtExt  = input.float(3.0, "Trend target — extension from the MA (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gT, tooltip = "For a trend pullback (long a rising MA / short a falling MA), the target is this many ATRs of EXTENSION away from the MA — how far the move tends to stretch. For an EXTENDED fade, the target is the MA itself (the magnet).")
+sideTol = input.float(0.2, "Pullback side tolerance (× ATR)", minval = 0.0, maxval = 1, step = 0.05, group = gT, tooltip = "A pullback must be on the RIGHT side of the MA: a long only when price is at/above the rising MA (holding support), a short only when price is at/below the falling MA (rejecting resistance). This allows price to be this many ATRs the wrong side (a wick) before the setup is voided.")
 
 // ── colors ────────────────────────────────────────────────────────────────────
 gV      = "Colors by state"
@@ -115,26 +119,26 @@ float entry = na
 float stop  = na
 float tgt   = na
 if _extended and extAtr > 0
+    // very extended ABOVE the MA → fade the snap-back down to the MA
     sdir  := "SHORT"
-    setup := "fade to MA (extended above)"
+    setup := "extended above → fade to the MA"
     entry := close
     stop  := close + _stopBuf
     tgt   := ma
-else if _extended
-    sdir  := "LONG"
-    setup := "snap to MA (extended below)"
-    entry := close
-    stop  := close - _stopBuf
-    tgt   := ma
-else if _dn
+else if (not _extended) and _dn and extAtr <= sideTol
+    // falling MA → SHORT the rejection AT the MA (resistance). Only when price is at/below
+    // the MA — price above a falling MA is a reclaim, not a short. (Extended BELOW a falling
+    // MA is NOT a long — it matches no branch, so no setup; you wait for the rally to short.)
     sdir  := "SHORT"
-    setup := "pullback to falling MA (resistance)"
+    setup := "rejection at the falling MA (resistance)"
     entry := ma
     stop  := ma + _stopBuf
     tgt   := ma - _tgtExt
-else if _up
+else if (not _extended) and _up and extAtr >= -sideTol
+    // rising MA → LONG the reclaim/hold AT the MA (support). Only when price is at/above it —
+    // price below a rising MA is broken support, not a long.
     sdir  := "LONG"
-    setup := "pullback to rising MA (support)"
+    setup := "reclaim / hold of the rising MA (support)"
     entry := ma
     stop  := ma - _stopBuf
     tgt   := ma + _tgtExt
