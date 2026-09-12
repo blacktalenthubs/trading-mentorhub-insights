@@ -134,6 +134,8 @@ export function formatSetup(alertType?: string): string {
     // shows. Without these the card falls back to raw title-case.
     prior_day_low_reclaim: "PDL reclaim",
     prior_day_high_breakout: "PDH breakout",
+    ma20_support_1h: "20 SMA (1h) support",
+    ma200_support_1h: "200 SMA (1h) support",
     pdh_retest_hold: "PDH retest / hold",
     multi_day_double_bottom: "Double bottom",
     pdh_rejection: "PDH liquidity grab",
@@ -290,6 +292,9 @@ export function setupBlurb(alertType?: string): string {
 const SCANNER_ENTRY_TYPES = new Set([
   "prior_day_low_reclaim",
   "prior_day_high_breakout",
+  // 20/200 support scanner — hourly 20 (rising) / 200 SMA support holds.
+  "ma20_support_1h",
+  "ma200_support_1h",
   "pdh_retest_hold",
   "multi_day_double_bottom",
   // Gap-and-go — momentum gap that opened above every daily MA (2026-09-10).

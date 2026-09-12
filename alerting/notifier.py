@@ -208,6 +208,8 @@ _SETUP_NAMES: dict[str, str] = {
     "weekly_10w_reclaim": "10-week MA reclaim",
     "weekly_30w_held": "30-week MA support hold",
     "weekly_30w_reclaim": "30-week MA reclaim",
+    "ma20_support_1h": "20 SMA (1h) support",
+    "ma200_support_1h": "200 SMA (1h) support",
     "pwh_reclaim": "Prior-week high hold",
     "pwl_reclaim": "Prior-week low hold",
     "pmh_reclaim": "Prior-month high hold",
