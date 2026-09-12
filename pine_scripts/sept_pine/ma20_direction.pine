@@ -41,6 +41,15 @@ col200D = input.color(#B71C1C, "Falling", inline = "c2", group = gL)
 w200    = input.int(2, "Width", minval = 1, maxval = 6, group = gL)
 hide200 = input.float(10, "Hide the 200 line when it's beyond ± % of price (0 = always show)", minval = 0, maxval = 50, step = 0.5, group = gL, tooltip = "When the 200 SMA is farther than this % from price it's HIDDEN from the chart (a far 200 just compresses the price scale) — but it still drives the HUD's 200-trend read and the with/counter-trend flag. 0 = always draw.") / 100.0
 
+// ── mid-term trend (50 SMA) — CONTEXT only; entries stay on the 20 ─────────────
+gL50    = "Mid-term trend (50 SMA)"
+en50    = input.bool(true, "Show the 50 SMA (context)", group = gL50, tooltip = "The 50 is drawn for mid-term trend context between the 20 and the 200. Colored by its own direction. Locked to the same timeframe as the 20. The entry read stays on the 20.")
+len50   = input.int(50, "Length", minval = 5, group = gL50)
+col50U  = input.color(#66BB6A, "Rising", inline = "c50", group = gL50)
+col50D  = input.color(#EF9A9A, "Falling", inline = "c50", group = gL50)
+w50     = input.int(2, "Width", minval = 1, maxval = 6, group = gL50)
+hide50  = input.float(0, "Hide the 50 line when it's beyond ± % of price (0 = always show)", minval = 0, maxval = 50, step = 0.5, group = gL50) / 100.0
+
 // ── slope / angle ─────────────────────────────────────────────────────────────
 gS      = "Slope / angle"
 slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure the MA's rise over this many bars — smooths out single-bar noise so the angle isn't jumpy.")
@@ -94,8 +103,9 @@ f_ma20() =>
     _m  = maType == "EMA" ? ta.ema(close, maLen) : ta.sma(close, maLen)
     _a  = ta.atr(atrLen)
     _m2 = ta.sma(close, len200)
-    [_m, _m[slopeLb], _a, ta.sma(_a, 20), _m2, _m2[slopeLb]]
-[ma, maLb, atr, atrAvg, ma200, ma200Lb] = request.security(syminfo.tickerid, lockTf, f_ma20(), lookahead = barmerge.lookahead_off)
+    _m5 = ta.sma(close, len50)
+    [_m, _m[slopeLb], _a, ta.sma(_a, 20), _m2, _m2[slopeLb], _m5, _m5[slopeLb]]
+[ma, maLb, atr, atrAvg, ma200, ma200Lb, ma50, ma50Lb] = request.security(syminfo.tickerid, lockTf, f_ma20(), lookahead = barmerge.lookahead_off)
 // rise per bar over the lookback, normalised to ATRs/bar, then to a degree angle.
 perBar = (ma - maLb) / slopeLb
 angle  = na(atr) or atr == 0 or na(ma) or na(maLb) ? 0.0 : math.todegrees(math.atan(perBar / (atr * scale45)))
@@ -122,6 +132,8 @@ _coiling = _absA <= flatThr and not na(atrAvg) and atrAvg > 0 and atr < atrAvg *
 // ── long-term trend context (200 SMA — also locked to lockTf) ──
 _200up  = not na(ma200) and not na(ma200Lb) and ma200 > ma200Lb
 col200  = _200up ? col200U : col200D
+_50up   = not na(ma50) and not na(ma50Lb) and ma50 > ma50Lb
+col50   = _50up ? col50U : col50D
 ltTrend = na(ma200) ? "—" : (close >= ma200 ? "UP · above 200" : "DOWN · below 200")
 
 // ── SETUP + risk-reward. Entry is on the 20: pull back to it in a trend, or fade
@@ -165,6 +177,8 @@ align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHOR
 // hide the 200 line when price is far from it (% band) — it still drives the HUD read.
 _far200 = hide200 > 0 and not na(ma200) and close != 0 and math.abs(close - ma200) / close > hide200
 plot(en200 and not _far200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
+_far50  = hide50 > 0 and not na(ma50) and close != 0 and math.abs(close - ma50) / close > hide50
+plot(en50 and not _far50 ? ma50 : na, "50 SMA", color = col50, linewidth = w50)
 plot(ma, "20 MA", color = maCol, linewidth = maW)
 // queryable data (Data Window / data_get_study_values), no chart clutter
 plot(angle,  "MA angle (deg)",     display = display.data_window)
