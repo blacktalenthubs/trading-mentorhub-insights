@@ -100,24 +100,26 @@ def compute_ma20_setup(symbol: str, df: pd.DataFrame) -> Optional[dict]:
     stop_buf = STOP_BUF * atr
     tgt_ext  = TGT_EXT * atr
     if extended and ext_atr > 0:
-        side, trig, setup = "SHORT", "fade", "fade to MA (extended above)"
+        # very extended ABOVE the MA → fade the snap-back down to the MA.
+        side, trig, setup = "SHORT", "fade", "extended above → fade to the 20 MA"
         entry, stop, tgt = c, c + stop_buf, m
     elif extended:
-        side, trig, setup = "LONG", "fade", "snap to MA (extended below)"
-        entry, stop, tgt = c, c - stop_buf, m
+        # very extended BELOW a (falling) MA — NOT a long. In a downtrend you wait for the
+        # rally back UP to the falling MA to short; there's no entry down here.
+        return None
     elif not up:
-        # falling MA → short pullback, but ONLY if price is at/below it (rejecting the MA
-        # as resistance). Price ABOVE a falling MA = a reclaim, not a short.
+        # falling MA → SHORT the rejection AT the MA (resistance). Price rallies up to the
+        # falling MA and rejects. Only valid when price is at/below it — above = a reclaim.
         if ext_atr > SIDE_TOL:
             return None
-        side, trig, setup = "SHORT", "pullback", "pullback to falling MA (resistance)"
+        side, trig, setup = "SHORT", "pullback", "rejection at the falling 20 MA (resistance)"
         entry, stop, tgt = m, m + stop_buf, m - tgt_ext
     else:
-        # rising MA → long pullback, but ONLY if price is at/above it (holding support).
-        # Price BELOW a rising MA = support broke, not a long.
+        # rising MA → LONG the reclaim/hold AT the MA (support). Price must be at/above the
+        # rising MA (holding it). Below a rising MA = support broke, not a long.
         if ext_atr < -SIDE_TOL:
             return None
-        side, trig, setup = "LONG", "pullback", "pullback to rising MA (support)"
+        side, trig, setup = "LONG", "pullback", "reclaim / hold of the rising 20 MA (support)"
         entry, stop, tgt = m, m - stop_buf, m + tgt_ext
 
     risk = abs(entry - stop)
