@@ -29,7 +29,7 @@ indicator("20 MA · Direction & Slope", "20MA-dir", overlay = true)
 gM     = "Moving average"
 maLen  = input.int(20, "Length", minval = 2, group = gM)
 maType = input.string("SMA", "Type", options = ["SMA", "EMA"], group = gM)
-src    = input.source(close, "Source", group = gM)
+lockTf = input.timeframe("D", "Lock to timeframe", group = gM, tooltip = "Compute the MA, slope, 200 SMA and ATR on THIS timeframe (default Daily) via request.security — so on a LOWER chart TF the read still REFLECTS the daily 20-MA (drawn stepped/flat within each day). Non-repainting (lookahead off).")
 maW    = input.int(2, "Line width", minval = 1, maxval = 6, group = gM)
 
 // ── long-term trend (200 SMA) — CONTEXT only; entries stay on the 20 ──────────
@@ -76,13 +76,28 @@ enHud  = input.bool(true, "Show HUD", group = gH)
 hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
 hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
 
-// ── compute ───────────────────────────────────────────────────────────────────
-ma  = maType == "EMA" ? ta.ema(src, maLen) : ta.sma(src, maLen)
-atr = ta.atr(atrLen)
+// ── prior levels — PDH / PDL / PMH / PML ────────────────────────────────────────
+gLv    = "Prior levels"
+enPdh  = input.bool(true, "PDH", inline = "pd", group = gLv)
+enPdl  = input.bool(true, "PDL", inline = "pd", group = gLv)
+enPmh  = input.bool(true, "PMH", inline = "pm", group = gLv)
+enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
+lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
+lvLoCol= input.color(color.new(#26A69A, 0), "Low color",  group = gLv)
+
+// ── compute — LOCKED to `lockTf` (default Daily). One request.security pulls the MA,
+//    its value `slopeLb` bars back, ATR, ATR's own average, the 200 SMA and its lag —
+//    so on a lower chart TF the whole read still reflects the daily 20-MA. Non-repainting.
+f_ma20() =>
+    _m  = maType == "EMA" ? ta.ema(close, maLen) : ta.sma(close, maLen)
+    _a  = ta.atr(atrLen)
+    _m2 = ta.sma(close, len200)
+    [_m, _m[slopeLb], _a, ta.sma(_a, 20), _m2, _m2[slopeLb]]
+[ma, maLb, atr, atrAvg, ma200, ma200Lb] = request.security(syminfo.tickerid, lockTf, f_ma20(), lookahead = barmerge.lookahead_off)
 // rise per bar over the lookback, normalised to ATRs/bar, then to a degree angle.
-perBar = (ma - ma[slopeLb]) / slopeLb
-angle  = na(atr) or atr == 0 or na(ma) or na(ma[slopeLb]) ? 0.0 : math.todegrees(math.atan(perBar / (atr * scale45)))
-pctLb  = na(ma) or ma == 0 ? 0.0 : (ma - ma[slopeLb]) / ma * 100.0   // % move of the MA over the lookback
+perBar = (ma - maLb) / slopeLb
+angle  = na(atr) or atr == 0 or na(ma) or na(maLb) ? 0.0 : math.todegrees(math.atan(perBar / (atr * scale45)))
+pctLb  = na(ma) or ma == 0 ? 0.0 : (ma - maLb) / ma * 100.0   // % move of the MA over the lookback
 
 // ── classify ──────────────────────────────────────────────────────────────────
 _absA = math.abs(angle)
@@ -100,12 +115,10 @@ extAtr = na(atr) or atr == 0 ? 0.0 : (close - ma) / atr
 extPct = na(ma) or ma == 0 ? 0.0 : (close - ma) / ma * 100.0
 _extended = math.abs(extAtr) >= extThr
 // coiling — flat MA + ATR below its own average → volatility expansion likely
-_atrAvg = ta.sma(atr, 20)
-_coiling = _absA <= flatThr and not na(_atrAvg) and _atrAvg > 0 and atr < _atrAvg * coilPct
+_coiling = _absA <= flatThr and not na(atrAvg) and atrAvg > 0 and atr < atrAvg * coilPct
 
-// ── long-term trend context (200 SMA) ──
-ma200   = ta.sma(close, len200)
-_200up  = not na(ma200) and not na(ma200[slopeLb]) and ma200 > ma200[slopeLb]
+// ── long-term trend context (200 SMA — also locked to lockTf) ──
+_200up  = not na(ma200) and not na(ma200Lb) and ma200 > ma200Lb
 col200  = _200up ? col200U : col200D
 ltTrend = na(ma200) ? "—" : (close >= ma200 ? "UP · above 200" : "DOWN · below 200")
 
@@ -200,3 +213,48 @@ if barstate.islast
         for _r = 0 to 8
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
             table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
+
+// ═══ PRIOR LEVELS — PDH / PDL / PMH / PML (settled, non-repainting) ═══════════
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+var line  lnPdh = na
+var label lbPdh = na
+var line  lnPdl = na
+var label lbPdl = na
+var line  lnPmh = na
+var label lbPmh = na
+var line  lnPml = na
+var label lbPml = na
+f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
+    line  _l = ln
+    label _b = lb
+    if on and not na(px)
+        if na(_l)
+            _l := line.new(bar_index - 1, px, bar_index, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.right)
+            _b := label.new(bar_index, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
+        else
+            line.set_xy1(_l, bar_index - 1, px)
+            line.set_xy2(_l, bar_index, px)
+            label.set_xy(_b, bar_index, px)
+            label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+if barstate.islast
+    [_a, _b] = f_lvl(lnPdh, lbPdh, enPdh, pdh, "PDH", lvHiCol)
+    lnPdh := _a
+    lbPdh := _b
+    [_c, _d] = f_lvl(lnPdl, lbPdl, enPdl, pdl, "PDL", lvLoCol)
+    lnPdl := _c
+    lbPdl := _d
+    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh, pmh, "PMH", lvHiCol)
+    lnPmh := _e
+    lbPmh := _f
+    [_g, _h] = f_lvl(lnPml, lbPml, enPml, pml, "PML", lvLoCol)
+    lnPml := _g
+    lbPml := _h
