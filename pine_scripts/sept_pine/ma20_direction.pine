@@ -92,6 +92,8 @@ hudSz  = input.string("normal", "Text size", options = ["small", "normal", "larg
 gLv    = "Prior levels"
 enPdh  = input.bool(true, "PDH", inline = "pd", group = gLv)
 enPdl  = input.bool(true, "PDL", inline = "pd", group = gLv)
+enPwh  = input.bool(true, "PWH", inline = "pw", group = gLv)
+enPwl  = input.bool(true, "PWL", inline = "pw", group = gLv)
 enPmh  = input.bool(true, "PMH", inline = "pm", group = gLv)
 enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
 lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
@@ -239,11 +241,16 @@ if barstate.islast
 
 // ═══ PRIOR LEVELS — PDH / PDL / PMH / PML (settled, non-repainting) ═══════════
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 var line  lnPdh = na
 var label lbPdh = na
 var line  lnPdl = na
 var label lbPdl = na
+var line  lnPwh = na
+var label lbPwh = na
+var line  lnPwl = na
+var label lbPwl = na
 var line  lnPmh = na
 var label lbPmh = na
 var line  lnPml = na
@@ -277,9 +284,19 @@ if barstate.islast
     [_c, _d] = f_lvl(lnPdl, lbPdl, enPdl, pdl, "PDL", lvLoCol)
     lnPdl := _c
     lbPdl := _d
-    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh, pmh, "PMH", lvHiCol)
+    [_wa, _wb] = f_lvl(lnPwh, lbPwh, enPwh, pwh, "PWH", lvHiCol)
+    lnPwh := _wa
+    lbPwh := _wb
+    [_wc, _wd] = f_lvl(lnPwl, lbPwl, enPwl, pwl, "PWL", lvLoCol)
+    lnPwl := _wc
+    lbPwl := _wd
+    // Monthly levels are gated by PROXIMITY — hidden when far (they compress the scale),
+    // reusing the same range-based declutter as the 50/200. Weekly/daily are always drawn.
+    _pmhFar = hideFar and not na(pmh) and not na(_visRange) and _visRange > 0 and math.abs(close - pmh) > hideMult * _visRange
+    _pmlFar = hideFar and not na(pml) and not na(_visRange) and _visRange > 0 and math.abs(close - pml) > hideMult * _visRange
+    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh and not _pmhFar, pmh, "PMH", lvHiCol)
     lnPmh := _e
     lbPmh := _f
-    [_g, _h] = f_lvl(lnPml, lbPml, enPml, pml, "PML", lvLoCol)
+    [_g, _h] = f_lvl(lnPml, lbPml, enPml and not _pmlFar, pml, "PML", lvLoCol)
     lnPml := _g
     lbPml := _h
