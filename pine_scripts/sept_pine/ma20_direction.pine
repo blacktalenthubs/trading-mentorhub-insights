@@ -39,7 +39,10 @@ len200  = input.int(200, "Length", minval = 20, group = gL)
 col200U = input.color(#2E7D32, "Rising", inline = "c2", group = gL)
 col200D = input.color(#B71C1C, "Falling", inline = "c2", group = gL)
 w200    = input.int(2, "Width", minval = 1, maxval = 6, group = gL)
-hide200 = input.float(10, "Hide the 200 line when it's beyond ± % of price (0 = always show)", minval = 0, maxval = 50, step = 0.5, group = gL, tooltip = "When the 200 SMA is farther than this % from price it's HIDDEN from the chart (a far 200 just compresses the price scale) — but it still drives the HUD's 200-trend read and the with/counter-trend flag. 0 = always draw.") / 100.0
+// Auto-hide the 50/200 when they'd compress the chart — see the "Declutter" group.
+hideFar  = input.bool(true, "Auto-hide 50 / 200 when they'd compress the chart", group = "Declutter", tooltip = "A far 50/200 drags the price scale and squashes the candles — worst on a zoomed-in intraday chart, where the daily 200 can sit way below the visible range. This hides a line when it's farther from price than N× the RECENT range (below), so it stays on a daily chart (big range) but drops out when you zoom in (small range). The 200 still drives the HUD read either way. Off = always draw.")
+hideMult = input.float(1.0, "  ... farther than N× the recent visible range", minval = 0.2, maxval = 6, step = 0.1, group = "Declutter")
+hideLook = input.int(150, "  Recent range = highest−lowest over N bars", minval = 20, maxval = 500, group = "Declutter")
 
 // ── mid-term trend (50 SMA) — CONTEXT only; entries stay on the 20 ─────────────
 gL50    = "Mid-term trend (50 SMA)"
@@ -48,7 +51,6 @@ len50   = input.int(50, "Length", minval = 5, group = gL50)
 col50U  = input.color(#66BB6A, "Rising", inline = "c50", group = gL50)
 col50D  = input.color(#EF9A9A, "Falling", inline = "c50", group = gL50)
 w50     = input.int(2, "Width", minval = 1, maxval = 6, group = gL50)
-hide50  = input.float(0, "Hide the 50 line when it's beyond ± % of price (0 = always show)", minval = 0, maxval = 50, step = 0.5, group = gL50) / 100.0
 
 // ── slope / angle ─────────────────────────────────────────────────────────────
 gS      = "Slope / angle"
@@ -175,9 +177,12 @@ rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
 align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
 
 // hide the 200 line when price is far from it (% band) — it still drives the HUD read.
-_far200 = hide200 > 0 and not na(ma200) and close != 0 and math.abs(close - ma200) / close > hide200
+// recent visible-range proxy — highest−lowest over the last N chart bars. On a daily
+// chart this is large (200 stays); zoomed intraday it's small (a far 200 drops out).
+_visRange = ta.highest(high, hideLook) - ta.lowest(low, hideLook)
+_far200 = hideFar and not na(ma200) and not na(_visRange) and _visRange > 0 and math.abs(close - ma200) > hideMult * _visRange
 plot(en200 and not _far200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
-_far50  = hide50 > 0 and not na(ma50) and close != 0 and math.abs(close - ma50) / close > hide50
+_far50  = hideFar and not na(ma50) and not na(_visRange) and _visRange > 0 and math.abs(close - ma50) > hideMult * _visRange
 plot(en50 and not _far50 ? ma50 : na, "50 SMA", color = col50, linewidth = w50)
 plot(ma, "20 MA", color = maCol, linewidth = maW)
 // queryable data (Data Window / data_get_study_values), no chart clutter
