@@ -102,22 +102,23 @@ var int   SLb = na
 var int   Str = 0
 var float rngHigh = na          // last confirmed swing high (kept for zones/strong-weak)
 var float rngLow  = na          // last confirmed swing low
-// running leg extremes → order-block origin candle
-var float legLow = na
-var int   legLowBar = na
-var float legLowHigh = na
-var float legHigh = na
-var int   legHighBar = na
-var float legHighLow = na
-
-if na(legLow) or low < legLow
-    legLow := low
-    legLowBar := bar_index
-    legLowHigh := high
-if na(legHigh) or high > legHigh
-    legHigh := high
-    legHighBar := bar_index
-    legHighLow := low
+// order-block ORIGIN = the last opposite-color candle before the impulse (LuxAlgo-style,
+// a tight box near the break), tracked rolling: last DOWN candle → bullish OB, last UP
+// candle → bearish OB.
+var int   lastDnBar  = na
+var float lastDnHigh = na
+var float lastDnLow  = na
+var int   lastUpBar  = na
+var float lastUpHigh = na
+var float lastUpLow  = na
+if close < open
+    lastDnBar  := bar_index
+    lastDnHigh := high
+    lastDnLow  := low
+if close > open
+    lastUpBar  := bar_index
+    lastUpHigh := high
+    lastUpLow  := low
 
 if not na(sph)
     SHp := sph
@@ -156,35 +157,23 @@ if not na(SHp) and close > SHp
     if showSw
         line.new(SHb, SHp, bar_index, SHp, xloc = xloc.bar_index, color = cBull, width = 1, style = line.style_dashed)
         label.new(int(math.avg(SHb, bar_index)), SHp, _c ? "CHoCH" : "BOS", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_down, color = color.new(cBull, 90), textcolor = cBull, size = _sz)
-    if showOB and not na(legLowBar) and (obAtrMult <= 0 or (legLowHigh - legLow) >= obAtrMult * atr)
-        array.push(obBull, box.new(legLowBar, legLowHigh, bar_index, legLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBullCol))
+    if showOB and not na(lastDnBar) and (obAtrMult <= 0 or (lastDnHigh - lastDnLow) >= obAtrMult * atr)
+        array.push(obBull, box.new(lastDnBar, lastDnHigh, bar_index + 2, lastDnLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBullCol))
         f_capOB(obBull)
     Str := 1
     SHp := na
-    legLow := low
-    legLowBar := bar_index
-    legLowHigh := high
-    legHigh := high
-    legHighBar := bar_index
-    legHighLow := low
 
-// SWING break DOWN → bearish BOS/CHoCH + bearish order block from the leg's high candle
+// SWING break DOWN → bearish BOS/CHoCH + bearish order block from the last UP candle
 if not na(SLp) and close < SLp
     _c = Str > 0
     if showSw
         line.new(SLb, SLp, bar_index, SLp, xloc = xloc.bar_index, color = cBear, width = 1, style = line.style_dashed)
         label.new(int(math.avg(SLb, bar_index)), SLp, _c ? "CHoCH" : "BOS", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_up, color = color.new(cBear, 90), textcolor = cBear, size = _sz)
-    if showOB and not na(legHighBar) and (obAtrMult <= 0 or (legHigh - legHighLow) >= obAtrMult * atr)
-        array.push(obBear, box.new(legHighBar, legHigh, bar_index, legHighLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBearCol))
+    if showOB and not na(lastUpBar) and (obAtrMult <= 0 or (lastUpHigh - lastUpLow) >= obAtrMult * atr)
+        array.push(obBear, box.new(lastUpBar, lastUpHigh, bar_index + 2, lastUpLow, xloc = xloc.bar_index, border_width = 0, bgcolor = obBearCol))
         f_capOB(obBear)
     Str := -1
     SLp := na
-    legLow := low
-    legLowBar := bar_index
-    legLowHigh := high
-    legHigh := high
-    legHighBar := bar_index
-    legHighLow := low
 
 // extend live order blocks to the right + mitigate (remove once price closes/wicks through)
 if array.size(obBull) > 0
