@@ -43,6 +43,7 @@ stage2Only = input.bool(true, "Only flag bases in a Stage-2 uptrend", group = gT
 // ── drawing / HUD ─────────────────────────────────────────────────────────────
 gDraw  = "Drawing & HUD"
 tagOff = input.int(8, "Line tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
+showBox = input.bool(true, "Shade the base box", group = gDraw, tooltip = "Frame the consolidation (floor→ceiling over the base lookback) as a box, so the base is unmistakable. Green = ready setup, blue = contracting, gray = loose/none.")
 colPiv = input.color(#26A69A, "Pivot (buy) line", group = gDraw)
 colStp = input.color(#EF5350, "Stop line", group = gDraw)
 enHud  = input.bool(true, "Show the HUD", group = gDraw)
@@ -118,6 +119,26 @@ if barstate.islast
         pvLb := na
         stLn := na
         stLb := na
+
+// ── base BOX — frame the consolidation so the base is UNMISTAKABLE ─────────────
+// The rectangle spans the base's floor→ceiling over the lookback. Colour = quality:
+// green when it's a ready VCP setup, blue while it's contracting, gray when loose.
+var box baseBox = na
+if barstate.islast
+    if showBox and not na(pivot) and not na(baseFloor)
+        _bx1   = bar_index - baseLen
+        _bxCol = forming ? color.new(#26A69A, 82) : contracting ? color.new(#42A5F5, 85) : color.new(color.gray, 88)
+        _bdCol = forming ? color.new(#26A69A, 30) : contracting ? color.new(#42A5F5, 35) : color.new(color.gray, 45)
+        if na(baseBox)
+            baseBox := box.new(_bx1, pivot, bar_index, baseFloor, border_color = _bdCol, border_width = 1, bgcolor = _bxCol)
+        else
+            box.set_lefttop(baseBox, _bx1, pivot)
+            box.set_rightbottom(baseBox, bar_index, baseFloor)
+            box.set_border_color(baseBox, _bdCol)
+            box.set_bgcolor(baseBox, _bxCol)
+    else if not na(baseBox)
+        box.delete(baseBox)
+        baseBox := na
 
 // breakout marker + coil wash
 plotshape(breakout, "Breakout", style = shape.triangleup, location = location.belowbar, color = colPiv, size = size.small, text = "BRK")
