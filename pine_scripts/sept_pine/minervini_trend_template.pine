@@ -19,8 +19,9 @@
 // Rule 3's "rising" is also read as a scale-free DEGREE angle (45° = ATR/bar — the
 // same ruler the 20-MA Direction indicator uses), so "trending up" is quantified,
 // not just a bar-vs-bar check. A labeled HUD scores it X/8, flags STAGE 2 on a
-// clean sweep, reads the state (pullback / not-rising / mixed), and shows the
-// distance to the 50 & 200 for entry planning.
+// clean sweep, reads the state (pullback / not-rising / mixed), draws the ENTRY
+// (the base-ceiling pivot you buy the breakout of) and shows how far price is from
+// it, plus the distance to the 50 & 200 for planning.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Minervini Trend Template", "Trend Template", overlay = true)
 
@@ -52,6 +53,15 @@ rsMinScore = input.float(0.0, "Min RS score (0 = must beat the benchmark)", grou
 gSlope  = "200 slope read"
 atrLen  = input.int(14, "ATR length", minval = 1, group = gSlope)
 scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.01, step = 0.01, group = gSlope, tooltip = "Scale-free slope: the 200's rise over `riseBars` is normalised to ATRs/bar, then to degrees. Set so 45° matches how a 45° rise looks on your chart.")
+
+// ── entry (pivot) ─────────────────────────────────────────────────────────────
+// The ENTRY is the base ceiling — the pivot you buy the breakout of. Measured as
+// the highest high over `baseLen` COMPLETED bars (excludes today, so a close above
+// it is a real breakout). The HUD shows the entry price + how far price is from it.
+gEntry   = "Entry (pivot)"
+baseLen  = input.int(40, "Base lookback for the pivot (bars)", minval = 5, maxval = 250, group = gEntry, tooltip = "The entry = highest high over this many completed bars (the base ceiling / buy trigger). 40 ≈ a two-month base.")
+showEntry = input.bool(true, "Draw the entry line", group = gEntry)
+colEntry = input.color(#26A69A, "Entry line", group = gEntry)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 gHud   = "HUD"
@@ -94,6 +104,12 @@ for _i = 0 to 7
     passCount += array.get(rules, _i) ? 1 : 0
 allPass = passCount == 8
 
+// ENTRY (pivot) = base ceiling from completed bars; % from entry = how far price
+// sits below (needs to rally to trigger) or above it (already broken out / extended).
+entry     = ta.highest(high[1], baseLen)
+pctEntry  = na(entry) or entry == 0 ? na : (close / entry - 1) * 100.0
+_entryTxt = na(entry) ? "—" : str.tostring(entry, format.mintick) + "  ·  " + (na(pctEntry) ? "" : pctEntry >= 0 ? "+" + str.tostring(pctEntry, "#.#") + "% past" : str.tostring(pctEntry, "#.#") + "% to go")
+
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = 1)
 plot(showMA ? ma150 : na, "150 SMA", color = col150, linewidth = 2)
@@ -104,12 +120,35 @@ bgcolor(allPass ? color.new(#26A69A, 90) : na)
 plot(passCount,       "Rules passed (/8)",   display = display.data_window)
 plot(rsScore * 100,   "RS score (%)",        display = display.data_window)
 plot(angle200,        "200 SMA angle (deg)", display = display.data_window)
+plot(entry,           "Entry (pivot)",       display = display.data_window)
+plot(pctEntry,        "% from entry",        display = display.data_window)
+
+// ── entry (pivot) line — the buy trigger, drawn across the base and tagged ──────
+var line  enLn = na
+var label enLb = na
+if barstate.islast
+    if showEntry and not na(entry)
+        _x1 = bar_index - baseLen
+        _x2 = bar_index + 8
+        if na(enLn)
+            enLn := line.new(_x1, entry, _x2, entry, color = colEntry, width = 2, style = line.style_dashed)
+            enLb := label.new(_x2, entry, "", style = label.style_label_left, color = colEntry, textcolor = color.white, size = size.small)
+        else
+            line.set_xy1(enLn, _x1, entry)
+            line.set_xy2(enLn, _x2, entry)
+            label.set_xy(enLb, _x2, entry)
+        label.set_text(enLb, "ENTRY " + str.tostring(entry, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)"))
+    else if not na(enLn)
+        line.delete(enLn)
+        label.delete(enLb)
+        enLn := na
+        enLb := na
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_left" ? position.bottom_left : hudPos == "bottom_right" ? position.bottom_right : position.top_right
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
 
-var table hud = table.new(_pos, 3, 11, border_width = 1, border_color = color.new(color.gray, 55))
+var table hud = table.new(_pos, 3, 12, border_width = 1, border_color = color.new(color.gray, 55))
 
 // house dark palette
 _headBg = color.new(#0B0B12, 0)
@@ -150,14 +189,20 @@ if barstate.islast
         table.merge_cells(hud, 1, 9, 2, 9)
         table.cell(hud, 1, 9, stageTxt, text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
 
+        // ENTRY (pivot) + how far price is from it — the buy trigger + the gap to it
+        _enBg = na(pctEntry) ? _headBg : pctEntry >= 0 ? _okBg : _headBg
+        table.cell(hud, 0, 10, "Entry (pivot)", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.merge_cells(hud, 1, 10, 2, 10)
+        table.cell(hud, 1, 10, _entryTxt, text_color = _white, bgcolor = _enBg, text_size = _sz, text_halign = text.align_left)
+
         // distance to the nearest key MA — for entry planning
         _d50  = (close / ma50 - 1) * 100
         _d200 = (close / ma200 - 1) * 100
-        table.cell(hud, 0, 10, "Dist to MAs", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
-        table.merge_cells(hud, 1, 10, 2, 10)
-        table.cell(hud, 1, 10, "50: " + str.tostring(_d50, "+#.#;-#.#") + "%  |  200: " + str.tostring(_d200, "+#.#;-#.#") + "%", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.cell(hud, 0, 11, "Dist to MAs", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.merge_cells(hud, 1, 11, 2, 11)
+        table.cell(hud, 1, 11, "50: " + str.tostring(_d50, "+#.#;-#.#") + "%  |  200: " + str.tostring(_d200, "+#.#;-#.#") + "%", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
     else
-        for _r = 0 to 10
+        for _r = 0 to 11
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
             table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
             table.cell(hud, 2, _r, "", bgcolor = color.new(color.gray, 100))
