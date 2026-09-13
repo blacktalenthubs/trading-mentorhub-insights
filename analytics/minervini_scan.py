@@ -216,6 +216,39 @@ def _print_human(rep: dict) -> None:
         print(f"\n({len(rep['errors'])} fetch/data errors)")
 
 
+def _format_telegram(rep: dict, date: str) -> str:
+    """Compact Telegram (HTML) digest — leaders, what's READY, what's breaking out."""
+    c = rep["counts"]
+    lines = [f"<b>MINERVINI · {date}</b>",
+             f"{c['qualified_8of8']} qualified (8/8) · {c['ready_to_break']} ready · "
+             f"{c['breakout_today']} breaking out"]
+
+    def _one(r: dict) -> str:
+        b = r["base"]
+        return f"  {r['symbol']} — pivot {b['pivot']} · {b['dist_pivot_pct']:+.1f}% · stop {b['stop']}"
+
+    if rep["breakouts"]:
+        lines.append("\n<b>★ Breaking out today:</b>")
+        lines += [_one(r) for r in rep["breakouts"]]
+    if rep["ready"]:
+        lines.append("\n<b>● Ready (coiling near pivot):</b>")
+        lines += [_one(r) for r in rep["ready"]]
+    top = rep["qualifiers"][:10]
+    if top:
+        lines.append("\n<b>Top qualifiers by RS:</b>")
+        lines += [f"  {r['symbol']} +{r['rs_score_pct']}% — pivot {r['base']['pivot']} "
+                  f"({r['base']['dist_pivot_pct']:+.1f}%)" for r in top]
+    return "\n".join(lines)
+
+
+def _send_to_telegram(text: str) -> bool:  # pragma: no cover - network
+    from alerting.notifier import _send_telegram_to, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set — skipping send", file=sys.stderr)
+        return False
+    return _send_telegram_to(text, TELEGRAM_CHAT_ID, parse_mode="HTML")
+
+
 def _fetch(symbol: str) -> Optional[pd.DataFrame]:  # pragma: no cover - network
     """Daily bars via the shared multi-source helper (Alpaca → yfinance)."""
     from analytics.market_data import fetch_ohlc
@@ -230,6 +263,7 @@ def main() -> None:  # pragma: no cover - manual entrypoint
     ap.add_argument("symbols", nargs="*", help="symbols to scan (default: a demo set)")
     ap.add_argument("--universe", action="store_true", help="scan the master watchlist (needs DATABASE_URL)")
     ap.add_argument("--json", action="store_true", help="print the full report as JSON")
+    ap.add_argument("--telegram", action="store_true", help="post the digest to Telegram (needs TELEGRAM_BOT_TOKEN/CHAT_ID)")
     args = ap.parse_args()
 
     if args.universe:
@@ -255,6 +289,11 @@ def main() -> None:  # pragma: no cover - manual entrypoint
         print(json.dumps(rep, indent=2, default=str))
     else:
         _print_human(rep)
+
+    if args.telegram:
+        import datetime as _dt
+        ok = _send_to_telegram(_format_telegram(rep, _dt.date.today().isoformat()))
+        print(f"telegram: {'sent' if ok else 'not sent'}", file=sys.stderr)
 
 
 if __name__ == "__main__":
