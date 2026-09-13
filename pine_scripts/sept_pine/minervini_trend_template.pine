@@ -307,3 +307,67 @@ if barstate.islast
 // ── alerts ────────────────────────────────────────────────────────────────────
 alertcondition(allPass and not allPass[1], "Trend Template: newly qualified", "{{ticker}} now passes all 8 Trend Template rules")
 alertcondition(not allPass and allPass[1], "Trend Template: lost qualification", "{{ticker}} dropped out of the Trend Template")
+
+// ═══ FUNDAMENTALS PANEL — reported only (Pine can't fetch forward estimates) ═════
+// request.financial returns REPORTED financials, not analyst estimates, so forward
+// P/E, forward EPS and PEG are NOT here (they live in the app's Finnhub feed). This
+// shows the quality/growth picture that matters for a long swing HOLD: quarterly EPS
+// & revenue growth (YoY), margins, ROE, debt/equity, and TRAILING P/E (price ÷ EPS-TTM).
+gFund    = "Fundamentals panel (reported)"
+showFund = input.bool(true, "Show the fundamentals panel", group = gFund)
+fundPos  = input.string("bottom_right", "Panel position", options = ["top_left", "top_right", "bottom_left", "bottom_right"], group = gFund)
+
+_epsQ  = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_BASIC", "FQ",  ignore_invalid_symbol = true)
+_revQ  = request.financial(syminfo.tickerid, "TOTAL_REVENUE",            "FQ",  ignore_invalid_symbol = true)
+_epsT  = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_BASIC", "TTM", ignore_invalid_symbol = true)
+_gm    = request.financial(syminfo.tickerid, "GROSS_MARGIN",             "FY",  ignore_invalid_symbol = true)
+_nm    = request.financial(syminfo.tickerid, "NET_MARGIN",               "FY",  ignore_invalid_symbol = true)
+_roe   = request.financial(syminfo.tickerid, "RETURN_ON_EQUITY",         "FY",  ignore_invalid_symbol = true)
+_de    = request.financial(syminfo.tickerid, "DEBT_TO_EQUITY",           "FQ",  ignore_invalid_symbol = true)
+_trailPE = not na(_epsT) and _epsT > 0 ? close / _epsT : na
+
+// quarterly YoY growth — accumulate distinct reported values, compare to 4 quarters back
+var float[] _epsH = array.new_float(0)
+var float[] _revH = array.new_float(0)
+if not na(_epsQ) and (na(_epsQ[1]) or _epsQ != _epsQ[1])
+    array.push(_epsH, _epsQ)
+    if array.size(_epsH) > 9
+        array.shift(_epsH)
+if not na(_revQ) and (na(_revQ[1]) or _revQ != _revQ[1])
+    array.push(_revH, _revQ)
+    if array.size(_revH) > 9
+        array.shift(_revH)
+f_yoy(_h) =>
+    float _r = na
+    if array.size(_h) >= 5
+        _c = array.get(_h, array.size(_h) - 1)
+        _p = array.get(_h, array.size(_h) - 5)
+        _r := _p != 0 ? (_c - _p) / math.abs(_p) * 100.0 : na
+    _r
+_epsYoY = f_yoy(_epsH)
+_revYoY = f_yoy(_revH)
+
+// quality colours — higher = better, except Debt/Equity (lower = better)
+f_qcHi(_v, _good, _ok) => na(_v) ? color.new(color.gray, 35) : _v >= _good ? color.new(#1B5E20, 0) : _v >= _ok ? color.new(#7C5E10, 0) : color.new(#8E1D1D, 0)
+f_qcLo(_v, _good, _bad) => na(_v) ? color.new(color.gray, 35) : _v <= _good ? color.new(#1B5E20, 0) : _v <= _bad ? color.new(#7C5E10, 0) : color.new(#8E1D1D, 0)
+f_fpct(_v) => na(_v) ? "—" : str.tostring(_v, "#.#") + "%"
+f_fnum(_v) => na(_v) ? "—" : str.tostring(_v, "#.##")
+
+_fpos = fundPos == "top_left" ? position.top_left : fundPos == "top_right" ? position.top_right : fundPos == "bottom_left" ? position.bottom_left : position.bottom_right
+var table fund = table.new(_fpos, 2, 8, border_width = 1, border_color = color.new(color.gray, 55))
+_fLbl = color.new(#0B0B12, 0)
+_fTx  = color.new(#C7C9D9, 0)
+_fWt  = color.new(color.white, 0)
+f_fc(int row, string lbl, string val, color vbg) =>
+    table.cell(fund, 0, row, lbl, text_color = _fTx, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_left)
+    table.cell(fund, 1, row, val, text_color = _fWt, bgcolor = vbg, text_size = size.small, text_halign = text.align_right)
+if barstate.islast and showFund
+    table.cell(fund, 0, 0, "Fundamentals", text_color = _fWt, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_left)
+    table.cell(fund, 1, 0, "reported", text_color = _fTx, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_right)
+    f_fc(1, "EPS growth (Q YoY)", f_fpct(_epsYoY),  f_qcHi(_epsYoY, 25, 0))
+    f_fc(2, "Rev growth (Q YoY)", f_fpct(_revYoY),  f_qcHi(_revYoY, 20, 0))
+    f_fc(3, "Gross margin",       f_fpct(_gm),      f_qcHi(_gm, 40, 20))
+    f_fc(4, "Net margin",         f_fpct(_nm),      f_qcHi(_nm, 10, 0))
+    f_fc(5, "ROE",                f_fpct(_roe),     f_qcHi(_roe, 15, 8))
+    f_fc(6, "Debt / Equity",      f_fnum(_de),      f_qcLo(_de, 1.0, 2.0))
+    f_fc(7, "P/E (trailing)",     f_fnum(_trailPE), _fLbl)
