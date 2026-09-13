@@ -60,6 +60,7 @@ scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.01, step = 
 // it is a real breakout). The HUD shows the entry price + how far price is from it.
 gEntry   = "Entry (pivot)"
 baseLen  = input.int(40, "Base lookback for the pivot (bars)", minval = 5, maxval = 250, group = gEntry, tooltip = "The entry = highest high over this many completed bars (the base ceiling / buy trigger). 40 ≈ a two-month base.")
+nearPct  = input.float(7.0, "Actionable within N% below the pivot", minval = 1, maxval = 30, step = 0.5, group = gEntry, tooltip = "A pivot only counts as a real ENTRY when price is coiling just under it. Farther than this below = a deep pullback with NO tight base yet — the entry reads amber, not a buy.")
 showEntry = input.bool(true, "Draw the entry line", group = gEntry)
 colEntry = input.color(#26A69A, "Entry line", group = gEntry)
 
@@ -108,7 +109,10 @@ allPass = passCount == 8
 // sits below (needs to rally to trigger) or above it (already broken out / extended).
 entry     = ta.highest(high[1], baseLen)
 pctEntry  = na(entry) or entry == 0 ? na : (close / entry - 1) * 100.0
-_entryTxt = na(entry) ? "—" : str.tostring(entry, format.mintick) + "  ·  " + (na(pctEntry) ? "" : pctEntry >= 0 ? "+" + str.tostring(pctEntry, "#.#") + "% past" : str.tostring(pctEntry, "#.#") + "% to go")
+// ACTIONABLE only when price is coiling just under (or through) the pivot. Farther
+// below than nearPct = a deep pullback with no tight base yet — not a real entry.
+_far      = not na(pctEntry) and pctEntry < -nearPct
+_entryTxt = na(entry) ? "—" : str.tostring(entry, format.mintick) + "  ·  " + (na(pctEntry) ? "" : pctEntry >= 0 ? "+" + str.tostring(pctEntry, "#.#") + "% past" : str.tostring(pctEntry, "#.#") + "% " + (_far ? "· no tight base yet" : "to go"))
 
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = 1)
@@ -130,14 +134,17 @@ if barstate.islast
     if showEntry and not na(entry)
         _x1 = bar_index - baseLen
         _x2 = bar_index + 8
+        _enCol = _far ? color.new(#F59E0B, 0) : colEntry
         if na(enLn)
-            enLn := line.new(_x1, entry, _x2, entry, color = colEntry, width = 2, style = line.style_dashed)
-            enLb := label.new(_x2, entry, "", style = label.style_label_left, color = colEntry, textcolor = color.white, size = size.small)
+            enLn := line.new(_x1, entry, _x2, entry, color = _enCol, width = 2, style = line.style_dashed)
+            enLb := label.new(_x2, entry, "", style = label.style_label_left, color = _enCol, textcolor = color.white, size = size.small)
         else
             line.set_xy1(enLn, _x1, entry)
             line.set_xy2(enLn, _x2, entry)
+            line.set_color(enLn, _enCol)
             label.set_xy(enLb, _x2, entry)
-        label.set_text(enLb, "ENTRY " + str.tostring(entry, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)"))
+            label.set_color(enLb, _enCol)
+        label.set_text(enLb, "ENTRY " + str.tostring(entry, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)") + (_far ? " · no base yet" : ""))
     else if not na(enLn)
         line.delete(enLn)
         label.delete(enLb)
@@ -181,7 +188,7 @@ if barstate.islast
         f_rule(8, "8 · RS vs " + benchSym, r8, "score " + str.tostring(rsScore * 100, "+#.#;-#.#") + "%")
 
         // stage read — the one-line "what is this" call
-        stageTxt = allPass ? "Stage 2 uptrend — wait for a base breakout (VCP)" :
+        stageTxt = allPass ? (_far ? "Stage 2 but deep pullback — no tight base yet" : "Stage 2 uptrend — wait for a base breakout (VCP)") :
                    (r1 and r2 and r3 and not r5) ? "Pullback below the 50 — watch for a reclaim" :
                    (not r3) ? "200 not rising — Stage 1 or 4, avoid" :
                    (not r2) ? "150 below 200 — trend not confirmed" : "Mixed — not a trend buy"
@@ -189,8 +196,9 @@ if barstate.islast
         table.merge_cells(hud, 1, 9, 2, 9)
         table.cell(hud, 1, 9, stageTxt, text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
 
-        // ENTRY (pivot) + how far price is from it — the buy trigger + the gap to it
-        _enBg = na(pctEntry) ? _headBg : pctEntry >= 0 ? _okBg : _headBg
+        // ENTRY (pivot) + how far price is from it. Green = at/near the pivot (actionable),
+        // amber = too far below (deep pullback, no tight base yet), head = n/a.
+        _enBg = na(pctEntry) ? _headBg : _far ? color.new(#7C5E10, 0) : _okBg
         table.cell(hud, 0, 10, "Entry (pivot)", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
         table.merge_cells(hud, 1, 10, 2, 10)
         table.cell(hud, 1, 10, _entryTxt, text_color = _white, bgcolor = _enBg, text_size = _sz, text_halign = text.align_left)
