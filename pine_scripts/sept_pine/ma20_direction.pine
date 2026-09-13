@@ -161,6 +161,21 @@ _150up  = not na(ma150) and not na(ma150Lb) and ma150 > ma150Lb
 col150  = _150up ? col150U : col150D
 ltTrend = na(ma200) ? "—" : (close >= ma200 ? "UP · above 200" : "DOWN · below 200")
 
+// ── per-MA slope in DEGREES — same scale-free ATR normalisation as the 20, so the
+//    50 / 150 / 200 are judged on the SAME 45°=ATR/bar ruler. Lets you confirm each
+//    MA is ACTUALLY rising (not just where price sits) before taking a swing entry.
+f_ang(_m, _mLb) => na(atr) or atr == 0 or na(_m) or na(_mLb) ? na : math.todegrees(math.atan(((_m - _mLb) / slopeLb) / (atr * scale45)))
+angle50  = f_ang(ma50,  ma50Lb)
+angle150 = f_ang(ma150, ma150Lb)
+angle200 = f_ang(ma200, ma200Lb)
+// arrow + degree + band, and a rising/falling/flat color, reusing the 20's thresholds.
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+f_slopeCol(_a) => na(_a) ? color.new(color.gray, 35) : _a > flatThr ? color.new(#26A69A, 0) : _a < -flatThr ? color.new(#EF5350, 0) : color.new(color.gray, 20)
+
 // ── SETUP + risk-reward. Entry is on the 20: pull back to it in a trend, or fade
 //    to it when extended. Stop beyond the MA/entry; trend target = extension out.
 _stopBuf = stopBuf * atr
@@ -211,11 +226,14 @@ plot(pctLb,  "MA % over lookback", display = display.data_window)
 plot(extAtr, "Extension (ATR)",    display = display.data_window)
 plot(extPct, "Extension (%)",      display = display.data_window)
 plot(na(rr) ? na : rr, "Setup R:R", display = display.data_window)
+plot(angle50,  "50 SMA angle (deg)",  display = display.data_window)
+plot(angle150, "150 SMA angle (deg)", display = display.data_window)
+plot(angle200, "200 SMA angle (deg)", display = display.data_window)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
-var table hud = table.new(_pos, 2, 9, border_width = 1, border_color = color.new(color.gray, 55))
+var table hud = table.new(_pos, 2, 11, border_width = 1, border_color = color.new(color.gray, 55))
 _cell(int col, int row, string txt, color bg, color tc, bool right) => table.cell(hud, col, row, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = right ? text.align_right : text.align_left)
 if barstate.islast
     if enHud
@@ -229,31 +247,36 @@ if barstate.islast
         // trend (20 slope state)
         _cell(0, 1, "Trend", _lblBg, _lblTx, false)
         _cell(1, 1, state, _lblBg, _white, true)
-        // long-term trend (200)
-        _cell(0, 2, "200 SMA", _lblBg, _lblTx, false)
-        _cell(1, 2, ltTrend, _lblBg, (na(ma200) ? _white : (close >= ma200 ? color.new(#26A69A, 0) : color.new(#EF5350, 0))), true)
+        // ── per-MA slope (degrees) — is each MA ACTUALLY rising? ──
+        _cell(0, 2, "50 SMA", _lblBg, _lblTx, false)
+        _cell(1, 2, f_slopeTxt(angle50), _lblBg, f_slopeCol(angle50), true)
+        _cell(0, 3, "150 SMA", _lblBg, _lblTx, false)
+        _cell(1, 3, f_slopeTxt(angle150), _lblBg, f_slopeCol(angle150), true)
+        _c200 = na(ma200) ? "" : (close >= ma200 ? "  · above" : "  · below")
+        _cell(0, 4, "200 SMA", _lblBg, _lblTx, false)
+        _cell(1, 4, f_slopeTxt(angle200) + _c200, _lblBg, f_slopeCol(angle200), true)
         // extension
         _extBg = _extended ? color.new(#F59E0B, 20) : _coiling ? color.new(#42A5F5, 28) : _lblBg
         _extV  = (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%)" + (_extended ? " · EXTENDED" : _coiling ? " · COILING" : "")
-        _cell(0, 3, "Extension", _lblBg, _lblTx, false)
-        _cell(1, 3, _extV, _extBg, _white, true)
+        _cell(0, 5, "Extension", _lblBg, _lblTx, false)
+        _cell(1, 5, _extV, _extBg, _white, true)
         // setup
         _sBg = sdir == "LONG" ? color.new(#1B5E20, 0) : sdir == "SHORT" ? color.new(#8E1D1D, 0) : color.new(color.gray, 35)
-        _cell(0, 4, "Setup", _lblBg, _lblTx, false)
-        _cell(1, 4, sdir == "" ? "— none (chop)" : sdir + " · " + setup, _sBg, _white, true)
+        _cell(0, 6, "Setup", _lblBg, _lblTx, false)
+        _cell(1, 6, sdir == "" ? "— none (chop)" : sdir + " · " + setup, _sBg, _white, true)
         // entry / stop / target
-        _cell(0, 5, "Entry", _lblBg, _lblTx, false)
-        _cell(1, 5, na(entry) ? "—" : str.tostring(entry, format.mintick), _lblBg, _white, true)
-        _cell(0, 6, "Stop", _lblBg, _lblTx, false)
-        _cell(1, 6, na(stop) ? "—" : str.tostring(stop, format.mintick), _lblBg, color.new(#EF5350, 0), true)
-        _cell(0, 7, "Target", _lblBg, _lblTx, false)
-        _cell(1, 7, na(tgt) ? "—" : str.tostring(tgt, format.mintick), _lblBg, color.new(#26A69A, 0), true)
+        _cell(0, 7, "Entry", _lblBg, _lblTx, false)
+        _cell(1, 7, na(entry) ? "—" : str.tostring(entry, format.mintick), _lblBg, _white, true)
+        _cell(0, 8, "Stop", _lblBg, _lblTx, false)
+        _cell(1, 8, na(stop) ? "—" : str.tostring(stop, format.mintick), _lblBg, color.new(#EF5350, 0), true)
+        _cell(0, 9, "Target", _lblBg, _lblTx, false)
+        _cell(1, 9, na(tgt) ? "—" : str.tostring(tgt, format.mintick), _lblBg, color.new(#26A69A, 0), true)
         // risk : reward + trend alignment
         _rrBg = na(rr) ? color.new(color.gray, 35) : rr >= 2 ? color.new(#1B5E20, 0) : rr >= 1 ? color.new(#F59E0B, 15) : color.new(#8E1D1D, 0)
-        _cell(0, 8, "R : R", _lblBg, _lblTx, false)
-        _cell(1, 8, na(rr) ? "—" : str.tostring(rr, "#.#") + " : 1" + (align == "" ? "" : "  ·  " + align), _rrBg, _white, true)
+        _cell(0, 10, "R : R", _lblBg, _lblTx, false)
+        _cell(1, 10, na(rr) ? "—" : str.tostring(rr, "#.#") + " : 1" + (align == "" ? "" : "  ·  " + align), _rrBg, _white, true)
     else
-        for _r = 0 to 8
+        for _r = 0 to 10
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
             table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
 
