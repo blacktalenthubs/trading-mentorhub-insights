@@ -1,0 +1,167 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// MINERVINI TREND TEMPLATE — the 8-rule STAGE-2 screen from Mark Minervini's
+// "Trade Like a Stock Market Wizard." Stage 2 is the only stage you buy — a
+// confirmed institutional uptrend — and it's in force when ALL EIGHT hold:
+//   1. Price above BOTH the 150 & 200 SMA
+//   2. 150 SMA above the 200 SMA
+//   3. 200 SMA RISING for at least ~1 month
+//   4. 50 SMA above BOTH the 150 & 200
+//   5. Price above the 50 SMA
+//   6. Price ≥ 30% above its 52-week low
+//   7. Price within 25% of its 52-week high
+//   8. Relative strength LEADING the market
+//
+// Rule 8 uses IBD's RS RANK, which is proprietary and not in Pine — so it's
+// approximated by a benchmark-relative momentum score (3m/6m/9m/12m, IBD's own
+// weighting). Positive = outperforming the benchmark.
+//
+// Rule 3's "rising" is also read as a scale-free DEGREE angle (45° = ATR/bar — the
+// same ruler the 20-MA Direction indicator uses), so "trending up" is quantified,
+// not just a bar-vs-bar check. A labeled HUD scores it X/8, flags STAGE 2 on a
+// clean sweep, reads the state (pullback / not-rising / mixed), and shows the
+// distance to the 50 & 200 for entry planning.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Minervini Trend Template", "Trend Template", overlay = true)
+
+// ── moving averages ───────────────────────────────────────────────────────────
+gMA    = "Moving averages"
+len50  = input.int(50,  "50 SMA length",  minval = 1, group = gMA)
+len150 = input.int(150, "150 SMA length", minval = 1, group = gMA)
+len200 = input.int(200, "200 SMA length", minval = 1, group = gMA)
+showMA = input.bool(true, "Plot the 50 / 150 / 200", group = gMA)
+// Distinct hues (same palette as the 20-MA Direction indicator): 50 blue, 150
+// purple, 200 orange — so no two lines ever blend.
+col50  = input.color(#1E88E5, "50",  inline = "cma", group = gMA)
+col150 = input.color(#7E57C2, "150", inline = "cma", group = gMA)
+col200 = input.color(#FB8C00, "200", inline = "cma", group = gMA)
+
+// ── rule thresholds ───────────────────────────────────────────────────────────
+gRule       = "Rule thresholds"
+riseBars    = input.int(21, "200 must be rising over N bars (≈ 1 month)", minval = 1, group = gRule, tooltip = "Rule 3 — the 200 SMA is higher than it was N bars ago. 21 ≈ one trading month.")
+lookback    = input.int(252, "52-week lookback (bars)", minval = 20, group = gRule, tooltip = "Window for the 52-week high/low used by rules 6 & 7. 252 ≈ one trading year.")
+minAboveLow = input.float(30.0, "Rule 6 — min % above the 52-week low", minval = 0, group = gRule)
+maxBelowHi  = input.float(25.0, "Rule 7 — max % below the 52-week high", minval = 0, group = gRule)
+
+// ── relative strength (rule 8) ────────────────────────────────────────────────
+gRS        = "Relative strength (rule 8)"
+benchSym   = input.symbol("SPY", "Benchmark", group = gRS, tooltip = "Rule 8 proxy — a benchmark-relative momentum score stands in for IBD's proprietary RS rank.")
+rsMinScore = input.float(0.0, "Min RS score (0 = must beat the benchmark)", group = gRS)
+
+// ── 200 slope read (context) ──────────────────────────────────────────────────
+gSlope  = "200 slope read"
+atrLen  = input.int(14, "ATR length", minval = 1, group = gSlope)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.01, step = 0.01, group = gSlope, tooltip = "Scale-free slope: the 200's rise over `riseBars` is normalised to ATRs/bar, then to degrees. Set so 45° matches how a 45° rise looks on your chart.")
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+gHud   = "HUD"
+enHud  = input.bool(true, "Show the HUD", group = gHud)
+hudPos = input.string("top_right", "Position", options = ["top_left", "top_right", "bottom_left", "bottom_right"], group = gHud)
+hudSz  = input.string("normal", "Size", options = ["small", "normal", "large"], group = gHud)
+
+// ── compute ───────────────────────────────────────────────────────────────────
+ma50  = ta.sma(close, len50)
+ma150 = ta.sma(close, len150)
+ma200 = ta.sma(close, len200)
+
+hi52 = ta.highest(high, lookback)
+lo52 = ta.lowest(low, lookback)
+
+// Relative-strength proxy — weighted relative return vs the benchmark
+// (3m 40% / 6m 20% / 9m 20% / 12m 20%, IBD's weighting). Positive = outperforming.
+benchClose = request.security(benchSym, timeframe.period, close, lookahead = barmerge.lookahead_off)
+f_relRet(_bars) => (close / close[_bars] - 1) - (benchClose / benchClose[_bars] - 1)
+rsScore = 0.4 * f_relRet(63) + 0.2 * f_relRet(126) + 0.2 * f_relRet(189) + 0.2 * f_relRet(252)
+
+// 200 slope in degrees (scale-free), for rule 3's detail + colour.
+atr       = ta.atr(atrLen)
+perBar200 = (ma200 - ma200[riseBars]) / riseBars
+angle200  = na(atr) or atr == 0 or na(ma200) or na(ma200[riseBars]) ? na : math.todegrees(math.atan(perBar200 / (atr * scale45)))
+
+// ── the 8 rules ───────────────────────────────────────────────────────────────
+r1 = close > ma150 and close > ma200                 // price above 150 & 200
+r2 = ma150 > ma200                                   // 150 above 200
+r3 = ma200 > ma200[riseBars]                         // 200 rising ≥ ~1 month
+r4 = ma50 > ma150 and ma50 > ma200                   // 50 above 150 & 200
+r5 = close > ma50                                    // price above 50
+r6 = close >= lo52 * (1 + minAboveLow / 100)         // ≥ 30% above the 52-wk low
+r7 = close >= hi52 * (1 - maxBelowHi / 100)          // within 25% of the 52-wk high
+r8 = rsScore > rsMinScore                            // relative strength leading
+
+rules = array.from(r1, r2, r3, r4, r5, r6, r7, r8)
+passCount = 0
+for _i = 0 to 7
+    passCount += array.get(rules, _i) ? 1 : 0
+allPass = passCount == 8
+
+// ── plots ─────────────────────────────────────────────────────────────────────
+plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = 1)
+plot(showMA ? ma150 : na, "150 SMA", color = col150, linewidth = 2)
+plot(showMA ? ma200 : na, "200 SMA", color = col200, linewidth = 3)
+// green wash while all 8 hold — Stage 2 confirmed.
+bgcolor(allPass ? color.new(#26A69A, 90) : na)
+// queryable (Data Window) — score + RS + the 200 angle, no chart clutter.
+plot(passCount,       "Rules passed (/8)",   display = display.data_window)
+plot(rsScore * 100,   "RS score (%)",        display = display.data_window)
+plot(angle200,        "200 SMA angle (deg)", display = display.data_window)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_left" ? position.bottom_left : hudPos == "bottom_right" ? position.bottom_right : position.top_right
+_sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+
+var table hud = table.new(_pos, 3, 11, border_width = 1, border_color = color.new(color.gray, 55))
+
+// house dark palette
+_headBg = color.new(#0B0B12, 0)
+_headTx = color.new(#C7C9D9, 0)
+_white  = color.new(color.white, 0)
+_okBg   = color.new(#1B5E20, 0)
+_noBg   = color.new(#8E1D1D, 0)
+
+f_rule(int row, string label, bool ok, string detail) =>
+    _bg = ok ? _okBg : _noBg
+    table.cell(hud, 0, row, label, text_color = _white, bgcolor = _bg, text_size = _sz, text_halign = text.align_left)
+    table.cell(hud, 1, row, ok ? "PASS" : "FAIL", text_color = _white, bgcolor = _bg, text_size = _sz)
+    table.cell(hud, 2, row, detail, text_color = _white, bgcolor = _bg, text_size = _sz, text_halign = text.align_left)
+
+if barstate.islast
+    if enHud
+        // header — score + qualification
+        table.cell(hud, 0, 0, "Trend Template", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.cell(hud, 1, 0, str.tostring(passCount) + "/8", text_color = _white, bgcolor = _headBg, text_size = _sz)
+        table.cell(hud, 2, 0, allPass ? "STAGE 2 ✔" : "NOT QUALIFIED", text_color = _white, bgcolor = allPass ? _okBg : _noBg, text_size = _sz, text_halign = text.align_left)
+
+        f_rule(1, "1 · Price > 150 & 200", r1, "C " + str.tostring(close, "#.##") + " | 150 " + str.tostring(ma150, "#.##") + " | 200 " + str.tostring(ma200, "#.##"))
+        f_rule(2, "2 · 150 > 200", r2, str.tostring(ma150, "#.##") + " vs " + str.tostring(ma200, "#.##"))
+        _angTxt = na(angle200) ? "—" : (angle200 >= 0 ? "↑ " : "↓ ") + str.tostring(angle200, "#.#") + "°"
+        f_rule(3, "3 · 200 rising 1m+", r3, str.tostring((ma200 / ma200[riseBars] - 1) * 100, "+#.##;-#.##") + "% · " + _angTxt + " over " + str.tostring(riseBars) + " bars")
+        f_rule(4, "4 · 50 > 150 & 200", r4, "50 " + str.tostring(ma50, "#.##"))
+        f_rule(5, "5 · Price > 50", r5, str.tostring(close, "#.##") + " vs " + str.tostring(ma50, "#.##"))
+        f_rule(6, "6 · ≥ " + str.tostring(minAboveLow, "#") + "% above 52w low", r6, str.tostring((close / lo52 - 1) * 100, "#.#") + "% above " + str.tostring(lo52, "#.##"))
+        f_rule(7, "7 · Within " + str.tostring(maxBelowHi, "#") + "% of 52w high", r7, str.tostring((1 - close / hi52) * 100, "#.#") + "% below " + str.tostring(hi52, "#.##"))
+        f_rule(8, "8 · RS vs " + benchSym, r8, "score " + str.tostring(rsScore * 100, "+#.#;-#.#") + "%")
+
+        // stage read — the one-line "what is this" call
+        stageTxt = allPass ? "Stage 2 uptrend — wait for a base breakout (VCP)" :
+                   (r1 and r2 and r3 and not r5) ? "Pullback below the 50 — watch for a reclaim" :
+                   (not r3) ? "200 not rising — Stage 1 or 4, avoid" :
+                   (not r2) ? "150 below 200 — trend not confirmed" : "Mixed — not a trend buy"
+        table.cell(hud, 0, 9, "Read", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.merge_cells(hud, 1, 9, 2, 9)
+        table.cell(hud, 1, 9, stageTxt, text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+
+        // distance to the nearest key MA — for entry planning
+        _d50  = (close / ma50 - 1) * 100
+        _d200 = (close / ma200 - 1) * 100
+        table.cell(hud, 0, 10, "Dist to MAs", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+        table.merge_cells(hud, 1, 10, 2, 10)
+        table.cell(hud, 1, 10, "50: " + str.tostring(_d50, "+#.#;-#.#") + "%  |  200: " + str.tostring(_d200, "+#.#;-#.#") + "%", text_color = _white, bgcolor = _headBg, text_size = _sz, text_halign = text.align_left)
+    else
+        for _r = 0 to 10
+            table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
+            table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
+            table.cell(hud, 2, _r, "", bgcolor = color.new(color.gray, 100))
+
+// ── alerts ────────────────────────────────────────────────────────────────────
+alertcondition(allPass and not allPass[1], "Trend Template: newly qualified", "{{ticker}} now passes all 8 Trend Template rules")
+alertcondition(not allPass and allPass[1], "Trend Template: lost qualification", "{{ticker}} dropped out of the Trend Template")
