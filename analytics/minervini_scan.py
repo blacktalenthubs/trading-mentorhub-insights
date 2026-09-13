@@ -39,6 +39,14 @@ MIN_ABOVE_LOW  = 30.0    # rule 6 — ≥ 30% above the 52-week low
 MAX_BELOW_HIGH = 25.0    # rule 7 — within 25% of the 52-week high
 RS_MIN         = 0.0     # rule 8 — RS score must beat the benchmark (> 0)
 
+# ── "ALMOST" tolerances — a 7/8 name failing a SINGLE band/momentum rule by a small
+# margin shouldn't be missed (INTC misses rule 7 by 2.7 points). Structural rules
+# (1-4, the trend skeleton) are NEVER relaxed; only 5/6/7/8 get a tolerance band.
+ALMOST_HIGH_TOL = 8.0    # rule 7 — up to (25 + 8) = 33% below the 52-week high
+ALMOST_50_TOL   = 3.0    # rule 5 — price up to 3% below the 50
+ALMOST_LOW_TOL  = 10.0   # rule 6 — as low as (30 − 10) = 20% above the 52-week low
+ALMOST_RS_TOL   = 15.0   # rule 8 — RS score down to −15%
+
 # ── VCP base read (mirror vcp_base_breakout.pine) ───────────────────────────────
 BASE_LEN        = 40
 MAX_BASE_DEPTH  = 35.0
@@ -109,6 +117,31 @@ def compute_minervini(symbol: str, df: pd.DataFrame, bench: pd.Series) -> Option
     pass_count = sum(1 for v in rules.values() if v)
     all_pass = pass_count == 8
 
+    # ── "ALMOST" — 7/8 failing a SINGLE tolerable rule (5/6/7/8) by a small margin.
+    pct_below_high = (1 - c / hi52) * 100 if hi52 else None
+    pct_above_low = (c / lo52 - 1) * 100 if lo52 else None
+    pct_vs_50 = (c / ma50 - 1) * 100
+    rs_pct = None if rs_score is None else rs_score * 100
+    almost = False
+    almost_note = None
+    fails = [k for k, v in rules.items() if not v]
+    fail_rule = fails[0] if pass_count == 7 else None
+    if fail_rule == "7_near_52w_high" and pct_below_high is not None:
+        _over = pct_below_high - MAX_BELOW_HIGH
+        if _over <= ALMOST_HIGH_TOL:
+            almost, almost_note = True, f"rule 7: {pct_below_high:.1f}% below high (+{_over:.1f} over {MAX_BELOW_HIGH:.0f}%)"
+    elif fail_rule == "5_above_50":
+        _under = -pct_vs_50
+        if _under <= ALMOST_50_TOL:
+            almost, almost_note = True, f"rule 5: {_under:.1f}% below the 50 (near reclaim)"
+    elif fail_rule == "6_above_52w_low" and pct_above_low is not None:
+        _short = MIN_ABOVE_LOW - pct_above_low
+        if _short <= ALMOST_LOW_TOL:
+            almost, almost_note = True, f"rule 6: {pct_above_low:.1f}% above low (need {MIN_ABOVE_LOW:.0f})"
+    elif fail_rule == "8_rs_leading" and rs_pct is not None:
+        if rs_pct >= -ALMOST_RS_TOL:
+            almost, almost_note = True, f"rule 8: RS {rs_pct:+.1f}%"
+
     # ── VCP base read ──────────────────────────────────────────────────────────
     third = max(3, BASE_LEN // 3)
     pivot = float(high.iloc[:-1].tail(BASE_LEN).max())     # base ceiling, excl. today
@@ -132,6 +165,7 @@ def compute_minervini(symbol: str, df: pd.DataFrame, bench: pd.Series) -> Option
     return {
         "symbol": symbol, "close": round(c, 2),
         "pass_count": pass_count, "all_pass": all_pass, "rules": rules,
+        "almost": almost, "almost_note": almost_note, "fail_rule": fail_rule,
         "rs_score_pct": None if rs_score is None else round(rs_score * 100, 1),
         "base": {
             "pivot": round(pivot, 2), "stop": round(stop_level, 2),
@@ -159,16 +193,20 @@ def build_report(symbols: list[str], fetch: Callable[[str], Optional[pd.DataFram
 
     qualifiers = sorted([r for r in rows if r["all_pass"]],
                         key=lambda r: (r["rs_score_pct"] or -999), reverse=True)
-    near_miss = sorted([r for r in rows if r["pass_count"] == 7],
+    almost = sorted([r for r in rows if r.get("almost")],
+                    key=lambda r: (r["rs_score_pct"] or -999), reverse=True)
+    # near_miss = the REST of the 7/8s (the ones outside the tolerance band)
+    near_miss = sorted([r for r in rows if r["pass_count"] == 7 and not r.get("almost")],
                        key=lambda r: (r["rs_score_pct"] or -999), reverse=True)
     breakouts = [r for r in qualifiers if r["base"]["breakout"]]
     ready = [r for r in qualifiers if r["base"]["forming"]]  # coiling under pivot
 
     return {
         "scanned": len(rows), "errors": errors,
-        "counts": {"qualified_8of8": len(qualifiers), "near_miss_7of8": len(near_miss),
+        "counts": {"qualified_8of8": len(qualifiers), "almost_7of8": len(almost),
+                   "near_miss_7of8": len(near_miss),
                    "ready_to_break": len(ready), "breakout_today": len(breakouts)},
-        "qualifiers": qualifiers, "near_miss": near_miss,
+        "qualifiers": qualifiers, "almost": almost, "near_miss": near_miss,
         "ready": ready, "breakouts": breakouts,
     }
 
@@ -206,6 +244,13 @@ def _print_human(rep: dict) -> None:
     print(f"ALL QUALIFIERS (8/8), by relative strength:")
     for r in rep["qualifiers"]:
         print(_line(r))
+    if rep.get("almost"):
+        print(f"\nALMOST (7/8 — one tolerable rule away, worth watching):")
+        for r in rep["almost"]:
+            b = r["base"]
+            _bt = "coiling near pivot" if b["near_pivot"] else "no tight base yet"
+            print(f"  {r['symbol']:<7} {r['close']:>9.2f}  RS {str(r['rs_score_pct']):>6}%  "
+                  f"— {r['almost_note']}  ·  {b['dist_pivot_pct']:+.1f}% to pivot ({_bt})")
     if rep["near_miss"]:
         print(f"\nNEAR MISS (7/8 — one rule away):")
         for r in rep["near_miss"]:
@@ -238,6 +283,12 @@ def _format_telegram(rep: dict, date: str) -> str:
         lines.append("\n<b>Top qualifiers by RS:</b>")
         lines += [f"  {r['symbol']} +{r['rs_score_pct']}% — pivot {r['base']['pivot']} "
                   f"({r['base']['dist_pivot_pct']:+.1f}%)" for r in top]
+    if rep.get("almost"):
+        lines.append("\n<b>◐ Almost (7/8 — one tolerable rule):</b>")
+        for r in rep["almost"]:
+            b = r["base"]
+            _bt = "near pivot" if b["near_pivot"] else "no base yet"
+            lines.append(f"  {r['symbol']} — {r['almost_note']} · {b['dist_pivot_pct']:+.1f}% to pivot ({_bt})")
     return "\n".join(lines)
 
 
