@@ -250,15 +250,25 @@ else if _up and _absA < idealLo
     actTxt := "LONG-lean (weak) — 20 rising but shallow"
     actBg  := _actAmb
 else if _up
-    actTxt := "LONG (steep) — strong but chase-risk; wait for a pullback"
-    actBg  := _actAmb
+    // steep (parabolic) rising 20 — same hold/extended split as the ideal band, plus
+    // a parabolic caveat. Holding the steep 20 is still a valid entry (tight stop);
+    // only 'wait' when price has ALSO run far from it.
+    if extAtr < -sideTol
+        actTxt := "LONG (steep) — parabolic; buy only a RECLAIM of the 20, tight stop"
+        actBg  := _actAmb
+    else if extAtr <= nearMA
+        actTxt := "LONG ✓ (steep) — parabolic but HOLDING the 20; take it with a TIGHT stop / smaller size"
+        actBg  := _actGrn
+    else
+        actTxt := "LONG (steep, extended +" + str.tostring(extPct, "#.#") + "%) — parabolic & stretched; WAIT for a pullback"
+        actBg  := _actAmb
 else
     actTxt := "AVOID longs — 20 falling (short-side only)"
     actBg  := _actRed
 
 // Alert the moment it turns actionable-LONG (20 rising in the ideal band, price holding).
-_longNow = _up and _absA >= idealLo and _absA <= idealHi and extAtr >= -sideTol and extAtr <= nearMA
-alertcondition(_longNow and not _longNow[1], "20MA · LONG (rising ideal + holding)", "{{ticker}} — 20 MA rising in the ideal band and price HOLDING the 20 (not extended): LONG")
+_longNow = _up and _absA >= idealLo and extAtr >= -sideTol and extAtr <= nearMA
+alertcondition(_longNow and not _longNow[1], "20MA · LONG (rising + holding)", "{{ticker}} — 20 MA rising (ideal or steep) and price HOLDING the 20 (not extended): LONG")
 
 // Visibility = the line's own Show toggle AND the active MA set. 50 & 200 are in
 // every set; the 20 shows in Day/All, the 150 shows in Swing/All.
