@@ -1031,6 +1031,17 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         # Set upstream by _merge_confluence — recorded, never delivered.
                         _send_notification = False
 
+                    # ENABLED_RULES clamp (2026-09-13) — enforce the redesign at DELIVERY.
+                    # evaluate_rules still COMPUTES legacy checks (ma_bounce / ema_bounce /
+                    # hourly_resistance / resistance_prior_high / …), and the gate below would
+                    # push ANY BUY it produced — so old types (e.g. ema_bounce_21) leaked to the
+                    # feed + Telegram even though ENABLED_RULES lists only the 8. Clamp: a type
+                    # that is not an enabled rule is RECORDED (suppressed_reason) but never
+                    # delivered. Exits ARE in ENABLED_RULES and are suppressed separately below.
+                    if _send_notification and _at_val not in _ENABLED_RULES:
+                        _send_notification = False
+                        _suppressed = "rule_not_enabled"
+
                     # Per-rule opt-out (Settings toggle) — deliver unless the user
                     # explicitly silenced THIS rule. Default ON (absence delivers);
                     # a silenced rule is still recorded to the feed, just not pushed.
