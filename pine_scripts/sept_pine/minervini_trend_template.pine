@@ -22,6 +22,13 @@
 // clean sweep, reads the state (pullback / not-rising / mixed), draws the ENTRY
 // (the base-ceiling pivot you buy the breakout of) and shows how far price is from
 // it, plus the distance to the 50 & 200 for planning.
+//
+// The VCP base engine is folded in (one pine does screen + base + entry): it shades
+// the base BOX only when a tight base actually exists (green = ready / contracting +
+// dry-up + coiling, blue = contracting), draws the STOP (last contraction low), and
+// fires a BREAKOUT marker + alert when price clears the pivot on a volume surge. Base
+// detection gates on the trend skeleton (rules 1-5), so a near-miss like INTC (fails
+// only rule 7) still shows its base.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Minervini Trend Template", "Trend Template", overlay = true)
 
@@ -63,6 +70,16 @@ baseLen  = input.int(40, "Base lookback for the pivot (bars)", minval = 5, maxva
 nearPct  = input.float(7.0, "Actionable within N% below the pivot", minval = 1, maxval = 30, step = 0.5, group = gEntry, tooltip = "A pivot only counts as a real ENTRY when price is coiling just under it. Farther than this below = a deep pullback with NO tight base yet — the entry reads amber, not a buy.")
 showEntry = input.bool(true, "Draw the entry line", group = gEntry)
 colEntry = input.color(#26A69A, "Entry line", group = gEntry)
+
+// ── VCP base (folds the base/contraction/breakout engine into this one pine) ────
+gVCP     = "VCP base & breakout"
+maxDepth = input.float(35.0, "Max base depth %", minval = 5, maxval = 80, group = gVCP, tooltip = "Reject bases deeper than this. Depth = (pivot − floor) / pivot.")
+contractRatio = input.float(0.6, "Contraction: recent third ≤ N × base range", minval = 0.1, maxval = 1.0, step = 0.05, group = gVCP, tooltip = "Volatility contraction — the recent third of the base must be at most this fraction of the whole base's range.")
+volAvgLen = input.int(50, "Volume average length", minval = 5, group = gVCP)
+volDryPct = input.float(0.85, "Dry-up: recent vol ≤ N × average", minval = 0.2, maxval = 1.5, step = 0.05, group = gVCP)
+brkVolMult = input.float(1.4, "Breakout volume ≥ N × average", minval = 1.0, maxval = 5, step = 0.1, group = gVCP)
+showBox  = input.bool(true, "Shade the base box (only when a tight base exists)", group = gVCP, tooltip = "Green = ready setup (contracting + dry-up + coiling). Blue = contracting. No tight base → no box.")
+colStp   = input.color(#EF5350, "Stop line", group = gVCP)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 gHud   = "HUD"
@@ -114,6 +131,28 @@ pctEntry  = na(entry) or entry == 0 ? na : (close / entry - 1) * 100.0
 _far      = not na(pctEntry) and pctEntry < -nearPct
 _entryTxt = na(entry) ? "—" : str.tostring(entry, format.mintick) + "  ·  " + (na(pctEntry) ? "" : pctEntry >= 0 ? "+" + str.tostring(pctEntry, "#.#") + "% past" : str.tostring(pctEntry, "#.#") + "% " + (_far ? "· no tight base yet" : "to go"))
 
+// ── VCP base engine (pivot = `entry` above) ────────────────────────────────────
+_third      = int(math.max(3, math.floor(baseLen / 3.0)))
+baseFloor   = ta.lowest(low[1], baseLen)
+baseDepth   = na(entry) or entry == 0 ? na : (entry - baseFloor) / entry * 100.0
+rangeBase   = ta.highest(high, baseLen) - ta.lowest(low, baseLen)
+rangeRecent = ta.highest(high, _third) - ta.lowest(low, _third)
+contracting = not na(rangeBase) and rangeBase > 0 and rangeRecent <= rangeBase * contractRatio
+stopLevel   = ta.lowest(low, _third)
+volAvg      = ta.sma(volume, volAvgLen)
+volRecent   = ta.sma(volume, 5)
+dryUp       = not na(volAvg) and volAvg > 0 and volRecent <= volAvg * volDryPct
+volRatio    = na(volAvg) or volAvg == 0 ? na : volume / volAvg
+riskPct     = na(entry) or na(stopLevel) or entry == 0 ? na : (entry - stopLevel) / entry * 100.0
+// Base detection gates on the TREND SKELETON (rules 1-5), not full 8/8 — so a name
+// like INTC (fails only rule 7) still shows its base. near = coiling under the pivot.
+_trendOk    = r1 and r2 and r3 and r4 and r5
+depthOk     = not na(baseDepth) and baseDepth <= maxDepth
+nearPivot   = not na(pctEntry) and pctEntry >= -nearPct and pctEntry < 0
+hasBase     = _trendOk and depthOk and contracting and nearPivot
+formingVCP  = hasBase and dryUp
+breakoutVCP = _trendOk and depthOk and ta.crossover(close, entry) and not na(volRatio) and volRatio >= brkVolMult
+
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = 1)
 plot(showMA ? ma150 : na, "150 SMA", color = col150, linewidth = 2)
@@ -150,6 +189,53 @@ if barstate.islast
         label.delete(enLb)
         enLn := na
         enLb := na
+
+// ── VCP: stop line + base box + breakout marker ────────────────────────────────
+plot(baseDepth, "Base depth %",      display = display.data_window)
+plot(volRatio,  "Volume × average",  display = display.data_window)
+plot(riskPct,   "Pivot→stop risk %", display = display.data_window)
+
+var line  stLn = na
+var label stLb = na
+if barstate.islast
+    if (hasBase or breakoutVCP) and not na(stopLevel)
+        _sx1 = bar_index - baseLen
+        _sx2 = bar_index + 8
+        if na(stLn)
+            stLn := line.new(_sx1, stopLevel, _sx2, stopLevel, color = colStp, width = 1, style = line.style_dashed)
+            stLb := label.new(_sx2, stopLevel, "", style = label.style_label_left, color = colStp, textcolor = color.white, size = size.small)
+        else
+            line.set_xy1(stLn, _sx1, stopLevel)
+            line.set_xy2(stLn, _sx2, stopLevel)
+            label.set_xy(stLb, _sx2, stopLevel)
+        label.set_text(stLb, "STOP " + str.tostring(stopLevel, format.mintick) + (na(riskPct) ? "" : "  (" + str.tostring(riskPct, "#.#") + "%)"))
+    else if not na(stLn)
+        line.delete(stLn)
+        label.delete(stLb)
+        stLn := na
+        stLb := na
+
+// base BOX — only when a tight base exists (green = ready, blue = contracting)
+var box baseBox = na
+if barstate.islast
+    if showBox and (hasBase or breakoutVCP) and not na(entry) and not na(baseFloor)
+        _bx1   = bar_index - baseLen
+        _bxCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 82) : color.new(#42A5F5, 85)
+        _bdCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 30) : color.new(#42A5F5, 35)
+        if na(baseBox)
+            baseBox := box.new(_bx1, entry, bar_index, baseFloor, border_color = _bdCol, border_width = 1, bgcolor = _bxCol)
+        else
+            box.set_lefttop(baseBox, _bx1, entry)
+            box.set_rightbottom(baseBox, bar_index, baseFloor)
+            box.set_border_color(baseBox, _bdCol)
+            box.set_bgcolor(baseBox, _bxCol)
+    else if not na(baseBox)
+        box.delete(baseBox)
+        baseBox := na
+
+plotshape(breakoutVCP, "Breakout", style = shape.triangleup, location = location.belowbar, color = colEntry, size = size.small, text = "BRK")
+alertcondition(formingVCP and not formingVCP[1], "VCP base forming", "{{ticker}} — VCP base forming, coiling under the pivot")
+alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleared the pivot on volume")
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_left" ? position.bottom_left : hudPos == "bottom_right" ? position.bottom_right : position.top_right
@@ -188,7 +274,10 @@ if barstate.islast
         f_rule(8, "8 · RS vs " + benchSym, r8, "score " + str.tostring(rsScore * 100, "+#.#;-#.#") + "%")
 
         // stage read — the one-line "what is this" call
-        stageTxt = allPass ? (_far ? "Stage 2 but deep pullback — no tight base yet" : "Stage 2 uptrend — wait for a base breakout (VCP)") :
+        stageTxt = breakoutVCP ? "BREAKOUT ▲ — pivot cleared on volume" :
+                   formingVCP ? "Base READY — coiling under the pivot, watch the breakout" :
+                   hasBase ? "Base forming — contracting; volume not dried up yet" :
+                   allPass ? (_far ? "Stage 2 but deep pullback — no tight base yet" : "Stage 2 uptrend — wait for a tight base") :
                    (r1 and r2 and r3 and not r5) ? "Pullback below the 50 — watch for a reclaim" :
                    (not r3) ? "200 not rising — Stage 1 or 4, avoid" :
                    (not r2) ? "150 below 200 — trend not confirmed" : "Mixed — not a trend buy"
