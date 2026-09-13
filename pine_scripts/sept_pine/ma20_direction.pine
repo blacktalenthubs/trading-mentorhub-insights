@@ -50,6 +50,26 @@ col50U  = input.color(#1E88E5, "Rising", inline = "c50", group = gL50)
 col50D  = input.color(#90CAF9, "Falling", inline = "c50", group = gL50)
 w50     = input.int(2, "Width", minval = 1, maxval = 6, group = gL50)
 
+// ── swing trend (150 SMA ≈ the 30-week MA) — the Weinstein Stage-2 line ─────────
+// 150 trading days ≈ 30 weeks, so the daily 150 SMA is the day-chart proxy of the
+// 30-week MA institutions defend. Own hue (purple) so it never blends with 50/200.
+gL150   = "Swing trend (150 SMA ≈ 30-week)"
+en150   = input.bool(true, "Show the 150 SMA (swing)", group = gL150, tooltip = "150 trading days ≈ 30 weeks — the daily proxy of the 30-week MA (Weinstein Stage-2 support). Used in the SWING set. Locked to the same timeframe as the 20.")
+len150  = input.int(150, "Length", minval = 20, group = gL150)
+col150U = input.color(#7E57C2, "Rising", inline = "c150", group = gL150)
+col150D = input.color(#B39DDB, "Falling", inline = "c150", group = gL150)
+w150    = input.int(2, "Width", minval = 1, maxval = 6, group = gL150)
+
+// ── MA SET — one switch to flip the visible stack ──────────────────────────────
+// Day = 20·50·200 (works for day AND swing). Swing = 50·150·200 (the 150 replaces
+// the 20 for a multi-day hold). All = every line. The 50 & 200 are in BOTH sets.
+// This only drives VISIBILITY — each line's own Show toggle can still hide it, and
+// the 20-MA HUD (angle/state) always reads regardless of which set is drawn.
+gSet    = "MA set (Day / Swing)"
+maSet   = input.string("Day (20·50·200)", "Show set", options = ["Day (20·50·200)", "Swing (50·150·200)", "All (20·50·150·200)"], group = gSet, tooltip = "Day = 20·50·200 (both day & swing). Swing = 50·150·200 (150 ≈ 30-week). All = show every line. 50 and 200 are shown in every set.")
+setShow20  = maSet != "Swing (50·150·200)"       // 20 in Day + All
+setShow150 = maSet != "Day (20·50·200)"          // 150 in Swing + All
+
 // ── slope / angle ─────────────────────────────────────────────────────────────
 gS      = "Slope / angle"
 slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure the MA's rise over this many bars — smooths out single-bar noise so the angle isn't jumpy.")
@@ -106,8 +126,9 @@ f_ma20() =>
     _a  = ta.atr(atrLen)
     _m2 = ta.sma(close, len200)
     _m5 = ta.sma(close, len50)
-    [_m, _m[slopeLb], _a, ta.sma(_a, 20), _m2, _m2[slopeLb], _m5, _m5[slopeLb]]
-[ma, maLb, atr, atrAvg, ma200, ma200Lb, ma50, ma50Lb] = request.security(syminfo.tickerid, lockTf, f_ma20(), lookahead = barmerge.lookahead_off)
+    _m15 = ta.sma(close, len150)
+    [_m, _m[slopeLb], _a, ta.sma(_a, 20), _m2, _m2[slopeLb], _m5, _m5[slopeLb], _m15, _m15[slopeLb]]
+[ma, maLb, atr, atrAvg, ma200, ma200Lb, ma50, ma50Lb, ma150, ma150Lb] = request.security(syminfo.tickerid, lockTf, f_ma20(), lookahead = barmerge.lookahead_off)
 // rise per bar over the lookback, normalised to ATRs/bar, then to a degree angle.
 perBar = (ma - maLb) / slopeLb
 angle  = na(atr) or atr == 0 or na(ma) or na(maLb) ? 0.0 : math.todegrees(math.atan(perBar / (atr * scale45)))
@@ -136,6 +157,8 @@ _200up  = not na(ma200) and not na(ma200Lb) and ma200 > ma200Lb
 col200  = _200up ? col200U : col200D
 _50up   = not na(ma50) and not na(ma50Lb) and ma50 > ma50Lb
 col50   = _50up ? col50U : col50D
+_150up  = not na(ma150) and not na(ma150Lb) and ma150 > ma150Lb
+col150  = _150up ? col150U : col150D
 ltTrend = na(ma200) ? "—" : (close >= ma200 ? "UP · above 200" : "DOWN · below 200")
 
 // ── SETUP + risk-reward. Entry is on the 20: pull back to it in a trend, or fade
@@ -176,9 +199,12 @@ _rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
 rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
 align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
 
+// Visibility = the line's own Show toggle AND the active MA set. 50 & 200 are in
+// every set; the 20 shows in Day/All, the 150 shows in Swing/All.
 plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
+plot(en150 and setShow150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
 plot(en50 ? ma50 : na, "50 SMA", color = col50, linewidth = w50)
-plot(ma, "20 MA", color = maCol, linewidth = maW)
+plot(setShow20 ? ma : na, "20 MA", color = maCol, linewidth = maW)
 // queryable data (Data Window / data_get_study_values), no chart clutter
 plot(angle,  "MA angle (deg)",     display = display.data_window)
 plot(pctLb,  "MA % over lookback", display = display.data_window)
