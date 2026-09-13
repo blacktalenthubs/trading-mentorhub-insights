@@ -511,6 +511,46 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register fundamentals refresh job")
 
+        # Minervini premarket scan (2026-09-13, user) — screen the master watchlist for
+        # the 8-rule Trend Template + VCP base and post the qualifier digest to Telegram
+        # before the open. Heavy (fetches ~150 daily histories via yfinance), so it runs
+        # in the scheduler's thread, not the event loop. Self-contained + defensive: a
+        # miss just logs and skips, never breaks startup or other jobs.
+        try:
+            from apscheduler.triggers.cron import CronTrigger as _CronM
+            from zoneinfo import ZoneInfo as _ZIM
+            _etm = _ZIM("America/New_York")
+
+            def _run_minervini_scan():
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    from analytics.minervini_scan import (
+                        build_report as _mv_build, _fetch as _mv_fetch,
+                        _format_telegram as _mv_fmt, _send_to_telegram as _mv_send,
+                    )
+                    from analytics.swing_setups_report import _watchlist as _mv_watchlist
+                    _dsn = _os.environ.get("DATABASE_URL")
+                    _syms = _mv_watchlist(_dsn) if _dsn else []
+                    _bench = _mv_fetch("SPY")
+                    if _bench is None or _bench.empty or not _syms:
+                        logger.warning("minervini premarket scan skipped (no watchlist / bench)")
+                        return
+                    _rep = _mv_build(_syms, _mv_fetch, _bench["Close"].astype(float))
+                    _mv_send(_mv_fmt(_rep, _dt.date.today().isoformat()))
+                    logger.info("Minervini premarket scan posted (%d qualifiers)",
+                                _rep["counts"]["qualified_8of8"])
+                except Exception:
+                    logger.exception("minervini premarket scan failed")
+
+            scheduler.add_job(
+                _run_minervini_scan, _CronM(hour=8, minute=47, day_of_week="mon-fri", timezone=_etm),
+                id="minervini_premarket_scan", replace_existing=True,
+            )
+            logger.info("Minervini premarket scan scheduled (08:47 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register minervini scan job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;
