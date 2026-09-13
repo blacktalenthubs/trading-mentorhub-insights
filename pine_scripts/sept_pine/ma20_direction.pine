@@ -89,6 +89,7 @@ gT      = "Setup / risk-reward"
 stopBuf = input.float(0.5, "Stop buffer beyond the MA / entry (× ATR)", minval = 0.1, maxval = 3, step = 0.1, group = gT, tooltip = "How far past the moving average (trend pullback) or past the entry (extended fade) the stop sits, in ATRs. The MA is the line you're wrong below/above.")
 tgtExt  = input.float(3.0, "Trend target — extension from the MA (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gT, tooltip = "For a trend pullback (long a rising MA / short a falling MA), the target is this many ATRs of EXTENSION away from the MA — how far the move tends to stretch. For an EXTENDED fade, the target is the MA itself (the magnet).")
 sideTol = input.float(0.2, "Pullback side tolerance (× ATR)", minval = 0.0, maxval = 1, step = 0.05, group = gT, tooltip = "A pullback must be on the RIGHT side of the MA: a long only when price is at/above the rising MA (holding support), a short only when price is at/below the falling MA (rejecting resistance). This allows price to be this many ATRs the wrong side (a wick) before the setup is voided.")
+nearMA  = input.float(1.5, "Hold zone — price within N × ATR above the 20", minval = 0.25, maxval = 5, step = 0.25, group = gT, tooltip = "The ACTION says 'LONG ✓ holding' ONLY when price is within this many ATRs above the rising 20 (a genuine pullback/hold of support). Farther above (but not yet EXTENDED) reads 'LONG (extended) — wait for a pullback', so a run far from the 20 never shows as a fresh buy. Raise to allow more room, lower to demand price hug the 20.")
 
 // ── colors ────────────────────────────────────────────────────────────────────
 gV      = "Colors by state"
@@ -212,6 +213,9 @@ else if (not _extended) and _up and extAtr >= -sideTol
 _risk = na(entry) or na(stop) ? na : math.abs(entry - stop)
 _rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
 rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
+// % risk (entry→stop) and % target (entry→target), from the entry.
+_riskPct = na(_risk) or na(entry) or entry == 0 ? na : _risk / entry * 100.0
+_tgtPct  = na(_rew) or na(entry) or entry == 0 ? na : _rew / entry * 100.0
 align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
 
 // ── ACTION — the plain "act now / wait" call, keyed on the 20's slope BAND ──────
@@ -231,8 +235,15 @@ else if _absA <= flatThr
     actTxt := "WAIT — 20 flat (chop), no trend"
     actBg  := _actGry
 else if _up and _absA >= idealLo and _absA <= idealHi
-    actTxt := close >= ma ? "LONG ✓ — 20 rising IDEAL, price holding" : "LONG — 20 rising ideal; buy the reclaim of the 20"
-    actBg  := _actGrn
+    if extAtr < -sideTol
+        actTxt := "LONG — 20 rising ideal; buy the RECLAIM of the 20"
+        actBg  := _actGrn
+    else if extAtr <= nearMA
+        actTxt := "LONG ✓ — 20 rising IDEAL, price holding the 20"
+        actBg  := _actGrn
+    else
+        actTxt := "LONG (extended +" + str.tostring(extPct, "#.#") + "%) — trend intact; WAIT for a pullback to the 20, don't chase"
+        actBg  := _actAmb
 else if _up and _absA < idealLo
     actTxt := "LONG-lean (weak) — 20 rising but shallow"
     actBg  := _actAmb
@@ -244,8 +255,8 @@ else
     actBg  := _actRed
 
 // Alert the moment it turns actionable-LONG (20 rising in the ideal band, price holding).
-_longNow = _up and _absA >= idealLo and _absA <= idealHi and close >= ma and not _extended
-alertcondition(_longNow and not _longNow[1], "20MA · LONG (rising ideal + holding)", "{{ticker}} — 20 MA rising in the ideal band and price holding the 20: LONG")
+_longNow = _up and _absA >= idealLo and _absA <= idealHi and extAtr >= -sideTol and extAtr <= nearMA
+alertcondition(_longNow and not _longNow[1], "20MA · LONG (rising ideal + holding)", "{{ticker}} — 20 MA rising in the ideal band and price HOLDING the 20 (not extended): LONG")
 
 // Visibility = the line's own Show toggle AND the active MA set. 50 & 200 are in
 // every set; the 20 shows in Day/All, the 150 shows in Swing/All.
@@ -304,9 +315,9 @@ if barstate.islast
         _cell(0, 8, "Entry", _lblBg, _lblTx, false)
         _cell(1, 8, na(entry) ? "—" : str.tostring(entry, format.mintick), _lblBg, _white, true)
         _cell(0, 9, "Stop", _lblBg, _lblTx, false)
-        _cell(1, 9, na(stop) ? "—" : str.tostring(stop, format.mintick), _lblBg, color.new(#EF5350, 0), true)
+        _cell(1, 9, na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  (−" + str.tostring(_riskPct, "#.#") + "%)"), _lblBg, color.new(#EF5350, 0), true)
         _cell(0, 10, "Target", _lblBg, _lblTx, false)
-        _cell(1, 10, na(tgt) ? "—" : str.tostring(tgt, format.mintick), _lblBg, color.new(#26A69A, 0), true)
+        _cell(1, 10, na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  (+" + str.tostring(_tgtPct, "#.#") + "%)"), _lblBg, color.new(#26A69A, 0), true)
         // risk : reward + trend alignment
         _rrBg = na(rr) ? color.new(color.gray, 35) : rr >= 2 ? color.new(#1B5E20, 0) : rr >= 1 ? color.new(#F59E0B, 15) : color.new(#8E1D1D, 0)
         _cell(0, 11, "R : R", _lblBg, _lblTx, false)
