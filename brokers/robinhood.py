@@ -45,6 +45,11 @@ logger = logging.getLogger(__name__)
 # Config
 # ---------------------------------------------------------------------------
 
+# MASTER KILL-SWITCH (2026-09-14) — the whole integration is DISABLED by default.
+# login() refuses unless ROBINHOOD_ENABLED=true, so NOTHING (the scheduled job, a
+# force=True UI import, or a script) can authenticate to Robinhood. Flip the env var
+# to "true" to re-enable once a safer integration is in place.
+ROBINHOOD_ENABLED = _get_secret("ROBINHOOD_ENABLED", "false").lower() == "true"
 ROBINHOOD_IMPORT_ENABLED = _get_secret("ROBINHOOD_IMPORT_ENABLED", "false").lower() == "true"
 ROBINHOOD_USERNAME = _get_secret("ROBINHOOD_USERNAME")
 ROBINHOOD_PASSWORD = _get_secret("ROBINHOOD_PASSWORD")
@@ -378,6 +383,8 @@ class RobinhoodClient:
         robin_stocks persists a session pickle, so the TOTP is only consumed
         when that session has expired.
         """
+        if not ROBINHOOD_ENABLED:
+            raise RobinhoodError("Robinhood integration is DISABLED (set ROBINHOOD_ENABLED=true to re-enable)")
         if not ROBINHOOD_USERNAME or not ROBINHOOD_PASSWORD:
             raise RobinhoodError("ROBINHOOD_USERNAME / ROBINHOOD_PASSWORD not set")
 
