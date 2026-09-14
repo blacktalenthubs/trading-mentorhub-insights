@@ -231,6 +231,11 @@ type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_
   gap_dir?: string; days_ago?: number; direction?: string; trigger?: number; stop?: number;
   to_trigger_pct?: number; risk_pct?: number; context?: string };
 function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  const toggleFocus = useToggleWatchlistFocus();
+  const { data: wl } = useWatchlist();
+  const focused = new Set((wl ?? []).filter((w) => w.focus).map((w) => w.symbol));
+  const [openB, setOpenB] = useState<Set<string>>(() => new Set(["gap-up", "gap-dn", "t321-long", "t321-short"]));
+  const toggle = (k: string) => setOpenB((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   let parsed: { gaps?: GapRow[]; setups?: GapRow[]; scanned?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const gaps = parsed?.gaps ?? [];
@@ -238,58 +243,76 @@ function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => vo
   if (gaps.length === 0 && setups.length === 0) {
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No big gaps or 3-2-1 setups right now — the gap scan runs premarket (analytics/gap_scanner.py).</div>;
   }
-  const sym = (s: string) => <button onClick={() => onChart(s)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{s}</button>;
+  const star = (s: string) => { const isFav = focused.has(s); return (
+    <button title={isFav ? `${s} in Focus — click to remove` : `Add ${s} to Focus`} aria-label={isFav ? `Remove ${s} from Focus` : `Add ${s} to Focus`} onClick={() => toggleFocus.mutate(s)} className={`rounded p-1 transition-colors hover:bg-surface-2 ${isFav ? "text-amber-400" : "text-text-faint hover:text-amber-400"}`}><Star className={`h-3.5 w-3.5 ${isFav ? "fill-amber-400" : ""}`} /></button>
+  ); };
+  const symBtn = (s: string) => <button onClick={() => onChart(s)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{s}</button>;
+  const gapCard = (g: GapRow) => {
+    const up = (g.dir ?? "").toUpperCase() === "UP";
+    return (
+      <div key={g.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
+        <div className="flex items-center justify-between gap-2">
+          {symBtn(g.sym)}
+          <div className="flex items-center gap-1.5">
+            <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${up ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>GAP {g.dir} {g.gap_pct > 0 ? "+" : ""}{g.gap_pct}%</span>
+            {star(g.sym)}
+          </div>
+        </div>
+        <button onClick={() => onChart(g.sym)} className="mt-1.5 block w-full text-left text-[10.5px] text-text-muted">
+          {g.or ? <span>OR <span className="font-mono">{g.or.or_low}–{g.or.or_high}</span> → <span className="text-text-secondary">{g.or.state}</span></span>
+            : <span className="text-text-faint">opening range pending (intraday)</span>}
+          {g.bias && <div className="mt-1 text-[9.5px] text-text-faint">{g.bias}</div>}
+        </button>
+      </div>
+    );
+  };
+  const setupCard = (s: GapRow) => {
+    const long = (s.direction ?? "").toUpperCase() === "LONG";
+    return (
+      <div key={s.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
+        <div className="flex items-center justify-between gap-2">
+          {symBtn(s.sym)}
+          <div className="flex items-center gap-1.5">
+            <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>{s.direction}</span>
+            {star(s.sym)}
+          </div>
+        </div>
+        <button onClick={() => onChart(s.sym)} className="mt-1 block w-full text-left">
+          <div className="text-[10px] text-text-faint">gap {s.gap_dir} {s.gap_pct && s.gap_pct > 0 ? "+" : ""}{s.gap_pct}% · {s.days_ago}d ago</div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
+            <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">{long ? "break >" : "break <"}</div><div className="font-mono text-text-primary">{s.trigger}</div></div>
+            <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">stop</div><div className="font-mono text-bearish-text">{s.stop}</div></div>
+            <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">to trigger</div><div className="font-mono text-text-secondary">{s.to_trigger_pct && s.to_trigger_pct > 0 ? "+" : ""}{s.to_trigger_pct}%</div></div>
+          </div>
+          {s.context && <div className="mt-1.5 text-[9.5px] text-text-faint">{s.context}</div>}
+        </button>
+      </div>
+    );
+  };
+  const buckets = [
+    { key: "gap-up", title: "Gaps up · OR-high long", bull: true, items: gaps.filter((g) => (g.dir ?? "").toUpperCase() === "UP"), render: gapCard },
+    { key: "gap-dn", title: "Gaps down · OR-low short", bull: false, items: gaps.filter((g) => (g.dir ?? "").toUpperCase() === "DOWN"), render: gapCard },
+    { key: "t321-long", title: "3-2-1 long · gap-up continuation", bull: true, items: setups.filter((s) => (s.direction ?? "").toUpperCase() === "LONG"), render: setupCard },
+    { key: "t321-short", title: "3-2-1 short · gap-down continuation", bull: false, items: setups.filter((s) => (s.direction ?? "").toUpperCase() === "SHORT"), render: setupCard },
+  ].filter((b) => b.items.length > 0);
   return (
     <div className="space-y-3">
       <div className="text-[10.5px] text-text-faint">{gaps.length} big gap{gaps.length === 1 ? "" : "s"} · {setups.length} 3-2-1 setup{setups.length === 1 ? "" : "s"}{parsed?.scanned ? ` · scanned ${parsed.scanned}` : ""}</div>
-      {gaps.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Big gaps · opening-range break</div>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {gaps.map((g) => {
-              const up = (g.dir ?? "").toUpperCase() === "UP";
-              return (
-                <div key={g.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3">
-                  <div className="flex items-center justify-between">
-                    {sym(g.sym)}
-                    <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${up ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>GAP {g.dir} {g.gap_pct > 0 ? "+" : ""}{g.gap_pct}%</span>
-                  </div>
-                  <div className="mt-1.5 text-[10.5px] text-text-muted">
-                    {g.or ? <span>OR <span className="font-mono">{g.or.or_low}–{g.or.or_high}</span> → <span className="text-text-secondary">{g.or.state}</span></span>
-                      : <span className="text-text-faint">opening range pending (intraday)</span>}
-                  </div>
-                  {g.bias && <div className="mt-1 text-[9.5px] text-text-faint">{g.bias}</div>}
-                </div>
-              );
-            })}
+      {buckets.map((b) => {
+        const isOpen = openB.has(b.key);
+        return (
+          <div key={b.key} className="overflow-hidden rounded-xl border border-border-subtle">
+            <button onClick={() => toggle(b.key)} className="flex w-full items-center gap-2 bg-surface-2/40 px-3 py-2 text-left transition-colors hover:bg-surface-2/70">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${b.bull ? "bg-bullish-text" : "bg-bearish-text"}`} />
+              <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">{b.title}</span>
+              <span className="ml-auto shrink-0 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] font-bold text-text-secondary">{b.items.length}</span>
+              <ChevronDown className={`h-4 w-4 shrink-0 text-text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
+            </button>
+            {isOpen && <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">{b.items.map(b.render)}</div>}
           </div>
-        </div>
-      )}
-      {setups.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">3-2-1 · gap continuation</div>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {setups.map((s) => {
-              const long = (s.direction ?? "").toUpperCase() === "LONG";
-              return (
-              <div key={s.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3">
-                <div className="flex items-center justify-between">
-                  {sym(s.sym)}
-                  <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>{s.direction}</span>
-                </div>
-                <div className="mt-1 text-[10px] text-text-faint">gap {s.gap_dir} {s.gap_pct && s.gap_pct > 0 ? "+" : ""}{s.gap_pct}% · {s.days_ago}d ago</div>
-                <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
-                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">{long ? "break >" : "break <"}</div><div className="font-mono text-text-primary">{s.trigger}</div></div>
-                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">stop</div><div className="font-mono text-bearish-text">{s.stop}</div></div>
-                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">to trigger</div><div className="font-mono text-text-secondary">{s.to_trigger_pct && s.to_trigger_pct > 0 ? "+" : ""}{s.to_trigger_pct}%</div></div>
-                </div>
-                {s.context && <div className="mt-1.5 text-[9.5px] text-text-faint">{s.context}</div>}
-              </div>
-            ); })}
-          </div>
-        </div>
-      )}
-      <p className="text-[11px] leading-snug text-text-faint">Big (≥4%) gaps: after the 10-min opening range, long a break of the OR high / short the OR low. 3-2-1 follows the gap: gap UP → long the break of the post-gap high; gap DOWN → short the break of the post-gap low (stop at the gap-day high). Educational, not financial advice.</p>
+        );
+      })}
+      <p className="text-[11px] leading-snug text-text-faint">Big (≥4%) gaps: after the 10-min opening range, long a break of the OR high / short the OR low. 3-2-1 follows the gap: gap UP → long the break of the post-gap high; gap DOWN → short the break of the post-gap low (stop at the gap-day high). Tap a header to expand/collapse, a symbol to open its chart, ★ to add to Focus. Educational, not financial advice.</p>
     </div>
   );
 }
