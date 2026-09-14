@@ -43,6 +43,9 @@ showMA = input.bool(true, "Plot the 50 / 150 / 200", group = gMA)
 col50  = input.color(#1E88E5, "50",  inline = "cma", group = gMA)
 col150 = input.color(#7E57C2, "150", inline = "cma", group = gMA)
 col200 = input.color(#FB8C00, "200", inline = "cma", group = gMA)
+w50    = input.int(1, "50 width",  minval = 1, maxval = 6, inline = "wma", group = gMA)
+w150   = input.int(2, "150 width", minval = 1, maxval = 6, inline = "wma", group = gMA)
+w200   = input.int(3, "200 width", minval = 1, maxval = 6, inline = "wma", group = gMA)
 
 // ── rule thresholds ───────────────────────────────────────────────────────────
 gRule       = "Rule thresholds"
@@ -154,9 +157,9 @@ formingVCP  = hasBase and dryUp
 breakoutVCP = _trendOk and depthOk and ta.crossover(close, entry) and not na(volRatio) and volRatio >= brkVolMult
 
 // ── plots ─────────────────────────────────────────────────────────────────────
-plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = 1)
-plot(showMA ? ma150 : na, "150 SMA", color = col150, linewidth = 2)
-plot(showMA ? ma200 : na, "200 SMA", color = col200, linewidth = 3)
+plot(showMA ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
+plot(showMA ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
+plot(showMA ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 // green wash while all 8 hold — Stage 2 confirmed.
 bgcolor(allPass ? color.new(#26A69A, 90) : na)
 // queryable (Data Window) — score + RS + the 200 angle, no chart clutter.
@@ -382,6 +385,7 @@ enW    = input.bool(true, "Weekly (PWH / PWL / PWC)",    group = gLvl)
 enM    = input.bool(true, "Monthly (PMH / PML / PMC)",   group = gLvl)
 enQ    = input.bool(true, "Quarterly (PQH / PQL / PQC)", group = gLvl)
 lvTag  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gLvl)
+lvWidth = input.int(1, "Level line width", minval = 1, maxval = 6, group = gLvl)
 lvHi   = input.color(#EF5350, "High",  inline = "lc", group = gLvl)
 lvLo   = input.color(#26A69A, "Low",   inline = "lc", group = gLvl)
 lvCl   = input.color(#B0BEC5, "Close", inline = "lc", group = gLvl)
@@ -396,11 +400,12 @@ f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
     label _b = lb
     if on and not na(px)
         if na(_l)
-            _l := line.new(bar_index, px, bar_index + lvTag, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.left)
+            _l := line.new(bar_index, px, bar_index + lvTag, px, xloc = xloc.bar_index, color = col, width = lvWidth, style = line.style_dotted, extend = extend.left)
             _b := label.new(bar_index + lvTag, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
         else
             line.set_xy1(_l, bar_index, px)
             line.set_xy2(_l, bar_index + lvTag, px)
+            line.set_width(_l, lvWidth)
             label.set_xy(_b, bar_index + lvTag, px)
             label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
     else
