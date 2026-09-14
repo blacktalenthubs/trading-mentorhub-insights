@@ -37,52 +37,61 @@ var int   gapBarIdx = na
 var float gapVal    = na
 var float ceiling   = na
 var float gfloor    = na
+var float gapDayHi  = na
 if isGap
     gapBarIdx := bar_index
     gapVal    := gap
     ceiling   := high
     gfloor    := low
+    gapDayHi  := high
 else if not na(ceiling)
     ceiling := math.max(ceiling, high)
     gfloor  := math.min(gfloor, low)
 _since = na(gapBarIdx) ? na : bar_index - gapBarIdx
+_gapUp = not na(gapVal) and gapVal > 0
 
-// 3-2-1: recent 5-bar range tight vs the whole post-gap range, coiling under the ceiling
+// 3-2-1 FOLLOWS THE GAP: gap up → long the break of the post-gap HIGH (ceiling);
+// gap down → short the break of the post-gap LOW (floor), stop = the gap-day high.
 _recRange  = ta.highest(high, 5) - ta.lowest(low, 5)
 _baseRange = na(ceiling) or na(gfloor) ? na : ceiling - gfloor
 contracting = not na(_baseRange) and _baseRange > 0 and _recRange <= _baseRange * contractRatio
-nearC   = not na(ceiling) and ceiling > 0 and close < ceiling and (ceiling - close) / ceiling * 100.0 <= nearCeil
+_entry  = _gapUp ? ceiling : gfloor
+_stop   = _gapUp ? ta.lowest(low, 5) : gapDayHi
+nearC   = _gapUp ? (not na(ceiling) and ceiling > 0 and close < ceiling and (ceiling - close) / ceiling * 100.0 <= nearCeil) : (not na(gfloor) and gfloor > 0 and close > gfloor and (close - gfloor) / gfloor * 100.0 <= nearCeil)
 hasSetup = not na(gapBarIdx) and not na(_since) and _since >= 2 and contracting and nearC
-brkOut  = not na(ceiling) and ta.crossover(close, ceiling)
-_stop   = ta.lowest(low, 5)
+brkOut  = na(gapVal) ? false : _gapUp ? ta.crossover(close, ceiling) : ta.crossunder(close, gfloor)
 
 // gap markers (every gap bar, historical too — for study)
 plotshape(isGap and gap > 0, "Gap up",   style = shape.triangleup,   location = location.belowbar, color = colUp, size = size.tiny)
 plotshape(isGap and gap < 0, "Gap down", style = shape.triangledown, location = location.abovebar, color = colDn, size = size.tiny)
-plotshape(brkOut, "Ceiling break", style = shape.diamond, location = location.abovebar, color = colCeil, size = size.tiny, text = "BRK")
+plotshape(brkOut and _gapUp,      "Long break",  style = shape.diamond, location = location.abovebar, color = colUp, size = size.tiny, text = "LONG")
+plotshape(brkOut and not _gapUp,  "Short break", style = shape.diamond, location = location.belowbar, color = colDn, size = size.tiny, text = "SHORT")
 
-// ── ceiling (entry) + stop lines — only while a 3-2-1 is building ───────────────
+// ── entry + stop lines — only while a 3-2-1 is building (direction-aware) ───────
 var line  ceLn = na
 var label ceLb = na
 var line  stLn = na
 var label stLb = na
 if barstate.islast
-    if hasSetup and not na(ceiling)
+    if hasSetup and not na(_entry)
         _x1 = na(gapBarIdx) ? bar_index - 10 : gapBarIdx
         _x2 = bar_index + 8
+        _eCol = _gapUp ? colUp : colDn
         if na(ceLn)
-            ceLn := line.new(_x1, ceiling, _x2, ceiling, color = colCeil, width = 2)
-            ceLb := label.new(_x2, ceiling, "", style = label.style_label_left, color = colCeil, textcolor = color.white, size = size.small)
-            stLn := line.new(_x1, _stop, _x2, _stop, color = colDn, width = 1, style = line.style_dashed)
-            stLb := label.new(_x2, _stop, "", style = label.style_label_left, color = colDn, textcolor = color.white, size = size.small)
+            ceLn := line.new(_x1, _entry, _x2, _entry, color = _eCol, width = 2)
+            ceLb := label.new(_x2, _entry, "", style = label.style_label_left, color = _eCol, textcolor = color.white, size = size.small)
+            stLn := line.new(_x1, _stop, _x2, _stop, color = colCeil, width = 1, style = line.style_dashed)
+            stLb := label.new(_x2, _stop, "", style = label.style_label_left, color = colCeil, textcolor = color.white, size = size.small)
         else
-            line.set_xy1(ceLn, _x1, ceiling)
-            line.set_xy2(ceLn, _x2, ceiling)
-            label.set_xy(ceLb, _x2, ceiling)
+            line.set_xy1(ceLn, _x1, _entry)
+            line.set_xy2(ceLn, _x2, _entry)
+            line.set_color(ceLn, _eCol)
+            label.set_xy(ceLb, _x2, _entry)
+            label.set_color(ceLb, _eCol)
             line.set_xy1(stLn, _x1, _stop)
             line.set_xy2(stLn, _x2, _stop)
             label.set_xy(stLb, _x2, _stop)
-        label.set_text(ceLb, "CEILING (buy) " + str.tostring(ceiling, format.mintick))
+        label.set_text(ceLb, (_gapUp ? "LONG > " : "SHORT < ") + str.tostring(_entry, format.mintick))
         label.set_text(stLb, "STOP " + str.tostring(_stop, format.mintick))
     else if not na(ceLn)
         line.delete(ceLn)
@@ -117,21 +126,22 @@ _ht = color.new(#C7C9D9, 0)
 _hw = color.new(color.white, 0)
 if barstate.islast and enHud
     _dir = na(gapVal) ? "—" : (gapVal > 0 ? "UP +" : "DOWN ") + str.tostring(gapVal, "#.#") + "%"
-    _state = brkOut ? "BREAKOUT ▲ — ceiling cleared" : hasSetup ? "3-2-1 forming — coiling under ceiling" : na(gapBarIdx) ? "no recent gap" : "post-gap — no tight base yet"
+    _bias = na(gapVal) ? "" : _gapUp ? " → LONG bias" : " → SHORT bias"
+    _state = brkOut ? (_gapUp ? "LONG ▲ — broke the ceiling" : "SHORT ▼ — broke the floor") : hasSetup ? (_gapUp ? "3-2-1 — coiling under the ceiling" : "3-2-1 — coiling above the floor") : na(gapBarIdx) ? "no recent gap" : "post-gap — no tight base yet"
     table.cell(hud, 0, 0, "Gap", _hb, _hw, text_halign = text.align_left)
-    table.cell(hud, 1, 0, _dir + (na(_since) ? "" : "  · " + str.tostring(_since) + " bars ago"), _hb, _hw, text_halign = text.align_right)
+    table.cell(hud, 1, 0, _dir + _bias + (na(_since) ? "" : "  · " + str.tostring(_since) + "b"), _hb, _hw, text_halign = text.align_right)
     table.cell(hud, 0, 1, "Read", _hb, _ht, text_halign = text.align_left)
-    table.cell(hud, 1, 1, _state, brkOut ? color.new(#1B5E20, 0) : hasSetup ? color.new(#1565C0, 0) : _hb, _hw, text_halign = text.align_right)
-    table.cell(hud, 0, 2, "Ceiling (buy)", _hb, _ht, text_halign = text.align_left)
-    table.cell(hud, 1, 2, na(ceiling) ? "—" : str.tostring(ceiling, format.mintick), _hb, color.new(#FB8C00, 0), text_halign = text.align_right)
+    table.cell(hud, 1, 1, _state, brkOut ? (_gapUp ? color.new(#1B5E20, 0) : color.new(#8E1D1D, 0)) : hasSetup ? color.new(#1565C0, 0) : _hb, _hw, text_halign = text.align_right)
+    table.cell(hud, 0, 2, _gapUp ? "Entry (long >)" : "Entry (short <)", _hb, _ht, text_halign = text.align_left)
+    table.cell(hud, 1, 2, na(_entry) ? "—" : str.tostring(_entry, format.mintick), _hb, _gapUp ? color.new(#26A69A, 0) : color.new(#EF5350, 0), text_halign = text.align_right)
     table.cell(hud, 0, 3, "Stop", _hb, _ht, text_halign = text.align_left)
-    table.cell(hud, 1, 3, na(_stop) ? "—" : str.tostring(_stop, format.mintick), _hb, color.new(#EF5350, 0), text_halign = text.align_right)
-    _toC = na(ceiling) or ceiling == 0 ? na : (close / ceiling - 1) * 100.0
-    table.cell(hud, 0, 4, "To ceiling", _hb, _ht, text_halign = text.align_left)
-    table.cell(hud, 1, 4, na(_toC) ? "—" : str.tostring(_toC, "+#.#;-#.#") + "%", _hb, _hw, text_halign = text.align_right)
+    table.cell(hud, 1, 3, na(_stop) ? "—" : str.tostring(_stop, format.mintick), _hb, color.new(#FB8C00, 0), text_halign = text.align_right)
+    _toE = na(_entry) or _entry == 0 ? na : (close / _entry - 1) * 100.0
+    table.cell(hud, 0, 4, "To entry", _hb, _ht, text_halign = text.align_left)
+    table.cell(hud, 1, 4, na(_toE) ? "—" : str.tostring(_toE, "+#.#;-#.#") + "%", _hb, _hw, text_halign = text.align_right)
 
 // ── alerts ─────────────────────────────────────────────────────────────────────
 alertcondition(isGap and gap > 0, "Big gap UP",   "{{ticker}} gapped UP ≥ threshold")
 alertcondition(isGap and gap < 0, "Big gap DOWN", "{{ticker}} gapped DOWN ≥ threshold")
-alertcondition(hasSetup and not hasSetup[1], "3-2-1 forming", "{{ticker}} — 3-2-1 coiling under the post-gap ceiling")
-alertcondition(brkOut, "Ceiling breakout", "{{ticker}} — broke the post-gap ceiling (long trigger)")
+alertcondition(hasSetup and not hasSetup[1], "3-2-1 forming", "{{ticker}} — 3-2-1 forming off the gap (continuation)")
+alertcondition(brkOut, "Gap continuation break", "{{ticker}} — broke the post-gap level (gap-continuation trigger)")

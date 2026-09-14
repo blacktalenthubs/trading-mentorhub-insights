@@ -228,7 +228,8 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
 
 type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_close?: number;
   or?: { or_high: number; or_low: number; last: number; state: string } | null;
-  gap_dir?: string; days_ago?: number; ceiling?: number; stop?: number; to_ceiling_pct?: number; risk_pct?: number };
+  gap_dir?: string; days_ago?: number; direction?: string; trigger?: number; stop?: number;
+  to_trigger_pct?: number; risk_pct?: number; context?: string };
 function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   let parsed: { gaps?: GapRow[]; setups?: GapRow[]; scanned?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
@@ -265,25 +266,29 @@ function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => vo
       )}
       {setups.length > 0 && (
         <div>
-          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">3-2-1 · break of the ceiling = long</div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">3-2-1 · gap continuation</div>
           <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {setups.map((s) => (
+            {setups.map((s) => {
+              const long = (s.direction ?? "").toUpperCase() === "LONG";
+              return (
               <div key={s.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3">
                 <div className="flex items-center justify-between">
                   {sym(s.sym)}
-                  <span className="text-[10px] text-text-faint">gap {s.gap_dir} {s.gap_pct && s.gap_pct > 0 ? "+" : ""}{s.gap_pct}% · {s.days_ago}d ago</span>
+                  <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>{s.direction}</span>
                 </div>
+                <div className="mt-1 text-[10px] text-text-faint">gap {s.gap_dir} {s.gap_pct && s.gap_pct > 0 ? "+" : ""}{s.gap_pct}% · {s.days_ago}d ago</div>
                 <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
-                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">ceiling</div><div className="font-mono text-text-primary">{s.ceiling}</div></div>
+                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">{long ? "break >" : "break <"}</div><div className="font-mono text-text-primary">{s.trigger}</div></div>
                   <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">stop</div><div className="font-mono text-bearish-text">{s.stop}</div></div>
-                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">to ceiling</div><div className="font-mono text-text-secondary">{s.to_ceiling_pct && s.to_ceiling_pct > 0 ? "+" : ""}{s.to_ceiling_pct}%</div></div>
+                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">to trigger</div><div className="font-mono text-text-secondary">{s.to_trigger_pct && s.to_trigger_pct > 0 ? "+" : ""}{s.to_trigger_pct}%</div></div>
                 </div>
+                {s.context && <div className="mt-1.5 text-[9.5px] text-text-faint">{s.context}</div>}
               </div>
-            ))}
+            ); })}
           </div>
         </div>
       )}
-      <p className="text-[11px] leading-snug text-text-faint">Big (≥4%) gaps: after the 10-min opening range, long a break of the OR high / short the OR low. 3-2-1: a tightening contraction under the post-gap high — break of the ceiling is the long entry. Educational, not financial advice.</p>
+      <p className="text-[11px] leading-snug text-text-faint">Big (≥4%) gaps: after the 10-min opening range, long a break of the OR high / short the OR low. 3-2-1 follows the gap: gap UP → long the break of the post-gap high; gap DOWN → short the break of the post-gap low (stop at the gap-day high). Educational, not financial advice.</p>
     </div>
   );
 }
