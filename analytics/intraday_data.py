@@ -1035,6 +1035,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 hist["MA20"] = hist["Close"].rolling(window=20).mean()
                 hist["MA50"] = hist["Close"].rolling(window=50).mean()
                 hist["MA100"] = hist["Close"].rolling(window=100).mean()
+                hist["MA150"] = hist["Close"].rolling(window=150).mean()
                 hist["MA200"] = hist["Close"].rolling(window=200).mean()
                 hist["EMA5"] = hist["Close"].ewm(span=5, adjust=False).mean()
                 hist["EMA8"] = hist["Close"].ewm(span=8, adjust=False).mean()
@@ -1072,6 +1073,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 ma20 = last["MA20"] if pd.notna(last.get("MA20")) else None
                 ma50 = last["MA50"] if pd.notna(last.get("MA50")) else None
                 ma100 = last["MA100"] if pd.notna(last.get("MA100")) else None
+                ma150 = last["MA150"] if pd.notna(last.get("MA150")) else None
                 ma200 = last["MA200"] if pd.notna(last.get("MA200")) else None
                 ema5 = last["EMA5"] if pd.notna(last.get("EMA5")) else None
                 ema8 = last["EMA8"] if pd.notna(last.get("EMA8")) else None
@@ -1169,7 +1171,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
                     "wema8": wema8, "wema21": wema21, "wema50": wema50, "w30": w30,
-                    "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma200": ma200,
+                    "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma150": ma150, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
                     "ema10": ema10, "ema10_prev": prev.get("EMA10"),
@@ -1217,6 +1219,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         hist["MA20"] = hist["Close"].rolling(window=20).mean()
         hist["MA50"] = hist["Close"].rolling(window=50).mean()
         hist["MA100"] = hist["Close"].rolling(window=100).mean()
+        hist["MA150"] = hist["Close"].rolling(window=150).mean()
         hist["MA200"] = hist["Close"].rolling(window=200).mean()
 
         # Compute EMAs on full history
@@ -1384,6 +1387,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
         ma20 = last["MA20"] if pd.notna(last["MA20"]) else None
         ma50 = last["MA50"] if pd.notna(last["MA50"]) else None
         ma100 = last["MA100"] if pd.notna(last["MA100"]) else None
+        ma150 = last["MA150"] if pd.notna(last["MA150"]) else None
         ma200 = last["MA200"] if pd.notna(last["MA200"]) else None
         ema5 = last["EMA5"] if pd.notna(last["EMA5"]) else None
         ema5_prev = prev["EMA5"] if pd.notna(prev["EMA5"]) else None
@@ -1432,6 +1436,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "ma20": ma20,
             "ma50": ma50,
             "ma100": ma100,
+            "ma150": ma150,
             "ma200": ma200,
             "ema5": ema5,
             "ema5_prev": ema5_prev,

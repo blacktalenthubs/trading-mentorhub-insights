@@ -310,6 +310,7 @@ class AlertType(str, Enum):
     MA_RECLAIM_20 = "ma_reclaim_20"
     MA_RECLAIM_50 = "ma_reclaim_50"
     MA_RECLAIM_100 = "ma_reclaim_100"
+    MA_RECLAIM_150 = "ma_reclaim_150"
     MA_RECLAIM_200 = "ma_reclaim_200"
     # 20/200 support scanner — hourly 20 (rising) / 200 SMA support holds.
     MA20_SUPPORT_1H = "ma20_support_1h"
@@ -8326,6 +8327,7 @@ def evaluate_rules(
     ma20 = prior_day.get("ma20")
     ma50 = prior_day.get("ma50")
     ma100 = prior_day.get("ma100")
+    ma150 = prior_day.get("ma150")
     ma200 = prior_day.get("ma200")
     ema20 = prior_day.get("ema20")
     # Phase 3b — EMA8 / EMA21 (final EMA set 8/21/50/100/200).
@@ -8979,6 +8981,7 @@ def evaluate_rules(
             (AlertType.MA_RECLAIM_20, ma20, "20MA"),
             (AlertType.MA_RECLAIM_50, ma50, "50MA"),
             (AlertType.MA_RECLAIM_100, ma100, "100MA"),
+            (AlertType.MA_RECLAIM_150, ma150, "150MA"),
             (AlertType.MA_RECLAIM_200, ma200, "200MA"),
             (AlertType.EMA_RECLAIM_8, ema8, "EMA8"),
             (AlertType.EMA_RECLAIM_21, ema21, "EMA21"),

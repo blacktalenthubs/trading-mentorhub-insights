@@ -661,6 +661,7 @@ ENABLED_RULES: set[str] = {
 
     # ── Daily MA support: 20 (rising, gated in intraday_rules) + 200 ────────────
     "ma_reclaim_20",
+    "ma_reclaim_150",
     "ma_reclaim_200",
 
     # ── Hourly MA support: 20 (rising) + 200 (new rules) ────────────────────────
