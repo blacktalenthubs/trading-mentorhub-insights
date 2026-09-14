@@ -396,60 +396,65 @@ if barstate.islast
     lnPml := _g
     lbPml := _h
 
-// ═══ RECENT GAP S/R ══════════════════════════════════════════════════════════════
-// A big gap leaves a level: a gap UP is defended at the gap bottom (the prior close) —
-// support on a pullback; a gap DOWN leaves that prior close overhead as resistance.
-// Detected on the CHART timeframe (daily gaps on a daily chart). Most recent of each.
-gGap   = "Recent gap S/R"
-enGap  = input.bool(true, "Show recent gap support/resistance", group = gGap)
-gapThr = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart — reads the daily open vs the prior daily close.")
+// ═══ RECENT GAP ZONE (S/R) ═══════════════════════════════════════════════════════
+// The gap window = between the prior close and the gap-day OPEN (the gap's HIGH & LOW
+// edges). A gap UP leaves that zone below as SUPPORT (defended on a pullback / full
+// fill); a gap DOWN leaves it overhead as RESISTANCE. Most recent of each, shaded.
+// Chart-timeframe (daily gaps on a daily chart).
+gGap   = "Recent gap zone"
+enGap  = input.bool(true, "Show recent gap zone (S/R)", group = gGap)
+gapThr = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart. Draws the gap window — prior close to the gap-day open (its high & low edges).")
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
 
 _gp = not na(close[1]) and close[1] != 0 ? (open - close[1]) / close[1] * 100.0 : na
-var float gSupLvl = na
-var int   gSupBar = na
-var float gResLvl = na
-var int   gResBar = na
+var float gUpHi = na
+var float gUpLo = na
+var int   gUpBar = na
+var float gDnHi = na
+var float gDnLo = na
+var int   gDnBar = na
 if not na(_gp) and _gp >= gapThr
-    gSupLvl := close[1]
-    gSupBar := bar_index
+    gUpHi  := open        // gap top = the gap-up open
+    gUpLo  := close[1]    // gap bottom = the prior close (full-fill support)
+    gUpBar := bar_index
 if not na(_gp) and _gp <= -gapThr
-    gResLvl := close[1]
-    gResBar := bar_index
+    gDnHi  := close[1]    // gap top = the prior close (overhead)
+    gDnLo  := open        // gap bottom = the gap-down open
+    gDnBar := bar_index
 
-var line  gSupLn = na
-var label gSupLb = na
-var line  gResLn = na
-var label gResLb = na
+var box   gUpBx = na
+var label gUpLb = na
+var box   gDnBx = na
+var label gDnLb = na
 if barstate.islast
-    if enGap and not na(gSupLvl)
-        _sx2 = bar_index + lvTagOff
-        if na(gSupLn)
-            gSupLn := line.new(gSupBar, gSupLvl, _sx2, gSupLvl, xloc = xloc.bar_index, color = colGapS, width = 1, style = line.style_dashed)
-            gSupLb := label.new(_sx2, gSupLvl, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapS, 90), textcolor = colGapS, size = size.tiny)
+    if enGap and not na(gUpHi)
+        _ux2 = bar_index + lvTagOff
+        if na(gUpBx)
+            gUpBx := box.new(gUpBar, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
+            gUpLb := label.new(_ux2, gUpLo, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapS, 90), textcolor = colGapS, size = size.tiny)
         else
-            line.set_xy1(gSupLn, gSupBar, gSupLvl)
-            line.set_xy2(gSupLn, _sx2, gSupLvl)
-            label.set_xy(gSupLb, _sx2, gSupLvl)
-        label.set_text(gSupLb, "Gap S " + str.tostring(gSupLvl, format.mintick))
-    else if not na(gSupLn)
-        line.delete(gSupLn)
-        label.delete(gSupLb)
-        gSupLn := na
-        gSupLb := na
-    if enGap and not na(gResLvl)
-        _rx2 = bar_index + lvTagOff
-        if na(gResLn)
-            gResLn := line.new(gResBar, gResLvl, _rx2, gResLvl, xloc = xloc.bar_index, color = colGapR, width = 1, style = line.style_dashed)
-            gResLb := label.new(_rx2, gResLvl, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapR, 90), textcolor = colGapR, size = size.tiny)
+            box.set_lefttop(gUpBx, gUpBar, gUpHi)
+            box.set_rightbottom(gUpBx, _ux2, gUpLo)
+            label.set_xy(gUpLb, _ux2, gUpLo)
+        label.set_text(gUpLb, "Gap S " + str.tostring(gUpLo, format.mintick) + "–" + str.tostring(gUpHi, format.mintick))
+    else if not na(gUpBx)
+        box.delete(gUpBx)
+        label.delete(gUpLb)
+        gUpBx := na
+        gUpLb := na
+    if enGap and not na(gDnHi)
+        _dx2 = bar_index + lvTagOff
+        if na(gDnBx)
+            gDnBx := box.new(gDnBar, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
+            gDnLb := label.new(_dx2, gDnHi, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapR, 90), textcolor = colGapR, size = size.tiny)
         else
-            line.set_xy1(gResLn, gResBar, gResLvl)
-            line.set_xy2(gResLn, _rx2, gResLvl)
-            label.set_xy(gResLb, _rx2, gResLvl)
-        label.set_text(gResLb, "Gap R " + str.tostring(gResLvl, format.mintick))
-    else if not na(gResLn)
-        line.delete(gResLn)
-        label.delete(gResLb)
-        gResLn := na
-        gResLb := na
+            box.set_lefttop(gDnBx, gDnBar, gDnHi)
+            box.set_rightbottom(gDnBx, _dx2, gDnLo)
+            label.set_xy(gDnLb, _dx2, gDnHi)
+        label.set_text(gDnLb, "Gap R " + str.tostring(gDnLo, format.mintick) + "–" + str.tostring(gDnHi, format.mintick))
+    else if not na(gDnBx)
+        box.delete(gDnBx)
+        label.delete(gDnLb)
+        gDnBx := na
+        gDnLb := na
