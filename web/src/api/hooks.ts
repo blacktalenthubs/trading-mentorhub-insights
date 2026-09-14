@@ -108,6 +108,7 @@ export interface MarketReportsResponse {
   trend_setups: MarketReport | null;
   swing_setups: MarketReport | null;
   ma20_setups: MarketReport | null;
+  gap_setups: MarketReport | null;
   premarket_signals: MarketReport | null;
 }
 export function useMarketReports(date?: string) {

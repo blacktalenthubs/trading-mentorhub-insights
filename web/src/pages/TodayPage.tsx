@@ -226,6 +226,68 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
   );
 }
 
+type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_close?: number;
+  or?: { or_high: number; or_low: number; last: number; state: string } | null;
+  gap_dir?: string; days_ago?: number; ceiling?: number; stop?: number; to_ceiling_pct?: number; risk_pct?: number };
+function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { gaps?: GapRow[]; setups?: GapRow[]; scanned?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const gaps = parsed?.gaps ?? [];
+  const setups = parsed?.setups ?? [];
+  if (gaps.length === 0 && setups.length === 0) {
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No big gaps or 3-2-1 setups right now — the gap scan runs premarket (analytics/gap_scanner.py).</div>;
+  }
+  const sym = (s: string) => <button onClick={() => onChart(s)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{s}</button>;
+  return (
+    <div className="space-y-3">
+      <div className="text-[10.5px] text-text-faint">{gaps.length} big gap{gaps.length === 1 ? "" : "s"} · {setups.length} 3-2-1 setup{setups.length === 1 ? "" : "s"}{parsed?.scanned ? ` · scanned ${parsed.scanned}` : ""}</div>
+      {gaps.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Big gaps · opening-range break</div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {gaps.map((g) => {
+              const up = (g.dir ?? "").toUpperCase() === "UP";
+              return (
+                <div key={g.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3">
+                  <div className="flex items-center justify-between">
+                    {sym(g.sym)}
+                    <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase ${up ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text"}`}>GAP {g.dir} {g.gap_pct > 0 ? "+" : ""}{g.gap_pct}%</span>
+                  </div>
+                  <div className="mt-1.5 text-[10.5px] text-text-muted">
+                    {g.or ? <span>OR <span className="font-mono">{g.or.or_low}–{g.or.or_high}</span> → <span className="text-text-secondary">{g.or.state}</span></span>
+                      : <span className="text-text-faint">opening range pending (intraday)</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {setups.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">3-2-1 · break of the ceiling = long</div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {setups.map((s) => (
+              <div key={s.sym} className="rounded-xl border border-border-subtle bg-surface-1 p-3">
+                <div className="flex items-center justify-between">
+                  {sym(s.sym)}
+                  <span className="text-[10px] text-text-faint">gap {s.gap_dir} {s.gap_pct && s.gap_pct > 0 ? "+" : ""}{s.gap_pct}% · {s.days_ago}d ago</span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10px]">
+                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">ceiling</div><div className="font-mono text-text-primary">{s.ceiling}</div></div>
+                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">stop</div><div className="font-mono text-bearish-text">{s.stop}</div></div>
+                  <div><div className="text-[8.5px] uppercase tracking-wide text-text-faint">to ceiling</div><div className="font-mono text-text-secondary">{s.to_ceiling_pct && s.to_ceiling_pct > 0 ? "+" : ""}{s.to_ceiling_pct}%</div></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <p className="text-[11px] leading-snug text-text-faint">Big (≥4%) gaps: after the 10-min opening range, long a break of the OR high / short the OR low. 3-2-1: a tightening contraction under the post-gap high — break of the ceiling is the long entry. Educational, not financial advice.</p>
+    </div>
+  );
+}
+
 type PmSignal = { symbol: string; alert_type: string; entry: number; level: number; stop: number; note: string; price: number; gap_pct: number };
 const PM_LABEL: Record<string, string> = {
   cml_reclaim: "reclaimed month low", cml_held: "held month low",
@@ -385,6 +447,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const mf = data?.morning_focus ?? null;
   const sw = data?.swing_setups ?? null;
   const ma20 = data?.ma20_setups ?? null;
+  const gap = data?.gap_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -451,6 +514,10 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-ma20", time: "ON·DEMAND", title: "20-MA setups", present: !!ma20,
       wait: "Run analytics/ma20_scan_report.py to populate.",
       render: () => <Ma20Setups body={ma20?.body ?? ""} onChart={onChart} /> },
+    // ── Gap setups — big (≥4%) gaps + the 3-2-1 contraction (premarket scan). ──
+    { id: "sec-gap", time: "PREMKT", title: "Gap setups", present: !!gap,
+      wait: "The gap scan runs premarket (analytics/gap_scanner.py).",
+      render: () => <GapSetups body={gap?.body ?? ""} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
