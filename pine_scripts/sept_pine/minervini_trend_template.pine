@@ -371,3 +371,90 @@ if barstate.islast and showFund
     f_fc(5, "ROE",                f_fpct(_roe),     f_qcHi(_roe, 15, 8))
     f_fc(6, "Debt / Equity",      f_fnum(_de),      f_qcLo(_de, 1.0, 2.0))
     f_fc(7, "P/E (trailing)",     f_fnum(_trailPE), _fLbl)
+
+// ═══ WEEKLY / MONTHLY / QUARTERLY LEVELS — prior H/L/C, proximity-gated ═══════════
+// The prior week/month/quarter's high, low and close are institutional S/R. Each is
+// drawn ONLY when price is within `lvProx`% of it, so far levels never clutter.
+gLvl   = "W / M / Q levels"
+showLv = input.bool(true, "Show W/M/Q levels", group = gLvl)
+lvProx = input.float(5.0, "Only show levels within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvl, tooltip = "A level is drawn only when price is within this % of it — far levels are hidden so the chart stays clean.")
+enW    = input.bool(true, "Weekly (PWH / PWL / PWC)",    group = gLvl)
+enM    = input.bool(true, "Monthly (PMH / PML / PMC)",   group = gLvl)
+enQ    = input.bool(true, "Quarterly (PQH / PQL / PQC)", group = gLvl)
+lvTag  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gLvl)
+lvHi   = input.color(#EF5350, "High",  inline = "lc", group = gLvl)
+lvLo   = input.color(#26A69A, "Low",   inline = "lc", group = gLvl)
+lvCl   = input.color(#B0BEC5, "Close", inline = "lc", group = gLvl)
+
+[pwh, pwl, pwc] = request.security(syminfo.tickerid, "W",  [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml, pmc] = request.security(syminfo.tickerid, "M",  [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+[pqh, pql, pqc] = request.security(syminfo.tickerid, "3M", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+f_near(_px) => not na(_px) and _px != 0 and math.abs(close - _px) / close * 100.0 <= lvProx
+f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
+    line  _l = ln
+    label _b = lb
+    if on and not na(px)
+        if na(_l)
+            _l := line.new(bar_index, px, bar_index + lvTag, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.left)
+            _b := label.new(bar_index + lvTag, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
+        else
+            line.set_xy1(_l, bar_index, px)
+            line.set_xy2(_l, bar_index + lvTag, px)
+            label.set_xy(_b, bar_index + lvTag, px)
+            label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+
+var line  lnWH = na
+var label lbWH = na
+var line  lnWL = na
+var label lbWL = na
+var line  lnWC = na
+var label lbWC = na
+var line  lnMH = na
+var label lbMH = na
+var line  lnML = na
+var label lbML = na
+var line  lnMC = na
+var label lbMC = na
+var line  lnQH = na
+var label lbQH = na
+var line  lnQL = na
+var label lbQL = na
+var line  lnQC = na
+var label lbQC = na
+if barstate.islast
+    [_a1, _a2] = f_lvl(lnWH, lbWH, showLv and enW and f_near(pwh), pwh, "PWH", lvHi)
+    lnWH := _a1
+    lbWH := _a2
+    [_b1, _b2] = f_lvl(lnWL, lbWL, showLv and enW and f_near(pwl), pwl, "PWL", lvLo)
+    lnWL := _b1
+    lbWL := _b2
+    [_c1, _c2] = f_lvl(lnWC, lbWC, showLv and enW and f_near(pwc), pwc, "PWC", lvCl)
+    lnWC := _c1
+    lbWC := _c2
+    [_d1, _d2] = f_lvl(lnMH, lbMH, showLv and enM and f_near(pmh), pmh, "PMH", lvHi)
+    lnMH := _d1
+    lbMH := _d2
+    [_e1, _e2] = f_lvl(lnML, lbML, showLv and enM and f_near(pml), pml, "PML", lvLo)
+    lnML := _e1
+    lbML := _e2
+    [_f1, _f2] = f_lvl(lnMC, lbMC, showLv and enM and f_near(pmc), pmc, "PMC", lvCl)
+    lnMC := _f1
+    lbMC := _f2
+    [_g1, _g2] = f_lvl(lnQH, lbQH, showLv and enQ and f_near(pqh), pqh, "PQH", lvHi)
+    lnQH := _g1
+    lbQH := _g2
+    [_h1, _h2] = f_lvl(lnQL, lbQL, showLv and enQ and f_near(pql), pql, "PQL", lvLo)
+    lnQL := _h1
+    lbQL := _h2
+    [_i1, _i2] = f_lvl(lnQC, lbQC, showLv and enQ and f_near(pqc), pqc, "PQC", lvCl)
+    lnQC := _i1
+    lbQC := _i2
