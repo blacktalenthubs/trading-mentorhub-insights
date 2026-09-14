@@ -673,6 +673,7 @@ ENABLED_RULES: set[str] = {
     "prior_day_low_reclaim",     # PDL reclaim
     "pwh_breakout_retest",       # PWH breakout + retest
     "pwl_reclaim",               # PWL reclaim
+    "rsi_30_35",                 # RSI-30 oversold-turn reclaim (RSI back above 30 into 30-35)
 
     # ── Trade management — exit alerts (always on, manage open positions) ────────
     "target_1_hit",
