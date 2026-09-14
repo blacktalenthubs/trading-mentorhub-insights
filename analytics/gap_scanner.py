@@ -165,11 +165,29 @@ def _telegram(rep: dict, date: str) -> str:
     return "\n".join(out)
 
 
+def publish(rep: dict, session_date: str) -> None:  # pragma: no cover - DB
+    """Store to market_reports (kind=gap_setups) → rendered on the Today tab."""
+    import json
+    import psycopg2
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=15)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO market_reports (kind, session_date, body, created_at) "
+        "VALUES ('gap_setups', %s, %s, NOW()) "
+        "ON CONFLICT (kind, session_date) DO UPDATE SET body = EXCLUDED.body, created_at = NOW()",
+        (session_date, json.dumps(rep)),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def main():  # pragma: no cover
     ap = argparse.ArgumentParser(description="Gap scanner (>=4% gaps + 3-2-1 setups)")
     ap.add_argument("symbols", nargs="*")
     ap.add_argument("--universe", action="store_true", help="scan the master watchlist (needs DATABASE_URL)")
     ap.add_argument("--telegram", action="store_true")
+    ap.add_argument("--publish", action="store_true", help="store to market_reports for the Today tab (needs DATABASE_URL)")
     ap.add_argument("--no-intraday", action="store_true", help="skip the opening-range fetch (gaps only)")
     args = ap.parse_args()
 
@@ -179,12 +197,16 @@ def main():  # pragma: no cover
     else:
         symbols = [s.upper() for s in args.symbols] or ["AAPL", "NVDA", "SMCI", "MU", "TSLA", "COIN"]
 
+    import datetime as _dt
+    _date = _dt.date.today().isoformat()
     rep = scan(symbols, want_intraday=not args.no_intraday)
     _print(rep)
+    if args.publish:
+        publish(rep, _date)
+        print("published: gap_setups", _date, file=sys.stderr)
     if args.telegram:
-        import datetime as _dt
         from analytics.minervini_scan import _send_to_telegram
-        _send_to_telegram(_telegram(rep, _dt.date.today().isoformat()))
+        _send_to_telegram(_telegram(rep, _date))
 
 
 if __name__ == "__main__":

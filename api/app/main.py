@@ -551,6 +551,45 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register minervini scan job")
 
+        # Gap scan (2026-09-13) — big (>=4%) gaps + the 3-2-1 setup. Publishes to
+        # market_reports (Today tab) and posts a Telegram digest. Runs just after the
+        # open + 10 min so the opening-range break is populated (Setup 1), and again
+        # premarket for the 3-2-1 book. Self-contained + defensive.
+        try:
+            from apscheduler.triggers.cron import CronTrigger as _CronG
+            from zoneinfo import ZoneInfo as _ZIG
+            _etg = _ZIG("America/New_York")
+
+            def _run_gap_scan():
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    from analytics.gap_scanner import scan as _g_scan, publish as _g_pub, _telegram as _g_tg
+                    from analytics.minervini_scan import _send_to_telegram as _g_send
+                    from analytics.swing_setups_report import _watchlist as _g_wl
+                    _dsn = _os.environ.get("DATABASE_URL")
+                    _syms = _g_wl(_dsn) if _dsn else []
+                    if not _syms:
+                        logger.warning("gap scan skipped (no watchlist)")
+                        return
+                    _rep = _g_scan(_syms, want_intraday=True)
+                    _date = _dt.date.today().isoformat()
+                    _g_pub(_rep, _date)
+                    _g_send(_g_tg(_rep, _date))
+                    logger.info("Gap scan posted (%d gaps, %d 3-2-1)",
+                                len(_rep["gaps"]), len(_rep["setups"]))
+                except Exception:
+                    logger.exception("gap scan failed")
+
+            # 09:41 ET (open + ~11 min → OR settled) and 08:43 ET (premarket, 3-2-1 book)
+            scheduler.add_job(_run_gap_scan, _CronG(hour=9, minute=41, day_of_week="mon-fri", timezone=_etg),
+                              id="gap_scan_open", replace_existing=True)
+            scheduler.add_job(_run_gap_scan, _CronG(hour=8, minute=43, day_of_week="mon-fri", timezone=_etg),
+                              id="gap_scan_premkt", replace_existing=True)
+            logger.info("Gap scan scheduled (08:43 + 09:41 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register gap scan job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;
