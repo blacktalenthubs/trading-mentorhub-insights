@@ -118,6 +118,12 @@ SCANNER_UNIVERSE: list[str] = [
     # Underlyings behind the leveraged ETFs (scan the stock, trade the LETF).
     "AMD", "MU", "AVGO", "TSM", "MRVL", "COHR", "AMZN", "ORCL", "PLTR",
     "APP", "SMCI", "MSTR", "HOOD",
+    # Widened 2026-09-14 (user) — qualified leaders from the Minervini / gap / watchlist
+    # scans that kept qualifying but got no live alert (INTC the trigger). Curated to
+    # keep the poll fast; grows the universe ~32 → ~52.
+    "INTC", "NOW", "COIN", "CRDO", "RKLB", "VRT", "GLW", "NFLX", "SPOT",
+    "DDOG", "PANW", "QCOM", "AMAT", "LRCX", "CEG", "GEV", "TXN", "ABNB",
+    "OKTA", "SITM",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
