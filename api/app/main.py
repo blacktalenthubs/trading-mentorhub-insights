@@ -598,6 +598,45 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register gap scan job")
 
+        # Daily-structural scan (2026-09-14, user) — RSI-30 + 150/200 reclaim over the
+        # FULL master watchlist (daily data, cheap). The intraday scanner's curated 52
+        # can't cover all ~150; these fire ~once/day off the daily close, so a daily-wide
+        # pass is the right tool. After the close = the definitive read; a premarket recap
+        # publishes (no repeat ping). Self-contained + defensive.
+        try:
+            from apscheduler.triggers.cron import CronTrigger as _CronD
+            from zoneinfo import ZoneInfo as _ZID
+            _etd = _ZID("America/New_York")
+
+            def _run_daily_structural(send_telegram: bool = True):
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    from analytics.daily_structural_scan import scan as _ds_scan, publish as _ds_pub, _telegram as _ds_tg
+                    from analytics.minervini_scan import _send_to_telegram as _ds_send
+                    from analytics.swing_setups_report import _watchlist as _ds_wl
+                    _dsn = _os.environ.get("DATABASE_URL")
+                    _syms = _ds_wl(_dsn) if _dsn else []
+                    if not _syms:
+                        logger.warning("daily-structural scan skipped (no watchlist)")
+                        return
+                    _rep = _ds_scan(_syms)
+                    _date = _dt.date.today().isoformat()
+                    _ds_pub(_rep, _date)
+                    if send_telegram:
+                        _ds_send(_ds_tg(_rep, _date))
+                    logger.info("Daily-structural scan posted (%d setups, telegram=%s)", len(_rep["rows"]), send_telegram)
+                except Exception:
+                    logger.exception("daily-structural scan failed")
+
+            scheduler.add_job(lambda: _run_daily_structural(True), _CronD(hour=16, minute=12, day_of_week="mon-fri", timezone=_etd),
+                              id="daily_structural_close", replace_existing=True)
+            scheduler.add_job(lambda: _run_daily_structural(False), _CronD(hour=8, minute=41, day_of_week="mon-fri", timezone=_etd),
+                              id="daily_structural_premkt", replace_existing=True)
+            logger.info("Daily-structural scan scheduled (16:12 + 08:41 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register daily-structural scan job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;
