@@ -1836,7 +1836,12 @@ def check_rsi_oversold_turn(
     """
     if rsi14 is None or rsi14_prev is None or bars.empty:
         return None
-    if not (rsi14_prev < 30.0 and 30.0 <= rsi14 <= 35.0):
+    # Two ways to catch the oversold turn at the 30 line:
+    #   RECLAIM — RSI was BELOW 30 (lost it) and is back in the 30-35 zone.
+    #   HOLD    — RSI dipped to 30-32 but NEVER lost 30 (prev >= 30) and is turning UP.
+    _reclaim = rsi14_prev < 30.0 and 30.0 <= rsi14 <= 35.0
+    _hold = rsi14_prev >= 30.0 and 30.0 <= rsi14 <= 32.0 and rsi14 > rsi14_prev
+    if not (_reclaim or _hold):
         return None
     last_bar = bars.iloc[-1]
     entry = round(float(last_bar["Close"]), 2)
@@ -1851,8 +1856,9 @@ def check_rsi_oversold_turn(
         symbol=symbol, alert_type=AlertType.RSI_30_35, direction="BUY",
         price=last_bar["Close"], entry=entry, stop=stop, target_1=t1, target_2=t2,
         confidence="medium",
-        message=(f"RSI oversold turn — RSI reclaimed {rsi14:.0f} (from {rsi14_prev:.0f}), "
-                 f"momentum turning up from a washout"),
+        message=(f"RSI oversold turn — RSI {rsi14:.0f} ("
+                 + ("reclaimed 30 from " if _reclaim else "held 30, turning up from ")
+                 + f"{rsi14_prev:.0f}), momentum turning up"),
     )
 
 
