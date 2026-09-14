@@ -226,7 +226,7 @@ function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => v
   );
 }
 
-type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_close?: number;
+type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_close?: number; bias?: string;
   or?: { or_high: number; or_low: number; last: number; state: string } | null;
   gap_dir?: string; days_ago?: number; direction?: string; trigger?: number; stop?: number;
   to_trigger_pct?: number; risk_pct?: number; context?: string };
@@ -258,6 +258,7 @@ function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => vo
                     {g.or ? <span>OR <span className="font-mono">{g.or.or_low}–{g.or.or_high}</span> → <span className="text-text-secondary">{g.or.state}</span></span>
                       : <span className="text-text-faint">opening range pending (intraday)</span>}
                   </div>
+                  {g.bias && <div className="mt-1 text-[9.5px] text-text-faint">{g.bias}</div>}
                 </div>
               );
             })}

@@ -560,7 +560,7 @@ async def lifespan(app: FastAPI):
             from zoneinfo import ZoneInfo as _ZIG
             _etg = _ZIG("America/New_York")
 
-            def _run_gap_scan():
+            def _run_gap_scan(send_telegram: bool = True):
                 try:
                     import os as _os
                     import datetime as _dt
@@ -574,19 +574,27 @@ async def lifespan(app: FastAPI):
                         return
                     _rep = _g_scan(_syms, want_intraday=True)
                     _date = _dt.date.today().isoformat()
-                    _g_pub(_rep, _date)
-                    _g_send(_g_tg(_rep, _date))
-                    logger.info("Gap scan posted (%d gaps, %d 3-2-1)",
-                                len(_rep["gaps"]), len(_rep["setups"]))
+                    _g_pub(_rep, _date)          # always refresh the Today dashboard
+                    if send_telegram:
+                        _g_send(_g_tg(_rep, _date))
+                    logger.info("Gap scan posted (%d gaps, %d 3-2-1, telegram=%s)",
+                                len(_rep["gaps"]), len(_rep["setups"]), send_telegram)
                 except Exception:
                     logger.exception("gap scan failed")
 
-            # 09:41 ET (open + ~11 min → OR settled) and 08:43 ET (premarket, 3-2-1 book)
-            scheduler.add_job(_run_gap_scan, _CronG(hour=9, minute=41, day_of_week="mon-fri", timezone=_etg),
-                              id="gap_scan_open", replace_existing=True)
-            scheduler.add_job(_run_gap_scan, _CronG(hour=8, minute=43, day_of_week="mon-fri", timezone=_etg),
-                              id="gap_scan_premkt", replace_existing=True)
-            logger.info("Gap scan scheduled (08:43 + 09:41 ET, mon-fri)")
+            # Refresh through the day so the Today dashboard stays current: premarket
+            # (3-2-1 book), open+11m (OR settled), late morning, midday, and into the
+            # close. Telegram posts on the premarket + open runs; the intraday refreshes
+            # publish only (no repeated pings). (h, m, telegram?)
+            _gap_times = [(8, 43, True), (9, 41, True), (11, 15, False), (13, 30, False), (15, 20, False)]
+            for _gi, (_gh, _gm, _gtg) in enumerate(_gap_times):
+                def _mk(send):
+                    def _job():
+                        _run_gap_scan(send)
+                    return _job
+                scheduler.add_job(_mk(_gtg), _CronG(hour=_gh, minute=_gm, day_of_week="mon-fri", timezone=_etg),
+                                  id=f"gap_scan_{_gi}", replace_existing=True)
+            logger.info("Gap scan scheduled (08:43/09:41/11:15/13:30/15:20 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register gap scan job")
 
