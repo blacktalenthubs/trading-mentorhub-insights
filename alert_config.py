@@ -665,8 +665,9 @@ ENABLED_RULES: set[str] = {
     "ma_reclaim_150",
     "ma_reclaim_200",
 
-    # ── Hourly MA support: 20 (rising) + 200 (new rules) ────────────────────────
+    # ── Hourly MA support: 20 (rising) + 50 + 200 ───────────────────────────────
     "ma20_support_1h",
+    "ma50_support_1h",
     "ma200_support_1h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────

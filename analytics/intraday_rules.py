@@ -314,6 +314,7 @@ class AlertType(str, Enum):
     MA_RECLAIM_200 = "ma_reclaim_200"
     # 20/200 support scanner — hourly 20 (rising) / 200 SMA support holds.
     MA20_SUPPORT_1H = "ma20_support_1h"
+    MA50_SUPPORT_1H = "ma50_support_1h"
     MA200_SUPPORT_1H = "ma200_support_1h"
     # Phase 3b — EMA8 / EMA21 reclaim variants (final set 8/21/50/100/200).
     EMA_RECLAIM_8 = "ema_reclaim_8"

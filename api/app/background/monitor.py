@@ -667,7 +667,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # 20/200 support scanner — HOURLY 20 (rising) + 200 SMA support holds.
                     # Fetched separately (needs ~200 hourly bars; cached ~15m) and fully
                     # defensive — a fetch miss or error just skips, never breaks the poll.
-                    if ("ma20_support_1h" in _ENABLED_RULES) or ("ma200_support_1h" in _ENABLED_RULES):
+                    if ("ma20_support_1h" in _ENABLED_RULES) or ("ma50_support_1h" in _ENABLED_RULES) or ("ma200_support_1h" in _ENABLED_RULES):
                         try:
                             _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="60d")
                             if _h1 is not None and not _h1.empty:
@@ -675,6 +675,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     _s1 = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
                                     if _s1:
                                         signals.append(_s1)
+                                if "ma50_support_1h" in _ENABLED_RULES:
+                                    _s50 = check_ma_support_1h(symbol, _h1, 50, AlertType.MA50_SUPPORT_1H, "50 SMA (1h)", require_rising=False)
+                                    if _s50:
+                                        signals.append(_s50)
                                 if "ma200_support_1h" in _ENABLED_RULES:
                                     _s2 = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _s2:
