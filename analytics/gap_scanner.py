@@ -22,14 +22,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 GAP_MIN_PCT   = 4.0    # |open - prevClose| / prevClose
 OR_MINUTES    = 10     # opening-range window (Setup 1)
-LOOKBACK_321  = 15     # days back to find the gap that a 3-2-1 is building off
+LOOKBACK_321  = 10     # days back to find the gap that a 3-2-1 is building off (keep fresh)
 NEAR_CEIL_PCT = 6.0    # 3-2-1 "coiling" — within this % below the ceiling
 CONTRACT_RATIO = 0.6   # recent third of the post-gap range <= this x the whole range
 
 
 def _daily(sym):  # pragma: no cover - network
     from analytics.market_data import fetch_ohlc
-    df = fetch_ohlc(sym, period="4mo", interval="1d")
+    df = fetch_ohlc(sym, period="14mo", interval="1d")   # enough for the 200 SMA context
     return None if df is None or df.empty else df.dropna()
 
 
@@ -72,7 +72,12 @@ def opening_range(intr: pd.DataFrame) -> dict | None:
 
 
 def three_two_one(df: pd.DataFrame) -> dict | None:
-    """Setup 2 — a tightening contraction under the post-gap high; ceiling break = entry."""
+    """Setup 2 — a tightening contraction after a gap. The TRADE FOLLOWS THE GAP:
+      • gap UP   → continuation up   → LONG  a break of the post-gap HIGH (ceiling),
+                   stop = the contraction low.
+      • gap DOWN → continuation down → SHORT a break of the post-gap LOW (floor),
+                   stop = the gap-day HIGH (the gap's opening high).
+    """
     if df is None or len(df) < 6:
         return None
     o = df["Open"].astype(float).values
@@ -93,24 +98,55 @@ def three_two_one(df: pd.DataFrame) -> dict | None:
         return None
     post_h = h[gap_idx:]
     post_l = l[gap_idx:]
-    ceiling = float(post_h.max())
-    floor = float(post_l.min())
+    ceiling = float(post_h.max())            # post-gap high
+    floor = float(post_l.min())              # post-gap low
+    gap_day_high = float(h[gap_idx])         # the gap's opening-day high
     last = float(c[-1])
-    if last >= ceiling or ceiling <= 0:       # already broken out (or bad data)
-        return None
-    # contraction: the recent third of the post-gap range vs the whole
+    _cser = df["Close"].astype(float)
+    # core key MAs: 20 / 50 / 150 / 200
+    key_mas = {p: (float(_cser.rolling(p).mean().iloc[-1]) if n >= p else None) for p in (20, 50, 150, 200)}
     third = max(1, len(post_h) // 3)
-    rng_all = post_h.max() - post_l.min()
+    rng_all = ceiling - floor
     rng_recent = post_h[-third:].max() - post_l[-third:].min()
     contracting = rng_all > 0 and rng_recent <= rng_all * CONTRACT_RATIO
-    near = (ceiling - last) / ceiling * 100.0 <= NEAR_CEIL_PCT
+
+    up = g_pct > 0
+    if up:
+        # continuation UP — long the break of the ceiling; coiling UNDER it
+        if last >= ceiling or ceiling <= 0:
+            return None
+        direction, trigger, stop = "LONG", ceiling, float(post_l[-third:].min())
+        near = (ceiling - last) / ceiling * 100.0 <= NEAR_CEIL_PCT
+        to_trig = (last / ceiling - 1) * 100.0        # negative = below the trigger
+    else:
+        # continuation DOWN — short the break of the floor; coiling ABOVE it,
+        # stop at the gap-day high
+        if last <= floor or floor <= 0:
+            return None
+        direction, trigger, stop = "SHORT", floor, gap_day_high
+        near = (last - floor) / floor * 100.0 <= NEAR_CEIL_PCT
+        to_trig = (last / floor - 1) * 100.0          # positive = above the trigger
     if not (contracting and near):
         return None
-    stop = round(float(post_l[-third:].min()), 2)     # the tight contraction low
-    return {"gap_dir": "UP" if g_pct > 0 else "DOWN", "gap_pct": round(g_pct, 1),
-            "days_ago": n - 1 - gap_idx, "ceiling": round(ceiling, 2), "stop": stop,
-            "last": round(last, 2), "to_ceiling_pct": round((last / ceiling - 1) * 100, 1),
-            "risk_pct": round((ceiling - stop) / ceiling * 100, 1) if ceiling else None}
+    # MA context (20/50/150/200) — a gap that LOST the key MAs is a clean continuation;
+    # a gap sitting AT a key MA (support/resistance) may hold, so flag it as caution.
+    present = [(p, v) for p, v in key_mas.items() if v is not None and v > 0]
+    _at = next((p for p, v in present if abs(last - v) / last * 100.0 <= 2.0), None)
+    if direction == "SHORT":
+        n_below = sum(1 for _p, v in present if last < v)
+        context = (f"below all {len(present)} key MAs — lost support (clean short)" if present and n_below == len(present)
+                   else f"at the {_at} MA (support) — may hold, caution" if _at
+                   else f"below {n_below}/{len(present)} key MAs")
+    else:
+        n_above = sum(1 for _p, v in present if last > v)
+        context = (f"above all {len(present)} key MAs (clean long)" if present and n_above == len(present)
+                   else f"at the {_at} MA — needs to reclaim/hold" if _at
+                   else f"above {n_above}/{len(present)} key MAs")
+    risk = abs(trigger - stop) / trigger * 100.0 if trigger else None
+    return {"gap_dir": "UP" if up else "DOWN", "gap_pct": round(g_pct, 1),
+            "direction": direction, "days_ago": n - 1 - gap_idx, "context": context,
+            "trigger": round(trigger, 2), "stop": round(stop, 2), "last": round(last, 2),
+            "to_trigger_pct": round(to_trig, 1), "risk_pct": round(risk, 1) if risk is not None else None}
 
 
 def scan(symbols, want_intraday: bool = True) -> dict:
@@ -133,7 +169,7 @@ def scan(symbols, want_intraday: bool = True) -> dict:
         except Exception:
             pass
     gaps.sort(key=lambda r: abs(r["gap_pct"]), reverse=True)
-    setups.sort(key=lambda r: r["to_ceiling_pct"], reverse=True)   # closest to the ceiling first
+    setups.sort(key=lambda r: abs(r["to_trigger_pct"]))            # closest to the trigger first
     return {"gaps": gaps, "setups": setups, "scanned": len(symbols)}
 
 
@@ -144,10 +180,11 @@ def _print(rep: dict) -> None:
         _or = r.get("or")
         ortxt = f"  OR {_or['or_low']}-{_or['or_high']} → {_or['state']}" if _or else "  (OR pending — intraday)"
         print(f"  {r['sym']:<7} GAP {r['dir']} {r['gap_pct']:+.1f}%  open {r['open']}  (prev {r['prev_close']}){ortxt}")
-    print("\n3-2-1 SETUPS — contraction under the post-gap ceiling (break = long):")
+    print("\n3-2-1 SETUPS — continuation of the gap (gap up → long ceiling break; gap down → short floor break):")
     for r in rep["setups"]:
-        print(f"  {r['sym']:<7} gap {r['gap_dir']} {r['gap_pct']:+.1f}% {r['days_ago']}d ago  "
-              f"ceiling {r['ceiling']}  {r['to_ceiling_pct']:+.1f}%  stop {r['stop']} (risk {r['risk_pct']}%)")
+        _brk = "break >" if r["direction"] == "LONG" else "break <"
+        print(f"  {r['sym']:<7} {r['direction']:<5} (gap {r['gap_dir']} {r['gap_pct']:+.1f}% {r['days_ago']}d)  "
+              f"{_brk} {r['trigger']}  {r['to_trigger_pct']:+.1f}%  stop {r['stop']} (risk {r['risk_pct']}%)  · {r['context']}")
 
 
 def _telegram(rep: dict, date: str) -> str:
@@ -159,9 +196,10 @@ def _telegram(rep: dict, date: str) -> str:
             s = f" · {_or['state']}" if _or else ""
             out.append(f"  {r['sym']} — {r['dir']} {r['gap_pct']:+.1f}%{s}")
     if rep["setups"]:
-        out.append("\n<b>3-2-1 (ceiling break = long):</b>")
+        out.append("\n<b>3-2-1 (gap continuation):</b>")
         for r in rep["setups"]:
-            out.append(f"  {r['sym']} — ceiling {r['ceiling']}, {r['to_ceiling_pct']:+.1f}% (stop {r['stop']})")
+            _brk = "break >" if r["direction"] == "LONG" else "break <"
+            out.append(f"  {r['sym']} {r['direction']} — {_brk} {r['trigger']}, {r['to_trigger_pct']:+.1f}% (stop {r['stop']})")
     return "\n".join(out)
 
 
