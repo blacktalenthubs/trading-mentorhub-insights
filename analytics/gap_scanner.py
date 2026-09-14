@@ -42,6 +42,25 @@ def _intraday(sym):  # pragma: no cover - network
     return None if df is None or df.empty else df
 
 
+def _key_ma_note(df: pd.DataFrame, up: bool) -> str:
+    """Where price sits vs the core 20/50/150/200 MAs → a trade bias note."""
+    cser = df["Close"].astype(float)
+    n = len(df)
+    last = float(cser.iloc[-1])
+    present = [(p, float(cser.rolling(p).mean().iloc[-1])) for p in (20, 50, 150, 200) if n >= p]
+    present = [(p, v) for p, v in present if v and v > 0]
+    if not present:
+        return ""
+    at = next((p for p, v in present if abs(last - v) / last * 100.0 <= 2.0), None)
+    if up:
+        na_ = sum(1 for _p, v in present if last > v)
+        return (f"above all {len(present)} key MAs — long favored" if na_ == len(present)
+                else f"at the {at} MA" if at else f"above {na_}/{len(present)} MAs")
+    nb = sum(1 for _p, v in present if last < v)
+    return (f"below all {len(present)} key MAs — short favored" if nb == len(present)
+            else f"at the {at} MA (support) — may hold" if at else f"below {nb}/{len(present)} MAs")
+
+
 def detect_gap(df: pd.DataFrame) -> dict | None:
     """Latest session's gap vs the prior close."""
     if df is None or len(df) < 2:
@@ -54,7 +73,7 @@ def detect_gap(df: pd.DataFrame) -> dict | None:
     if abs(gap) < GAP_MIN_PCT:
         return None
     return {"dir": "UP" if gap > 0 else "DOWN", "gap_pct": round(gap, 1),
-            "open": round(o, 2), "prev_close": round(pc, 2),
+            "open": round(o, 2), "prev_close": round(pc, 2), "bias": _key_ma_note(df, gap > 0),
             "day_high": round(float(df["High"].iloc[-1]), 2),
             "day_low": round(float(df["Low"].iloc[-1]), 2)}
 
@@ -179,7 +198,8 @@ def _print(rep: dict) -> None:
     for r in rep["gaps"]:
         _or = r.get("or")
         ortxt = f"  OR {_or['or_low']}-{_or['or_high']} → {_or['state']}" if _or else "  (OR pending — intraday)"
-        print(f"  {r['sym']:<7} GAP {r['dir']} {r['gap_pct']:+.1f}%  open {r['open']}  (prev {r['prev_close']}){ortxt}")
+        _b = f"  · {r['bias']}" if r.get("bias") else ""
+        print(f"  {r['sym']:<7} GAP {r['dir']} {r['gap_pct']:+.1f}%  open {r['open']}  (prev {r['prev_close']}){ortxt}{_b}")
     print("\n3-2-1 SETUPS — continuation of the gap (gap up → long ceiling break; gap down → short floor break):")
     for r in rep["setups"]:
         _brk = "break >" if r["direction"] == "LONG" else "break <"
