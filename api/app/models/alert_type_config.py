@@ -503,7 +503,10 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     "open_bracket", "structural_breakout", "planned_level_touch",
     # 2026-08-18 — consolidated to TWO day signals: Open Bracket + 4H. These are subsumed by open_bracket
     # (neighbor levels = PDL/PWL/PML; gap-and-go built in). User: "two toggle day signals only".
-    "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim", "gap_and_go",
+    "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim",
+    # 2026-09-14 — gap_and_go UN-RETIRED: re-enabled as a standalone live scanner rule
+    # (gap up >=1% + 2x first-bar volume, holding above the gap open, long-only). It is
+    # back in ENABLED_RULES; removed from this obsolete list so the seed keeps its catalog row.
     # 2026-08-10 — swing_base_breakout dropped (user: "nearly firing for anything and everything").
     "swing_base_breakout",
     # 2026-08-07 — swing book finalized to trend/momentum entries; level-reaction reclaims retired to
