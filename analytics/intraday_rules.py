@@ -172,10 +172,13 @@ from analytics.market_hours import (
     get_session_phase_for_symbol,
 )
 
-# 20/200 MA support scanner (2026-09-12): "rising" for the daily/hourly 20 SMA means the
-# MA's slope-angle (deg, ATR-normalised — the ma20_direction read) is at least this. 30 =
-# ideal-and-up; skips a flat/shallow 20 drifting sideways. See scanner_ma20_support_spec.md.
-MA_RISE_ANGLE_MIN = 30.0
+# 20/200 MA support scanner: "rising" for the daily/hourly 20 SMA means the MA's slope-
+# angle (deg, ATR-normalised — the ma20_direction read) is at least this.
+# 2026-09-14 (user): lowered 30 → 15. The MA LAGS price, so a strong fast mover (SPOT
+# gapped/ran hard) can have a 20 slope of only ~25° while price surges — the 30° "ideal"
+# gate filtered those out. 15 = clearly RISING (above the ~12° flat/chop line) without
+# demanding the steep ideal band, so shallow-rising strong movers aren't lost.
+MA_RISE_ANGLE_MIN = 15.0
 
 
 class AlertType(str, Enum):
