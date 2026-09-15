@@ -14,10 +14,11 @@
 //   • Also a MINERVINI qualification (> 150/200 · 200 rising · > 50 = a buyable trend)
 //     and an RSI reclaim entry (RSI 30-35 turning up = oversold bounce), both surfaced
 //     as first-class entries alongside the MA support/resistance ones.
-// MOBILE VERSION — the big desktop HUD table and the fundamentals panel are REMOVED
-// so the chart is readable on a phone. In their place, ONE small label near the last
-// bar shows three short lines: the action call, the active entry/stop/target + R:R,
-// and the context (20° · RSI · Trend Template · Minervini). The MAs, the VCP base box +
+// MOBILE VERSION — the fundamentals panel is removed and the HUD is rebuilt as a
+// SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
+// two-column desktop spread: one item per row — action, each MA's slope, RSI, the
+// Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
+// The MAs, the VCP base box +
 // pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/PML, W/M gated by proximity)
 // and the recent gap S/R zone all stay — everything is still computed on the DAILY
 // timeframe via request.security (non-repainting). For the full tabular read + reported
@@ -420,27 +421,34 @@ plotshape(breakoutVCP, "Breakout", style = shape.triangleup, location = location
 alertcondition(formingVCP and not formingVCP[1], "VCP base forming", "{{ticker}} — VCP base forming, coiling under the pivot")
 alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleared the pivot on volume")
 
-// ── COMPACT SIGNAL (mobile) — one small label near the last bar, NO table ───────
-// Replaces the desktop HUD/fundamentals tables. Three short lines: the action call,
-// the active entry/stop/target + R:R, and the context (20° · RSI · Trend Tmpl · Mnv).
+// ── HUD (mobile) — top-right, SINGLE COLUMN so it stacks TALL & NARROW ──────────
+// One item per row (no wide 2-column spread): action, each MA's slope, RSI, the
+// Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
-var label sig = na
+_hb  = color.new(#0B0B12, 0)
+_hw  = color.new(color.white, 0)
+var table hud = table.new(position.top_right, 1, 13, border_width = 1, border_color = color.new(color.gray, 55))
+_row(int r, string txt, color bg, color tc) => table.cell(hud, 0, r, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = text.align_left)
 if barstate.islast
     if enHud
-        _l1 = actTxt
-        _l2 = sdir == "" ? "" : sdir + " · E " + str.tostring(entry, format.mintick) + " · S " + str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : " (−" + str.tostring(_riskPct, "#.#") + "%)") + " · T " + str.tostring(tgt, format.mintick) + (na(rr) ? "" : " · R " + str.tostring(rr, "#.#"))
-        _l3 = "20 " + str.tostring(angle, "#.#") + "° · RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + " · TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗")
-        _txt = _l1 + (_l2 == "" ? "" : "\n" + _l2) + "\n" + _l3
-        if na(sig)
-            sig := label.new(bar_index + 3, close, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = actBg, textcolor = color.new(color.white, 0), size = _sz)
-        else
-            label.set_xy(sig, bar_index + 3, close)
-            label.set_text(sig, _txt)
-            label.set_color(sig, actBg)
-            label.set_size(sig, _sz)
-    else if not na(sig)
-        label.delete(sig)
-        sig := na
+        _row(0, actTxt, actBg, _hw)
+        _row(1, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
+        _row(2, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
+        _row(3, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
+        _row(4, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
+        _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
+        _row(5, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
+        _row(6, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
+        _row(7, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
+        _row(8, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
+        _row(9, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
+        _row(10, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
+        _row(11, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
+        _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
+        _row(12, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
+    else
+        for _r = 0 to 12
+            table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
 
 // ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
