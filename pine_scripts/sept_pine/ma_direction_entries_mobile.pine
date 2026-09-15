@@ -18,17 +18,18 @@
 // SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
 // two-column desktop spread: one item per row — action, each MA's slope, RSI, the
 // Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
-// The MAs, the VCP base box +
-// pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/PML, W/M gated by proximity)
-// and the recent gap S/R zone all stay — everything is still computed on the DAILY
-// timeframe via request.security (non-repainting). For the full tabular read + reported
-// fundamentals, use the desktop "MA · Direction & Entries" pine.
+// The MAs, the VCP base box + pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/
+// PML, W/M gated by proximity) and the recent gap S/R zone all stay. Unlike the desktop
+// pine, the MAs FOLLOW THE CHART timeframe by default (blank "MA timeframe") so you can
+// read 15m/1h MA levels intraday — pick a timeframe to lock them (e.g. D). For the full
+// tabular read + reported fundamentals, use the desktop "MA · Direction & Entries" pine.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("MA · Entries (mobile)", "MA-entries·m", overlay = true)
 
 // ── the four moving averages — each independent (uncheck / colour / width) ──────
 gTf    = "Timeframe"
-lockTf = input.timeframe("D", "Lock all MAs to timeframe", group = gTf, tooltip = "Compute every MA, its slope, ATR and the levels on THIS timeframe (default Daily) via request.security — so on a LOWER chart TF the read still REFLECTS the daily MAs (drawn stepped within each day). Non-repainting (lookahead off).")
+_lockTf = input.timeframe("", "MA timeframe (blank = follow chart)", group = gTf, tooltip = "Blank (default) = the MAs, slopes, RSI and the entry engine follow the CHART timeframe — so on a 15m/1h chart you get 15m/1h MA levels. Pick a timeframe (e.g. D) to LOCK them there regardless of the chart TF. Non-repainting (lookahead off). Note: the Trend-Template 52-week / RS reads and the VCP base are bar-count based, so they mean 'daily' only on a daily chart; the PDH/PDL/PWH/PWL/PMH/PML levels are always day/week/month.")
+lockTf = _lockTf == "" ? timeframe.period : _lockTf
 maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, tooltip = "SMA (Minervini / Weinstein convention) or EMA. Applies to all four lines.")
 
 // 20 — the primary. State-coloured (ideal / shallow / steep) below; width here.
@@ -129,7 +130,7 @@ lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2
 gateWM = input.bool(true, "Gate weekly/monthly by proximity", group = gLv, tooltip = "Only draw the weekly (PWH/PWL) and monthly (PMH/PML) levels when price is within the % below — far ones are hidden so the chart stays clean. Daily levels (PDH/PDL) are always shown.")
 lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLv)
 
-// ── compute — LOCKED to `lockTf`. One request.security pulls each MA, its value
+// ── compute — on `lockTf` (chart TF by default, or a locked one). One request.security pulls each MA, its value
 //    `slopeLb` bars back, ATR and ATR's own average — so a lower chart TF still
 //    reflects the daily MAs. Non-repainting.
 f_mas() =>
