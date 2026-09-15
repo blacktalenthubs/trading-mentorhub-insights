@@ -1,0 +1,497 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// MA · DIRECTION & ENTRIES — the 20-MA Direction indicator and the Minervini
+// swing MAs folded into ONE daily tool. Four moving averages (20 / 50 / 150 / 200),
+// each a VALID entry: the tool scores every MA's SLOPE as a scale-free degree angle
+// (~45° ideal), and treats each as support/resistance — LONG when a RISING MA is
+// holding as support (price at/just above it), SHORT when a FALLING MA is rejecting
+// (price rallies to it and stalls). The NEAREST MA price is interacting with becomes
+// the active Entry / Stop (beyond the MA) / Target (extension) / R:R.
+//
+//   • Every MA is independent: uncheck it, set its colour (rising/falling) and width.
+//   • The angle is SCALE-FREE — it measures the MA's rise in ATRs/bar and converts
+//     to degrees, so 45° means the same thing on every symbol. Tune "ATR/bar = 45°".
+//   • The HUD shows each MA's degree + value + above/below + a live entry tag, the
+//     20's extension (EXTENDED = snap-back likely / COILING = expansion likely), the
+//     active Setup, and the Minervini Trend Template score (X/8 · Stage-2 check).
+//   • All computed on the DAILY timeframe via request.security (non-repainting), so a
+//     lower chart TF still reflects the daily MAs.
+//
+// Extended ABOVE the 20 is not a long — you wait for the pullback to a MA; extended
+// far above flags a fade of the snap-back down. Prior levels (PDH/PDL/PWH/PWL/PMH/PML)
+// and the most-recent gap S/R zone round out the map. The full VCP base engine and
+// reported-fundamentals panel stay in the standalone "Minervini Trend Template" pine.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("MA · Direction & Entries", "MA-entries", overlay = true)
+
+// ── the four moving averages — each independent (uncheck / colour / width) ──────
+gTf    = "Timeframe"
+lockTf = input.timeframe("D", "Lock all MAs to timeframe", group = gTf, tooltip = "Compute every MA, its slope, ATR and the levels on THIS timeframe (default Daily) via request.security — so on a LOWER chart TF the read still REFLECTS the daily MAs (drawn stepped within each day). Non-repainting (lookahead off).")
+maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, tooltip = "SMA (Minervini / Weinstein convention) or EMA. Applies to all four lines.")
+
+// 20 — the primary. State-coloured (ideal / shallow / steep) below; width here.
+g20   = "20 MA (primary)"
+en20  = input.bool(true, "Show the 20", group = g20)
+len20 = input.int(20, "Length", minval = 2, group = g20)
+w20   = input.int(2, "Width", minval = 1, maxval = 6, group = g20)
+
+// 50 — mid-term. Blue.
+g50   = "50 SMA"
+en50  = input.bool(true, "Show the 50", group = g50)
+len50 = input.int(50, "Length", minval = 5, group = g50)
+col50U = input.color(#1E88E5, "Rising", inline = "c50", group = g50)
+col50D = input.color(#90CAF9, "Falling", inline = "c50", group = g50)
+w50    = input.int(2, "Width", minval = 1, maxval = 6, group = g50)
+
+// 150 ≈ the 30-week line (Weinstein Stage-2 support). Purple.
+g150   = "150 SMA (≈ 30-week)"
+en150  = input.bool(true, "Show the 150", group = g150, tooltip = "150 trading days ≈ 30 weeks — the daily proxy of the 30-week MA institutions defend on a swing pullback.")
+len150 = input.int(150, "Length", minval = 20, group = g150)
+col150U = input.color(#7E57C2, "Rising", inline = "c150", group = g150)
+col150D = input.color(#B39DDB, "Falling", inline = "c150", group = g150)
+w150    = input.int(2, "Width", minval = 1, maxval = 6, group = g150)
+
+// 200 — long-term trend. Orange.
+g200   = "200 SMA"
+en200  = input.bool(true, "Show the 200", group = g200)
+len200 = input.int(200, "Length", minval = 20, group = g200)
+col200U = input.color(#FB8C00, "Rising", inline = "c200", group = g200)
+col200D = input.color(#FFB74D, "Falling", inline = "c200", group = g200)
+w200    = input.int(3, "Width", minval = 1, maxval = 6, group = g200)
+
+// ── slope / angle (the same ruler judges all four MAs) ─────────────────────────
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure each MA's rise over this many bars — smooths single-bar noise so the angle isn't jumpy.")
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS, tooltip = "The angle measures a MA's rise in ATRs PER BAR, then converts to degrees. A rise of THIS many ATRs/bar = 45°. Lower it if healthy trends read too shallow; raise it if everything looks steep. Tune once to match how 45° looks on your chart.")
+flatThr = input.float(12, "Flat threshold (°) — |angle| below = chop", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+// ── extension + coiling (read on the 20) ───────────────────────────────────────
+gE     = "Extension / volatility (on the 20)"
+extThr = input.float(3.0, "Extended when |price − 20| ≥ (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gE, tooltip = "How far price is stretched from the 20, in ATRs. Beyond this = EXTENDED — a snap-back / pause toward a MA becomes likely (mean reversion).")
+coilPct = input.float(0.85, "Coiling when ATR < (× its 20-bar avg)", minval = 0.3, maxval = 1, step = 0.05, group = gE, tooltip = "When the 20 is FLAT and ATR is below this fraction of its own 20-bar average, the stock is coiling — a rise in volatility (expansion) tends to follow.")
+
+// ── setup / risk-reward (applies to whichever MA price is at) ───────────────────
+gT      = "Setup / risk-reward"
+stopBuf = input.float(0.5, "Stop buffer beyond the MA / entry (× ATR)", minval = 0.1, maxval = 3, step = 0.1, group = gT, tooltip = "How far past the moving average (trend pullback) or past the entry (extended fade) the stop sits, in ATRs. The MA is the line you're wrong below/above.")
+tgtExt  = input.float(3.0, "Trend target — extension from the MA (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gT, tooltip = "For a trend pullback (long a rising MA / short a falling MA) the target is this many ATRs of EXTENSION away from the MA. For an EXTENDED fade the target is the 20 itself (the magnet).")
+sideTol = input.float(0.2, "Pullback side tolerance (× ATR)", minval = 0.0, maxval = 1, step = 0.05, group = gT, tooltip = "A pullback must be on the RIGHT side of the MA: a long only when price is at/above the rising MA (holding support), a short only when price is at/below the falling MA (rejecting resistance). This allows price to be this many ATRs the wrong side (a wick) before the setup is voided.")
+nearMA  = input.float(1.5, "Hold zone — price within N × ATR of the MA", minval = 0.25, maxval = 5, step = 0.25, group = gT, tooltip = "An entry is 'holding' only when price is within this many ATRs of the MA (a genuine pullback/hold). Farther than this and there is no fresh entry at that MA — price must come back to it. Raise to allow more room, lower to demand price hug the MA.")
+
+// ── Minervini Trend Template (compact score line) ──────────────────────────────
+gTT       = "Trend Template (Minervini)"
+showTT    = input.bool(true, "Show the Trend Template score", group = gTT, tooltip = "The 8-rule Stage-2 screen scored X/8 on one HUD line: price > 150 & 200, 150 > 200, 200 rising ~1m, 50 > 150 & 200, price > 50, ≥30% above the 52-wk low, within 25% of the 52-wk high, RS leading the benchmark.")
+benchSym  = input.symbol("SPY", "RS benchmark", group = gTT)
+riseBars  = input.int(21, "200 rising over N bars (≈ 1m)", minval = 1, group = gTT)
+lookback  = input.int(252, "52-week lookback (bars)", minval = 20, group = gTT)
+minAboveLow = input.float(30.0, "Rule 6 — min % above 52-wk low", minval = 0, group = gTT)
+maxBelowHi  = input.float(25.0, "Rule 7 — max % below 52-wk high", minval = 0, group = gTT)
+
+// ── 20 state colours ───────────────────────────────────────────────────────────
+gV      = "20 colours by state"
+colUpI  = input.color(#26A69A, "Rising · ideal (~45°)",             group = gV)
+colUpW  = input.color(#80CBC4, "Rising · shallow (weak)",           group = gV)
+colUpS  = input.color(#F59E0B, "Rising · steep (unsustainable)",    group = gV)
+colDnI  = input.color(#EF5350, "Falling · ideal",                   group = gV)
+colDnW  = input.color(#EF9A9A, "Falling · shallow",                 group = gV)
+colDnS  = input.color(#AB47BC, "Falling · steep",                   group = gV)
+colFlat = input.color(#9E9E9E, "Flat / chop",                       group = gV)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+gH     = "Readout (HUD)"
+enHud  = input.bool(true, "Show HUD", group = gH)
+hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
+hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
+
+// ── prior levels — PDH / PDL / PWH / PWL / PMH / PML ─────────────────────────────
+gLv    = "Prior levels"
+enPdh  = input.bool(true, "PDH", inline = "pd", group = gLv)
+enPdl  = input.bool(true, "PDL", inline = "pd", group = gLv)
+enPwh  = input.bool(true, "PWH", inline = "pw", group = gLv)
+enPwl  = input.bool(true, "PWL", inline = "pw", group = gLv)
+enPmh  = input.bool(true, "PMH", inline = "pm", group = gLv)
+enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
+lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
+lvLoCol= input.color(color.new(#26A69A, 0), "Low color",  group = gLv)
+lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gLv)
+
+// ── compute — LOCKED to `lockTf`. One request.security pulls each MA, its value
+//    `slopeLb` bars back, ATR and ATR's own average — so a lower chart TF still
+//    reflects the daily MAs. Non-repainting.
+f_mas() =>
+    _m20  = maType == "EMA" ? ta.ema(close, len20) : ta.sma(close, len20)
+    _m50  = maType == "EMA" ? ta.ema(close, len50) : ta.sma(close, len50)
+    _m150 = maType == "EMA" ? ta.ema(close, len150) : ta.sma(close, len150)
+    _m200 = maType == "EMA" ? ta.ema(close, len200) : ta.sma(close, len200)
+    _a    = ta.atr(atrLen)
+    [_m20, _m20[slopeLb], _m50, _m50[slopeLb], _m150, _m150[slopeLb], _m200, _m200[slopeLb], _a, ta.sma(_a, 20)]
+[ma, maLb, ma50, ma50Lb, ma150, ma150Lb, ma200, ma200Lb, atr, atrAvg] = request.security(syminfo.tickerid, lockTf, f_mas(), lookahead = barmerge.lookahead_off)
+
+// per-MA angle in DEGREES — same scale-free ATR normalisation for all four.
+f_ang(_m, _mLb) => na(atr) or atr == 0 or na(_m) or na(_mLb) ? na : math.todegrees(math.atan(((_m - _mLb) / slopeLb) / (atr * scale45)))
+angle    = f_ang(ma,    maLb)
+angle50  = f_ang(ma50,  ma50Lb)
+angle150 = f_ang(ma150, ma150Lb)
+angle200 = f_ang(ma200, ma200Lb)
+pctLb  = na(ma) or ma == 0 ? 0.0 : (ma - maLb) / ma * 100.0   // % move of the 20 over the lookback
+
+// ── classify the 20 (drives the header colour + state) ──────────────────────────
+_absA = math.abs(angle)
+_up   = angle >  flatThr
+_dn   = angle < -flatThr
+state = _absA <= flatThr ? "FLAT · chop" :
+         _up ? (_absA < idealLo ? "RISING · shallow (weak)" : _absA <= idealHi ? "RISING · IDEAL" : "RISING · steep (unsustainable)") :
+               (_absA < idealLo ? "FALLING · shallow"        : _absA <= idealHi ? "FALLING · IDEAL" : "FALLING · steep")
+maCol = _absA <= flatThr ? colFlat :
+         _up ? (_absA < idealLo ? colUpW : _absA <= idealHi ? colUpI : colUpS) :
+               (_absA < idealLo ? colDnW : _absA <= idealHi ? colDnI : colDnS)
+
+// extension of price from the 20 (the magnet), in ATRs and %
+extAtr = na(atr) or atr == 0 ? 0.0 : (close - ma) / atr
+extPct = na(ma) or ma == 0 ? 0.0 : (close - ma) / ma * 100.0
+_extended = math.abs(extAtr) >= extThr
+_coiling  = _absA <= flatThr and not na(atrAvg) and atrAvg > 0 and atr < atrAvg * coilPct
+
+// per-MA direction colours
+col50  = (not na(angle50)  and angle50  > 0) ? col50U  : col50D
+col150 = (not na(angle150) and angle150 > 0) ? col150U : col150D
+col200 = (not na(angle200) and angle200 > 0) ? col200U : col200D
+
+// per-MA slope text + colour (reuse the 20's bands), and value + above/below.
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+f_slopeCol(_a) => na(_a) ? color.new(color.gray, 35) : _a > flatThr ? color.new(#26A69A, 0) : _a < -flatThr ? color.new(#EF5350, 0) : color.new(color.gray, 20)
+f_maDet(_m) => na(_m) ? "" : "  ·  " + str.tostring(_m, format.mintick) + (close >= _m ? " · above" : " · below")
+
+// ── MULTI-MA ENTRY ENGINE — every MA is a valid entry ───────────────────────────
+// For each enabled MA: a RISING MA that price is holding (from a hair below to the
+// hold zone above) = LONG at that MA; a FALLING MA that price is rejecting (from a
+// hair above to the hold zone below) = SHORT at it. Entry = the MA, stop a buffer
+// beyond it, target an ATR-extension away. Returns the |extension| as the distance
+// used to pick the NEAREST actionable MA.
+_stopBuf = stopBuf * atr
+_tgtExt  = tgtExt * atr
+f_maEntry(_m, _ang, _en) =>
+    string _dir = ""
+    string _tag = ""
+    float _entry = na
+    float _stop  = na
+    float _tgt   = na
+    float _dist  = na
+    if _en and not na(_m) and not na(_ang) and not na(atr) and atr > 0
+        _ext = (close - _m) / atr
+        if _ang > flatThr and _ext >= -sideTol and _ext <= nearMA
+            _dir  := "LONG"
+            _tag  := "◀ LONG · holding"
+            _entry := _m
+            _stop  := _m - _stopBuf
+            _tgt   := _m + _tgtExt
+            _dist  := math.abs(_ext)
+        else if _ang < -flatThr and _ext <= sideTol and _ext >= -nearMA
+            _dir  := "SHORT"
+            _tag  := "◀ SHORT · rejecting"
+            _entry := _m
+            _stop  := _m + _stopBuf
+            _tgt   := _m - _tgtExt
+            _dist  := math.abs(_ext)
+    [_dir, _tag, _entry, _stop, _tgt, _dist]
+[d20,  tag20,  e20,  s20,  t20,  dist20]  = f_maEntry(ma,    angle,    en20)
+[d50,  tag50,  e50,  s50,  t50,  dist50]  = f_maEntry(ma50,  angle50,  en50)
+[d150, tag150, e150, s150, t150, dist150] = f_maEntry(ma150, angle150, en150)
+[d200, tag200, e200, s200, t200, dist200] = f_maEntry(ma200, angle200, en200)
+
+// pick the NEAREST actionable MA (smallest |extension|).
+_dists = array.from(dist20, dist50, dist150, dist200)
+_dirs  = array.from(d20,  d50,  d150,  d200)
+_ents  = array.from(e20,  e50,  e150,  e200)
+_stps  = array.from(s20,  s50,  s150,  s200)
+_tgts  = array.from(t20,  t50,  t150,  t200)
+_names = array.from("20", "50", "150", "200")
+_best  = -1
+float _bestD = na
+for _i = 0 to 3
+    _dv = array.get(_dists, _i)
+    if not na(_dv) and (na(_bestD) or _dv < _bestD)
+        _bestD := _dv
+        _best  := _i
+
+// EXTENDED-ABOVE fade (of the 20) takes priority — no MA entry when price is stretched.
+string sdir  = ""
+string setup = "—"
+string aMA   = ""
+bool   isFade = false
+float entry = na
+float stop  = na
+float tgt   = na
+if _extended and extAtr > 0
+    sdir  := "SHORT"
+    isFade := true
+    aMA   := "20"
+    setup := "extended above → fade the snap-back to the 20"
+    entry := close
+    stop  := close + _stopBuf
+    tgt   := ma
+else if _best >= 0
+    sdir  := array.get(_dirs, _best)
+    aMA   := array.get(_names, _best)
+    entry := array.get(_ents, _best)
+    stop  := array.get(_stps, _best)
+    tgt   := array.get(_tgts, _best)
+    setup := (sdir == "LONG" ? "hold of the rising " : "rejection at the falling ") + aMA + " SMA"
+
+_risk = na(entry) or na(stop) ? na : math.abs(entry - stop)
+_rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
+rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
+_riskPct = na(_risk) or na(entry) or entry == 0 ? na : _risk / entry * 100.0
+_tgtPct  = na(_rew)  or na(entry) or entry == 0 ? na : _rew / entry * 100.0
+align = sdir == "" ? "" : ((sdir == "LONG" and close >= ma200) or (sdir == "SHORT" and close < ma200) ? "with 200-trend ✓" : "counter 200-trend ⚠")
+
+// ── ACTION — the plain "act now / wait" call, keyed on the ACTIVE setup ─────────
+_actGrn = color.new(#1B5E20, 0)
+_actAmb = color.new(#7C5E10, 0)
+_actRed = color.new(#8E1D1D, 0)
+_actGry = color.new(color.gray, 35)
+string actTxt = "WAIT"
+color  actBg  = _actGry
+if isFade
+    actTxt := "FADE — extended +" + str.tostring(extPct, "#.#") + "% above the 20; short the snap-back / buy the pullback to a MA"
+    actBg  := _actAmb
+else if sdir == "LONG"
+    actTxt := "LONG — holding the rising " + aMA + " SMA (support)"
+    actBg  := _actGrn
+else if sdir == "SHORT"
+    actTxt := "SHORT — rejecting the falling " + aMA + " SMA (resistance)"
+    actBg  := _actRed
+else if _absA <= flatThr
+    actTxt := "WAIT — 20 flat (chop), no trend"
+    actBg  := _actGry
+else if _up
+    actTxt := "WAIT — 20 rising; price not at a MA. Wait for a pullback to the 20/50/150/200"
+    actBg  := _actAmb
+else
+    actTxt := "AVOID longs — 20 falling; wait for a rally to a falling MA to short"
+    actBg  := _actRed
+
+// ── Minervini Trend Template (8 rules) ─────────────────────────────────────────
+benchClose = request.security(benchSym, lockTf, close, lookahead = barmerge.lookahead_off)
+f_relRet(_bars) => na(close[_bars]) or na(benchClose[_bars]) or close[_bars] == 0 or benchClose[_bars] == 0 ? na : (close / close[_bars] - 1) - (benchClose / benchClose[_bars] - 1)
+_rs3  = f_relRet(63)
+_rs6  = f_relRet(126)
+_rs9  = f_relRet(189)
+_rs12 = f_relRet(252)
+rsScore = (na(_rs3) ? 0.0 : 0.4 * _rs3) + (na(_rs6) ? 0.0 : 0.2 * _rs6) + (na(_rs9) ? 0.0 : 0.2 * _rs9) + (na(_rs12) ? 0.0 : 0.2 * _rs12)
+[hi52, lo52] = request.security(syminfo.tickerid, lockTf, [ta.highest(high, lookback), ta.lowest(low, lookback)], lookahead = barmerge.lookahead_off)
+r1 = not na(ma150) and not na(ma200) and close > ma150 and close > ma200
+r2 = not na(ma150) and not na(ma200) and ma150 > ma200
+r3 = not na(angle200) and angle200 > flatThr
+r4 = not na(ma50) and not na(ma150) and not na(ma200) and ma50 > ma150 and ma50 > ma200
+r5 = not na(ma50) and close > ma50
+r6 = not na(lo52) and close >= lo52 * (1 + minAboveLow / 100)
+r7 = not na(hi52) and close >= hi52 * (1 - maxBelowHi / 100)
+r8 = rsScore > 0.0
+ttCount = (r1 ? 1 : 0) + (r2 ? 1 : 0) + (r3 ? 1 : 0) + (r4 ? 1 : 0) + (r5 ? 1 : 0) + (r6 ? 1 : 0) + (r7 ? 1 : 0) + (r8 ? 1 : 0)
+ttStage = ttCount == 8 ? "STAGE 2 ✔" : ttCount >= 7 ? "near (7/8)" : (not r3) ? "not rising — Stage 1/4" : "mixed"
+ttBg = ttCount == 8 ? _actGrn : ttCount >= 7 ? _actAmb : _actGry
+
+// ── Alerts ─────────────────────────────────────────────────────────────────────
+_longNow  = sdir == "LONG"
+_shortNow = sdir == "SHORT" and not isFade
+alertcondition(_longNow  and not _longNow[1],  "MA · LONG entry",  "{{ticker}} — price holding a rising MA (support): LONG entry")
+alertcondition(_shortNow and not _shortNow[1], "MA · SHORT entry", "{{ticker}} — price rejecting a falling MA (resistance): SHORT entry")
+alertcondition(ttCount == 8 and ttCount[1] < 8, "Trend Template: newly qualified", "{{ticker}} now passes all 8 Trend Template rules")
+
+// ── plots — each line gated ONLY on its own Show toggle ────────────────────────
+plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
+plot(en150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
+plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
+plot(en20  ? ma    : na, "20 MA",   color = maCol,  linewidth = w20)
+// queryable (Data Window / data_get_study_values)
+plot(angle,    "20 angle (deg)",     display = display.data_window)
+plot(angle50,  "50 angle (deg)",     display = display.data_window)
+plot(angle150, "150 angle (deg)",    display = display.data_window)
+plot(angle200, "200 angle (deg)",    display = display.data_window)
+plot(extAtr,   "Extension (ATR)",    display = display.data_window)
+plot(extPct,   "Extension (%)",      display = display.data_window)
+plot(na(rr) ? na : rr, "Setup R:R",  display = display.data_window)
+plot(ttCount,  "Trend Template /8",  display = display.data_window)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+var table hud = table.new(_pos, 2, 13, border_width = 1, border_color = color.new(color.gray, 55))
+_cell(int col, int row, string txt, color bg, color tc, bool right) => table.cell(hud, col, row, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = right ? text.align_right : text.align_left)
+if barstate.islast
+    if enHud
+        _lblBg = color.new(#0B0B12, 0)
+        _lblTx = color.new(#C7C9D9, 0)
+        _white = color.new(color.white, 0)
+        _arrow = _up ? "↑" : _dn ? "↓" : "→"
+        // header — 20 angle + the 20's value + price
+        _cell(0, 0, str.tostring(len20) + (maType == "EMA" ? " EMA " : " SMA ") + _arrow, color.new(maCol, 12), _white, false)
+        _cell(1, 0, str.tostring(angle, "#.#") + "°  ·  20@" + str.tostring(ma, format.mintick) + "  ·  px " + str.tostring(close, format.mintick), color.new(maCol, 12), _white, true)
+        // ACTION — the go/wait call keyed on the active setup
+        _cell(0, 1, "Action", actBg, _white, false)
+        _cell(1, 1, actTxt, actBg, _white, true)
+        // Trend Template score
+        if showTT
+            _cell(0, 2, "Trend Tmpl", _lblBg, _lblTx, false)
+            _cell(1, 2, str.tostring(ttCount) + "/8  ·  " + ttStage + "  ·  RS " + str.tostring(rsScore * 100, "+#.#;-#.#") + "%", ttBg, _white, true)
+        else
+            _cell(0, 2, "", _lblBg, _lblTx, false)
+            _cell(1, 2, "", _lblBg, _lblTx, true)
+        // ── per-MA: degree + value + above/below + live entry tag ──
+        _cell(0, 3, "20 MA", _lblBg, _lblTx, false)
+        _cell(1, 3, f_slopeTxt(angle) + f_maDet(ma) + (tag20 == "" ? "" : "  " + tag20), _lblBg, f_slopeCol(angle), true)
+        _cell(0, 4, "50 SMA", _lblBg, _lblTx, false)
+        _cell(1, 4, f_slopeTxt(angle50) + f_maDet(ma50) + (tag50 == "" ? "" : "  " + tag50), _lblBg, f_slopeCol(angle50), true)
+        _cell(0, 5, "150 SMA", _lblBg, _lblTx, false)
+        _cell(1, 5, f_slopeTxt(angle150) + f_maDet(ma150) + (tag150 == "" ? "" : "  " + tag150), _lblBg, f_slopeCol(angle150), true)
+        _cell(0, 6, "200 SMA", _lblBg, _lblTx, false)
+        _cell(1, 6, f_slopeTxt(angle200) + f_maDet(ma200) + (tag200 == "" ? "" : "  " + tag200), _lblBg, f_slopeCol(angle200), true)
+        // extension (on the 20)
+        _extBg = _extended ? color.new(#F59E0B, 20) : _coiling ? color.new(#42A5F5, 28) : _lblBg
+        _extV  = (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%)" + (_extended ? " · EXTENDED" : _coiling ? " · COILING" : "")
+        _cell(0, 7, "Extension", _lblBg, _lblTx, false)
+        _cell(1, 7, _extV, _extBg, _white, true)
+        // active setup
+        _sBg = sdir == "LONG" ? color.new(#1B5E20, 0) : sdir == "SHORT" ? color.new(#8E1D1D, 0) : color.new(color.gray, 35)
+        _cell(0, 8, "Setup", _lblBg, _lblTx, false)
+        _cell(1, 8, sdir == "" ? "— none (no MA at price)" : sdir + " · " + setup, _sBg, _white, true)
+        // entry / stop / target
+        _cell(0, 9, "Entry", _lblBg, _lblTx, false)
+        _cell(1, 9, na(entry) ? "—" : str.tostring(entry, format.mintick), _lblBg, _white, true)
+        _cell(0, 10, "Stop", _lblBg, _lblTx, false)
+        _cell(1, 10, na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  (−" + str.tostring(_riskPct, "#.#") + "%)"), _lblBg, color.new(#EF5350, 0), true)
+        _cell(0, 11, "Target", _lblBg, _lblTx, false)
+        _cell(1, 11, na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  (+" + str.tostring(_tgtPct, "#.#") + "%)"), _lblBg, color.new(#26A69A, 0), true)
+        // risk : reward + trend alignment
+        _rrBg = na(rr) ? color.new(color.gray, 35) : rr >= 2 ? color.new(#1B5E20, 0) : rr >= 1 ? color.new(#F59E0B, 15) : color.new(#8E1D1D, 0)
+        _cell(0, 12, "R : R", _lblBg, _lblTx, false)
+        _cell(1, 12, na(rr) ? "—" : str.tostring(rr, "#.#") + " : 1" + (align == "" ? "" : "  ·  " + align), _rrBg, _white, true)
+    else
+        for _r = 0 to 12
+            table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
+            table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
+
+// ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+var line  lnPdh = na
+var label lbPdh = na
+var line  lnPdl = na
+var label lbPdl = na
+var line  lnPwh = na
+var label lbPwh = na
+var line  lnPwl = na
+var label lbPwl = na
+var line  lnPmh = na
+var label lbPmh = na
+var line  lnPml = na
+var label lbPml = na
+f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
+    line  _l = ln
+    label _b = lb
+    if on and not na(px)
+        if na(_l)
+            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.left)
+            _b := label.new(bar_index + lvTagOff, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
+        else
+            line.set_xy1(_l, bar_index, px)
+            line.set_xy2(_l, bar_index + lvTagOff, px)
+            label.set_xy(_b, bar_index + lvTagOff, px)
+            label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+if barstate.islast
+    [_a, _b] = f_lvl(lnPdh, lbPdh, enPdh, pdh, "PDH", lvHiCol)
+    lnPdh := _a
+    lbPdh := _b
+    [_c, _d] = f_lvl(lnPdl, lbPdl, enPdl, pdl, "PDL", lvLoCol)
+    lnPdl := _c
+    lbPdl := _d
+    [_wa, _wb] = f_lvl(lnPwh, lbPwh, enPwh, pwh, "PWH", lvHiCol)
+    lnPwh := _wa
+    lbPwh := _wb
+    [_wc, _wd] = f_lvl(lnPwl, lbPwl, enPwl, pwl, "PWL", lvLoCol)
+    lnPwl := _wc
+    lbPwl := _wd
+    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh, pmh, "PMH", lvHiCol)
+    lnPmh := _e
+    lbPmh := _f
+    [_g, _h] = f_lvl(lnPml, lbPml, enPml, pml, "PML", lvLoCol)
+    lnPml := _g
+    lbPml := _h
+
+// ═══ RECENT GAP ZONE (S/R) ═══════════════════════════════════════════════════════
+// The gap window = between the prior close and the gap-day OPEN (the gap's HIGH & LOW
+// edges). A gap UP leaves that zone below as SUPPORT; a gap DOWN leaves it overhead as
+// RESISTANCE. Most recent of each, shaded. Chart-timeframe (daily gaps on a daily chart).
+gGap   = "Recent gap zone"
+enGap  = input.bool(true, "Show recent gap zone (S/R)", group = gGap)
+gapThr = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart. Draws the gap window — prior close to the gap-day open (its high & low edges).")
+colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
+colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
+
+_gp = not na(close[1]) and close[1] != 0 ? (open - close[1]) / close[1] * 100.0 : na
+var float gUpHi = na
+var float gUpLo = na
+var int   gUpBar = na
+var float gDnHi = na
+var float gDnLo = na
+var int   gDnBar = na
+if not na(_gp) and _gp >= gapThr
+    gUpHi  := open
+    gUpLo  := close[1]
+    gUpBar := bar_index
+if not na(_gp) and _gp <= -gapThr
+    gDnHi  := close[1]
+    gDnLo  := open
+    gDnBar := bar_index
+
+var box   gUpBx = na
+var label gUpLb = na
+var box   gDnBx = na
+var label gDnLb = na
+if barstate.islast
+    if enGap and not na(gUpHi)
+        _ux2 = bar_index + lvTagOff
+        if na(gUpBx)
+            gUpBx := box.new(gUpBar, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
+            gUpLb := label.new(_ux2, gUpLo, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapS, 90), textcolor = colGapS, size = size.tiny)
+        else
+            box.set_lefttop(gUpBx, gUpBar, gUpHi)
+            box.set_rightbottom(gUpBx, _ux2, gUpLo)
+            label.set_xy(gUpLb, _ux2, gUpLo)
+        label.set_text(gUpLb, "Gap S " + str.tostring(gUpLo, format.mintick) + "–" + str.tostring(gUpHi, format.mintick))
+    else if not na(gUpBx)
+        box.delete(gUpBx)
+        label.delete(gUpLb)
+        gUpBx := na
+        gUpLb := na
+    if enGap and not na(gDnHi)
+        _dx2 = bar_index + lvTagOff
+        if na(gDnBx)
+            gDnBx := box.new(gDnBar, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
+            gDnLb := label.new(_dx2, gDnHi, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapR, 90), textcolor = colGapR, size = size.tiny)
+        else
+            box.set_lefttop(gDnBx, gDnBar, gDnHi)
+            box.set_rightbottom(gDnBx, _dx2, gDnLo)
+            label.set_xy(gDnLb, _dx2, gDnHi)
+        label.set_text(gDnLb, "Gap R " + str.tostring(gDnLo, format.mintick) + "–" + str.tostring(gDnHi, format.mintick))
+    else if not na(gDnBx)
+        box.delete(gDnBx)
+        label.delete(gDnLb)
+        gDnBx := na
+        gDnLb := na
