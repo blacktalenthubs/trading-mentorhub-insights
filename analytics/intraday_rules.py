@@ -319,6 +319,17 @@ class AlertType(str, Enum):
     MA20_SUPPORT_1H = "ma20_support_1h"
     MA50_SUPPORT_1H = "ma50_support_1h"
     MA200_SUPPORT_1H = "ma200_support_1h"
+    # 4H support bounces (day-trade)
+    MA20_SUPPORT_4H = "ma20_support_4h"
+    MA50_SUPPORT_4H = "ma50_support_4h"
+    MA200_SUPPORT_4H = "ma200_support_4h"
+    # 1H / 4H rejection SHORTS (index set only)
+    MA20_REJECT_1H = "ma20_reject_1h"
+    MA50_REJECT_1H = "ma50_reject_1h"
+    MA200_REJECT_1H = "ma200_reject_1h"
+    MA20_REJECT_4H = "ma20_reject_4h"
+    MA50_REJECT_4H = "ma50_reject_4h"
+    MA200_REJECT_4H = "ma200_reject_4h"
     # Phase 3b — EMA8 / EMA21 reclaim variants (final set 8/21/50/100/200).
     EMA_RECLAIM_8 = "ema_reclaim_8"
     EMA_RECLAIM_21 = "ema_reclaim_21"
@@ -8275,6 +8286,52 @@ def check_ma_support_1h(
             entry=entry, stop=stop, target_1=round(entry + 2 * risk, 2),
             target_2=round(entry + 3 * risk, 2), confidence="high",
             message=f"{label} — price holding the hourly {label} as support",
+        )
+    except Exception:
+        return None
+
+
+def check_ma_reject_htf(
+    symbol: str,
+    bars,
+    ma_len: int,
+    alert_type: "AlertType",
+    label: str,
+    prox_pct: float = 0.006,
+    stop_off: float = 0.007,
+):
+    """1H / 4H SMA REJECTION (SHORT) — the mirror of check_ma_support_1h. Fires when the
+    LAST completed bar CLOSED below the MA, its HIGH came to the MA (a touch within
+    prox_pct), and it either OPENED below the MA (rallied into overhead resistance) or
+    poked above and closed back below. Index set only (gated by the caller). Short.
+    Pure over `bars` — defensive, never raises."""
+    try:
+        if bars is None or len(bars) < ma_len + 6:
+            return None
+        close = bars["Close"].astype(float)
+        ma_s = close.rolling(ma_len).mean()
+        ma = float(ma_s.iloc[-1])
+        if math.isnan(ma) or ma <= 0:
+            return None
+        o = float(bars["Open"].iloc[-1])
+        h = float(bars["High"].iloc[-1])
+        c = float(bars["Close"].iloc[-1])
+        near = abs(h - ma) / ma <= prox_pct       # the high tagged the MA
+        rejected = c < ma                          # closed back below it
+        open_below = o <= ma                       # opened under (overhead resistance)
+        poked = h > ma and c < ma                  # poked above, closed back below
+        if not (rejected and near and (open_below or poked)):
+            return None
+        entry = round(ma, 2)
+        stop = round(ma * (1 + stop_off), 2)       # stop just above the level
+        risk = stop - entry
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol, alert_type=alert_type, direction="SHORT", price=c,
+            entry=entry, stop=stop, target_1=round(entry - 2 * risk, 2),
+            target_2=round(entry - 3 * risk, 2), confidence="high",
+            message=f"{label} — price rejected at the {label} (resistance)",
         )
     except Exception:
         return None
