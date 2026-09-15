@@ -531,11 +531,15 @@ var label gDnLb = na
 if barstate.islast
     if enGap and not na(gUpHi)
         _ux2 = bar_index + lvTagOff
+        // clamp the left edge — TradingView caps bar_index-anchored boxes at ~10k bars
+        // from the current bar; an old gap would otherwise overflow. The zone is a
+        // horizontal S/R band, so its left edge is cosmetic (price band + tag matter).
+        _uLeft = math.max(gUpBar, bar_index - 9000)
         if na(gUpBx)
-            gUpBx := box.new(gUpBar, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
+            gUpBx := box.new(_uLeft, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
             gUpLb := label.new(_ux2, gUpLo, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapS, 90), textcolor = colGapS, size = size.tiny)
         else
-            box.set_lefttop(gUpBx, gUpBar, gUpHi)
+            box.set_lefttop(gUpBx, _uLeft, gUpHi)
             box.set_rightbottom(gUpBx, _ux2, gUpLo)
             label.set_xy(gUpLb, _ux2, gUpLo)
         label.set_text(gUpLb, "Gap S " + str.tostring(gUpLo, format.mintick) + "–" + str.tostring(gUpHi, format.mintick))
@@ -546,11 +550,12 @@ if barstate.islast
         gUpLb := na
     if enGap and not na(gDnHi)
         _dx2 = bar_index + lvTagOff
+        _dLeft = math.max(gDnBar, bar_index - 9000)
         if na(gDnBx)
-            gDnBx := box.new(gDnBar, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
+            gDnBx := box.new(_dLeft, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
             gDnLb := label.new(_dx2, gDnHi, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapR, 90), textcolor = colGapR, size = size.tiny)
         else
-            box.set_lefttop(gDnBx, gDnBar, gDnHi)
+            box.set_lefttop(gDnBx, _dLeft, gDnHi)
             box.set_rightbottom(gDnBx, _dx2, gDnLo)
             label.set_xy(gDnLb, _dx2, gDnHi)
         label.set_text(gDnLb, "Gap R " + str.tostring(gDnLo, format.mintick) + "–" + str.tostring(gDnHi, format.mintick))
