@@ -683,6 +683,7 @@ ENABLED_RULES: set[str] = {
     "pwh_breakout_retest",       # PWH breakout + retest
     "pwl_reclaim",               # PWL reclaim
     "rsi_30_35",                 # RSI-30 oversold-turn reclaim (RSI back above 30 into 30-35)
+    "gap_and_go",                # gap up >=1% + 2x first-bar volume, holding above the gap open (long)
 
     # ── Trade management — exit alerts (always on, manage open positions) ────────
     "target_1_hit",
