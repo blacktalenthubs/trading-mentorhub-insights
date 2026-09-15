@@ -129,6 +129,8 @@ enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
 lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
 lvLoCol= input.color(color.new(#26A69A, 0), "Low color",  group = gLv)
 lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gLv)
+gateWM = input.bool(true, "Gate weekly/monthly by proximity", group = gLv, tooltip = "Only draw the weekly (PWH/PWL) and monthly (PMH/PML) levels when price is within the % below — far ones are hidden so the chart stays clean. Daily levels (PDH/PDL) are always shown.")
+lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLv)
 
 // ── compute — LOCKED to `lockTf`. One request.security pulls each MA, its value
 //    `slopeLb` bars back, ATR and ATR's own average — so a lower chart TF still
@@ -510,6 +512,8 @@ var line  lnPmh = na
 var label lbPmh = na
 var line  lnPml = na
 var label lbPml = na
+// proximity gate — a level counts as "near" when price is within lvProx% of it.
+f_near(float _px) => not na(_px) and _px != 0 and math.abs(close - _px) / close * 100.0 <= lvProx
 f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
     line  _l = ln
     label _b = lb
@@ -537,16 +541,16 @@ if barstate.islast
     [_c, _d] = f_lvl(lnPdl, lbPdl, enPdl, pdl, "PDL", lvLoCol)
     lnPdl := _c
     lbPdl := _d
-    [_wa, _wb] = f_lvl(lnPwh, lbPwh, enPwh, pwh, "PWH", lvHiCol)
+    [_wa, _wb] = f_lvl(lnPwh, lbPwh, enPwh and (not gateWM or f_near(pwh)), pwh, "PWH", lvHiCol)
     lnPwh := _wa
     lbPwh := _wb
-    [_wc, _wd] = f_lvl(lnPwl, lbPwl, enPwl, pwl, "PWL", lvLoCol)
+    [_wc, _wd] = f_lvl(lnPwl, lbPwl, enPwl and (not gateWM or f_near(pwl)), pwl, "PWL", lvLoCol)
     lnPwl := _wc
     lbPwl := _wd
-    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh, pmh, "PMH", lvHiCol)
+    [_e, _f] = f_lvl(lnPmh, lbPmh, enPmh and (not gateWM or f_near(pmh)), pmh, "PMH", lvHiCol)
     lnPmh := _e
     lbPmh := _f
-    [_g, _h] = f_lvl(lnPml, lbPml, enPml, pml, "PML", lvLoCol)
+    [_g, _h] = f_lvl(lnPml, lbPml, enPml and (not gateWM or f_near(pml)), pml, "PML", lvLoCol)
     lnPml := _g
     lbPml := _h
 
