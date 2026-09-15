@@ -519,7 +519,7 @@ SPY_SHORT_SYMBOLS = {"SPY", "QQQ", "AIQ", "NDX"}    # index/index-style symbols 
 # PDH rejection + the open-below 8/21/50 MA rejections. Indexes plus ETH (added
 # 2026-09-05: it trades 24/7, so it's the one name that can be validated on a
 # weekend). Every other symbol in SCANNER_UNIVERSE is long-only.
-SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "ETH-USD"}
+SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "DRAM"}  # 2026-09-14 (user): index/proxy shorts
 
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
@@ -669,6 +669,13 @@ ENABLED_RULES: set[str] = {
     "ma20_support_1h",
     "ma50_support_1h",
     "ma200_support_1h",
+    # ── 4H MA support bounces (day-trade): 20 (rising) + 50 + 200 ────────────────
+    "ma20_support_4h",
+    "ma50_support_4h",
+    "ma200_support_4h",
+    # ── 1H / 4H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ───────────
+    "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
+    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout

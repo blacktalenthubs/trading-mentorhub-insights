@@ -27,7 +27,8 @@ from analytics.htf_bias import (  # noqa: E402
     confluence_score,
 )
 from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
-from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, evaluate_rules  # noqa: E402
+from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, evaluate_rules  # noqa: E402
+from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
@@ -667,24 +668,55 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # 20/200 support scanner — HOURLY 20 (rising) + 200 SMA support holds.
                     # Fetched separately (needs ~200 hourly bars; cached ~15m) and fully
                     # defensive — a fetch miss or error just skips, never breaks the poll.
-                    if ("ma20_support_1h" in _ENABLED_RULES) or ("ma50_support_1h" in _ENABLED_RULES) or ("ma200_support_1h" in _ENABLED_RULES):
+                    _1h_rules = ("ma20_support_1h", "ma50_support_1h", "ma200_support_1h",
+                                 "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h")
+                    _4h_rules = ("ma20_support_4h", "ma50_support_4h", "ma200_support_4h",
+                                 "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h")
+                    _need_4h = any(r in _ENABLED_RULES for r in _4h_rules)
+                    if any(r in _ENABLED_RULES for r in _1h_rules) or _need_4h:
                         try:
                             _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="60d")
+                            _short = symbol.upper() in _SHORT_UNIVERSE
                             if _h1 is not None and not _h1.empty:
+                                # ── 1H support (all symbols) ──
                                 if "ma20_support_1h" in _ENABLED_RULES:
-                                    _s1 = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
-                                    if _s1:
-                                        signals.append(_s1)
+                                    _x = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
+                                    if _x: signals.append(_x)
                                 if "ma50_support_1h" in _ENABLED_RULES:
-                                    _s50 = check_ma_support_1h(symbol, _h1, 50, AlertType.MA50_SUPPORT_1H, "50 SMA (1h)", require_rising=False)
-                                    if _s50:
-                                        signals.append(_s50)
+                                    _x = check_ma_support_1h(symbol, _h1, 50, AlertType.MA50_SUPPORT_1H, "50 SMA (1h)", require_rising=False)
+                                    if _x: signals.append(_x)
                                 if "ma200_support_1h" in _ENABLED_RULES:
-                                    _s2 = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
-                                    if _s2:
-                                        signals.append(_s2)
+                                    _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
+                                    if _x: signals.append(_x)
+                                # ── 1H rejection SHORTS (index set only) ──
+                                if _short:
+                                    for _rk, _rl, _rt in (("ma20_reject_1h", 20, AlertType.MA20_REJECT_1H), ("ma50_reject_1h", 50, AlertType.MA50_REJECT_1H), ("ma200_reject_1h", 200, AlertType.MA200_REJECT_1H)):
+                                        if _rk in _ENABLED_RULES:
+                                            _x = check_ma_reject_htf(symbol, _h1, _rl, _rt, f"{_rl} SMA (1h)")
+                                            if _x: signals.append(_x)
+                                # ── 4H bars (resample 1H → 4H) ──
+                                if _need_4h:
+                                    try:
+                                        _h4 = _h1.resample("4H").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+                                    except Exception:
+                                        _h4 = None
+                                    if _h4 is not None and not _h4.empty:
+                                        if "ma20_support_4h" in _ENABLED_RULES:
+                                            _x = check_ma_support_1h(symbol, _h4, 20, AlertType.MA20_SUPPORT_4H, "20 SMA (4h)", require_rising=True)
+                                            if _x: signals.append(_x)
+                                        if "ma50_support_4h" in _ENABLED_RULES:
+                                            _x = check_ma_support_1h(symbol, _h4, 50, AlertType.MA50_SUPPORT_4H, "50 SMA (4h)", require_rising=False)
+                                            if _x: signals.append(_x)
+                                        if "ma200_support_4h" in _ENABLED_RULES:
+                                            _x = check_ma_support_1h(symbol, _h4, 200, AlertType.MA200_SUPPORT_4H, "200 SMA (4h)", require_rising=False)
+                                            if _x: signals.append(_x)
+                                        if _short:
+                                            for _rk, _rl, _rt in (("ma20_reject_4h", 20, AlertType.MA20_REJECT_4H), ("ma50_reject_4h", 50, AlertType.MA50_REJECT_4H), ("ma200_reject_4h", 200, AlertType.MA200_REJECT_4H)):
+                                                if _rk in _ENABLED_RULES:
+                                                    _x = check_ma_reject_htf(symbol, _h4, _rl, _rt, f"{_rl} SMA (4h)")
+                                                    if _x: signals.append(_x)
                         except Exception as _he:
-                            logger.debug("1h support check failed for %s: %s", symbol, _he)
+                            logger.debug("1h/4h support/reject check failed for %s: %s", symbol, _he)
 
                     # Phase 2 (2026-04-23) — HTF bias gate: drop counter-trend
                     # LONG/SHORT entries, and stamp _confluence_score on every
