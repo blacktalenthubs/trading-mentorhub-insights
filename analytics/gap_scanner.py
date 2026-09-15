@@ -168,7 +168,20 @@ def three_two_one(df: pd.DataFrame) -> dict | None:
             "to_trigger_pct": round(to_trig, 1), "risk_pct": round(risk, 1) if risk is not None else None}
 
 
-def scan(symbols, want_intraday: bool = True) -> dict:
+def _short_universe() -> set[str]:
+    """The only symbols we take SHORT gaps on — the index/proxy set. Everything
+    else is long-only, so gap-DOWN shorts elsewhere are dropped as noise (we
+    already have dedicated short entries for the index set via the reject rules)."""
+    try:
+        from alert_config import SHORT_UNIVERSE as _su
+        return {str(x).upper() for x in _su}
+    except Exception:
+        return {"SPY", "QQQ", "SMH", "DRAM"}
+
+
+def scan(symbols, want_intraday: bool = True, short_syms: set[str] | None = None) -> dict:
+    if short_syms is None:
+        short_syms = _short_universe()
     gaps, setups = [], []
     for s in symbols:
         try:
@@ -176,6 +189,9 @@ def scan(symbols, want_intraday: bool = True) -> dict:
             if df is None:
                 continue
             g = detect_gap(df)
+            # Long-only except the index set: drop gap-DOWN (short) gaps elsewhere.
+            if g and g["dir"] == "DOWN" and s.upper() not in short_syms:
+                g = None
             if g:
                 if want_intraday:
                     orr = opening_range(_intraday(s))
@@ -183,6 +199,9 @@ def scan(symbols, want_intraday: bool = True) -> dict:
                         g["or"] = orr
                 gaps.append({"sym": s, **g})
             t = three_two_one(df)
+            # Same: keep 3-2-1 SHORT continuations only for the index set.
+            if t and t["direction"] == "SHORT" and s.upper() not in short_syms:
+                t = None
             if t:
                 setups.append({"sym": s, **t})
         except Exception:
