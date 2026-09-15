@@ -18,9 +18,10 @@
 //     lower chart TF still reflects the daily MAs.
 //
 // Extended ABOVE the 20 is not a long — you wait for the pullback to a MA; extended
-// far above flags a fade of the snap-back down. Prior levels (PDH/PDL/PWH/PWL/PMH/PML)
-// and the most-recent gap S/R zone round out the map. The full VCP base engine and
-// reported-fundamentals panel stay in the standalone "Minervini Trend Template" pine.
+// far above flags a fade of the snap-back down. The full VCP base engine (base box,
+// pivot/entry line, stop, breakout marker) and the reported-fundamentals panel are
+// folded in too, plus prior levels (PDH/PDL/PWH/PWL/PMH/PML) and the most-recent gap
+// S/R zone — one pine does the whole day/swing/trend job.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("MA · Direction & Entries", "MA-entries", overlay = true)
 
@@ -298,6 +299,58 @@ ttCount = (r1 ? 1 : 0) + (r2 ? 1 : 0) + (r3 ? 1 : 0) + (r4 ? 1 : 0) + (r5 ? 1 : 
 ttStage = ttCount == 8 ? "STAGE 2 ✔" : ttCount >= 7 ? "near (7/8)" : (not r3) ? "not rising — Stage 1/4" : "mixed"
 ttBg = ttCount == 8 ? _actGrn : ttCount >= 7 ? _actAmb : _actGry
 
+// ── ENTRY PIVOT + VCP BASE ENGINE ──────────────────────────────────────────────
+// The base ceiling (highest high over `baseLen` COMPLETED bars) is the pivot you buy
+// the breakout of. The VCP engine shades the base BOX only when a tight base actually
+// exists (green = ready / contracting + dry-up + coiling, blue = contracting), draws
+// the STOP (recent contraction low), and fires a BREAKOUT on a volume surge. Base
+// detection gates on the trend skeleton (rules 1-5), so a near-miss (e.g. fails only
+// rule 7) still shows its base. All computed on `lockTf` (daily), like everything else.
+gEntry   = "Entry pivot"
+baseLen  = input.int(40, "Base lookback for the pivot (bars)", minval = 5, maxval = 250, group = gEntry, tooltip = "The pivot = highest high over this many completed bars (the base ceiling / buy trigger). 40 ≈ a two-month base.")
+nearPct  = input.float(7.0, "Actionable within N% below the pivot", minval = 1, maxval = 30, step = 0.5, group = gEntry, tooltip = "A pivot only counts as a real ENTRY when price is coiling just under it. Farther than this below = a deep pullback with no tight base yet — the pivot reads amber, not a buy.")
+showEntry = input.bool(true, "Draw the entry (pivot) line", group = gEntry)
+colEntry = input.color(#26A69A, "Entry line", group = gEntry)
+
+gVCP     = "VCP base & breakout"
+showBox  = input.bool(true, "Shade the base box (only when a tight base exists)", group = gVCP, tooltip = "Green = ready setup (contracting + dry-up + coiling). Blue = contracting. No tight base → no box.")
+maxDepth = input.float(35.0, "Max base depth %", minval = 5, maxval = 80, group = gVCP, tooltip = "Reject bases deeper than this. Depth = (pivot − floor) / pivot.")
+contractRatio = input.float(0.6, "Contraction: recent third ≤ N × base range", minval = 0.1, maxval = 1.0, step = 0.05, group = gVCP, tooltip = "Volatility contraction — the recent third of the base must be at most this fraction of the whole base's range.")
+volAvgLen = input.int(50, "Volume average length", minval = 5, group = gVCP)
+volDryPct = input.float(0.85, "Dry-up: recent vol ≤ N × average", minval = 0.2, maxval = 1.5, step = 0.05, group = gVCP)
+brkVolMult = input.float(1.4, "Breakout volume ≥ N × average", minval = 1.0, maxval = 5, step = 0.1, group = gVCP)
+colStp   = input.color(#EF5350, "Stop line", group = gVCP)
+
+f_vcp() =>
+    _piv   = ta.highest(high[1], baseLen)
+    _floor = ta.lowest(low[1], baseLen)
+    _third = int(math.max(3, math.floor(baseLen / 3.0)))
+    _rB    = ta.highest(high, baseLen) - ta.lowest(low, baseLen)
+    _rR    = ta.highest(high, _third) - ta.lowest(low, _third)
+    _stop  = ta.lowest(low, _third)
+    _vAvg  = ta.sma(volume, volAvgLen)
+    _vRec  = ta.sma(volume, 5)
+    _brk   = ta.crossover(close, _piv)
+    [_piv, _floor, _rB, _rR, _stop, _vAvg, _vRec, volume, _brk]
+[pivot, baseFloor, rangeBase, rangeRecent, stopLevel, volAvg, volRecent, volNow, brkRaw] = request.security(syminfo.tickerid, lockTf, f_vcp(), lookahead = barmerge.lookahead_off)
+
+pctEntry  = na(pivot) or pivot == 0 ? na : (close / pivot - 1) * 100.0
+_far      = not na(pctEntry) and pctEntry < -nearPct
+baseDepth = na(pivot) or pivot == 0 ? na : (pivot - baseFloor) / pivot * 100.0
+contracting = not na(rangeBase) and rangeBase > 0 and rangeRecent <= rangeBase * contractRatio
+dryUp     = not na(volAvg) and volAvg > 0 and volRecent <= volAvg * volDryPct
+volRatio  = na(volAvg) or volAvg == 0 ? na : volNow / volAvg
+riskPct   = na(pivot) or na(stopLevel) or pivot == 0 ? na : (pivot - stopLevel) / pivot * 100.0
+_trendOk  = r1 and r2 and r3 and r4 and r5
+depthOk   = not na(baseDepth) and baseDepth <= maxDepth
+nearPivot = not na(pctEntry) and pctEntry >= -nearPct and pctEntry < 0
+hasBase     = _trendOk and depthOk and contracting and nearPivot
+formingVCP  = hasBase and dryUp
+breakoutVCP = _trendOk and depthOk and brkRaw and not na(volRatio) and volRatio >= brkVolMult
+baseState = breakoutVCP ? "BREAKOUT ▲ cleared on volume" : formingVCP ? "READY — coiling under the pivot" : hasBase ? "forming — vol not dried up yet" : (_trendOk and _far) ? "deep pullback — no tight base yet" : _trendOk ? "trend ok — await a tight base" : "no base — trend skeleton fails"
+baseBg = (breakoutVCP or formingVCP) ? _actGrn : hasBase ? color.new(#42A5F5, 20) : _trendOk ? _actAmb : _actGry
+pivotTxt = na(pivot) ? "—" : "pivot " + str.tostring(pivot, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)")
+
 // ── Alerts ─────────────────────────────────────────────────────────────────────
 _longNow  = sdir == "LONG"
 _shortNow = sdir == "SHORT" and not isFade
@@ -319,11 +372,19 @@ plot(extAtr,   "Extension (ATR)",    display = display.data_window)
 plot(extPct,   "Extension (%)",      display = display.data_window)
 plot(na(rr) ? na : rr, "Setup R:R",  display = display.data_window)
 plot(ttCount,  "Trend Template /8",  display = display.data_window)
+plot(pivot,    "Entry pivot",        display = display.data_window)
+plot(pctEntry, "% from pivot",       display = display.data_window)
+plot(baseDepth,"Base depth %",       display = display.data_window)
+plot(volRatio, "Volume × average",   display = display.data_window)
+plot(riskPct,  "Pivot→stop risk %",  display = display.data_window)
+plotshape(breakoutVCP, "Breakout", style = shape.triangleup, location = location.belowbar, color = colEntry, size = size.small, text = "BRK")
+alertcondition(formingVCP and not formingVCP[1], "VCP base forming", "{{ticker}} — VCP base forming, coiling under the pivot")
+alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleared the pivot on volume")
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
-var table hud = table.new(_pos, 2, 13, border_width = 1, border_color = color.new(color.gray, 55))
+var table hud = table.new(_pos, 2, 14, border_width = 1, border_color = color.new(color.gray, 55))
 _cell(int col, int row, string txt, color bg, color tc, bool right) => table.cell(hud, col, row, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = right ? text.align_right : text.align_left)
 if barstate.islast
     if enHud
@@ -373,8 +434,11 @@ if barstate.islast
         _rrBg = na(rr) ? color.new(color.gray, 35) : rr >= 2 ? color.new(#1B5E20, 0) : rr >= 1 ? color.new(#F59E0B, 15) : color.new(#8E1D1D, 0)
         _cell(0, 12, "R : R", _lblBg, _lblTx, false)
         _cell(1, 12, na(rr) ? "—" : str.tostring(rr, "#.#") + " : 1" + (align == "" ? "" : "  ·  " + align), _rrBg, _white, true)
+        // VCP base + pivot (the breakout entry, separate from the MA support/resistance entries)
+        _cell(0, 13, "Base", _lblBg, _lblTx, false)
+        _cell(1, 13, baseState + "  ·  " + pivotTxt, baseBg, _white, true)
     else
-        for _r = 0 to 12
+        for _r = 0 to 13
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
             table.cell(hud, 1, _r, "", bgcolor = color.new(color.gray, 100))
 
@@ -495,3 +559,126 @@ if barstate.islast
         label.delete(gDnLb)
         gDnBx := na
         gDnLb := na
+
+// ═══ ENTRY PIVOT LINE + VCP STOP + BASE BOX ══════════════════════════════════════
+var line  enLn = na
+var label enLb = na
+if barstate.islast
+    if showEntry and not na(pivot)
+        _x1 = bar_index - baseLen
+        _x2 = bar_index + 8
+        _enCol = _far ? color.new(#F59E0B, 0) : colEntry
+        if na(enLn)
+            enLn := line.new(_x1, pivot, _x2, pivot, color = _enCol, width = 2, style = line.style_dashed)
+            enLb := label.new(_x2, pivot, "", style = label.style_label_left, color = _enCol, textcolor = color.white, size = size.small)
+        else
+            line.set_xy1(enLn, _x1, pivot)
+            line.set_xy2(enLn, _x2, pivot)
+            line.set_color(enLn, _enCol)
+            label.set_xy(enLb, _x2, pivot)
+            label.set_color(enLb, _enCol)
+        label.set_text(enLb, "ENTRY " + str.tostring(pivot, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)") + (_far ? " · no base yet" : ""))
+    else if not na(enLn)
+        line.delete(enLn)
+        label.delete(enLb)
+        enLn := na
+        enLb := na
+
+var line  stLn = na
+var label stLb = na
+if barstate.islast
+    if (hasBase or breakoutVCP) and not na(stopLevel)
+        _sx1 = bar_index - baseLen
+        _sx2 = bar_index + 8
+        if na(stLn)
+            stLn := line.new(_sx1, stopLevel, _sx2, stopLevel, color = colStp, width = 1, style = line.style_dashed)
+            stLb := label.new(_sx2, stopLevel, "", style = label.style_label_left, color = colStp, textcolor = color.white, size = size.small)
+        else
+            line.set_xy1(stLn, _sx1, stopLevel)
+            line.set_xy2(stLn, _sx2, stopLevel)
+            label.set_xy(stLb, _sx2, stopLevel)
+        label.set_text(stLb, "STOP " + str.tostring(stopLevel, format.mintick) + (na(riskPct) ? "" : "  (" + str.tostring(riskPct, "#.#") + "%)"))
+    else if not na(stLn)
+        line.delete(stLn)
+        label.delete(stLb)
+        stLn := na
+        stLb := na
+
+var box baseBox = na
+if barstate.islast
+    if showBox and (hasBase or breakoutVCP) and not na(pivot) and not na(baseFloor)
+        _bx1   = bar_index - baseLen
+        _bxCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 82) : color.new(#42A5F5, 85)
+        _bdCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 30) : color.new(#42A5F5, 35)
+        if na(baseBox)
+            baseBox := box.new(_bx1, pivot, bar_index, baseFloor, border_color = _bdCol, border_width = 1, bgcolor = _bxCol)
+        else
+            box.set_lefttop(baseBox, _bx1, pivot)
+            box.set_rightbottom(baseBox, bar_index, baseFloor)
+            box.set_border_color(baseBox, _bdCol)
+            box.set_bgcolor(baseBox, _bxCol)
+    else if not na(baseBox)
+        box.delete(baseBox)
+        baseBox := na
+
+// ═══ FUNDAMENTALS PANEL — reported only (Pine can't fetch forward estimates) ═════
+// request.financial returns REPORTED financials, not analyst estimates, so forward
+// P/E, forward EPS and PEG are NOT here (they live in the app's Finnhub feed). This
+// shows the quality/growth picture that matters for a long swing HOLD: quarterly EPS
+// & revenue growth (YoY), margins, ROE, debt/equity, and TRAILING P/E (price ÷ EPS-TTM).
+gFund    = "Fundamentals panel (reported)"
+showFund = input.bool(true, "Show the fundamentals panel", group = gFund)
+fundPos  = input.string("bottom_right", "Panel position", options = ["top_left", "top_right", "bottom_left", "bottom_right"], group = gFund)
+
+_epsQ  = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_BASIC", "FQ",  ignore_invalid_symbol = true)
+_revQ  = request.financial(syminfo.tickerid, "TOTAL_REVENUE",            "FQ",  ignore_invalid_symbol = true)
+_epsT  = request.financial(syminfo.tickerid, "EARNINGS_PER_SHARE_BASIC", "TTM", ignore_invalid_symbol = true)
+_gm    = request.financial(syminfo.tickerid, "GROSS_MARGIN",             "FY",  ignore_invalid_symbol = true)
+_nm    = request.financial(syminfo.tickerid, "NET_MARGIN",               "FY",  ignore_invalid_symbol = true)
+_roe   = request.financial(syminfo.tickerid, "RETURN_ON_EQUITY",         "FY",  ignore_invalid_symbol = true)
+_de    = request.financial(syminfo.tickerid, "DEBT_TO_EQUITY",           "FQ",  ignore_invalid_symbol = true)
+_trailPE = not na(_epsT) and _epsT > 0 ? close / _epsT : na
+
+var float[] _epsH = array.new_float(0)
+var float[] _revH = array.new_float(0)
+if not na(_epsQ) and (na(_epsQ[1]) or _epsQ != _epsQ[1])
+    array.push(_epsH, _epsQ)
+    if array.size(_epsH) > 9
+        array.shift(_epsH)
+if not na(_revQ) and (na(_revQ[1]) or _revQ != _revQ[1])
+    array.push(_revH, _revQ)
+    if array.size(_revH) > 9
+        array.shift(_revH)
+f_yoy(_h) =>
+    float _r = na
+    if array.size(_h) >= 5
+        _c = array.get(_h, array.size(_h) - 1)
+        _p = array.get(_h, array.size(_h) - 5)
+        _r := _p != 0 ? (_c - _p) / math.abs(_p) * 100.0 : na
+    _r
+_epsYoY = f_yoy(_epsH)
+_revYoY = f_yoy(_revH)
+
+f_qcHi(_v, _good, _ok) => na(_v) ? color.new(color.gray, 35) : _v >= _good ? color.new(#1B5E20, 0) : _v >= _ok ? color.new(#7C5E10, 0) : color.new(#8E1D1D, 0)
+f_qcLo(_v, _good, _bad) => na(_v) ? color.new(color.gray, 35) : _v <= _good ? color.new(#1B5E20, 0) : _v <= _bad ? color.new(#7C5E10, 0) : color.new(#8E1D1D, 0)
+f_fpct(_v) => na(_v) ? "—" : str.tostring(_v, "#.#") + "%"
+f_fnum(_v) => na(_v) ? "—" : str.tostring(_v, "#.##")
+
+_fpos = fundPos == "top_left" ? position.top_left : fundPos == "top_right" ? position.top_right : fundPos == "bottom_left" ? position.bottom_left : position.bottom_right
+var table fund = table.new(_fpos, 2, 8, border_width = 1, border_color = color.new(color.gray, 55))
+_fLbl = color.new(#0B0B12, 0)
+_fTx  = color.new(#C7C9D9, 0)
+_fWt  = color.new(color.white, 0)
+f_fc(int row, string lbl, string val, color vbg) =>
+    table.cell(fund, 0, row, lbl, text_color = _fTx, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_left)
+    table.cell(fund, 1, row, val, text_color = _fWt, bgcolor = vbg, text_size = size.small, text_halign = text.align_right)
+if barstate.islast and showFund
+    table.cell(fund, 0, 0, "Fundamentals", text_color = _fWt, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_left)
+    table.cell(fund, 1, 0, "reported", text_color = _fTx, bgcolor = _fLbl, text_size = size.small, text_halign = text.align_right)
+    f_fc(1, "EPS growth (Q YoY)", f_fpct(_epsYoY),  f_qcHi(_epsYoY, 25, 0))
+    f_fc(2, "Rev growth (Q YoY)", f_fpct(_revYoY),  f_qcHi(_revYoY, 20, 0))
+    f_fc(3, "Gross margin",       f_fpct(_gm),      f_qcHi(_gm, 40, 20))
+    f_fc(4, "Net margin",         f_fpct(_nm),      f_qcHi(_nm, 10, 0))
+    f_fc(5, "ROE",                f_fpct(_roe),     f_qcHi(_roe, 15, 8))
+    f_fc(6, "Debt / Equity",      f_fnum(_de),      f_qcLo(_de, 1.0, 2.0))
+    f_fc(7, "P/E (trailing)",     f_fnum(_trailPE), _fLbl)
