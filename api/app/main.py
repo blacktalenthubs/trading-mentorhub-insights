@@ -575,10 +575,32 @@ async def lifespan(app: FastAPI):
                     _rep = _g_scan(_syms, want_intraday=True)
                     _date = _dt.date.today().isoformat()
                     _g_pub(_rep, _date)          # always refresh the Today dashboard
-                    if send_telegram:
-                        _g_send(_g_tg(_rep, _date))
-                    logger.info("Gap scan posted (%d gaps, %d 3-2-1, telegram=%s)",
-                                len(_rep["gaps"]), len(_rep["setups"]), send_telegram)
+                    # Telegram: deliver to the admin account(s) via the SAME per-user
+                    # path the live alerts use (User.telegram_chat_id) — NOT the global
+                    # TELEGRAM_CHAT_ID, which isn't set on this worker. Only send when
+                    # there's something to report (skip the empty premarket ping).
+                    _sent = 0
+                    if send_telegram and (_rep["gaps"] or _rep["setups"]):
+                        _msg = _g_tg(_rep, _date)
+                        try:
+                            from sqlalchemy import select as _sel
+                            from app.models.user import User as _User
+                            from app.dependencies import ADMIN_EMAILS as _ADMINS
+                            from alerting.notifier import _send_telegram_to as _tg1
+                            with sync_session_factory() as _s:
+                                _admins = _s.execute(
+                                    _sel(_User).where(_User.email.in_(list(_ADMINS)))
+                                ).scalars().all()
+                            for _u in _admins:
+                                if _u.telegram_enabled and _u.telegram_chat_id:
+                                    _tg1(_msg, _u.telegram_chat_id, parse_mode="HTML")
+                                    _sent += 1
+                        except Exception:
+                            logger.exception("gap telegram (admin per-user) failed")
+                        if _sent == 0:
+                            _g_send(_msg)   # fallback: global TELEGRAM_CHAT_ID if set
+                    logger.info("Gap scan posted (%d gaps, %d 3-2-1, telegram=%s, admin_chats=%d)",
+                                len(_rep["gaps"]), len(_rep["setups"]), send_telegram, _sent)
                 except Exception:
                     logger.exception("gap scan failed")
 
