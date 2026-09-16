@@ -16,8 +16,11 @@
 //     as first-class entries alongside the MA support/resistance ones.
 // MOBILE VERSION — the fundamentals panel is removed and the HUD is rebuilt as a
 // SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
-// two-column desktop spread: one item per row — action, each MA's slope, RSI, the
-// Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
+// two-column desktop spread: one item per row — action, the OPEN (+ which MAs it sits
+// between), each MA's slope + its S/R role vs the open, RSI, the Trend-Template/Minervini
+// score, extension, then entry / stop / target / R:R / base. The day's OPEN is drawn as a
+// line: open ABOVE a MA = that MA is support (S), below = resistance (R); above all MAs the
+// closest MA below is the support entry.
 // The MAs, the VCP base box + pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/
 // PML, W/M gated by proximity) and the recent gap S/R zone all stay. Unlike the desktop
 // pine, the MAs FOLLOW THE CHART timeframe by default so you can read 15m/1h MA levels
@@ -32,6 +35,12 @@ lockOn     = input.bool(false, "Lock MAs to a fixed timeframe", group = gTf, too
 lockTfPick = input.timeframe("D", "…locked timeframe", group = gTf, tooltip = "Which timeframe to lock to when 'Lock MAs' is ON. Daily by default. Note: the Trend-Template 52-week / RS reads and the VCP base are bar-count based (so they mean 'daily' only on a daily chart); the PDH/PDL/PWH/PWL/PMH/PML levels are always day/week/month.")
 lockTf     = lockOn ? lockTfPick : timeframe.period
 maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, tooltip = "SMA (Minervini / Weinstein convention) or EMA. Applies to all four lines.")
+
+// ── open line + MA roles ────────────────────────────────────────────────────────
+gOpen  = "Open line & MA roles"
+enOpen = input.bool(true, "Show the open line + MA S/R roles", group = gOpen, tooltip = "Draws the day's OPEN as a line and tags each MA's role: open ABOVE a MA = that MA is SUPPORT (S), open BELOW = RESISTANCE (R). Open above every MA → the closest MA below is the support entry. The HUD 'Open' row names the nearest support / resistance MA (or 'btw X & Y').")
+colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
+wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
 
 // 20 — the primary. Fixed DEEP GREEN line (slope direction still shows in the HUD row).
 g20   = "20 MA (primary)"
@@ -156,6 +165,34 @@ _coiling  = _absA <= flatThr and not na(atrAvg) and atrAvg > 0 and atr < atrAvg 
 col50  = col50c
 col150 = col150c
 col200 = col200c
+
+// ── OPEN-vs-MA ROLES — the day's OPEN sets each MA's role: open ABOVE a MA = that MA
+//    is SUPPORT, open BELOW = RESISTANCE. Open above ALL MAs → the CLOSEST MA below is
+//    the support entry. dayOpen = today's daily open (fixed at the open; non-repainting).
+dayOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+f_role(_m) => (na(_m) or na(dayOpen)) ? "" : (dayOpen >= _m ? " · S" : " · R")
+role20  = (enOpen and en20)  ? f_role(ma)    : ""
+role50  = (enOpen and en50)  ? f_role(ma50)  : ""
+role150 = (enOpen and en150) ? f_role(ma150) : ""
+role200 = (enOpen and en200) ? f_role(ma200) : ""
+// nearest enabled MA at/below the open (support) and at/above (resistance)
+_rNames = array.from("20", "50", "150", "200")
+_rVals  = array.from(ma, ma50, ma150, ma200)
+_rEn    = array.from(en20, en50, en150, en200)
+string supName = ""
+float  supVal  = na
+string resName = ""
+float  resVal  = na
+for _k = 0 to 3
+    _mv = array.get(_rVals, _k)
+    if array.get(_rEn, _k) and not na(_mv) and not na(dayOpen)
+        if _mv <= dayOpen and (na(supVal) or _mv > supVal)
+            supVal  := _mv
+            supName := array.get(_rNames, _k)
+        if _mv >= dayOpen and (na(resVal) or _mv < resVal)
+            resVal  := _mv
+            resName := array.get(_rNames, _k)
+openTxt = na(dayOpen) ? "Open —" : "Open " + str.tostring(dayOpen, format.mintick) + " · " + (supName != "" and resName != "" ? "btw " + supName + " & " + resName : supName != "" ? "above all · sup " + supName + " (entry)" : resName != "" ? "below all · res " + resName : "—")
 
 // ── Minervini trend skeleton (structural qualification: > 150/200, 200 rising, > 50) ─
 // The 5 structural rules of the Trend Template (the buyable-trend check; rules 6/7/8
@@ -411,29 +448,53 @@ alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleare
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
 _hb  = color.new(#0B0B12, 0)
 _hw  = color.new(color.white, 0)
-var table hud = table.new(position.top_right, 1, 13, border_width = 1, border_color = color.new(color.gray, 55))
+var table hud = table.new(position.top_right, 1, 14, border_width = 1, border_color = color.new(color.gray, 55))
 _row(int r, string txt, color bg, color tc) => table.cell(hud, 0, r, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = text.align_left)
 if barstate.islast
     if enHud
         _row(0, actTxt, actBg, _hw)
-        _row(1, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
-        _row(2, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
-        _row(3, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
-        _row(4, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
+        _row(1, enOpen ? openTxt : "Open (off)", enOpen ? color.new(#37474F, 0) : _hb, _hw)
+        _row(2, "20  " + f_slopeTxt(angle)    + role20,  _hb, f_slopeCol(angle))
+        _row(3, "50  " + f_slopeTxt(angle50)  + role50,  _hb, f_slopeCol(angle50))
+        _row(4, "150 " + f_slopeTxt(angle150) + role150, _hb, f_slopeCol(angle150))
+        _row(5, "200 " + f_slopeTxt(angle200) + role200, _hb, f_slopeCol(angle200))
         _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
-        _row(5, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
-        _row(6, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
-        _row(7, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
-        _row(8, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
-        _row(9, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
-        _row(10, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
-        _row(11, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
+        _row(6, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
+        _row(7, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
+        _row(8, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
+        _row(9, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
+        _row(10, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
+        _row(11, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
+        _row(12, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
         _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
-        _row(12, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
+        _row(13, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
     else
-        for _r = 0 to 12
+        for _r = 0 to 13
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
+
+// ── OPEN LINE — the day's open drawn as a level; the S/R role read is in the HUD ──
+var line  lnOpen = na
+var label lbOpen = na
+if barstate.islast
+    if enOpen and not na(dayOpen)
+        _ox2 = bar_index + lvTagOff
+        if na(lnOpen)
+            lnOpen := line.new(bar_index, dayOpen, _ox2, dayOpen, xloc = xloc.bar_index, color = colOpen, width = wOpen, extend = extend.left)
+            lbOpen := label.new(_ox2, dayOpen, "Open " + str.tostring(dayOpen, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colOpen, 85), textcolor = colOpen, size = size.tiny)
+        else
+            line.set_xy1(lnOpen, bar_index, dayOpen)
+            line.set_xy2(lnOpen, _ox2, dayOpen)
+            line.set_color(lnOpen, colOpen)
+            line.set_width(lnOpen, wOpen)
+            label.set_xy(lbOpen, _ox2, dayOpen)
+            label.set_text(lbOpen, "Open " + str.tostring(dayOpen, format.mintick))
+            label.set_textcolor(lbOpen, colOpen)
+    else if not na(lnOpen)
+        line.delete(lnOpen)
+        label.delete(lbOpen)
+        lnOpen := na
+        lbOpen := na
 
 // ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
