@@ -32,34 +32,32 @@ _lockTf = input.timeframe("", "MA timeframe (blank = follow chart)", group = gTf
 lockTf = _lockTf == "" ? timeframe.period : _lockTf
 maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, tooltip = "SMA (Minervini / Weinstein convention) or EMA. Applies to all four lines.")
 
-// 20 — the primary. State-coloured (ideal / shallow / steep) below; width here.
+// 20 — the primary. Fixed DEEP GREEN line (slope direction still shows in the HUD row).
 g20   = "20 MA (primary)"
 en20  = input.bool(true, "Show the 20", group = g20)
 len20 = input.int(20, "Length", minval = 2, group = g20)
+col20 = input.color(#1B5E20, "Colour", group = g20)
 w20   = input.int(2, "Width", minval = 1, maxval = 6, group = g20)
 
 // 50 — mid-term. Blue.
 g50   = "50 SMA"
 en50  = input.bool(true, "Show the 50", group = g50)
 len50 = input.int(50, "Length", minval = 5, group = g50)
-col50U = input.color(#1E88E5, "Rising", inline = "c50", group = g50)
-col50D = input.color(#90CAF9, "Falling", inline = "c50", group = g50)
+col50c = input.color(#1565C0, "Colour", group = g50)
 w50    = input.int(2, "Width", minval = 1, maxval = 6, group = g50)
 
-// 150 ≈ the 30-week line (Weinstein Stage-2 support). Purple.
+// 150 ≈ the 30-week line (Weinstein Stage-2 support). Deep yellow.
 g150   = "150 SMA (≈ 30-week)"
 en150  = input.bool(true, "Show the 150", group = g150, tooltip = "150 trading days ≈ 30 weeks — the daily proxy of the 30-week MA institutions defend on a swing pullback.")
 len150 = input.int(150, "Length", minval = 20, group = g150)
-col150U = input.color(#7E57C2, "Rising", inline = "c150", group = g150)
-col150D = input.color(#B39DDB, "Falling", inline = "c150", group = g150)
+col150c = input.color(#F9A825, "Colour", group = g150)
 w150    = input.int(2, "Width", minval = 1, maxval = 6, group = g150)
 
-// 200 — long-term trend. Orange.
+// 200 — long-term trend. Deep black.
 g200   = "200 SMA"
 en200  = input.bool(true, "Show the 200", group = g200)
 len200 = input.int(200, "Length", minval = 20, group = g200)
-col200U = input.color(#FB8C00, "Rising", inline = "c200", group = g200)
-col200D = input.color(#FFB74D, "Falling", inline = "c200", group = g200)
+col200c = input.color(#000000, "Colour", group = g200)
 w200    = input.int(3, "Width", minval = 1, maxval = 6, group = g200)
 
 // ── slope / angle (the same ruler judges all four MAs) ─────────────────────────
@@ -100,16 +98,6 @@ riseBars  = input.int(21, "200 rising over N bars (≈ 1m)", minval = 1, group =
 lookback  = input.int(252, "52-week lookback (bars)", minval = 20, group = gTT)
 minAboveLow = input.float(30.0, "Rule 6 — min % above 52-wk low", minval = 0, group = gTT)
 maxBelowHi  = input.float(25.0, "Rule 7 — max % below 52-wk high", minval = 0, group = gTT)
-
-// ── 20 state colours ───────────────────────────────────────────────────────────
-gV      = "20 colours by state"
-colUpI  = input.color(#26A69A, "Rising · ideal (~45°)",             group = gV)
-colUpW  = input.color(#80CBC4, "Rising · shallow (weak)",           group = gV)
-colUpS  = input.color(#F59E0B, "Rising · steep (unsustainable)",    group = gV)
-colDnI  = input.color(#EF5350, "Falling · ideal",                   group = gV)
-colDnW  = input.color(#EF9A9A, "Falling · shallow",                 group = gV)
-colDnS  = input.color(#AB47BC, "Falling · steep",                   group = gV)
-colFlat = input.color(#9E9E9E, "Flat / chop",                       group = gV)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 gH     = "Signal label (mobile)"
@@ -152,16 +140,10 @@ angle150 = f_ang(ma150, ma150Lb)
 angle200 = f_ang(ma200, ma200Lb)
 pctLb  = na(ma) or ma == 0 ? 0.0 : (ma - maLb) / ma * 100.0   // % move of the 20 over the lookback
 
-// ── classify the 20 (drives the header colour + state) ──────────────────────────
+// ── classify the 20's slope (rising / falling — drives the action + HUD row text) ─
 _absA = math.abs(angle)
 _up   = angle >  flatThr
 _dn   = angle < -flatThr
-state = _absA <= flatThr ? "FLAT · chop" :
-         _up ? (_absA < idealLo ? "RISING · shallow (weak)" : _absA <= idealHi ? "RISING · IDEAL" : "RISING · steep (unsustainable)") :
-               (_absA < idealLo ? "FALLING · shallow"        : _absA <= idealHi ? "FALLING · IDEAL" : "FALLING · steep")
-maCol = _absA <= flatThr ? colFlat :
-         _up ? (_absA < idealLo ? colUpW : _absA <= idealHi ? colUpI : colUpS) :
-               (_absA < idealLo ? colDnW : _absA <= idealHi ? colDnI : colDnS)
 
 // extension of price from the 20 (the magnet), in ATRs and %
 extAtr = na(atr) or atr == 0 ? 0.0 : (close - ma) / atr
@@ -169,10 +151,10 @@ extPct = na(ma) or ma == 0 ? 0.0 : (close - ma) / ma * 100.0
 _extended = math.abs(extAtr) >= extThr
 _coiling  = _absA <= flatThr and not na(atrAvg) and atrAvg > 0 and atr < atrAvg * coilPct
 
-// per-MA direction colours
-col50  = (not na(angle50)  and angle50  > 0) ? col50U  : col50D
-col150 = (not na(angle150) and angle150 > 0) ? col150U : col150D
-col200 = (not na(angle200) and angle200 > 0) ? col200U : col200D
+// fixed per-MA colours (slope direction still reads in the HUD rows)
+col50  = col50c
+col150 = col150c
+col200 = col200c
 
 // ── Minervini trend skeleton (structural qualification: > 150/200, 200 rising, > 50) ─
 // The 5 structural rules of the Trend Template (the buyable-trend check; rules 6/7/8
@@ -402,7 +384,7 @@ alertcondition(ttCount == 8 and ttCount[1] < 8, "Trend Template: newly qualified
 plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 plot(en150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
 plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
-plot(en20  ? ma    : na, "20 MA",   color = maCol,  linewidth = w20)
+plot(en20  ? ma    : na, "20 MA",   color = col20,  linewidth = w20)
 // queryable (Data Window / data_get_study_values)
 plot(angle,    "20 angle (deg)",     display = display.data_window)
 plot(angle50,  "50 angle (deg)",     display = display.data_window)
