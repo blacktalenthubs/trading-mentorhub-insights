@@ -664,6 +664,14 @@ ENABLED_RULES: set[str] = {
     "ma_reclaim_50",
     "ma_reclaim_150",
     "ma_reclaim_200",
+    # ── Daily MA BOUNCE (2026-09-15) — pull back to the SMA and CLOSE ABOVE it.
+    # The reclaim rules above are open-above/hold and almost never fire on daily,
+    # so the actual daily support bounces (HOOD@20, LRCX@200) were computed but
+    # suppressed as "rule_not_enabled". Enable the SMA bounce family so they deliver.
+    "ma_bounce_20",
+    "ma_bounce_50",
+    "ma_bounce_100",
+    "ma_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 50 + 200 ───────────────────────────────
     "ma20_support_1h",

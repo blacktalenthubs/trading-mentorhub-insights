@@ -675,7 +675,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     _need_4h = any(r in _ENABLED_RULES for r in _4h_rules)
                     if any(r in _ENABLED_RULES for r in _1h_rules) or _need_4h:
                         try:
-                            _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="60d")
+                            # 180d of 1h → ~315 4H bars after resample, enough for the
+                            # 4H 200 SMA (needs 200 4H bars). 60d only gave ~105 4H bars,
+                            # so the 4H 200 support was always NaN and never fired.
+                            _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="180d")
                             _short = symbol.upper() in _SHORT_UNIVERSE
                             if _h1 is not None and not _h1.empty:
                                 # ── 1H support (all symbols) ──
