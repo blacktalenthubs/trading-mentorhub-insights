@@ -61,6 +61,8 @@ from alert_config import (
     MA_STOP_OFFSET_PCT,
     MA100_BOUNCE_PROXIMITY_PCT,
     MA100_STOP_OFFSET_PCT,
+    MA150_BOUNCE_PROXIMITY_PCT,
+    MA150_STOP_OFFSET_PCT,
     MA200_BOUNCE_PROXIMITY_PCT,
     MA200_STOP_OFFSET_PCT,
     MIN_STOP_DISTANCE_PCT,
@@ -185,6 +187,7 @@ class AlertType(str, Enum):
     MA_BOUNCE_20 = "ma_bounce_20"
     MA_BOUNCE_50 = "ma_bounce_50"
     MA_BOUNCE_100 = "ma_bounce_100"
+    MA_BOUNCE_150 = "ma_bounce_150"
     MA_BOUNCE_200 = "ma_bounce_200"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
@@ -1089,6 +1092,66 @@ def check_ma_bounce_100(
         confidence="medium" if _vol == "demote" else "high",
         message=(
             f"MA bounce 100MA — price pulled back to ${ma100:.2f} "
+            f"and closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# BUY Rule 3b: MA Bounce 150MA (≈ 30-week Weinstein Stage-2 line)
+# ---------------------------------------------------------------------------
+
+def check_ma_bounce_150(
+    symbol: str,
+    bars: pd.DataFrame,
+    ma150: float | None,
+    prior_close: float | None,
+) -> AlertSignal | None:
+    """Price pulls back to 150MA and bounces — the ~30-week swing support line.
+
+    Scans last MA_BOUNCE_LOOKBACK_BARS bars for a touch near 150MA.
+    Last bar must close above 150MA (bounce confirmed).
+    """
+    if ma150 is None or ma150 <= 0:
+        return None
+    if bars.empty:
+        return None
+
+    proximity = _find_ma_bounce_touch(bars, ma150, MA150_BOUNCE_PROXIMITY_PCT)
+    if proximity is None:
+        return None
+
+    last_bar = bars.iloc[-1]
+    if last_bar["Close"] <= ma150:
+        return None
+
+    distance = (last_bar["Close"] - ma150) / ma150
+    if distance > MA_BOUNCE_MAX_DISTANCE_PCT:
+        return None
+
+    # Phase 2: volume confirmation
+    _vol = _bounce_volume_verdict(bars)
+    if _vol == "skip":
+        return None
+
+    entry = round(ma150, 2)
+    stop = round(ma150 * (1 - MA150_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.MA_BOUNCE_150,
+        direction="BUY",
+        price=last_bar["Close"],
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + risk, 2),
+        target_2=round(entry + 2 * risk, 2),
+        confidence="medium" if _vol == "demote" else "high",
+        message=(
+            f"MA bounce 150MA — price pulled back to ${ma150:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
         ),
     )
@@ -8579,6 +8642,14 @@ def evaluate_rules(
             signals.append(sig)
 
         sig = check_ma_bounce_100(symbol, intraday_bars, ma100, prior_close)
+        if sig:
+            sig.message += f" ({phase})"
+            if vwap_pos:
+                sig.message += f" — price {vwap_pos}"
+            sig.message += caution_suffix
+            signals.append(sig)
+
+        sig = check_ma_bounce_150(symbol, intraday_bars, ma150, prior_close)
         if sig:
             sig.message += f" ({phase})"
             if vwap_pos:
