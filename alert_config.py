@@ -59,6 +59,7 @@ ETH_CANDLE_NOTIFICATIONS_ENABLED = _get_secret(
 # MA Bounce BUY trigger: bar low must actually TOUCH the MA (tight proximity)
 MA_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (20/50 MA)
 MA100_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (100 MA)
+MA150_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (150 MA ≈ 30-week)
 MA200_BOUNCE_PROXIMITY_PCT = 0.004  # 0.4% — BUY only on real touch (200 MA)
 
 # MA Approach NOTICE: wider proximity for heads-up alerts
@@ -71,6 +72,9 @@ MA_STOP_OFFSET_PCT = 0.005  # 0.5%
 
 # MA100 Bounce: wider stop for intermediate timeframe
 MA100_STOP_OFFSET_PCT = 0.007  # 0.7%
+
+# MA150 Bounce (≈ 30-week): stop between the 100 and 200 offsets
+MA150_STOP_OFFSET_PCT = 0.009  # 0.9%
 
 # MA200 Bounce: widest stop for long-term institutional level
 MA200_STOP_OFFSET_PCT = 0.010  # 1.0%
@@ -400,7 +404,7 @@ SCORE_VERSION = int(_get_secret("SCORE_VERSION", "1"))
 # Bounce / dip-buy signal types — mean-reversion setups that fire when price
 # is below MAs and VWAP (conditions that v1 penalises but are *expected*).
 BOUNCE_ALERT_TYPES: set[str] = {
-    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_150", "ma_bounce_200",
     "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
     "prior_day_low_reclaim",
     "prior_day_low_bounce",
@@ -424,7 +428,7 @@ BOUNCE_ALERT_TYPES: set[str] = {
 # MA/EMA bounce subset — the MA itself is the level being tested, so
 # "below both MAs" actually *validates* the signal (full 25 pts).
 MA_BOUNCE_ALERT_TYPES: set[str] = {
-    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_150", "ma_bounce_200",
     "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
 }
 
@@ -667,10 +671,12 @@ ENABLED_RULES: set[str] = {
     # ── Daily MA BOUNCE (2026-09-15) — pull back to the SMA and CLOSE ABOVE it.
     # The reclaim rules above are open-above/hold and almost never fire on daily,
     # so the actual daily support bounces (HOOD@20, LRCX@200) were computed but
-    # suppressed as "rule_not_enabled". Enable the SMA bounce family so they deliver.
+    # suppressed as "rule_not_enabled". Enabled for the 20/50/150/200 SMAs (the
+    # pine's MAs); ma_bounce_150 added 2026-09-15. (ma_bounce_100 left OFF — not
+    # one of the four; still computed, just not delivered.)
     "ma_bounce_20",
     "ma_bounce_50",
-    "ma_bounce_100",
+    "ma_bounce_150",
     "ma_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 50 + 200 ───────────────────────────────
@@ -734,7 +740,7 @@ ALERT_CATEGORIES: dict[str, dict] = {
         "name": "Entry Signals",
         "description": "BUY alerts at support levels (MA/EMA bounces, PDL reclaim, double bottoms, fib bounce)",
         "alert_types": {
-            "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_200",
+            "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_150", "ma_bounce_200",
             # Phase 3b — EMA8 + EMA21 added; final EMA set 8/21/50/100/200.
             "ema_bounce_8", "ema_bounce_21",
             "ema_bounce_20", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
