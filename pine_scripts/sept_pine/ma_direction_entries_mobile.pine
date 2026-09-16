@@ -39,7 +39,7 @@ maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, t
 
 // ── open line + MA roles ────────────────────────────────────────────────────────
 gOpen  = "Open line & MA roles"
-enOpen = input.bool(true, "Show the open line + S/R context", group = gOpen, tooltip = "Draws the day's OPEN as a line with ONE readable label listing which MAs are SUPPORT (open above them) and which are RESISTANCE (open below) — across ALL five MAs, whether or not their lines are shown. Open above every MA → the MAs are all support (the closest below is the support entry).")
+enOpen = input.bool(true, "Show the open line + S/R context", group = gOpen, tooltip = "Draws the day's OPEN as a line. The label reads WHERE the open sits: 'between 20 & 50 SMA' (the two MAs bracketing it), or 'above all SMA · res PDH …' (nearest upside level when the open is above every MA), or 'below all SMA · sup PDL …'. Plus a bold green(S)/red(R) chip on each MA (open above = support, below = resistance), shown for all five MAs whether or not their lines are drawn.")
 colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
 wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
 openSz  = input.string("normal", "Open + S/R chip size", options = ["small", "normal", "large"], group = gOpen, tooltip = "Sizes the 'Open' chip and the green(S)/red(R) role chips. Bump to large for a bolder read on mobile.")
@@ -183,6 +183,69 @@ col200 = col200c
 //    line's little S/R tags, where price opened relative to ANY MA. Open above all = the
 //    closest MA below is the support entry. dayOpen = today's daily open (non-repainting).
 dayOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+// prior levels — computed up here so the open-line context can name the nearest
+// upside (PDH/PWH/PMH) or downside (PDL/PWL/PML) level when the open is beyond all MAs.
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// ── OPEN CONTEXT — where the open sits: "between 20 & 50 SMA", or "above all SMA"
+//    with the nearest upside level (PDH/PWH/PMH), or "below all SMA" with the nearest
+//    downside level (PDL/PWL/PML). Uses every SMA that has a value (skips NaN).
+_ctxNames = array.from("5", "20", "50", "150", "200")
+_ctxVals  = array.from(ma5, ma, ma50, ma150, ma200)
+string _belowN = ""
+float  _belowV = na
+string _aboveN = ""
+float  _aboveV = na
+if not na(dayOpen)
+    for _c = 0 to 4
+        _cv = array.get(_ctxVals, _c)
+        if not na(_cv)
+            if _cv <= dayOpen and (na(_belowV) or _cv > _belowV)
+                _belowV := _cv
+                _belowN := array.get(_ctxNames, _c)
+            if _cv >= dayOpen and (na(_aboveV) or _cv < _aboveV)
+                _aboveV := _cv
+                _aboveN := array.get(_ctxNames, _c)
+f_nearestAbove(float _px) =>
+    float _lv = na
+    string _ln = ""
+    if not na(_px)
+        if not na(pdh) and pdh > _px and (na(_lv) or pdh < _lv)
+            _lv := pdh
+            _ln := "PDH"
+        if not na(pwh) and pwh > _px and (na(_lv) or pwh < _lv)
+            _lv := pwh
+            _ln := "PWH"
+        if not na(pmh) and pmh > _px and (na(_lv) or pmh < _lv)
+            _lv := pmh
+            _ln := "PMH"
+    [_ln, _lv]
+f_nearestBelow(float _px) =>
+    float _lv = na
+    string _ln = ""
+    if not na(_px)
+        if not na(pdl) and pdl < _px and (na(_lv) or pdl > _lv)
+            _lv := pdl
+            _ln := "PDL"
+        if not na(pwl) and pwl < _px and (na(_lv) or pwl > _lv)
+            _lv := pwl
+            _ln := "PWL"
+        if not na(pml) and pml < _px and (na(_lv) or pml > _lv)
+            _lv := pml
+            _ln := "PML"
+    [_ln, _lv]
+string _openCtx = ""
+if not na(dayOpen)
+    if _belowN != "" and _aboveN != ""
+        _openCtx := "between " + _belowN + " & " + _aboveN + " SMA"
+    else if _aboveN == ""
+        [_un, _uv] = f_nearestAbove(dayOpen)
+        _openCtx := "above all SMA" + (_un == "" ? "" : " · res " + _un + " " + str.tostring(_uv, format.mintick))
+    else
+        [_dn2, _dv2] = f_nearestBelow(dayOpen)
+        _openCtx := "below all SMA" + (_dn2 == "" ? "" : " · sup " + _dn2 + " " + str.tostring(_dv2, format.mintick))
 
 // ── Minervini trend skeleton (structural qualification: > 150/200, 200 rising, > 50) ─
 // The 5 structural rules of the Trend Template (the buyable-trend check; rules 6/7/8
@@ -473,7 +536,7 @@ var label lbOpen = na
 if barstate.islast
     if enOpen and not na(dayOpen)
         _ox2  = bar_index + lvTagOff
-        _otxt = "Open " + str.tostring(dayOpen, format.mintick)
+        _otxt = "Open " + str.tostring(dayOpen, format.mintick) + (_openCtx == "" ? "" : " · " + _openCtx)
         if na(lnOpen)
             lnOpen := line.new(bar_index, dayOpen, _ox2, dayOpen, xloc = xloc.bar_index, color = colOpen, width = wOpen, extend = extend.left)
             lbOpen := label.new(_ox2, dayOpen, _otxt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colOpen, 10), textcolor = color.new(#0B0B12, 0), size = _oSz)
@@ -521,10 +584,7 @@ if barstate.islast
     lbR150 := f_roletag(lbR150, ma150, "150")
     lbR200 := f_roletag(lbR200, ma200, "200")
 
-// ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
-[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (computed up top, near dayOpen) ═══
 var line  lnPdh = na
 var label lbPdh = na
 var line  lnPdl = na
