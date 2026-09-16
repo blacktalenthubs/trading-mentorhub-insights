@@ -1,0 +1,134 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// 20 / 200 MA° · DAY TRADE — a stripped-down lower-timeframe tool. Just the 20 and
+// 200 SMA computed on the CHART timeframe (use it on 15m / 1h / 4h), so the MA
+// slope is read on that timeframe. The HUD shows ONLY the two MAs' slope angles
+// (scale-free degrees, ~45° = strong/ideal) so you can read short-term strength at
+// a glance. The day's OPEN is drawn as a line with a bold S/R chip on each MA:
+// open ABOVE the MA = support (S, green), below = resistance (R, red). Nothing else.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("20 / 200 MA° · Day Trade", "MA°·dt", overlay = true)
+
+// ── the two MAs (computed on the chart timeframe — 15m / 1h / 4h) ───────────────
+gMA    = "Moving averages"
+maType = input.string("SMA", "Type", options = ["SMA", "EMA"], group = gMA, tooltip = "SMA or EMA. Applies to both lines. Computed on the CHART timeframe — so on a 1h chart these are the 1h 20/200, on 15m the 15m 20/200, etc.")
+en20   = input.bool(true, "Show 20", inline = "20", group = gMA)
+len20  = input.int(20, "len", inline = "20", group = gMA)
+col20  = input.color(#1B5E20, "", inline = "20", group = gMA)
+w20    = input.int(2, "w", minval = 1, maxval = 6, inline = "20", group = gMA)
+en200  = input.bool(true, "Show 200", inline = "200", group = gMA)
+len200 = input.int(200, "len", inline = "200", group = gMA)
+col200 = input.color(#000000, "", inline = "200", group = gMA)
+w200   = input.int(2, "w", minval = 1, maxval = 6, inline = "200", group = gMA)
+
+// ── slope / angle (scale-free — same ruler on every symbol & timeframe) ──────────
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure each MA's rise over this many bars — smooths single-bar noise.")
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS, tooltip = "The angle measures the MA's rise in ATRs per bar, then converts to degrees. A rise of THIS many ATRs/bar = 45°. Tune once so 45° matches how a 45° rise looks on your chart.")
+flatThr = input.float(12, "Flat threshold (°) — |angle| below = chop", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+// ── HUD (just the two degrees) ──────────────────────────────────────────────────
+gH     = "HUD"
+enHud  = input.bool(true, "Show HUD", group = gH)
+hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
+hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
+
+// ── open line + S/R chips ───────────────────────────────────────────────────────
+gOpen  = "Open line & S/R"
+enOpen = input.bool(true, "Show the open line + S/R chips", group = gOpen, tooltip = "Draws the day's OPEN as a line and a bold chip on each MA: open ABOVE the MA = support (S, green), below = resistance (R, red).")
+colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
+wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
+openSz  = input.string("normal", "Open + chip size", options = ["small", "normal", "large"], group = gOpen)
+
+// ── compute (chart timeframe) ───────────────────────────────────────────────────
+ma20  = maType == "EMA" ? ta.ema(close, len20)  : ta.sma(close, len20)
+ma200 = maType == "EMA" ? ta.ema(close, len200) : ta.sma(close, len200)
+atr   = ta.atr(atrLen)
+f_ang(_m) => (na(atr) or atr == 0 or na(_m) or na(_m[slopeLb])) ? na : math.todegrees(math.atan(((_m - _m[slopeLb]) / slopeLb) / (atr * scale45)))
+angle20  = f_ang(ma20)
+angle200 = f_ang(ma200)
+
+// arrow + degree + band, coloured by rising / falling / flat
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+f_slopeCol(_a) => na(_a) ? color.new(color.gray, 35) : _a > flatThr ? color.new(#26A69A, 0) : _a < -flatThr ? color.new(#EF5350, 0) : color.new(color.gray, 20)
+
+// ── plots ───────────────────────────────────────────────────────────────────────
+plot(en20  ? ma20  : na, "20 MA",  color = col20,  linewidth = w20)
+plot(en200 ? ma200 : na, "200 MA", color = col200, linewidth = w200)
+plot(angle20,  "20 angle (deg)",  display = display.data_window)
+plot(angle200, "200 angle (deg)", display = display.data_window)
+
+// ── HUD — two rows, only the degrees ────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+_hb  = color.new(#0B0B12, 0)
+_lbl = color.new(#C7C9D9, 0)
+var table hud = table.new(_pos, 2, 2, border_width = 1, border_color = color.new(color.gray, 55))
+if barstate.islast
+    if enHud
+        table.cell(hud, 0, 0, "20",  text_color = _lbl, bgcolor = _hb, text_size = _sz, text_halign = text.align_left)
+        table.cell(hud, 1, 0, f_slopeTxt(angle20),  text_color = f_slopeCol(angle20),  bgcolor = _hb, text_size = _sz, text_halign = text.align_right)
+        table.cell(hud, 0, 1, "200", text_color = _lbl, bgcolor = _hb, text_size = _sz, text_halign = text.align_left)
+        table.cell(hud, 1, 1, f_slopeTxt(angle200), text_color = f_slopeCol(angle200), bgcolor = _hb, text_size = _sz, text_halign = text.align_right)
+    else
+        table.cell(hud, 0, 0, "", bgcolor = color.new(color.gray, 100))
+        table.cell(hud, 1, 0, "", bgcolor = color.new(color.gray, 100))
+        table.cell(hud, 0, 1, "", bgcolor = color.new(color.gray, 100))
+        table.cell(hud, 1, 1, "", bgcolor = color.new(color.gray, 100))
+
+// ── OPEN LINE + S/R CHIPS — day's open; open ABOVE a MA = S (support), below = R ─
+dayOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+_oSz = openSz == "small" ? size.small : openSz == "large" ? size.large : size.normal
+var line  lnOpen = na
+var label lbOpen = na
+if barstate.islast
+    if enOpen and not na(dayOpen)
+        _ox2  = bar_index + 10
+        _otxt = "Open " + str.tostring(dayOpen, format.mintick)
+        if na(lnOpen)
+            lnOpen := line.new(bar_index, dayOpen, _ox2, dayOpen, xloc = xloc.bar_index, color = colOpen, width = wOpen, extend = extend.left)
+            lbOpen := label.new(_ox2, dayOpen, _otxt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colOpen, 10), textcolor = color.new(#0B0B12, 0), size = _oSz)
+        else
+            line.set_xy1(lnOpen, bar_index, dayOpen)
+            line.set_xy2(lnOpen, _ox2, dayOpen)
+            line.set_color(lnOpen, colOpen)
+            line.set_width(lnOpen, wOpen)
+            label.set_xy(lbOpen, _ox2, dayOpen)
+            label.set_text(lbOpen, _otxt)
+            label.set_size(lbOpen, _oSz)
+    else if not na(lnOpen)
+        line.delete(lnOpen)
+        label.delete(lbOpen)
+        lnOpen := na
+        lbOpen := na
+
+// bold S/R chip at each MA's price — solid green (S) / red (R) with white text
+f_roletag(label lb, float _m, string nm) =>
+    label _b = lb
+    if enOpen and not na(_m) and not na(dayOpen)
+        _sup = dayOpen >= _m
+        _bg  = _sup ? color.new(#1B5E20, 0) : color.new(#B71C1C, 0)
+        if na(_b)
+            _b := label.new(bar_index + 2, _m, nm + (_sup ? " S" : " R"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = _bg, textcolor = color.new(color.white, 0), size = _oSz)
+        else
+            label.set_xy(_b, bar_index + 2, _m)
+            label.set_text(_b, nm + (_sup ? " S" : " R"))
+            label.set_color(_b, _bg)
+            label.set_size(_b, _oSz)
+    else
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    _b
+var label lbR20  = na
+var label lbR200 = na
+if barstate.islast
+    lbR20  := f_roletag(lbR20,  ma20,  "20")
+    lbR200 := f_roletag(lbR200, ma200, "200")
