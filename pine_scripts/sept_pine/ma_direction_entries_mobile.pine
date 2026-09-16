@@ -18,10 +18,10 @@
 // SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
 // two-column desktop spread: one item per row — action, each MA's slope (5/20/50/150/200),
 // RSI, the Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
-// The day's OPEN is drawn as a subtle line with ONE readable label listing which MAs are
-// SUPPORT (open above them) vs RESISTANCE (open below) — "Open 234.50 · S: 5 20 · R: 50 150
-// 200" — across ALL five MAs regardless of which lines you hide, so you can keep only 20 &
-// 200 drawn and still read where price opened vs any MA. The 5 SMA is short-term protection.
+// The day's OPEN is drawn as a line with a bold "Open <px>" chip, plus a bold GREEN(S)/RED(R)
+// chip AT each MA's price — open ABOVE a MA = support (S), below = resistance (R) — shown for
+// ALL five MAs regardless of which lines you hide, so you can keep only 20 & 200 drawn and
+// still read where price opened vs any MA. The 5 SMA is the short-term trend-protection line.
 // The MAs, the VCP base box + pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/
 // PML, W/M gated by proximity) and the recent gap S/R zone all stay. Unlike the desktop
 // pine, the MAs FOLLOW THE CHART timeframe by default so you can read 15m/1h MA levels
@@ -42,7 +42,7 @@ gOpen  = "Open line & MA roles"
 enOpen = input.bool(true, "Show the open line + S/R context", group = gOpen, tooltip = "Draws the day's OPEN as a line with ONE readable label listing which MAs are SUPPORT (open above them) and which are RESISTANCE (open below) — across ALL five MAs, whether or not their lines are shown. Open above every MA → the MAs are all support (the closest below is the support entry).")
 colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
 wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
-openSz  = input.string("normal", "Open label size", options = ["small", "normal", "large"], group = gOpen)
+openSz  = input.string("normal", "Open + S/R chip size", options = ["small", "normal", "large"], group = gOpen, tooltip = "Sizes the 'Open' chip and the green(S)/red(R) role chips. Bump to large for a bolder read on mobile.")
 
 // 5 — short-term trend protection (the fast line: price above it = very short-term uptrend intact).
 g5    = "5 SMA (short-term protection)"
@@ -464,45 +464,62 @@ if barstate.islast
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
 
-// ── OPEN LINE + S/R CONTEXT — the day's open as a subtle line with ONE readable label:
-//    "Open <px> · S: <MAs it's above> · R: <MAs it's below>". Covers ALL five MAs whether
-//    or not their lines are shown, so hiding lines never hides where the open sits vs any MA.
-_supList = ""
-_resList = ""
-if not na(dayOpen)
-    _oNames = array.from("5", "20", "50", "150", "200")
-    _oVals  = array.from(ma5, ma, ma50, ma150, ma200)
-    for _q = 0 to 4
-        _vv = array.get(_oVals, _q)
-        if not na(_vv)
-            if dayOpen >= _vv
-                _supList := _supList + (_supList == "" ? "" : " ") + array.get(_oNames, _q)
-            else
-                _resList := _resList + (_resList == "" ? "" : " ") + array.get(_oNames, _q)
-openLabel = "Open " + str.tostring(dayOpen, format.mintick) + (_supList == "" ? "" : "   S: " + _supList) + (_resList == "" ? "" : "   R: " + _resList)
+// ── OPEN LINE + BOLD S/R CHIPS — the day's open as a line, a bold "Open <px>" chip, and a
+//    bold GREEN(S)/RED(R) chip AT each MA's price (all five, regardless of line visibility):
+//    open ABOVE a MA → S (support), below → R (resistance). "Open label size" sizes them all.
 _oSz = openSz == "small" ? size.small : openSz == "large" ? size.large : size.normal
 var line  lnOpen = na
 var label lbOpen = na
 if barstate.islast
     if enOpen and not na(dayOpen)
-        _ox2 = bar_index + lvTagOff
+        _ox2  = bar_index + lvTagOff
+        _otxt = "Open " + str.tostring(dayOpen, format.mintick)
         if na(lnOpen)
             lnOpen := line.new(bar_index, dayOpen, _ox2, dayOpen, xloc = xloc.bar_index, color = colOpen, width = wOpen, extend = extend.left)
-            lbOpen := label.new(_ox2, dayOpen, openLabel, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colOpen, 80), textcolor = colOpen, size = _oSz)
+            lbOpen := label.new(_ox2, dayOpen, _otxt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colOpen, 10), textcolor = color.new(#0B0B12, 0), size = _oSz)
         else
             line.set_xy1(lnOpen, bar_index, dayOpen)
             line.set_xy2(lnOpen, _ox2, dayOpen)
             line.set_color(lnOpen, colOpen)
             line.set_width(lnOpen, wOpen)
             label.set_xy(lbOpen, _ox2, dayOpen)
-            label.set_text(lbOpen, openLabel)
-            label.set_textcolor(lbOpen, colOpen)
+            label.set_text(lbOpen, _otxt)
             label.set_size(lbOpen, _oSz)
     else if not na(lnOpen)
         line.delete(lnOpen)
         label.delete(lbOpen)
         lnOpen := na
         lbOpen := na
+
+// bold S/R chip at each MA's price — solid green (S) / red (R) with white text
+f_roletag(label lb, float _m, string nm) =>
+    label _b = lb
+    if enOpen and not na(_m) and not na(dayOpen)
+        _sup = dayOpen >= _m
+        _bg  = _sup ? color.new(#1B5E20, 0) : color.new(#B71C1C, 0)
+        if na(_b)
+            _b := label.new(bar_index + 2, _m, nm + (_sup ? " S" : " R"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = _bg, textcolor = color.new(color.white, 0), size = _oSz)
+        else
+            label.set_xy(_b, bar_index + 2, _m)
+            label.set_text(_b, nm + (_sup ? " S" : " R"))
+            label.set_color(_b, _bg)
+            label.set_size(_b, _oSz)
+    else
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    _b
+var label lbR5   = na
+var label lbR20  = na
+var label lbR50  = na
+var label lbR150 = na
+var label lbR200 = na
+if barstate.islast
+    lbR5   := f_roletag(lbR5,   ma5,   "5")
+    lbR20  := f_roletag(lbR20,  ma,    "20")
+    lbR50  := f_roletag(lbR50,  ma50,  "50")
+    lbR150 := f_roletag(lbR150, ma150, "150")
+    lbR200 := f_roletag(lbR200, ma200, "200")
 
 // ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
