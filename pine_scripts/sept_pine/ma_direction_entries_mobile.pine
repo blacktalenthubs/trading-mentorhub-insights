@@ -16,11 +16,12 @@
 //     as first-class entries alongside the MA support/resistance ones.
 // MOBILE VERSION — the fundamentals panel is removed and the HUD is rebuilt as a
 // SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
-// two-column desktop spread: one item per row — action, the OPEN (+ which MAs it sits
-// between), each MA's slope + its S/R role vs the open, RSI, the Trend-Template/Minervini
-// score, extension, then entry / stop / target / R:R / base. The day's OPEN is drawn as a
-// line: open ABOVE a MA = that MA is support (S), below = resistance (R); above all MAs the
-// closest MA below is the support entry.
+// two-column desktop spread: one item per row — action, each MA's slope (5/20/50/150/200),
+// RSI, the Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
+// The day's OPEN is drawn as a subtle line and every MA gets a tiny S/R tag AT its price —
+// open ABOVE a MA = support (S, green), below = resistance (R, red) — shown for ALL five MAs
+// regardless of which lines you hide, so you can keep only 20 & 200 drawn and still read
+// where price opened vs any MA. The 5 SMA is the short-term trend-protection line.
 // The MAs, the VCP base box + pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/
 // PML, W/M gated by proximity) and the recent gap S/R zone all stay. Unlike the desktop
 // pine, the MAs FOLLOW THE CHART timeframe by default so you can read 15m/1h MA levels
@@ -41,6 +42,13 @@ gOpen  = "Open line & MA roles"
 enOpen = input.bool(true, "Show the open line + MA S/R roles", group = gOpen, tooltip = "Draws the day's OPEN as a line and tags each MA's role: open ABOVE a MA = that MA is SUPPORT (S), open BELOW = RESISTANCE (R). Open above every MA → the closest MA below is the support entry. The HUD 'Open' row names the nearest support / resistance MA (or 'btw X & Y').")
 colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
 wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
+
+// 5 — short-term trend protection (the fast line: price above it = very short-term uptrend intact).
+g5    = "5 SMA (short-term protection)"
+en5   = input.bool(true, "Show the 5", group = g5)
+len5  = input.int(5, "Length", minval = 2, group = g5)
+col5  = input.color(#00ACC1, "Colour", group = g5)
+w5    = input.int(1, "Width", minval = 1, maxval = 6, group = g5)
 
 // 20 — the primary. Fixed DEEP GREEN line (slope direction still shows in the HUD row).
 g20   = "20 MA (primary)"
@@ -132,6 +140,7 @@ lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, st
 //    `slopeLb` bars back, ATR and ATR's own average — so a lower chart TF still
 //    reflects the daily MAs. Non-repainting.
 f_mas() =>
+    _m5   = maType == "EMA" ? ta.ema(close, len5)  : ta.sma(close, len5)
     _m20  = maType == "EMA" ? ta.ema(close, len20) : ta.sma(close, len20)
     _m50  = maType == "EMA" ? ta.ema(close, len50) : ta.sma(close, len50)
     _m150 = maType == "EMA" ? ta.ema(close, len150) : ta.sma(close, len150)
@@ -139,11 +148,12 @@ f_mas() =>
     _a    = ta.atr(atrLen)
     _rsi  = ta.rsi(close, rsiLen)
     _sl   = ta.lowest(low, rsiStopLb)
-    [_m20, _m20[slopeLb], _m50, _m50[slopeLb], _m150, _m150[slopeLb], _m200, _m200[slopeLb], _a, ta.sma(_a, 20), _rsi, _rsi[1], _sl]
-[ma, maLb, ma50, ma50Lb, ma150, ma150Lb, ma200, ma200Lb, atr, atrAvg, rsi14, rsi14Prev, swingLow] = request.security(syminfo.tickerid, lockTf, f_mas(), lookahead = barmerge.lookahead_off)
+    [_m5, _m5[slopeLb], _m20, _m20[slopeLb], _m50, _m50[slopeLb], _m150, _m150[slopeLb], _m200, _m200[slopeLb], _a, ta.sma(_a, 20), _rsi, _rsi[1], _sl]
+[ma5, ma5Lb, ma, maLb, ma50, ma50Lb, ma150, ma150Lb, ma200, ma200Lb, atr, atrAvg, rsi14, rsi14Prev, swingLow] = request.security(syminfo.tickerid, lockTf, f_mas(), lookahead = barmerge.lookahead_off)
 
-// per-MA angle in DEGREES — same scale-free ATR normalisation for all four.
+// per-MA angle in DEGREES — same scale-free ATR normalisation for every MA.
 f_ang(_m, _mLb) => na(atr) or atr == 0 or na(_m) or na(_mLb) ? na : math.todegrees(math.atan(((_m - _mLb) / slopeLb) / (atr * scale45)))
+angle5   = f_ang(ma5,   ma5Lb)
 angle    = f_ang(ma,    maLb)
 angle50  = f_ang(ma50,  ma50Lb)
 angle150 = f_ang(ma150, ma150Lb)
@@ -166,33 +176,12 @@ col50  = col50c
 col150 = col150c
 col200 = col200c
 
-// ── OPEN-vs-MA ROLES — the day's OPEN sets each MA's role: open ABOVE a MA = that MA
-//    is SUPPORT, open BELOW = RESISTANCE. Open above ALL MAs → the CLOSEST MA below is
-//    the support entry. dayOpen = today's daily open (fixed at the open; non-repainting).
+// ── OPEN vs the MAs — the day's OPEN sets each MA's role: open ABOVE a MA = that MA is
+//    SUPPORT, open BELOW = RESISTANCE. Read on EVERY MA regardless of whether its line is
+//    shown — so you can hide most lines (keep just 20 & 200) and still see, from the open
+//    line's little S/R tags, where price opened relative to ANY MA. Open above all = the
+//    closest MA below is the support entry. dayOpen = today's daily open (non-repainting).
 dayOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
-f_role(_m) => (na(_m) or na(dayOpen)) ? "" : (dayOpen >= _m ? " · S" : " · R")
-role20  = (enOpen and en20)  ? f_role(ma)    : ""
-role50  = (enOpen and en50)  ? f_role(ma50)  : ""
-role150 = (enOpen and en150) ? f_role(ma150) : ""
-role200 = (enOpen and en200) ? f_role(ma200) : ""
-// nearest enabled MA at/below the open (support) and at/above (resistance)
-_rNames = array.from("20", "50", "150", "200")
-_rVals  = array.from(ma, ma50, ma150, ma200)
-_rEn    = array.from(en20, en50, en150, en200)
-string supName = ""
-float  supVal  = na
-string resName = ""
-float  resVal  = na
-for _k = 0 to 3
-    _mv = array.get(_rVals, _k)
-    if array.get(_rEn, _k) and not na(_mv) and not na(dayOpen)
-        if _mv <= dayOpen and (na(supVal) or _mv > supVal)
-            supVal  := _mv
-            supName := array.get(_rNames, _k)
-        if _mv >= dayOpen and (na(resVal) or _mv < resVal)
-            resVal  := _mv
-            resName := array.get(_rNames, _k)
-openTxt = na(dayOpen) ? "Open —" : "Open " + str.tostring(dayOpen, format.mintick) + " · " + (supName != "" and resName != "" ? "btw " + supName + " & " + resName : supName != "" ? "above all · sup " + supName + " (entry)" : resName != "" ? "below all · res " + resName : "—")
 
 // ── Minervini trend skeleton (structural qualification: > 150/200, 200 rising, > 50) ─
 // The 5 structural rules of the Trend Template (the buyable-trend check; rules 6/7/8
@@ -423,6 +412,7 @@ plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 plot(en150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
 plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
 plot(en20  ? ma    : na, "20 MA",   color = col20,  linewidth = w20)
+plot(en5   ? ma5   : na, "5 SMA",   color = col5,   linewidth = w5)
 // queryable (Data Window / data_get_study_values)
 plot(angle,    "20 angle (deg)",     display = display.data_window)
 plot(angle50,  "50 angle (deg)",     display = display.data_window)
@@ -453,11 +443,11 @@ _row(int r, string txt, color bg, color tc) => table.cell(hud, 0, r, txt, text_c
 if barstate.islast
     if enHud
         _row(0, actTxt, actBg, _hw)
-        _row(1, enOpen ? openTxt : "Open (off)", enOpen ? color.new(#37474F, 0) : _hb, _hw)
-        _row(2, "20  " + f_slopeTxt(angle)    + role20,  _hb, f_slopeCol(angle))
-        _row(3, "50  " + f_slopeTxt(angle50)  + role50,  _hb, f_slopeCol(angle50))
-        _row(4, "150 " + f_slopeTxt(angle150) + role150, _hb, f_slopeCol(angle150))
-        _row(5, "200 " + f_slopeTxt(angle200) + role200, _hb, f_slopeCol(angle200))
+        _row(1, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
+        _row(2, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
+        _row(3, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
+        _row(4, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
+        _row(5, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
         _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
         _row(6, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
         _row(7, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
@@ -473,7 +463,7 @@ if barstate.islast
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
 
-// ── OPEN LINE — the day's open drawn as a level; the S/R role read is in the HUD ──
+// ── OPEN LINE — the day's open drawn as a subtle level; role tags on each MA below ──
 var line  lnOpen = na
 var label lbOpen = na
 if barstate.islast
@@ -495,6 +485,37 @@ if barstate.islast
         label.delete(lbOpen)
         lnOpen := na
         lbOpen := na
+
+// ── MA S/R ROLE TAGS — a tiny "5 S" / "20 R" at EACH MA's price (all five, shown
+//    regardless of the line's own toggle) so hiding lines never hides the open-role read.
+//    Open ABOVE the MA → S (green, support); open BELOW → R (red, resistance).
+f_roletag(label lb, float _m, string nm) =>
+    label _b = lb
+    if enOpen and not na(_m) and not na(dayOpen)
+        _sup = dayOpen >= _m
+        _tc  = _sup ? color.new(#26A69A, 0) : color.new(#EF5350, 0)
+        if na(_b)
+            _b := label.new(bar_index + 2, _m, nm + (_sup ? " S" : " R"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = _tc, size = size.tiny)
+        else
+            label.set_xy(_b, bar_index + 2, _m)
+            label.set_text(_b, nm + (_sup ? " S" : " R"))
+            label.set_textcolor(_b, _tc)
+    else
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    _b
+var label lbR5   = na
+var label lbR20  = na
+var label lbR50  = na
+var label lbR150 = na
+var label lbR200 = na
+if barstate.islast
+    lbR5   := f_roletag(lbR5,   ma5,   "5")
+    lbR20  := f_roletag(lbR20,  ma,    "20")
+    lbR50  := f_roletag(lbR50,  ma50,  "50")
+    lbR150 := f_roletag(lbR150, ma150, "150")
+    lbR200 := f_roletag(lbR200, ma200, "200")
 
 // ═══ PRIOR LEVELS — PDH / PDL / PWH / PWL / PMH / PML (settled, non-repainting) ═══
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
