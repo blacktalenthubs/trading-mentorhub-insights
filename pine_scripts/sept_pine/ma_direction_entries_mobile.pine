@@ -20,16 +20,17 @@
 // Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
 // The MAs, the VCP base box + pivot/stop/breakout, prior levels (PDH/PDL/PWH/PWL/PMH/
 // PML, W/M gated by proximity) and the recent gap S/R zone all stay. Unlike the desktop
-// pine, the MAs FOLLOW THE CHART timeframe by default (blank "MA timeframe") so you can
-// read 15m/1h MA levels intraday — pick a timeframe to lock them (e.g. D). For the full
+// pine, the MAs FOLLOW THE CHART timeframe by default so you can read 15m/1h MA levels
+// intraday — flip "Lock MAs to a fixed timeframe" (Daily by default) to lock them. For the full
 // tabular read + reported fundamentals, use the desktop "MA · Direction & Entries" pine.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("MA · Entries (mobile)", "MA-entries·m", overlay = true)
 
 // ── the four moving averages — each independent (uncheck / colour / width) ──────
 gTf    = "Timeframe"
-_lockTf = input.timeframe("", "MA timeframe (blank = follow chart)", group = gTf, tooltip = "Blank (default) = the MAs, slopes, RSI and the entry engine follow the CHART timeframe — so on a 15m/1h chart you get 15m/1h MA levels. Pick a timeframe (e.g. D) to LOCK them there regardless of the chart TF. Non-repainting (lookahead off). Note: the Trend-Template 52-week / RS reads and the VCP base are bar-count based, so they mean 'daily' only on a daily chart; the PDH/PDL/PWH/PWL/PMH/PML levels are always day/week/month.")
-lockTf = _lockTf == "" ? timeframe.period : _lockTf
+lockOn     = input.bool(false, "Lock MAs to a fixed timeframe", group = gTf, tooltip = "OFF (default) = the MAs, slopes, RSI and the entry engine FOLLOW THE CHART timeframe — so on a 15m/1h chart you get 15m/1h MA levels. ON = LOCK them to the timeframe below (Daily by default) regardless of the chart TF. Flip this here in settings to switch. Non-repainting (lookahead off).")
+lockTfPick = input.timeframe("D", "…locked timeframe", group = gTf, tooltip = "Which timeframe to lock to when 'Lock MAs' is ON. Daily by default. Note: the Trend-Template 52-week / RS reads and the VCP base are bar-count based (so they mean 'daily' only on a daily chart); the PDH/PDL/PWH/PWL/PMH/PML levels are always day/week/month.")
+lockTf     = lockOn ? lockTfPick : timeframe.period
 maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf, tooltip = "SMA (Minervini / Weinstein convention) or EMA. Applies to all four lines.")
 
 // 20 — the primary. Fixed DEEP GREEN line (slope direction still shows in the HUD row).
