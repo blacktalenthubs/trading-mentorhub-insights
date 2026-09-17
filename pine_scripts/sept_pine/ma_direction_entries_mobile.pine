@@ -136,6 +136,7 @@ enPml  = input.bool(true, "PML", inline = "pm", group = gLv)
 lvHiCol= input.color(color.new(#EF5350, 0), "High color", group = gLv)
 lvLoCol= input.color(color.new(#26A69A, 0), "Low color",  group = gLv)
 lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2, maxval = 40, group = gLv)
+lvTagSz = input.string("normal", "Level tag size", options = ["small", "normal", "large"], group = gLv, tooltip = "Sizes the PDH/PDL/PWH/PWL/PMH/PML tag chips. The line stays faint (dotted) — only the label is bold, so a level is easy to read even when the line is subtle.")
 gateWM = input.bool(true, "Gate weekly/monthly by proximity", group = gLv, tooltip = "Only draw the weekly (PWH/PWL) and monthly (PMH/PML) levels when price is within the % below — far ones are hidden so the chart stays clean. Daily levels (PDH/PDL) are always shown.")
 lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLv)
 
@@ -620,18 +621,23 @@ var line  lnPml = na
 var label lbPml = na
 // proximity gate — a level counts as "near" when price is within lvProx% of it.
 f_near(float _px) => not na(_px) and _px != 0 and math.abs(close - _px) / close * 100.0 <= lvProx
+_lvSz = lvTagSz == "small" ? size.small : lvTagSz == "large" ? size.large : size.normal
 f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
     line  _l = ln
     label _b = lb
     if on and not na(px)
+        // faint dotted line, but a BOLD chip — solid colour fill + white text — so the
+        // level reads clearly even when the line is subtle.
         if na(_l)
-            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = col, width = 1, style = line.style_dotted, extend = extend.left)
-            _b := label.new(bar_index + lvTagOff, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 90), textcolor = col, size = size.tiny)
+            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = color.new(col, 45), width = 1, style = line.style_dotted, extend = extend.left)
+            _b := label.new(bar_index + lvTagOff, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 0), textcolor = color.new(color.white, 0), size = _lvSz)
         else
             line.set_xy1(_l, bar_index, px)
             line.set_xy2(_l, bar_index + lvTagOff, px)
             label.set_xy(_b, bar_index + lvTagOff, px)
             label.set_text(_b, txt + " " + str.tostring(px, format.mintick))
+            label.set_color(_b, color.new(col, 0))
+            label.set_size(_b, _lvSz)
     else
         if not na(_l)
             line.delete(_l)
