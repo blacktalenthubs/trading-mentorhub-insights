@@ -313,3 +313,61 @@ if barstate.islast
         for _r = 0 to 10
             _cell(0, _r, "", color.new(color.gray, 100), _hw, false)
             _cell(1, _r, "", color.new(color.gray, 100), _hw, true)
+
+// ── WEEKLY / MONTHLY LEVELS — prior week & month high/low, flat like the MAs, GATED by
+//    proximity so a far level never clutters. Tag spells role (above price = RESISTANCE,
+//    below = SUPPORT), same font/style as the MA tags.
+gLvW    = "Weekly / monthly levels"
+enWk    = input.bool(true, "Weekly (PWH / PWL)", inline = "w", group = gLvW)
+enMo    = input.bool(true, "Monthly (PMH / PML)", inline = "w", group = gLvW)
+lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW, tooltip = "A weekly/monthly level draws only when price is within this % of it — far levels stay hidden so the chart isn't cluttered.")
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+f_near2(float _px) => not na(_px) and _px != 0 and math.abs(close - _px) / close * 100.0 <= lvProx
+f_lvl(line ln, label lb, bool en, float v, string nm) =>
+    line  _l = ln
+    label _b = lb
+    if en and not na(v) and f_near2(v)
+        _sup  = close >= v
+        _tint = _sup ? supCol : resCol
+        _txt  = nm + " " + str.tostring(v, format.mintick) + " · " + (_sup ? "SUPPORT" : "RESISTANCE")
+        if na(_l)
+            _l := line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = color.new(_tint, 35), width = 1, style = line.style_dotted)
+            _b := label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+        else
+            line.set_xy1(_l, bar_index - lineLen, v)
+            line.set_xy2(_l, bar_index + tagOff, v)
+            line.set_color(_l, color.new(_tint, 35))
+            label.set_xy(_b, bar_index + tagOff, v)
+            label.set_text(_b, _txt)
+            label.set_color(_b, color.new(_tint, 0))
+            label.set_size(_b, _tagSz)
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+var line  lnWH = na
+var label lbWH = na
+var line  lnWL = na
+var label lbWL = na
+var line  lnMH = na
+var label lbMH = na
+var line  lnML = na
+var label lbML = na
+if barstate.islast
+    [_lwh, _bwh] = f_lvl(lnWH, lbWH, enWk, pwh, "PWH")
+    lnWH := _lwh
+    lbWH := _bwh
+    [_lwl, _bwl] = f_lvl(lnWL, lbWL, enWk, pwl, "PWL")
+    lnWL := _lwl
+    lbWL := _bwl
+    [_lmh, _bmh] = f_lvl(lnMH, lbMH, enMo, pmh, "PMH")
+    lnMH := _lmh
+    lbMH := _bmh
+    [_lml, _bml] = f_lvl(lnML, lbML, enMo, pml, "PML")
+    lnML := _lml
+    lbML := _bml
