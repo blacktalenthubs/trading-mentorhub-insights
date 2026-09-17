@@ -44,7 +44,8 @@ gOpen  = "Open line & MA roles"
 enOpen = input.bool(true, "Show the open line + S/R context", group = gOpen, tooltip = "Draws the day's OPEN as a line. The label reads WHERE the open sits: 'between 20 & 50 SMA' (the two MAs bracketing it), or 'above all SMA · res PDH …' (nearest upside level when the open is above every MA), or 'below all SMA · sup PDL …'. Plus a bold green(S)/red(R) chip on each MA (open above = support, below = resistance), shown for all five MAs whether or not their lines are drawn.")
 colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
 wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
-openSz  = input.string("normal", "Open + S/R chip size", options = ["small", "normal", "large"], group = gOpen, tooltip = "Sizes the 'Open' chip and the green(S)/red(R) role chips. Bump to large for a bolder read on mobile.")
+openSz  = input.string("normal", "Open + S/R chip size", options = ["small", "normal", "large"], group = gOpen, tooltip = "Sizes the 'Open' chip and (if shown) the green(S)/red(R) role chips.")
+enRoleChips = input.bool(false, "Show S/R chip at each MA (open-relative)", group = gOpen, tooltip = "OFF by default — the little green(S)/red(R) chip sitting at each MA's price clutters the chart and the MAs are already identifiable by colour. Turn ON only if you want the open-relative S/R chip on every MA.")
 
 // 5 — short-term trend protection (the fast line: price above it = very short-term uptrend intact).
 g5    = "5 SMA (short-term protection)"
@@ -121,8 +122,9 @@ minAboveLow = input.float(30.0, "Rule 6 — min % above 52-wk low", minval = 0, 
 maxBelowHi  = input.float(25.0, "Rule 7 — max % below 52-wk high", minval = 0, group = gTT)
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
-gH     = "Signal label (mobile)"
-enHud  = input.bool(true, "Show the compact signal label", group = gH)
+gH     = "HUD"
+enHud  = input.bool(true, "Show the HUD", group = gH)
+hudCollapse = input.bool(false, "Collapse HUD (Action + Stage only)", group = gH, tooltip = "Collapsed = just the Action + Stage rows (a small footprint that won't cover the chart). Expanded = the full read (MA degrees, RSI, TT, extension, entry/stop/target/R:R, base). Flip here to expand/collapse.")
 hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
 
 // ── prior levels — PDH / PDL / PWH / PWL / PMH / PML ─────────────────────────────
@@ -529,21 +531,26 @@ if barstate.islast
     if enHud
         _row(0, actTxt, actBg, _hw)
         _row(1, "Stage " + stageTxt, stageBg, _hw)
-        _row(2, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
-        _row(3, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
-        _row(4, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
-        _row(5, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
-        _row(6, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
-        _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
-        _row(7, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
-        _row(8, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
-        _row(9, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
-        _row(10, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
-        _row(11, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
-        _row(12, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
-        _row(13, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
-        _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
-        _row(14, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
+        if hudCollapse
+            // collapsed — blank every row below Stage (small footprint)
+            for _r = 2 to 14
+                table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
+        else
+            _row(2, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
+            _row(3, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
+            _row(4, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
+            _row(5, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
+            _row(6, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
+            _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
+            _row(7, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
+            _row(8, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
+            _row(9, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
+            _row(10, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
+            _row(11, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
+            _row(12, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
+            _row(13, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
+            _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
+            _row(14, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
     else
         for _r = 0 to 14
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
@@ -579,7 +586,7 @@ if barstate.islast
 // bold S/R chip at each MA's price — solid green (S) / red (R) with white text
 f_roletag(label lb, float _m, string nm) =>
     label _b = lb
-    if enOpen and not na(_m) and not na(dayOpen)
+    if enRoleChips and enOpen and not na(_m) and not na(dayOpen)
         _sup = dayOpen >= _m
         _bg  = _sup ? color.new(#1B5E20, 0) : color.new(#B71C1C, 0)
         if na(_b)
@@ -692,55 +699,47 @@ if not na(_gp) and _gp <= -gapThr
     gDnLo  := open
     gDnBar := bar_index
 
+// Gap zones are drawn as shaded BOXES only — no text label (the colour + position
+// already read as S/R; the tag just cluttered the chart).
 var box   gUpBx = na
-var label gUpLb = na
 var box   gDnBx = na
-var label gDnLb = na
 if barstate.islast
     if enGap and not na(gUpHi)
         _ux2 = bar_index + lvTagOff
         // clamp the left edge — TradingView caps bar_index-anchored boxes at ~10k bars
-        // from the current bar; an old gap would otherwise overflow. The zone is a
-        // horizontal S/R band, so its left edge is cosmetic (price band + tag matter).
+        // from the current bar; an old gap would otherwise overflow.
         _uLeft = math.max(gUpBar, bar_index - 9000)
         if na(gUpBx)
             gUpBx := box.new(_uLeft, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
-            gUpLb := label.new(_ux2, gUpLo, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapS, 90), textcolor = colGapS, size = size.tiny)
         else
             box.set_lefttop(gUpBx, _uLeft, gUpHi)
             box.set_rightbottom(gUpBx, _ux2, gUpLo)
-            label.set_xy(gUpLb, _ux2, gUpLo)
-        label.set_text(gUpLb, "Gap S " + str.tostring(gUpLo, format.mintick) + "–" + str.tostring(gUpHi, format.mintick))
     else if not na(gUpBx)
         box.delete(gUpBx)
-        label.delete(gUpLb)
         gUpBx := na
-        gUpLb := na
     if enGap and not na(gDnHi)
         _dx2 = bar_index + lvTagOff
         _dLeft = math.max(gDnBar, bar_index - 9000)
         if na(gDnBx)
             gDnBx := box.new(_dLeft, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
-            gDnLb := label.new(_dx2, gDnHi, "", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(colGapR, 90), textcolor = colGapR, size = size.tiny)
         else
             box.set_lefttop(gDnBx, _dLeft, gDnHi)
             box.set_rightbottom(gDnBx, _dx2, gDnLo)
-            label.set_xy(gDnLb, _dx2, gDnHi)
-        label.set_text(gDnLb, "Gap R " + str.tostring(gDnLo, format.mintick) + "–" + str.tostring(gDnHi, format.mintick))
     else if not na(gDnBx)
         box.delete(gDnBx)
-        label.delete(gDnLb)
         gDnBx := na
-        gDnLb := na
 
 // ═══ ENTRY PIVOT LINE + VCP STOP + BASE BOX ══════════════════════════════════════
 var line  enLn = na
 var label enLb = na
+// Only draw the entry pivot when a REAL base exists (or a breakout) — otherwise the
+// "pivot" is just the highest high over baseLen, which on a name with no base is an
+// all-time high far above price. No base → no pivot line (the HUD Base row still says so).
 if barstate.islast
-    if showEntry and not na(pivot)
+    if showEntry and (hasBase or breakoutVCP) and not na(pivot)
         _x1 = bar_index - baseLen
         _x2 = bar_index + 8
-        _enCol = _far ? color.new(#F59E0B, 0) : colEntry
+        _enCol = colEntry
         if na(enLn)
             enLn := line.new(_x1, pivot, _x2, pivot, color = _enCol, width = 2, style = line.style_dashed)
             enLb := label.new(_x2, pivot, "", style = label.style_label_left, color = _enCol, textcolor = color.white, size = size.small)
@@ -750,7 +749,7 @@ if barstate.islast
             line.set_color(enLn, _enCol)
             label.set_xy(enLb, _x2, pivot)
             label.set_color(enLb, _enCol)
-        label.set_text(enLb, "ENTRY " + str.tostring(pivot, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)") + (_far ? " · no base yet" : ""))
+        label.set_text(enLb, "ENTRY " + str.tostring(pivot, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)"))
     else if not na(enLn)
         line.delete(enLn)
         label.delete(enLb)
