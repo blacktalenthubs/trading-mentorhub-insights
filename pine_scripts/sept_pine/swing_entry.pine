@@ -1,0 +1,259 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// SWING ENTRY — 20 / 50 / 200 SMA. A focused swing tool: buy price HOLDING a RISING
+// moving average (support), on any of the three. Each MA is a valid entry — the one
+// price is nearest becomes the active Entry / Stop (below the MA) / Target (extension)
+// / R:R. Same engine as "MA · Direction & Entries", trimmed to the three swing MAs.
+//
+//   • Every MA carries its scale-free slope DEGREE (~45° = ideal) so you confirm the
+//     MA is actually RISING before buying its support — a rising MA coming up to meet
+//     price is continuation; a flat/falling one is not a swing long.
+//   • STACK gate: a clean swing long wants 20 > 50 > 200 (short-term above long-term =
+//     an aligned uptrend). The HUD shows the alignment; optionally require it for LONG.
+//   • Extended: when price is stretched far above the 20 it reads EXTENDED — wait for a
+//     pullback to a MA, don't chase.
+//   • RSI reclaim: daily RSI reclaiming the oversold line into 30-33 and turning UP =
+//     an early bottom entry the MAs miss (price still below them).
+//   • Daily-locked by default (drawn on any chart); unlock to follow the chart TF.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Swing Entry · 20/50/200", "Swing-entry", overlay = true)
+
+// ── timeframe ───────────────────────────────────────────────────────────────────
+gTf    = "Timeframe"
+lockOn     = input.bool(true, "Lock MAs to a fixed timeframe (off = follow chart)", group = gTf, tooltip = "ON (default) = the MAs are computed on the timeframe below (Daily) and drawn on any chart. OFF = they follow the CHART timeframe (1h chart → 1h MAs). Non-repainting.")
+lockTfPick = input.timeframe("D", "…locked timeframe", group = gTf)
+lockTf     = lockOn ? lockTfPick : timeframe.period
+maType = input.string("SMA", "MA type", options = ["SMA", "EMA"], group = gTf)
+
+// ── the three MAs ─────────────────────────────────────────────────────────────
+g20   = "20 (short-term)"
+en20  = input.bool(true, "Show the 20", group = g20)
+len20 = input.int(20, "Length", minval = 2, group = g20)
+col20 = input.color(#1B5E20, "Colour", group = g20)
+w20   = input.int(2, "Width", minval = 1, maxval = 6, group = g20)
+g50   = "50 (mid-term)"
+en50  = input.bool(true, "Show the 50", group = g50)
+len50 = input.int(50, "Length", minval = 5, group = g50)
+col50 = input.color(#1565C0, "Colour", group = g50)
+w50   = input.int(2, "Width", minval = 1, maxval = 6, group = g50)
+g200  = "200 (long-term)"
+en200 = input.bool(true, "Show the 200", group = g200)
+len200 = input.int(200, "Length", minval = 20, group = g200)
+col200 = input.color(#000000, "Colour", group = g200)
+w200   = input.int(3, "Width", minval = 1, maxval = 6, group = g200)
+
+// ── slope / angle (scale-free ruler for all three) ──────────────────────────────
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS)
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS, tooltip = "A MA's rise of THIS many ATRs per bar = 45°. Tune once so 45° matches how a 45° rise looks on your chart.")
+flatThr = input.float(12, "Flat threshold (°) — |angle| below = not rising", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+// ── setup / risk-reward ─────────────────────────────────────────────────────────
+gT      = "Setup / risk-reward"
+stopBuf = input.float(0.5, "Stop buffer below the MA (× ATR)", minval = 0.1, maxval = 3, step = 0.1, group = gT)
+tgtExt  = input.float(3.0, "Target — extension above the MA (× ATR)", minval = 0.5, maxval = 10, step = 0.25, group = gT)
+sideTol = input.float(0.2, "Wick tolerance below the MA (× ATR)", minval = 0.0, maxval = 1, step = 0.05, group = gT, tooltip = "A hold must be on the RIGHT side of the MA (at/above it); this allows a wick this many ATRs below before the setup is voided.")
+nearMA  = input.float(1.5, "Hold zone — price within N × ATR above the MA", minval = 0.25, maxval = 5, step = 0.25, group = gT, tooltip = "Price is 'holding' the MA only within this many ATRs above it. Farther = EXTENDED, no fresh entry there.")
+extThr  = input.float(3.0, "Extended when price ≥ (× ATR) above the 20", minval = 0.5, maxval = 10, step = 0.25, group = gT)
+
+// ── stack alignment ─────────────────────────────────────────────────────────────
+gStk    = "Stack alignment"
+reqStack = input.bool(true, "Require 20 > 50 > 200 for a clean LONG", group = gStk, tooltip = "A swing long wants the short-term MA ABOVE the long-term (an aligned uptrend: 20 > 50 > 200). When ON, a rising-MA support hold reads LONG only if the stack is aligned; otherwise it reads 'wait · stack not aligned'. When OFF, the stack is shown but not required.")
+
+// ── RSI reclaim ─────────────────────────────────────────────────────────────────
+gR     = "RSI reclaim entry"
+enRsi  = input.bool(true, "RSI reclaim entry (30-33 turning up)", group = gR)
+rsiLen = input.int(14, "RSI length", minval = 2, group = gR)
+rsiLo  = input.float(30.0, "Reclaim band — from", minval = 1, maxval = 50, group = gR)
+rsiHi  = input.float(33.0, "Reclaim band — to",   minval = 1, maxval = 60, group = gR)
+rsiStopLb = input.int(10, "Swing-low lookback for the stop (bars)", minval = 2, maxval = 60, group = gR)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+gH     = "HUD"
+enHud  = input.bool(true, "Show HUD", group = gH)
+hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
+hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
+
+// ── compute (daily-locked, non-repainting) ──────────────────────────────────────
+f_mas() =>
+    _m20  = maType == "EMA" ? ta.ema(close, len20)  : ta.sma(close, len20)
+    _m50  = maType == "EMA" ? ta.ema(close, len50)  : ta.sma(close, len50)
+    _m200 = maType == "EMA" ? ta.ema(close, len200) : ta.sma(close, len200)
+    _a    = ta.atr(atrLen)
+    _rsi  = ta.rsi(close, rsiLen)
+    _sl   = ta.lowest(low, rsiStopLb)
+    [_m20, _m20[slopeLb], _m50, _m50[slopeLb], _m200, _m200[slopeLb], _a, _rsi, _rsi[1], _sl]
+[ma20, ma20Lb, ma50, ma50Lb, ma200, ma200Lb, atr, rsi14, rsi14Prev, swingLow] = request.security(syminfo.tickerid, lockTf, f_mas(), lookahead = barmerge.lookahead_off)
+
+// per-MA angle in degrees
+f_ang(_m, _mLb) => na(atr) or atr == 0 or na(_m) or na(_mLb) ? na : math.todegrees(math.atan(((_m - _mLb) / slopeLb) / (atr * scale45)))
+angle20  = f_ang(ma20,  ma20Lb)
+angle50  = f_ang(ma50,  ma50Lb)
+angle200 = f_ang(ma200, ma200Lb)
+
+// stack alignment — short-term above long-term
+stackOk  = not na(ma20) and not na(ma50) and not na(ma200) and ma20 > ma50 and ma50 > ma200
+stackTxt = na(ma20) or na(ma50) or na(ma200) ? "—" : stackOk ? "aligned ✓ (20>50>200)" : ma20 > ma50 ? "partial · 20>50, 50≤200" : "not aligned ⚠"
+
+// extension of price above the 20 (the magnet)
+extAtr = na(atr) or atr == 0 or na(ma20) ? na : (close - ma20) / atr
+extPct = na(ma20) or ma20 == 0 ? na : (close - ma20) / ma20 * 100.0
+_extended = not na(extAtr) and extAtr >= extThr
+
+// per-MA slope text + colour
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+f_slopeCol(_a) => na(_a) ? color.new(color.gray, 35) : _a > flatThr ? color.new(#26A69A, 0) : _a < -flatThr ? color.new(#EF5350, 0) : color.new(color.gray, 20)
+
+// ── ENTRY ENGINE — buy price holding a RISING MA (support). Nearest wins. ────────
+_stopBuf = na(atr) ? na : stopBuf * atr
+_tgtExt  = na(atr) ? na : tgtExt * atr
+f_maEntry(_m, _ang, _en) =>
+    string _tag = ""
+    float _entry = na
+    float _stop  = na
+    float _tgt   = na
+    float _dist  = na
+    if _en and not na(_m) and not na(_ang) and not na(atr) and atr > 0
+        _ext = (close - _m) / atr
+        if _ang > flatThr and _ext >= -sideTol and _ext <= nearMA
+            _tag  := "◀ hold"
+            _entry := _m
+            _stop  := _m - _stopBuf
+            _tgt   := _m + _tgtExt
+            _dist  := math.abs(_ext)
+    [_tag, _entry, _stop, _tgt, _dist]
+[tag20,  e20,  s20,  t20,  d20]  = f_maEntry(ma20,  angle20,  en20)
+[tag50,  e50,  s50,  t50,  d50]  = f_maEntry(ma50,  angle50,  en50)
+[tag200, e200, s200, t200, d200] = f_maEntry(ma200, angle200, en200)
+
+_dists = array.from(d20, d50, d200)
+_ents  = array.from(e20, e50, e200)
+_stps  = array.from(s20, s50, s200)
+_tgts  = array.from(t20, t50, t200)
+_names = array.from("20", "50", "200")
+_best  = -1
+float _bestD = na
+for _i = 0 to 2
+    _dv = array.get(_dists, _i)
+    if not na(_dv) and (na(_bestD) or _dv < _bestD)
+        _bestD := _dv
+        _best  := _i
+
+// RSI reclaim — reclaimed the oversold line into the band AND turning up
+rsiBuy = enRsi and not na(rsi14) and not na(rsi14Prev) and rsi14 > rsiLo and rsi14 <= rsiHi and rsi14 >= rsi14Prev
+
+// ── assemble the active setup ────────────────────────────────────────────────────
+string sdir  = ""
+string aMA   = ""
+string setup = "—"
+float entry = na
+float stop  = na
+float tgt   = na
+if _best >= 0
+    aMA   := array.get(_names, _best)
+    entry := array.get(_ents, _best)
+    stop  := array.get(_stps, _best)
+    tgt   := array.get(_tgts, _best)
+    sdir  := (reqStack and not stackOk) ? "WAIT" : "LONG"
+    setup := (reqStack and not stackOk) ? "at rising " + aMA + " · stack not aligned" : "hold of the rising " + aMA + " SMA (support)"
+else if rsiBuy
+    aMA   := "RSI"
+    sdir  := "LONG"
+    setup := "RSI " + str.tostring(rsi14, "#.#") + " reclaim (early bottom)"
+    entry := close
+    stop  := (not na(swingLow) and swingLow < close) ? swingLow : close * 0.97
+    _mAbove = array.from(ma20, ma50, ma200)
+    float _tA = na
+    for _j = 0 to 2
+        _mv = array.get(_mAbove, _j)
+        if not na(_mv) and _mv > entry and (na(_tA) or _mv < _tA)
+            _tA := _mv
+    tgt := not na(_tA) ? _tA : entry + 2.0 * (entry - stop)
+
+_risk = na(entry) or na(stop) ? na : math.abs(entry - stop)
+_rew  = na(entry) or na(tgt)  ? na : math.abs(tgt - entry)
+rr    = na(_risk) or _risk == 0 or na(_rew) ? na : _rew / _risk
+_riskPct = na(_risk) or na(entry) or entry == 0 ? na : _risk / entry * 100.0
+_tgtPct  = na(_rew)  or na(entry) or entry == 0 ? na : _rew / entry * 100.0
+
+// ── ACTION ───────────────────────────────────────────────────────────────────────
+_actGrn = color.new(#1B5E20, 0)
+_actAmb = color.new(#7C5E10, 0)
+_actGry = color.new(color.gray, 35)
+string actTxt = "WAIT"
+color  actBg  = _actGry
+if _extended and (na(extAtr) ? false : extAtr > 0)
+    actTxt := "WAIT — extended +" + str.tostring(extPct, "#.#") + "% above the 20; buy a pullback to a MA, don't chase"
+    actBg  := _actAmb
+else if sdir == "LONG" and aMA == "RSI"
+    actTxt := "LONG · RSI " + str.tostring(rsi14, "#.#") + " reclaim (early bottom)"
+    actBg  := _actGrn
+else if sdir == "LONG"
+    actTxt := "LONG · holding the rising " + aMA + " SMA" + (stackOk ? " · aligned ✓" : "")
+    actBg  := _actGrn
+else if sdir == "WAIT"
+    actTxt := "WAIT · at the rising " + aMA + " but 20>50>200 not aligned"
+    actBg  := _actAmb
+else
+    actTxt := "WAIT · price not at a rising MA"
+    actBg  := _actGry
+
+// ── alerts ────────────────────────────────────────────────────────────────────
+_longNow = sdir == "LONG"
+alertcondition(_longNow and not _longNow[1], "Swing LONG entry", "{{ticker}} — swing LONG: price holding a rising 20/50/200 SMA (or RSI reclaim)")
+alertcondition(rsiBuy and not rsiBuy[1], "RSI reclaim entry", "{{ticker}} — RSI reclaimed into 30-33 and turning up: early bottom")
+
+// ── plots ───────────────────────────────────────────────────────────────────────
+plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
+plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
+plot(en20  ? ma20  : na, "20 SMA",  color = col20,  linewidth = w20)
+plot(angle20,  "20 angle (deg)",  display = display.data_window)
+plot(angle50,  "50 angle (deg)",  display = display.data_window)
+plot(angle200, "200 angle (deg)", display = display.data_window)
+plot(na(rr) ? na : rr, "Setup R:R", display = display.data_window)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+_hb  = color.new(#0B0B12, 0)
+_lbl = color.new(#C7C9D9, 0)
+_hw  = color.new(color.white, 0)
+var table hud = table.new(_pos, 2, 11, border_width = 1, border_color = color.new(color.gray, 55))
+_cell(int col, int row, string txt, color bg, color tc, bool right) => table.cell(hud, col, row, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = right ? text.align_right : text.align_left)
+if barstate.islast
+    if enHud
+        _cell(0, 0, "Swing Entry", color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), false)
+        _cell(1, 0, syminfo.ticker, color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), true)
+        _cell(0, 1, "Action", actBg, _hw, false)
+        _cell(1, 1, actTxt, actBg, _hw, true)
+        _cell(0, 2, "Stack", _hb, _lbl, false)
+        _cell(1, 2, stackTxt, stackOk ? _actGrn : _hb, _hw, true)
+        _cell(0, 3, "20 SMA", _hb, _lbl, false)
+        _cell(1, 3, f_slopeTxt(angle20) + (tag20 == "" ? "" : "  " + tag20), _hb, f_slopeCol(angle20), true)
+        _cell(0, 4, "50 SMA", _hb, _lbl, false)
+        _cell(1, 4, f_slopeTxt(angle50) + (tag50 == "" ? "" : "  " + tag50), _hb, f_slopeCol(angle50), true)
+        _cell(0, 5, "200 SMA", _hb, _lbl, false)
+        _cell(1, 5, f_slopeTxt(angle200) + (tag200 == "" ? "" : "  " + tag200), _hb, f_slopeCol(angle200), true)
+        _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
+        _cell(0, 6, "RSI", _hb, _lbl, false)
+        _cell(1, 6, (na(rsi14) ? "—" : str.tostring(rsi14, "#.#") + _rArr) + (rsiBuy ? " · reclaim" : ""), rsiBuy ? _actGrn : _hb, _hw, true)
+        _extBg = _extended ? color.new(#F59E0B, 20) : _hb
+        _cell(0, 7, "Extension", _hb, _lbl, false)
+        _cell(1, 7, na(extAtr) ? "—" : (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR (" + (extPct >= 0 ? "+" : "") + str.tostring(extPct, "#.#") + "%)" + (_extended ? " · EXTENDED" : ""), _extBg, _hw, true)
+        _cell(0, 8, "Entry", _hb, _lbl, false)
+        _cell(1, 8, na(entry) ? "—" : str.tostring(entry, format.mintick), _hb, _hw, true)
+        _cell(0, 9, "Stop", _hb, _lbl, false)
+        _cell(1, 9, na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  (−" + str.tostring(_riskPct, "#.#") + "%)"), _hb, color.new(#EF5350, 0), true)
+        _cell(0, 10, "Target · R:R", _hb, _lbl, false)
+        _cell(1, 10, (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : " +" + str.tostring(_tgtPct, "#.#") + "%")) + (na(rr) ? "" : "  · " + str.tostring(rr, "#.#") + "R"), _hb, color.new(#26A69A, 0), true)
+    else
+        for _r = 0 to 10
+            _cell(0, _r, "", color.new(color.gray, 100), _hw, false)
+            _cell(1, _r, "", color.new(color.gray, 100), _hw, true)
