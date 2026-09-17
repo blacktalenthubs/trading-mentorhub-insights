@@ -1,9 +1,11 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// SWING ENTRY — 20 / 50 / 200 SMA. A focused swing tool: buy price HOLDING a RISING
-// moving average (support), on any of the three. Each MA is a valid entry — the one
-// price is nearest becomes the active Entry / Stop (below the MA) / Target (extension)
-// / R:R. Same engine as "MA · Direction & Entries", trimmed to the three swing MAs.
+// SWING ENTRY — 20 / 50 / 200 SMA, drawn FLAT as horizontal levels (like Proximity MAs
+// · Flat): each MA is a horizontal line at its value with a role tag — SUPPORT when
+// price is above it, RESISTANCE when below — and the slope DEGREE rides on the tag so a
+// flat line still shows rising/falling. A focused swing tool: buy price HOLDING a RISING
+// MA (support), on any of the three. Each MA is a valid entry — the one price is nearest
+// becomes the active Entry / Stop (below the MA) / Target (extension) / R:R.
 //
 //   • Every MA carries its scale-free slope DEGREE (~45° = ideal) so you confirm the
 //     MA is actually RISING before buying its support — a rising MA coming up to meet
@@ -210,14 +212,68 @@ _longNow = sdir == "LONG"
 alertcondition(_longNow and not _longNow[1], "Swing LONG entry", "{{ticker}} — swing LONG: price holding a rising 20/50/200 SMA (or RSI reclaim)")
 alertcondition(rsiBuy and not rsiBuy[1], "RSI reclaim entry", "{{ticker}} — RSI reclaimed into 30-33 and turning up: early bottom")
 
-// ── plots ───────────────────────────────────────────────────────────────────────
-plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
-plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
-plot(en20  ? ma20  : na, "20 SMA",  color = col20,  linewidth = w20)
+// ── data-window plots (no sloping lines — the MAs draw FLAT below) ───────────────
 plot(angle20,  "20 angle (deg)",  display = display.data_window)
 plot(angle50,  "50 angle (deg)",  display = display.data_window)
 plot(angle200, "200 angle (deg)", display = display.data_window)
 plot(na(rr) ? na : rr, "Setup R:R", display = display.data_window)
+
+// ── FLAT MA LEVELS — each MA a horizontal line at its value with a role tag (like
+//    pro_ma): SUPPORT when price is above it, RESISTANCE when below. The slope DEGREE
+//    rides on the tag so a flat line still shows rising/falling. Identity colour on the
+//    line (20 green / 50 blue / 200 black), role tint on the tag.
+gLv     = "Flat MA levels"
+lineLen = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gLv)
+tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gLv)
+lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gLv)
+tagSz   = input.string("normal", "Tag size", options = ["small", "normal", "large"], group = gLv)
+supCol  = input.color(#26A69A, "Support tint", inline = "rc", group = gLv)
+resCol  = input.color(#EF5350, "Resistance tint", inline = "rc", group = gLv)
+_lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
+_tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
+f_flat(line ln, label lb, bool en, float v, string nm, float ang, color lineCol, int wid) =>
+    line  _l = ln
+    label _b = lb
+    if en and not na(v)
+        _sup  = close >= v
+        _tint = _sup ? supCol : resCol
+        _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + " · " + f_slopeTxt(ang)
+        if na(_l)
+            _l := line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = lineCol, width = wid, style = _lvlStyle)
+            _b := label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+        else
+            line.set_xy1(_l, bar_index - lineLen, v)
+            line.set_xy2(_l, bar_index + tagOff, v)
+            line.set_color(_l, lineCol)
+            line.set_width(_l, wid)
+            label.set_xy(_b, bar_index + tagOff, v)
+            label.set_text(_b, _txt)
+            label.set_color(_b, color.new(_tint, 0))
+            label.set_size(_b, _tagSz)
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+var line  ln20  = na
+var label lb20  = na
+var line  ln50  = na
+var label lb50  = na
+var line  ln200 = na
+var label lb200 = na
+if barstate.islast
+    [_l20, _b20] = f_flat(ln20, lb20, en20, ma20, "20 SMA", angle20, col20, w20)
+    ln20 := _l20
+    lb20 := _b20
+    [_l50, _b50] = f_flat(ln50, lb50, en50, ma50, "50 SMA", angle50, col50, w50)
+    ln50 := _l50
+    lb50 := _b50
+    [_l2c, _b2c] = f_flat(ln200, lb200, en200, ma200, "200 SMA", angle200, col200, w200)
+    ln200 := _l2c
+    lb200 := _b2c
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
