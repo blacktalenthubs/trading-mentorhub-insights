@@ -70,7 +70,9 @@ indicator("pro-allmas-signal", overlay = true, max_lines_count = 60, max_labels_
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
-maTf   = input.timeframe("D", "MA timeframe", group = gMA, tooltip = "Which timeframe's MAs. Default Daily = the 8/21/50/100/200-day structural MAs, drawn flat so you can read them on any intraday chart.")
+maLock   = input.bool(true, "Lock MAs to a fixed timeframe (off = follow chart)", group = gMA, tooltip = "ON (default) = the MAs are computed on the timeframe below (Daily) and drawn flat on any chart, so a 1h/15m chart still reads the DAILY 8/21/50/100/200 MAs. OFF = the MAs FOLLOW THE CHART timeframe — on a 1h chart you get the 1h MAs (each role fixes on that TF's close). Flip here to switch. Note: the Stage (200) read means 'Weinstein' only when locked to Daily.")
+maTfPick = input.timeframe("D", "…locked timeframe", group = gMA, tooltip = "Which timeframe the MAs lock to when 'Lock MAs' is ON. Daily = the structural 8/21/50/100/200-day MAs.")
+maTf     = maLock ? maTfPick : timeframe.period
 en21   = input.bool(true, "21 SMA",  inline = "ma1", group = gMA)
 en50   = input.bool(true, "50 SMA",  inline = "ma1", group = gMA)
 en100  = input.bool(true, "100 SMA", inline = "ma2", group = gMA)
