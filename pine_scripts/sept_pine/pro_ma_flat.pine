@@ -1,0 +1,271 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PROXIMITY MAs · FLAT v2 — the full MA/EMA stack drawn as clean FLAT levels in the
+// Swing-Entry tag style: each MA is a horizontal line at its value with a role tag
+// that spells SUPPORT (price above it) / RESISTANCE (price below) AND carries the
+// scale-free slope DEGREE (~45° ideal), so a flat line still shows rising/falling.
+//   • Stack: 21/50/100/200 SMA + 8/21/50/100/200 EMA + 30W SMA.
+//   • PROXIMITY-gated: a MA draws only when price is within N% of it, so far lines
+//     never clutter or stretch the axis.
+//   • Weekly BASE (K of the last M weekly lows at one price) + weekly/monthly levels
+//     (PWH/PWL/PMH/PML), same flat tag, also proximity-gated.
+//   • Compact HUD: nearest support/resistance, daily RSI (with an early-bottom notice),
+//     the fast 8/21 Trend, and the Weinstein Stage (200). No reclaim markers.
+//   • Daily-locked by default; unlock to follow the chart timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Proximity MAs · Flat v2", "MA-flat2", overlay = true)
+
+// ── timeframe ───────────────────────────────────────────────────────────────────
+gTf    = "Timeframe"
+lockOn   = input.bool(true, "Lock MAs to a fixed timeframe (off = follow chart)", group = gTf, tooltip = "ON (default) = MAs computed on the timeframe below (Daily) and drawn flat on any chart. OFF = they follow the CHART timeframe. Non-repainting.")
+maTfPick = input.timeframe("D", "…locked timeframe", group = gTf)
+maTf     = lockOn ? maTfPick : timeframe.period
+
+// ── the stack (toggle each) ──────────────────────────────────────────────────────
+gSma   = "SMA stack"
+en21s  = input.bool(true, "21 SMA",  inline = "s1", group = gSma)
+en50s  = input.bool(true, "50 SMA",  inline = "s1", group = gSma)
+en100s = input.bool(true, "100 SMA", inline = "s2", group = gSma)
+en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
+colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
+gEma   = "EMA stack"
+en8e   = input.bool(true,  "8 EMA",   inline = "e1", group = gEma)
+en21e  = input.bool(true,  "21 EMA",  inline = "e1", group = gEma)
+en50e  = input.bool(false, "50 EMA",  inline = "e2", group = gEma)
+en100e = input.bool(false, "100 EMA", inline = "e2", group = gEma)
+en200e = input.bool(false, "200 EMA", inline = "e3", group = gEma)
+colEMA = input.color(#7E57C2, "EMA line colour", group = gEma)
+gW30   = "30-week SMA"
+en30w  = input.bool(true, "30W SMA (weekly-locked)", group = gW30)
+col30W = input.color(#00897B, "30W line colour", group = gW30)
+
+// ── slope / angle ─────────────────────────────────────────────────────────────
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS)
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS, tooltip = "A MA's rise of THIS many ATRs/bar = 45°. Tune once so 45° matches how a 45° rise looks on your chart.")
+flatThr = input.float(12, "Flat threshold (°)", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+// ── flat rendering ──────────────────────────────────────────────────────────────
+gDraw   = "Flat lines"
+proxPct = input.float(8.0, "Only draw a MA within N% of price (proximity)", minval = 0, maxval = 50, step = 0.5, group = gDraw, tooltip = "A MA draws only when price is within this % of it — far lines stay hidden so the chart isn't cluttered. 0 = draw all enabled.")
+lineLen = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
+tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
+lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
+tagSz   = input.string("normal", "Tag size", options = ["small", "normal", "large"], group = gDraw)
+supCol  = input.color(#26A69A, "Support tint", inline = "rc", group = gDraw)
+resCol  = input.color(#EF5350, "Resistance tint", inline = "rc", group = gDraw)
+wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gDraw)
+
+// ── weekly base ─────────────────────────────────────────────────────────────────
+gBase   = "Weekly base"
+enBase  = input.bool(true, "Draw the weekly base (K of the last M weekly lows at one price)", group = gBase)
+baseM   = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = gBase)
+baseK   = input.int(3, "  Min touches (K)", minval = 2, maxval = 10, group = gBase)
+baseTol = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gBase) / 100.0
+baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gBase)
+baseProx = input.float(15.0, "  Only draw within N% of price", minval = 0, maxval = 100, step = 1, group = gBase)
+
+// ── weekly / monthly levels ──────────────────────────────────────────────────────
+gLvW    = "Weekly / monthly levels"
+enWk    = input.bool(true, "Weekly (PWH / PWL)",  inline = "w", group = gLvW)
+enMo    = input.bool(true, "Monthly (PMH / PML)", inline = "w", group = gLvW)
+lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW)
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+gH     = "HUD"
+enHud  = input.bool(true, "Show HUD", group = gH)
+hudPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gH)
+hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
+rsiLen = input.int(14, "RSI length", group = gH, minval = 2)
+rsiOS  = input.float(30, "Oversold ≤", group = gH, minval = 5, maxval = 50)
+rsiOB  = input.float(70, "Overbought ≥", group = gH, minval = 50, maxval = 95)
+rsiConsiderHi = input.float(33, "Consider-a-position band top (RSI reclaiming, rising)", group = gH, minval = 30, maxval = 50)
+
+// ── compute the stack (settled value + slopeLb-back for the degree), maTf ─────────
+f_pair(int _len, bool _ema) =>
+    _m = _ema ? ta.ema(close, _len) : ta.sma(close, _len)
+    [_m[1], _m[1 + slopeLb]]
+[v21s,  v21sL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  false), lookahead = barmerge.lookahead_on)
+[v50s,  v50sL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  false), lookahead = barmerge.lookahead_on)
+[v100s, v100sL] = request.security(syminfo.tickerid, maTf, f_pair(100, false), lookahead = barmerge.lookahead_on)
+[v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
+[v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
+[v21e,  v21eL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  true),  lookahead = barmerge.lookahead_on)
+[v50e,  v50eL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  true),  lookahead = barmerge.lookahead_on)
+[v100e, v100eL] = request.security(syminfo.tickerid, maTf, f_pair(100, true),  lookahead = barmerge.lookahead_on)
+[v200e, v200eL] = request.security(syminfo.tickerid, maTf, f_pair(200, true),  lookahead = barmerge.lookahead_on)
+[v30w,  v30wL]  = request.security(syminfo.tickerid, "W",  f_pair(30,  false), lookahead = barmerge.lookahead_on)
+atr = request.security(syminfo.tickerid, maTf, ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
+
+f_ang(_v, _vL) => na(atr) or atr == 0 or na(_v) or na(_vL) ? na : math.todegrees(math.atan(((_v - _vL) / slopeLb) / (atr * scale45)))
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+
+// ── HUD support: 8/21 trend, 200 stage, RSI ──────────────────────────────────────
+st8  = request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)
+st21 = request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)
+[rsiD, rsiDp] = request.security(syminfo.tickerid, "D", [ta.rsi(close, rsiLen), ta.rsi(close, rsiLen)[1]], lookahead = barmerge.lookahead_off)
+
+// ── flat line pool (rebuilt each last bar — handles a variable number of lines) ──
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+_lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
+_tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
+f_flat(bool en, float v, string nm, float ang, color col, float prox) =>
+    _near = prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
+    if en and not na(v) and v > 0 and _near
+        _sup  = close >= v
+        _tint = _sup ? supCol : resCol
+        _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
+        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
+        array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+
+// ── nearest support / resistance across every enabled MA (not proximity-gated) ───
+var float[] _mv = array.new_float()
+var string[] _mn = array.new_string()
+f_meta(bool en, float v, string nm) =>
+    if en and not na(v) and v > 0
+        array.push(_mv, v)
+        array.push(_mn, nm)
+
+// weekly base inputs
+[_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+_watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+// weekly / monthly levels
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+if barstate.islast
+    // clear the pools
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_mv)
+    array.clear(_mn)
+    // draw the stack (flat, proximity-gated, role + degree tags)
+    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, proxPct)
+    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, proxPct)
+    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct)
+    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct)
+    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct)
+    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct)
+    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct)
+    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct)
+    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct)
+    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct)
+    // meta for nearest R/S (all enabled, ungated)
+    f_meta(en21s,  v21s,  "21 SMA")
+    f_meta(en50s,  v50s,  "50 SMA")
+    f_meta(en100s, v100s, "100 SMA")
+    f_meta(en200s, v200s, "200 SMA")
+    f_meta(en8e,   v8e,   "8 EMA")
+    f_meta(en21e,  v21e,  "21 EMA")
+    f_meta(en50e,  v50e,  "50 EMA")
+    f_meta(en100e, v100e, "100 EMA")
+    f_meta(en200e, v200e, "200 EMA")
+    f_meta(en30w,  v30w,  "30W SMA")
+    // weekly / monthly levels (flat, proximity-gated)
+    f_flat(enWk, pwh, "PWH", na, resCol, lvProx)
+    f_flat(enWk, pwl, "PWL", na, supCol, lvProx)
+    f_flat(enMo, pmh, "PMH", na, resCol, lvProx)
+    f_flat(enMo, pml, "PML", na, supCol, lvProx)
+    // weekly base — K of the last M weekly lows clustered at one price
+    if enBase
+        _wLows = array.new_float()
+        _wAll  = array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12)
+        _wi = 0
+        while _wi < array.size(_wAll) and array.size(_wLows) < baseM
+            _wv = array.get(_wAll, _wi)
+            if not na(_wv) and _wv > 0
+                array.push(_wLows, _wv)
+            _wi += 1
+        _bCnt = 0
+        float _bCand = na
+        if array.size(_wLows) > 0
+            for _bc = 0 to array.size(_wLows) - 1
+                _cand = array.get(_wLows, _bc)
+                _tpC = na(_watr) ? _cand * baseTol : math.min(_cand * baseTol, baseAtr * _watr)
+                _cnt = 0
+                for _bj = 0 to array.size(_wLows) - 1
+                    if math.abs(array.get(_wLows, _bj) - _cand) <= _tpC
+                        _cnt += 1
+                if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
+                    _bCnt := _cnt
+                    _bCand := _cand
+        if _bCnt >= baseK and not na(_bCand)
+            _tpB = na(_watr) ? _bCand * baseTol : math.min(_bCand * baseTol, baseAtr * _watr)
+            _bmin = _bCand
+            for _bj = 0 to array.size(_wLows) - 1
+                _lj = array.get(_wLows, _bj)
+                if math.abs(_lj - _bCand) <= _tpB
+                    _bmin := math.min(_bmin, _lj)
+            _bNear = baseProx <= 0 or (_bmin > 0 and math.abs(close - _bmin) / close * 100.0 <= baseProx)
+            if _bNear
+                array.push(_ln, line.new(bar_index - lineLen, _bmin, bar_index + tagOff, _bmin, xloc = xloc.bar_index, color = supCol, width = wLine + 1, style = _lvlStyle))
+                array.push(_lb, label.new(bar_index + tagOff, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " · " + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_wLows)) + "w", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(supCol, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+_hudPosC = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_hudSz   = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
+var table hud = table.new(_hudPosC, 2, 6, border_width = 1, border_color = color.new(color.gray, 60))
+_cell(int c, int r, string t, color bg, color tc, bool right) => table.cell(hud, c, r, t, text_color = tc, bgcolor = bg, text_size = _hudSz, text_halign = right ? text.align_right : text.align_left)
+if barstate.islast
+    if enHud
+        _hb  = color.new(#0B0B12, 0)
+        _lbl = color.new(#C7C9D9, 0)
+        _hw  = color.new(color.white, 0)
+        _red = color.new(#EF5350, 0)
+        _grn = color.new(#26A69A, 0)
+        // nearest support / resistance from the meta arrays
+        float _nRes = na
+        string _nResN = ""
+        float _nSup = na
+        string _nSupN = ""
+        if array.size(_mv) > 0
+            for _i = 0 to array.size(_mv) - 1
+                _vv = array.get(_mv, _i)
+                if _vv >= close and (na(_nRes) or _vv < _nRes)
+                    _nRes := _vv
+                    _nResN := array.get(_mn, _i)
+                if _vv <= close and (na(_nSup) or _vv > _nSup)
+                    _nSup := _vv
+                    _nSupN := array.get(_mn, _i)
+        _resTxt = na(_nRes) ? "—" : str.tostring(_nRes, format.mintick) + "  " + _nResN + "  (" + str.tostring((_nRes - close) / close * 100, "#.##") + "%)"
+        _supTxt = na(_nSup) ? "—" : str.tostring(_nSup, format.mintick) + "  " + _nSupN + "  (" + str.tostring((close - _nSup) / close * 100, "#.##") + "%)"
+        // RSI + early-bottom notice
+        _consider = not na(rsiD) and not na(rsiDp) and rsiD > rsiOS and rsiD <= rsiConsiderHi and rsiD >= rsiDp
+        _rsiTxt = na(rsiD) ? "—" : str.tostring(rsiD, "#.0") + " · " + (_consider ? "Consider a position — watch the bottom" : rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rsiCol = na(rsiD) ? color.new(color.gray, 10) : _consider ? color.new(#FBC02D, 0) : rsiD <= rsiOS ? _grn : rsiD >= rsiOB ? _red : _hw
+        // fast 8/21 trend
+        _trTxt = na(st8) or na(st21) ? "—" : (close > st8 and close > st21) ? "UPTREND" : (close < st8 and close < st21) ? "DOWNTREND" : "MIXED"
+        _trCol = na(st8) or na(st21) ? color.new(color.gray, 10) : (close > st8 and close > st21) ? _grn : (close < st8 and close < st21) ? _red : _hw
+        // Weinstein stage (200)
+        _sAbove = not na(v200s) and close >= v200s
+        _sRise  = not na(v200s) and not na(v200sL) and v200s > v200sL
+        _stgTxt = na(v200s) ? "—" : _sAbove and _sRise ? "2 · UPTREND" : _sAbove ? "1 · BASING" : _sRise ? "3 · TOPPING" : "4 · DOWNTREND"
+        _stgCol = na(v200s) ? color.new(color.gray, 10) : _sAbove and _sRise ? _grn : _sAbove ? color.new(#F59E0B, 0) : _sRise ? color.new(#F59E0B, 0) : _red
+        _cell(0, 0, "MA · Flat", color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), false)
+        _cell(1, 0, syminfo.ticker, color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), true)
+        _cell(0, 1, "Nearest Resistance", _hb, _red, false)
+        _cell(1, 1, _resTxt, _hb, _red, true)
+        _cell(0, 2, "Nearest Support", _hb, _grn, false)
+        _cell(1, 2, _supTxt, _hb, _grn, true)
+        _cell(0, 3, "Daily RSI", _hb, _lbl, false)
+        _cell(1, 3, _rsiTxt, _hb, _rsiCol, true)
+        _cell(0, 4, "Trend (8/21)", _hb, _lbl, false)
+        _cell(1, 4, _trTxt, _hb, _trCol, true)
+        _cell(0, 5, "Stage (200)", _hb, _lbl, false)
+        _cell(1, 5, _stgTxt, _hb, _stgCol, true)
+    else
+        for _r = 0 to 5
+            _cell(0, _r, "", color.new(color.gray, 100), color.new(color.white, 0), false)
+            _cell(1, _r, "", color.new(color.gray, 100), color.new(color.white, 0), true)
