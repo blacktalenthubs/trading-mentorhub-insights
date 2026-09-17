@@ -94,6 +94,7 @@ enAnchor    = input.bool(true, "Anchor: clear of the MA stack → show the neare
 anchorN     = input.int(2, "  Anchor: how many nearest levels to show on the clear side", group = gN, minval = 1, maxval = 6)
 showPxProx = input.bool(true, "Show the price on level tags", group = gN)
 enSlope    = input.bool(true, "Show MA slope (↑ rising · ↓ falling) on the tag", group = gN, tooltip = "Flat lines read as levels but hide direction. A reclaim of a RISING average is continuation; the same reclaim of a FALLING average is a bounce into supply still coming down on you. Measured day-over-day (a daily MA has one value per day).")
+steepAtr   = input.float(0.35, "Coiling threshold — steep when the MA moves ≥ (× daily ATR/day)", minval = 0.05, maxval = 3, step = 0.05, group = gN, tooltip = "The flat line hides how HARD a MA is coiling. When a MA's day-over-day move is at least this many daily ATRs, the arrow DOUBLES: ↑↑ = coiling up hard, ↓↓ = rolling over hard (vs a single ↑/↓ for a gentle drift). Scale-free (ATR-normalised), so it means the same on every symbol. Fast MAs (8/21) hit it in strong trends; the 200 rarely does — which is correct, a ripping 21 is the stronger coil.")
 
 // ── weekly MA — the 30-week SMA (Weinstein Stage-2), always weekly-locked, drawn flat on any chart TF.
 // Folded into the SAME pool as the daily MAs, so it shares their proximity gate, confluence merge,
@@ -270,7 +271,16 @@ lPql = f_lvl("3M", low[1])
 // Same level, opposite trades. So each MA carries its prior-day value and the tag shows ↑ / ↓ / →.
 // (Day-over-day, not bar-over-bar: a daily MA has one value per day, so an intraday comparison
 //  would always read flat.)
-f_slope(float v, float vp) => not enSlope or na(v) or na(vp) ? "" : v > vp ? " ↑" : v < vp ? " ↓" : " →"
+// Direction (day-over-day) PLUS coiling strength: the arrow doubles (↑↑ / ↓↓) when the
+// MA's daily move is at least steepAtr × the daily ATR — the "how hard is it coiling"
+// read the flat line can't show by shape. Scale-free (ATR-normalised).
+f_slope(float v, float vp) =>
+    string _s = ""
+    if enSlope and not na(v) and not na(vp)
+        _d      = v - vp
+        _strong = not na(atrD) and atrD > 0 and math.abs(_d) >= steepAtr * atrD
+        _s := _d > 0 ? (_strong ? " ↑↑" : " ↑") : _d < 0 ? (_strong ? " ↓↓" : " ↓") : " →"
+    _s
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln = array.new_line()
