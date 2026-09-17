@@ -105,12 +105,13 @@ en30w = input.bool(true, "30W SMA (weekly-locked, flat)", group = gW, tooltip = 
 // ── weekly base — a flat floor where K of the last M weekly lows stack at one price (basing).
 // ALWAYS drawn when it qualifies (exempt from proximity/caps), weekly-locked on any chart TF.
 gBase   = "Weekly base"
-enBase  = input.bool(true, "Draw the weekly base floor (K of the last M weekly lows at one price)", group = gBase, tooltip = "A stock is BASING when its recent weekly lows stop making lower lows and stack at the SAME price. This finds the price where at least K of the last M weekly lows cluster within the tolerance, and draws it as a floor tagged 'BASE (Nx)'. Always shown when it qualifies — exempt from the proximity/far-cap gates. Nothing drawn when no cluster reaches K touches.")
+enBase  = input.bool(true, "Draw the weekly base floor (K of the last M weekly lows at one price)", group = gBase, tooltip = "A stock is BASING when its recent weekly lows stop making lower lows and stack at the SAME price. This finds the price where at least K of the last M weekly lows cluster within the tolerance, and draws it as a floor tagged 'BASE (Nx)'. Drawn when it qualifies AND price is within the base-proximity % below (so a far base doesn't compress the chart). Nothing drawn when no cluster reaches K touches.")
 baseM   = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = gBase)
 baseK   = input.int(3, "  Min touches at the floor (K)", minval = 2, maxval = 10, group = gBase, tooltip = "3–5 is a tight base.")
 baseTol = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gBase, tooltip = "A coarse % cap on how far a weekly low can be from the floor and still count. The real tightness comes from the ATR gate below.") / 100.0
 baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gBase, tooltip = "The real tightness gate, volatility-aware: a weekly low counts as a touch only if it's within this many WEEKLY ATRs of the floor (and within the % cap). A base on a calm ETF must be far tighter in % than one on a fast mover — that's why a 2% cluster on a low-vol name is NOT a base. Lower = stricter.")
 baseAtS = input.string("lowest touch", "  Draw the floor at", options = ["lowest touch", "average of touches"], group = gBase)
+baseProx = input.float(15.0, "  Only draw when price is within N% of the base", minval = 0, maxval = 100, step = 1, group = gBase, tooltip = "Hide the base when price has run far from it — a far base only compresses the chart's price scale and isn't in play. 0 = always draw (no gate). The base is a floor you buy INTO, so once price is well above it the line is just clutter until price comes back.")
 baseCol = input.color(#26A69A, "  Base colour", group = gBase)
 
 // ── reclaim marker ──────────────────────────────────────────────────────────────
@@ -147,7 +148,8 @@ hudPos  = input.string("top_right", "HUD position", options = ["top_center", "to
 rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
-enState = input.bool(true, "Show the 8/21 EMA trend state (HUD Trend row)", group = gH, tooltip = "Trend = where price sits vs the 8 and 21 EMA: above both = UPTREND, below both = DOWNTREND, straddling = MIXED. The 8-vs-21 stack (8>21 / 8<21) is appended. Uses its own 8/21 values, so it stays correct even if you untick those EMAs above.")
+enState = input.bool(true, "Show the 8/21 EMA trend state (HUD Trend row)", group = gH, tooltip = "The FAST momentum read: where price sits vs the 8 and 21 EMA — above both = UPTREND, below both = DOWNTREND, straddling = MIXED. Flips in days. Answers 'which way is the immediate pressure', NOT where you are in the big cycle (that's the Stage row).")
+enStage = input.bool(true, "Show the Weinstein Stage (HUD Stage row)", group = gH, tooltip = "The SLOW structural cycle vs the 200-day SMA: above a RISING 200 = Stage 2 (uptrend), above a FLAT 200 = Stage 1 (basing), below a RISING 200 = Stage 3 (topping), below a FALLING 200 = Stage 4 (downtrend). Answers 'where in the cycle are we' — complements the fast Trend row (a pullback below the 8/21 in a Stage-2 uptrend is a dip, not a top).")
 enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
 openCol  = input.color(color.new(#EAB308, 55), "Open line", inline = "ol", group = gH)
 openW    = input.int(1, "width", inline = "ol", group = gH, minval = 1, maxval = 5)
@@ -254,6 +256,33 @@ f_state() =>
             col := color.new(color.gray, 10)
     [txt, col]
 [stateTxt, stateCol] = f_state()
+// ── STAGE (Weinstein 1/2/3/4) — the STRUCTURAL cycle, vs the fast Trend row above.
+// Price vs the settled 200-day SMA + whether the 200 is rising (day-over-day; the 200
+// is smooth so this is stable). Uses _r_sma200v (raw) so it holds even if the 200 line
+// is unticked. above+rising → 2 uptrend · above+flat → 1 basing · below+rising → 3
+// topping · below+falling → 4 downtrend.
+_stgRise  = not na(_r_sma200v) and not na(_r_sma200vp) and _r_sma200v > _r_sma200vp
+_stgAbove = not na(_r_sma200v) and close >= _r_sma200v
+f_stage() =>
+    string txt = na
+    color  col = na
+    if na(_r_sma200v)
+        txt := "— · need 200-day data"
+        col := color.new(color.gray, 20)
+    else if _stgAbove and _stgRise
+        txt := "STAGE 2 · UPTREND (above rising 200)"
+        col := color.new(color.green, 10)
+    else if _stgAbove
+        txt := "STAGE 1 · BASING (above flat 200)"
+        col := color.new(#F59E0B, 10)
+    else if _stgRise
+        txt := "STAGE 3 · TOPPING (below rising 200)"
+        col := color.new(#F59E0B, 10)
+    else
+        txt := "STAGE 4 · DOWNTREND (below falling 200)"
+        col := color.new(color.red, 10)
+    [txt, col]
+[stageTxt, stageCol] = f_stage()
 // structural levels — only consulted when the MA stack can't bracket the open. Settled + RTH, same as the levels pine.
 f_lvl(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
 lPdh = f_lvl("D",  high[1])
@@ -331,7 +360,7 @@ f_collect(float v, string nm) =>
         array.push(_maV, v)
         array.push(_maN, nm)
 _hudPosC = hudPos == "top_right" ? position.top_right : hudPos == "top_left" ? position.top_left : hudPos == "bottom_center" ? position.bottom_center : hudPos == "bottom_right" ? position.bottom_right : position.top_center
-var table _hudT = table.new(_hudPosC, 2, 9, border_width = 1, border_color = color.new(color.gray, 60))
+var table _hudT = table.new(_hudPosC, 2, 10, border_width = 1, border_color = color.new(color.gray, 60))
 
 if barstate.islast
     for _l in _ln
@@ -553,9 +582,13 @@ if barstate.islast
                     _bmin := math.min(_bmin, _lj)
                     _bn += 1
             _blvl = baseAtS == "average of touches" ? _bsum / _bn : _bmin
-            _bxo  = f_xoff(_blvl)
-            array.push(_ln, line.new(bar_index - lineLen, _blvl, bar_index + _bxo, _blvl, color = baseCol, width = wLine + 1, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _bxo, _blvl, "BASE  " + str.tostring(_blvl, format.mintick) + "  (" + str.tostring(_bCnt) + "x / " + str.tostring(array.size(_wLows)) + "w)", style = label.style_label_left, color = baseCol, textcolor = color.white, size = _tagSz))
+            // proximity gate — skip a base price has run far from (it only compresses the
+            // axis and isn't in play until price comes back). 0 = always draw.
+            _bNear = baseProx <= 0 or (_blvl > 0 and math.abs(close - _blvl) / close * 100.0 <= baseProx)
+            if _bNear
+                _bxo  = f_xoff(_blvl)
+                array.push(_ln, line.new(bar_index - lineLen, _blvl, bar_index + _bxo, _blvl, color = baseCol, width = wLine + 1, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+                array.push(_lb, label.new(bar_index + _bxo, _blvl, "BASE  " + str.tostring(_blvl, format.mintick) + "  (" + str.tostring(_bCnt) + "x / " + str.tostring(array.size(_wLows)) + "w)", style = label.style_label_left, color = baseCol, textcolor = color.white, size = _tagSz))
 
     // ── where did the day OPEN? nearest DRAWN line above it and nearest below — whatever they are.
     //    MAs and levels compete on equal footing: closest line up names the ceiling, closest line
@@ -681,10 +714,12 @@ if barstate.islast
         table.cell(_hudT, 1, 6, _pdTxt,               bgcolor = _cBg,  text_color = _white,  text_size = _hudSz, text_halign = text.align_right)
         table.cell(_hudT, 0, 7, "Daily RSI",         bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
         table.cell(_hudT, 1, 7, _rsiTxt,              bgcolor = _cBg,  text_color = _rsiCol, text_size = _hudSz, text_halign = text.align_right)
-        table.cell(_hudT, 0, 8, "Trend",             bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
-        table.cell(_hudT, 1, 8, _trTxt,               bgcolor = _cBg,  text_color = enState ? stateCol : _white, text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 8, "Trend (8/21)",      bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 8, enState ? _trTxt : "off", bgcolor = _cBg,  text_color = enState ? stateCol : _lblTx, text_size = _hudSz, text_halign = text.align_right)
+        table.cell(_hudT, 0, 9, "Stage (200)",       bgcolor = _cBg,  text_color = _lblTx,  text_size = _hudSz, text_halign = text.align_left)
+        table.cell(_hudT, 1, 9, enStage ? stageTxt : "off", bgcolor = _cBg,  text_color = enStage ? stageCol : _lblTx, text_size = _hudSz, text_halign = text.align_right)
     else
-        for _rr = 0 to 8
+        for _rr = 0 to 9
             table.cell(_hudT, 0, _rr, "", bgcolor = color.new(color.gray, 100))
             table.cell(_hudT, 1, _rr, "", bgcolor = color.new(color.gray, 100))
 
