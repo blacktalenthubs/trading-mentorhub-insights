@@ -16,8 +16,10 @@
 //     as first-class entries alongside the MA support/resistance ones.
 // MOBILE VERSION — the fundamentals panel is removed and the HUD is rebuilt as a
 // SINGLE-COLUMN table pinned top-right, so it stacks TALL & NARROW instead of the wide
-// two-column desktop spread: one item per row — action, each MA's slope (5/20/50/150/200),
-// RSI, the Trend-Template/Minervini score, extension, then entry / stop / target / R:R / base.
+// two-column desktop spread: one item per row — action, the WEINSTEIN STAGE (1 basing /
+// 2 uptrend / 3 topping / 4 downtrend, from price vs the 200 + the 200's slope), each MA's
+// slope (5/20/50/150/200), RSI, the Trend-Template/Minervini score, extension, then
+// entry / stop / target / R:R / base.
 // The day's OPEN is drawn as a line with a bold "Open <px>" chip, plus a bold GREEN(S)/RED(R)
 // chip AT each MA's price — open ABOVE a MA = support (S), below = resistance (R) — shown for
 // ALL five MAs regardless of which lines you hide, so you can keep only 20 & 200 drawn and
@@ -258,6 +260,24 @@ r4 = not na(ma50) and not na(ma150) and not na(ma200) and ma50 > ma150 and ma50 
 r5 = not na(ma50) and close > ma50
 mrvOk  = r1 and r2 and r3 and r4 and r5
 mrvTxt = mrvOk ? "QUALIFIED ✓" : not r3 ? "no · 200 not rising" : not r1 ? "no · < 150/200" : not r5 ? "no · < 50" : not r2 ? "no · 150 < 200" : "no · 50 < 150/200"
+
+// ── WEINSTEIN STAGE (1 basing / 2 uptrend / 3 topping / 4 downtrend) ─────────────
+// From price vs the 200 and the 200's own slope (angle200, same degree ruler):
+//   above 200 + 200 rising  → STAGE 2 (uptrend)      · above 200 + 200 flat/falling → STAGE 1 (basing)
+//   below 200 + 200 falling → STAGE 4 (downtrend)    · below 200 + 200 rising       → STAGE 3 (topping)
+_p200   = not na(ma200) and close >= ma200      // price above the 200
+_200rise = not na(angle200) and angle200 > flatThr
+_200fall = not na(angle200) and angle200 < -flatThr
+stageTxt = na(ma200) or na(angle200) ? "—" :
+             _p200 and _200rise  ? "2 · UPTREND" :
+             _p200               ? "1 · BASING" :
+             (not _p200) and _200fall ? "4 · DOWNTREND" :
+                                   "3 · TOPPING"
+stageBg  = na(ma200) or na(angle200) ? color.new(color.gray, 35) :
+             _p200 and _200rise  ? color.new(#1B5E20, 0) :
+             _p200               ? color.new(#7C5E10, 0) :
+             (not _p200) and _200fall ? color.new(#8E1D1D, 0) :
+                                   color.new(#7C5E10, 0)
 
 // ── RSI oversold-reclaim: inside the band AND turning up = a LONG bounce ──────────
 rsiBuy   = enRsi and not na(rsi14) and not na(rsi14Prev) and rsi14 >= rsiLo and rsi14 <= rsiHi and rsi14 > rsi14Prev
@@ -502,28 +522,29 @@ alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleare
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
 _hb  = color.new(#0B0B12, 0)
 _hw  = color.new(color.white, 0)
-var table hud = table.new(position.top_right, 1, 14, border_width = 1, border_color = color.new(color.gray, 55))
+var table hud = table.new(position.top_right, 1, 15, border_width = 1, border_color = color.new(color.gray, 55))
 _row(int r, string txt, color bg, color tc) => table.cell(hud, 0, r, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = text.align_left)
 if barstate.islast
     if enHud
         _row(0, actTxt, actBg, _hw)
-        _row(1, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
-        _row(2, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
-        _row(3, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
-        _row(4, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
-        _row(5, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
+        _row(1, "Stage " + stageTxt, stageBg, _hw)
+        _row(2, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
+        _row(3, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
+        _row(4, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
+        _row(5, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
+        _row(6, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
         _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
-        _row(6, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
-        _row(7, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
-        _row(8, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
-        _row(9, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
-        _row(10, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
-        _row(11, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
-        _row(12, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
+        _row(7, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
+        _row(8, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
+        _row(9, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
+        _row(10, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
+        _row(11, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
+        _row(12, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
+        _row(13, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
         _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
-        _row(13, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
+        _row(14, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
     else
-        for _r = 0 to 13
+        for _r = 0 to 14
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
 
