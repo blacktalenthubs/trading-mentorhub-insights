@@ -148,6 +148,7 @@ hudPos  = input.string("top_right", "HUD position", options = ["top_center", "to
 rsiLen  = input.int(14, "RSI length", group = gH, minval = 2)
 rsiOS   = input.float(30, "Oversold ≤ (green)",   group = gH, minval = 5,  maxval = 50)
 rsiOB   = input.float(70, "Overbought ≥ (red)",   group = gH, minval = 50, maxval = 95)
+rsiConsiderHi = input.float(33, "Consider-a-position band top (RSI reclaiming ≥ oversold, rising)", group = gH, minval = 30, maxval = 50, tooltip = "An EARLY heads-up: when daily RSI has reclaimed the oversold line and sits in [oversold .. this] AND is turning UP day-over-day, the RSI row reads 'Consider a position — watch the bottom'. It's a pay-attention notice near a bottom, not a buy signal — the level/structure still has to confirm.")
 enState = input.bool(true, "Show the 8/21 EMA trend state (HUD Trend row)", group = gH, tooltip = "The FAST momentum read: where price sits vs the 8 and 21 EMA — above both = UPTREND, below both = DOWNTREND, straddling = MIXED. Flips in days. Answers 'which way is the immediate pressure', NOT where you are in the big cycle (that's the Stage row).")
 enStage = input.bool(true, "Show the Weinstein Stage (HUD Stage row)", group = gH, tooltip = "The SLOW structural cycle vs the 200-day SMA: above a RISING 200 = Stage 2 (uptrend), above a FLAT 200 = Stage 1 (basing), below a RISING 200 = Stage 3 (topping), below a FALLING 200 = Stage 4 (downtrend). Answers 'where in the cycle are we' — complements the fast Trend row (a pullback below the 8/21 in a Stage-2 uptrend is a dip, not a top).")
 enOpenLn = input.bool(true, "Draw a faint line at the day's OPEN", group = gH, tooltip = "The session open, drawn subtly so it never competes with the MAs. Where price opened inside the stack is what sets the day's playable range.")
@@ -219,7 +220,7 @@ rthTid  = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 // which lands the line on a neighbouring session's open. Settled values (high[1], low[1]) still
 // use lookahead_on: those bars are already closed. Same idiom as active/ma_ema_daily.pine.
 dayOpen = request.security(rthTid, "D", open, lookahead = barmerge.lookahead_off)
-rsiD    = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen), lookahead = barmerge.lookahead_off)
+[rsiD, rsiDp] = request.security(syminfo.tickerid, "D", [ta.rsi(close, rsiLen), ta.rsi(close, rsiLen)[1]], lookahead = barmerge.lookahead_off)
 // HUD feeds: daily ATR (settled, non-repainting), today's developing daily volume, and the
 // 20-day average daily volume ([1] + lookahead_on) for the relative-volume read.
 atrD    = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
@@ -687,8 +688,11 @@ if barstate.islast
         _volTxt  = na(_relVol) ? "—" : str.tostring(_relVol, "#.##") + "x avg"
         _volCol  = na(_relVol) ? color.new(color.gray, 10) : _relVol >= 1.0 ? color.new(#26A69A, 0) : color.new(#F59E0B, 0)
         _pdTxt   = (na(lPdh) ? "—" : str.tostring(lPdh, format.mintick)) + " / " + (na(lPdl) ? "—" : str.tostring(lPdl, format.mintick))
-        _rsiTxt  = na(rsiD) ? "—" : str.tostring(rsiD, "#.0") + " · " + (rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
-        _rsiCol  = na(rsiD) ? color.new(color.gray, 10) : rsiD <= rsiOS ? color.new(#26A69A, 0) : rsiD >= rsiOB ? color.new(#EF5350, 0) : color.new(color.white, 0)
+        // EARLY BOTTOM NOTICE: RSI reclaimed the oversold line and is turning up inside
+        // [oversold .. rsiConsiderHi] → "Consider a position" — a pay-attention heads-up.
+        _rsiConsider = not na(rsiD) and not na(rsiDp) and rsiD > rsiOS and rsiD <= rsiConsiderHi and rsiD >= rsiDp
+        _rsiTxt  = na(rsiD) ? "—" : str.tostring(rsiD, "#.0") + " · " + (_rsiConsider ? "Consider a position — watch the bottom" : rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rsiCol  = na(rsiD) ? color.new(color.gray, 10) : _rsiConsider ? color.new(#FBC02D, 0) : rsiD <= rsiOS ? color.new(#26A69A, 0) : rsiD >= rsiOB ? color.new(#EF5350, 0) : color.new(color.white, 0)
         _trTxt   = enState and not na(stateTxt) ? array.get(str.split(stateTxt, " · "), 0) : ""
         table.set_position(_hudT, _hudPosC)
         _hdBg  = color.new(#1E1B4B, 0)
