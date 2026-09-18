@@ -86,6 +86,13 @@ len200 = input.int(200, "Length", minval = 20, group = g200)
 col200c = input.color(#000000, "Colour", group = g200)
 w200    = input.int(3, "Width", minval = 1, maxval = 6, group = g200)
 
+// ── MA identity tags — a small faint tag at each MA's price so you can tell which is
+//    which EVEN WHEN its line is toggled off. Keep the chart clean (just the 20 & 50
+//    lines on) and still read where the 5/150/200 sit from their tags. Lines unchanged.
+gMaTag  = "MA tags"
+enMaTag = input.bool(true, "Show a small MA tag (even when the line is off)", group = gMaTag, tooltip = "A faint tag at each MA's price naming it (5 / 20 / 50 / 150 / 200), in the MA's own colour, whether or not its line is drawn. So you can hide most lines for a clean chart and still know where every MA sits.")
+maTagSz = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gMaTag)
+
 // ── slope / angle (the same ruler judges all four MAs) ─────────────────────────
 gS      = "Slope / angle"
 slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS, tooltip = "Measure each MA's rise over this many bars — smooths single-bar noise so the angle isn't jumpy.")
@@ -508,6 +515,37 @@ plot(en150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
 plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
 plot(en20  ? ma    : na, "20 MA",   color = col20,  linewidth = w20)
 plot(en5   ? ma5   : na, "5 SMA",   color = col5,   linewidth = w5)
+
+// ── MA identity tags (small, faint, always — even when the line is off) ──────────
+_mtSz = maTagSz == "tiny" ? size.tiny : maTagSz == "normal" ? size.normal : size.small
+// The tag is INDEPENDENT of the line toggle — it shows whether or not the MA's line is
+// drawn, so you can hide the line for a clean chart and still see where the MA sits.
+f_matag(label lb, float v, string nm, color col) =>
+    label _b = lb
+    if enMaTag and not na(v)
+        if na(_b)
+            _b := label.new(bar_index + lvTagOff, v, nm, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = col, size = _mtSz)
+        else
+            label.set_xy(_b, bar_index + lvTagOff, v)
+            label.set_text(_b, nm)
+            label.set_textcolor(_b, col)
+            label.set_size(_b, _mtSz)
+    else
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    _b
+var label lbT5   = na
+var label lbT20  = na
+var label lbT50  = na
+var label lbT150 = na
+var label lbT200 = na
+if barstate.islast
+    lbT5   := f_matag(lbT5,   ma5,   "5",   col5)
+    lbT20  := f_matag(lbT20,  ma,    "20",  col20)
+    lbT50  := f_matag(lbT50,  ma50,  "50",  col50)
+    lbT150 := f_matag(lbT150, ma150, "150", col150)
+    lbT200 := f_matag(lbT200, ma200, "200", col200)
 // queryable (Data Window / data_get_study_values)
 plot(angle,    "20 angle (deg)",     display = display.data_window)
 plot(angle50,  "50 angle (deg)",     display = display.data_window)
