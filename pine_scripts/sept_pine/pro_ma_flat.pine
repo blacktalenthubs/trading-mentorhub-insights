@@ -4,7 +4,7 @@
 // Swing-Entry tag style: each MA is a horizontal line at its value with a role tag
 // that spells SUPPORT (price above it) / RESISTANCE (price below) AND carries the
 // scale-free slope DEGREE (~45° ideal), so a flat line still shows rising/falling.
-//   • Stack: 20/50/100/150/200 SMA + 8/21/50/100/200 EMA + 30W SMA.
+//   • Stack: 20/50/100/150/200 SMA + 30W SMA, plus the 8 EMA (the only EMA).
 //   • PROXIMITY-gated: a MA draws only when price is within N% of it, so far lines
 //     never clutter or stretch the axis.
 //   • Weekly BASE (K of the last M weekly lows at one price) + weekly/monthly levels
@@ -29,13 +29,9 @@ en100s = input.bool(false, "100 SMA", inline = "s1", group = gSma)
 en150s = input.bool(true, "150 SMA", inline = "s2", group = gSma)
 en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
 colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
-gEma   = "EMA stack"
-en8e   = input.bool(true,  "8 EMA",   inline = "e1", group = gEma)
-en21e  = input.bool(true,  "21 EMA",  inline = "e1", group = gEma)
-en50e  = input.bool(false, "50 EMA",  inline = "e2", group = gEma)
-en100e = input.bool(false, "100 EMA", inline = "e2", group = gEma)
-en200e = input.bool(false, "200 EMA", inline = "e3", group = gEma)
-colEMA = input.color(#7E57C2, "EMA line colour", group = gEma)
+gEma   = "8 EMA (the only EMA)"
+en8e   = input.bool(true,  "8 EMA",   group = gEma)
+colEMA = input.color(#7E57C2, "8 EMA colour", group = gEma)
 gW30   = "30-week SMA"
 en30w  = input.bool(true, "30W SMA (weekly-locked)", group = gW30)
 col30W = input.color(#00897B, "30W line colour", group = gW30)
@@ -96,10 +92,6 @@ f_pair(int _len, bool _ema) =>
 [v150s, v150sL] = request.security(syminfo.tickerid, maTf, f_pair(150, false), lookahead = barmerge.lookahead_on)
 [v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
 [v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
-[v21e,  v21eL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  true),  lookahead = barmerge.lookahead_on)
-[v50e,  v50eL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  true),  lookahead = barmerge.lookahead_on)
-[v100e, v100eL] = request.security(syminfo.tickerid, maTf, f_pair(100, true),  lookahead = barmerge.lookahead_on)
-[v200e, v200eL] = request.security(syminfo.tickerid, maTf, f_pair(200, true),  lookahead = barmerge.lookahead_on)
 [v30w,  v30wL]  = request.security(syminfo.tickerid, "W",  f_pair(30,  false), lookahead = barmerge.lookahead_on)
 atr = request.security(syminfo.tickerid, maTf, ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
 
@@ -170,10 +162,6 @@ if barstate.islast
     f_flat(en150s, v150s, "150 SMA", f_ang(v150s, v150sL), colSMA, proxPct, true)
     f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true)
     f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true)
-    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct, true)
-    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct, true)
-    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct, true)
-    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct, true)
     f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct, true)
     // meta for nearest R/S (all enabled, ungated)
     f_meta(en20s,  v20s,  "20 SMA")
@@ -182,10 +170,6 @@ if barstate.islast
     f_meta(en150s, v150s, "150 SMA")
     f_meta(en200s, v200s, "200 SMA")
     f_meta(en8e,   v8e,   "8 EMA")
-    f_meta(en21e,  v21e,  "21 EMA")
-    f_meta(en50e,  v50e,  "50 EMA")
-    f_meta(en100e, v100e, "100 EMA")
-    f_meta(en200e, v200e, "200 EMA")
     f_meta(en30w,  v30w,  "30W SMA")
     // weekly / monthly levels (flat, proximity-gated; no identity tag when disabled)
     f_flat(enWk, pwh, "PWH", na, resCol, lvProx, false)
