@@ -23,9 +23,11 @@ maTf     = lockOn ? maTfPick : timeframe.period
 
 // ── the stack (toggle each) ──────────────────────────────────────────────────────
 gSma   = "SMA stack"
-en21s  = input.bool(true, "21 SMA",  inline = "s1", group = gSma)
+en20s  = input.bool(true, "20 SMA",  inline = "s0", group = gSma)
+en21s  = input.bool(false, "21 SMA", inline = "s0", group = gSma)
 en50s  = input.bool(true, "50 SMA",  inline = "s1", group = gSma)
-en100s = input.bool(true, "100 SMA", inline = "s2", group = gSma)
+en100s = input.bool(false, "100 SMA", inline = "s1", group = gSma)
+en150s = input.bool(true, "150 SMA", inline = "s2", group = gSma)
 en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
 colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
 gEma   = "EMA stack"
@@ -50,7 +52,8 @@ idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, g
 
 // ── flat rendering ──────────────────────────────────────────────────────────────
 gDraw   = "Flat lines"
-proxPct = input.float(8.0, "Only draw a MA within N% of price (proximity)", minval = 0, maxval = 50, step = 0.5, group = gDraw, tooltip = "A MA draws only when price is within this % of it — far lines stay hidden so the chart isn't cluttered. 0 = draw all enabled.")
+proxPct = input.float(8.0, "Only draw a MA within N% of price (proximity)", minval = 0, maxval = 50, step = 0.5, group = gDraw, tooltip = "A MA draws only when price is within this % of it — far lines stay hidden so the chart isn't cluttered. 0 = draw all enabled. The 20 & 50 SMA ALWAYS draw (bypass this gate).")
+enMaTag = input.bool(true, "Show a small tag for a MA you didn't enable (when near)", group = gDraw, tooltip = "For a MA whose line is OFF, show just a small identity tag at its price when price is within the proximity % — so you know where it sits without drawing the full flat line. The 20 & 50 always draw as full lines.")
 lineLen = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
 tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
 lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
@@ -88,9 +91,11 @@ rsiConsiderHi = input.float(33, "Consider-a-position band top (RSI reclaiming, r
 f_pair(int _len, bool _ema) =>
     _m = _ema ? ta.ema(close, _len) : ta.sma(close, _len)
     [_m[1], _m[1 + slopeLb]]
+[v20s,  v20sL]  = request.security(syminfo.tickerid, maTf, f_pair(20,  false), lookahead = barmerge.lookahead_on)
 [v21s,  v21sL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  false), lookahead = barmerge.lookahead_on)
 [v50s,  v50sL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  false), lookahead = barmerge.lookahead_on)
 [v100s, v100sL] = request.security(syminfo.tickerid, maTf, f_pair(100, false), lookahead = barmerge.lookahead_on)
+[v150s, v150sL] = request.security(syminfo.tickerid, maTf, f_pair(150, false), lookahead = barmerge.lookahead_on)
 [v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
 [v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
 [v21e,  v21eL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  true),  lookahead = barmerge.lookahead_on)
@@ -117,14 +122,21 @@ var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
 _tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
-f_flat(bool en, float v, string nm, float ang, color col, float prox) =>
+// en = line ON → full flat line + role/degree tag. en OFF → a small identity tag only
+// (when near + enMaTag). `prox` 0 = always draw (used for the 20 & 50). Non-MA levels
+// pass en = true so they always draw their line+tag when near.
+f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTag) =>
     _near = prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
-    if en and not na(v) and v > 0 and _near
-        _sup  = close >= v
-        _tint = _sup ? supCol : resCol
-        _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
-        array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
-        array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+    if not na(v) and v > 0 and _near
+        if en
+            _sup  = close >= v
+            _tint = _sup ? supCol : resCol
+            _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
+            array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
+            array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+        else if canTag and enMaTag
+            // MA line OFF → small identity tag (name only, MA colour, no line)
+            array.push(_lb, label.new(bar_index + tagOff, v, nm, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = col, size = size.small))
 
 // ── nearest support / resistance across every enabled MA (not proximity-gated) ───
 var float[] _mv = array.new_float()
@@ -151,21 +163,26 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_mv)
     array.clear(_mn)
-    // draw the stack (flat, proximity-gated, role + degree tags)
-    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, proxPct)
-    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, proxPct)
-    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct)
-    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct)
-    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct)
-    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct)
-    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct)
-    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct)
-    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct)
-    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct)
+    // draw the stack (role + degree tags). 20 & 50 ALWAYS draw (prox 0); the rest are
+    // proximity-gated — so anything below the 50 that price has run above gets hidden.
+    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true)
+    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0,     true)
+    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, proxPct, true)
+    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct, true)
+    f_flat(en150s, v150s, "150 SMA", f_ang(v150s, v150sL), colSMA, proxPct, true)
+    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true)
+    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true)
+    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct, true)
+    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct, true)
+    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct, true)
+    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct, true)
+    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct, true)
     // meta for nearest R/S (all enabled, ungated)
+    f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en21s,  v21s,  "21 SMA")
     f_meta(en50s,  v50s,  "50 SMA")
     f_meta(en100s, v100s, "100 SMA")
+    f_meta(en150s, v150s, "150 SMA")
     f_meta(en200s, v200s, "200 SMA")
     f_meta(en8e,   v8e,   "8 EMA")
     f_meta(en21e,  v21e,  "21 EMA")
@@ -173,11 +190,11 @@ if barstate.islast
     f_meta(en100e, v100e, "100 EMA")
     f_meta(en200e, v200e, "200 EMA")
     f_meta(en30w,  v30w,  "30W SMA")
-    // weekly / monthly levels (flat, proximity-gated)
-    f_flat(enWk, pwh, "PWH", na, resCol, lvProx)
-    f_flat(enWk, pwl, "PWL", na, supCol, lvProx)
-    f_flat(enMo, pmh, "PMH", na, resCol, lvProx)
-    f_flat(enMo, pml, "PML", na, supCol, lvProx)
+    // weekly / monthly levels (flat, proximity-gated; no identity tag when disabled)
+    f_flat(enWk, pwh, "PWH", na, resCol, lvProx, false)
+    f_flat(enWk, pwl, "PWL", na, supCol, lvProx, false)
+    f_flat(enMo, pmh, "PMH", na, resCol, lvProx, false)
+    f_flat(enMo, pml, "PML", na, supCol, lvProx, false)
     // weekly base — K of the last M weekly lows clustered at one price
     if enBase
         _wLows = array.new_float()
