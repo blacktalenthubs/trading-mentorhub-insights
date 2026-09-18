@@ -244,9 +244,8 @@ if barstate.islast
     f_flat(enWk, pwl, "PWL", na, supCol, lvProx, false)
     f_flat(enMo, pmh, "PMH", na, resCol, lvProx, false)
     f_flat(enMo, pml, "PML", na, supCol, lvProx, false)
-    // all collected → cluster confluent levels into one line + one combined tag
-    f_drawConfluence()
-    // weekly base — K of the last M weekly lows clustered at one price
+    // weekly base — K of the last M weekly lows clustered at one price. COLLECTED into
+    // the confluence pool (below) so it merges with a nearby MA/level (e.g. BASE + 50 SMA).
     if enBase
         _wLows = array.new_float()
         _wAll  = array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12)
@@ -278,8 +277,12 @@ if barstate.islast
                     _bmin := math.min(_bmin, _lj)
             _bNear = baseProx <= 0 or (_bmin > 0 and math.abs(close - _bmin) / close * 100.0 <= baseProx)
             if _bNear
-                array.push(_ln, line.new(bar_index - lineLen, _bmin, bar_index + tagOff, _bmin, xloc = xloc.bar_index, color = supCol, width = wLine + 1, style = _lvlStyle))
-                array.push(_lb, label.new(bar_index + tagOff, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " · " + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_wLows)) + "w", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(supCol, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+                array.push(_cV, _bmin)
+                array.push(_cN, "BASE·" + str.tostring(_bCnt) + "x")
+                array.push(_cA, na)
+                array.push(_cC, supCol)
+    // all collected (MAs + levels + base) → cluster confluent ones into one line + tag
+    f_drawConfluence()
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 _hudPosC = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
