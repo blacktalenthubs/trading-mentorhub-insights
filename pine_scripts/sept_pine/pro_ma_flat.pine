@@ -345,21 +345,23 @@ if barstate.islast
             _cell(0, _r, "", color.new(color.gray, 100), color.new(color.white, 0), false)
             _cell(1, _r, "", color.new(color.gray, 100), color.new(color.white, 0), true)
 
-// ═══ RECENT GAP ZONE (S/R) — FAINT — proximity-gated ═════════════════════════════
-// The gap window = prior close → the gap-day OPEN (its high & low edges). A gap UP
-// leaves that zone below as SUPPORT; a gap DOWN leaves it overhead as RESISTANCE.
-// Drawn as a very FAINT shaded box (no text) so it never over-colours the chart, and
-// only when price is within gapProx% of it. Chart-timeframe (daily gaps on a daily chart).
-gGap    = "Recent gap zone"
-enGap   = input.bool(true, "Show recent gap zone (S/R)", group = gGap)
-gapThr  = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart. Draws the gap window — prior close to the gap-day open (its high & low edges).")
-gapProx = input.float(15.0, "Only draw when price is within N% of the gap", minval = 0, maxval = 100, step = 1, group = gGap, tooltip = "Hide the gap zone when price has run far from it (a far gap only compresses the axis). 0 = always. Measured from the gap edge nearest price.")
+// ═══ GAP & GO ZONE — opens ENTIRELY beyond the prior day's range ═════════════════
+// GAP & GO = the bar opens completely ABOVE the prior high (PDH) — the whole opening
+// is above resistance. The gap window (PDH → open) is left below as SUPPORT (G&G ↑).
+// GAP DOWN & GO = opens completely BELOW the prior low (PDL); the window (open → PDL)
+// is overhead RESISTANCE (G&G ↓). Faint box + tag, proximity-gated, dropped once filled
+// (price closes back into the prior range). Chart-timeframe (daily on a daily chart).
+gGap    = "Gap & go zone"
+enGap   = input.bool(true, "Show the gap & go zone (opens beyond PDH/PDL)", group = gGap)
+gapProx = input.float(15.0, "Only draw when price is within N% of the gap", minval = 0, maxval = 100, step = 1, group = gGap, tooltip = "Hide the zone when price has run far from it (a far gap only compresses the axis). 0 = always. Measured from the gap edge nearest price.")
 gapTransp = input.int(90, "Gap box faintness (0 = solid, 100 = invisible)", minval = 60, maxval = 100, group = gGap, tooltip = "How faint the shaded gap box is — high by default so it never over-colours the chart.")
-hideFilled = input.bool(true, "Hide a gap once it's filled", group = gGap, tooltip = "A gap is an imbalance; once price trades all the way back through it (a gap-up support closes below its low, a gap-down resistance closes above its high) it's FILLED and largely spent as fresh S/R. ON = drop it once filled. OFF = keep showing it.")
+hideFilled = input.bool(true, "Hide once filled (price re-enters the prior range)", group = gGap, tooltip = "The gap is filled once price closes back INTO the prior day's range — a G&G ↑ closes below the PDH, a G&G ↓ closes above the PDL. ON = drop it once filled. OFF = keep showing it.")
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
 
-_gp = not na(close[1]) and close[1] != 0 ? (open - close[1]) / close[1] * 100.0 : na
+// gap & go = open beyond the PRIOR bar's high/low (PDH/PDL on a daily chart)
+_pdh = high[1]
+_pdl = low[1]
 var float gUpHi = na
 var float gUpLo = na
 var int   gUpBar = na
@@ -368,17 +370,17 @@ var float gDnHi = na
 var float gDnLo = na
 var int   gDnBar = na
 var bool  gDnFilled = false
-if not na(_gp) and _gp >= gapThr
-    gUpHi  := open
-    gUpLo  := close[1]
+if not na(_pdh) and open > _pdh
+    gUpHi  := open       // top of the gap window = the open
+    gUpLo  := _pdh       // bottom = the prior high (the fill line)
     gUpBar := bar_index
     gUpFilled := false
-if not na(_gp) and _gp <= -gapThr
-    gDnHi  := close[1]
-    gDnLo  := open
+if not na(_pdl) and open < _pdl
+    gDnHi  := _pdl       // top = the prior low (the fill line)
+    gDnLo  := open       // bottom = the open
     gDnBar := bar_index
     gDnFilled := false
-// filled = price closed back through the whole gap window (imbalance closed)
+// filled = price closed back INTO the prior range (below the PDH / above the PDL)
 if not na(gUpLo) and close < gUpLo
     gUpFilled := true
 if not na(gDnHi) and close > gDnHi
