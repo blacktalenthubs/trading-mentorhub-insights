@@ -4,7 +4,7 @@
 // Swing-Entry tag style: each MA is a horizontal line at its value with a role tag
 // that spells SUPPORT (price above it) / RESISTANCE (price below) AND carries the
 // scale-free slope DEGREE (~45° ideal), so a flat line still shows rising/falling.
-//   • Stack: 20/50/100/150/200 SMA + 30W SMA, plus the 8 EMA (the only EMA).
+//   • Stack: 20/50/100/200 SMA + 30W SMA (≈ 150-day), plus the 8 EMA (the only EMA).
 //   • PROXIMITY-gated: a MA draws only when price is within N% of it, so far lines
 //     never clutter or stretch the axis.
 //   • Weekly BASE (K of the last M weekly lows at one price) + weekly/monthly levels
@@ -26,7 +26,6 @@ gSma   = "SMA stack"
 en20s  = input.bool(true, "20 SMA",  inline = "s0", group = gSma)
 en50s  = input.bool(true, "50 SMA",  inline = "s1", group = gSma)
 en100s = input.bool(false, "100 SMA", inline = "s1", group = gSma)
-en150s = input.bool(true, "150 SMA", inline = "s2", group = gSma)
 en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
 colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
 gEma   = "8 EMA (the only EMA)"
@@ -89,7 +88,6 @@ f_pair(int _len, bool _ema) =>
 [v20s,  v20sL]  = request.security(syminfo.tickerid, maTf, f_pair(20,  false), lookahead = barmerge.lookahead_on)
 [v50s,  v50sL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  false), lookahead = barmerge.lookahead_on)
 [v100s, v100sL] = request.security(syminfo.tickerid, maTf, f_pair(100, false), lookahead = barmerge.lookahead_on)
-[v150s, v150sL] = request.security(syminfo.tickerid, maTf, f_pair(150, false), lookahead = barmerge.lookahead_on)
 [v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
 [v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
 [v30w,  v30wL]  = request.security(syminfo.tickerid, "W",  f_pair(30,  false), lookahead = barmerge.lookahead_on)
@@ -163,7 +161,6 @@ if barstate.islast
     f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true)
     f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0,     true)
     f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct, true)
-    f_flat(en150s, v150s, "150 SMA", f_ang(v150s, v150sL), colSMA, proxPct, true)
     f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true)
     f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true)
     f_flat(en30w,  v30w,  "30W SMA", f_angN(v30w, v30wL, atrW), col30W, proxPct, true)
@@ -171,7 +168,6 @@ if barstate.islast
     f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en50s,  v50s,  "50 SMA")
     f_meta(en100s, v100s, "100 SMA")
-    f_meta(en150s, v150s, "150 SMA")
     f_meta(en200s, v200s, "200 SMA")
     f_meta(en8e,   v8e,   "8 EMA")
     f_meta(en30w,  v30w,  "30W SMA")
