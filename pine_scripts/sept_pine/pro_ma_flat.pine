@@ -385,30 +385,41 @@ if not na(gDnHi) and close > gDnHi
     gDnFilled := true
 
 f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
-var box gUpBx = na
-var box gDnBx = na
+var box   gUpBx = na
+var label gUpLb = na
+var box   gDnBx = na
+var label gDnLb = na
 if barstate.islast
+    // an UNFILLED gap = the "and go" held → tag it G&G ↑ (up) / G&G ↓ (down)
     if enGap and not na(gUpHi) and (not hideFilled or not gUpFilled) and f_gapNear(gUpHi)
         _ux2   = bar_index + tagOff
         _uLeft = math.max(gUpBar, bar_index - 9000)
         if na(gUpBx)
             gUpBx := box.new(_uLeft, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, gapTransp))
+            gUpLb := label.new(_ux2, gUpHi, "G&G ↑", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapS, 0), textcolor = color.new(color.white, 0), size = _tagSz)
         else
             box.set_lefttop(gUpBx, _uLeft, gUpHi)
             box.set_rightbottom(gUpBx, _ux2, gUpLo)
             box.set_bgcolor(gUpBx, color.new(colGapS, gapTransp))
+            label.set_xy(gUpLb, _ux2, gUpHi)
     else if not na(gUpBx)
         box.delete(gUpBx)
+        label.delete(gUpLb)
         gUpBx := na
+        gUpLb := na
     if enGap and not na(gDnHi) and (not hideFilled or not gDnFilled) and f_gapNear(gDnLo)
         _dx2   = bar_index + tagOff
         _dLeft = math.max(gDnBar, bar_index - 9000)
         if na(gDnBx)
             gDnBx := box.new(_dLeft, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, gapTransp))
+            gDnLb := label.new(_dx2, gDnLo, "G&G ↓", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapR, 0), textcolor = color.new(color.white, 0), size = _tagSz)
         else
             box.set_lefttop(gDnBx, _dLeft, gDnHi)
             box.set_rightbottom(gDnBx, _dx2, gDnLo)
             box.set_bgcolor(gDnBx, color.new(colGapR, gapTransp))
+            label.set_xy(gDnLb, _dx2, gDnLo)
     else if not na(gDnBx)
         box.delete(gDnBx)
+        label.delete(gDnLb)
         gDnBx := na
+        gDnLb := na
