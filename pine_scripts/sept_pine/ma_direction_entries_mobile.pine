@@ -92,6 +92,8 @@ w200    = input.int(3, "Width", minval = 1, maxval = 6, group = g200)
 gMaTag  = "MA tags"
 enMaTag = input.bool(true, "Show a small MA tag (even when the line is off)", group = gMaTag, tooltip = "A faint tag at each MA's price naming it (5 / 20 / 50 / 150 / 200), in the MA's own colour, whether or not its line is drawn. So you can hide most lines for a clean chart and still know where every MA sits.")
 maTagSz = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gMaTag)
+enFaint = input.bool(true, "Faint line for a MA when its full line is off", group = gMaTag, tooltip = "When a MA's 'Show' toggle is OFF, draw a FAINT version of its line instead of nothing — so you keep the clean chart (only the MAs you turned on are bold) but still see the curve of the others. Adjust the faintness below. Turn this off to leave OFF MAs as tag-only (no line).")
+faintTransp = input.int(75, "Faint line transparency (0 = solid, 100 = invisible)", minval = 0, maxval = 100, group = gMaTag)
 
 // ── slope / angle (the same ruler judges all four MAs) ─────────────────────────
 gS      = "Slope / angle"
@@ -510,11 +512,18 @@ alertcondition(mrvOk and not mrvOk[1], "Minervini qualified", "{{ticker}} — Mi
 alertcondition(ttCount == 8 and ttCount[1] < 8, "Trend Template: newly qualified", "{{ticker}} now passes all 8 Trend Template rules")
 
 // ── plots — each line gated ONLY on its own Show toggle ────────────────────────
+// full-strength line when the MA is ON
 plot(en200 ? ma200 : na, "200 SMA", color = col200, linewidth = w200)
 plot(en150 ? ma150 : na, "150 SMA", color = col150, linewidth = w150)
 plot(en50  ? ma50  : na, "50 SMA",  color = col50,  linewidth = w50)
 plot(en20  ? ma    : na, "20 MA",   color = col20,  linewidth = w20)
 plot(en5   ? ma5   : na, "5 SMA",   color = col5,   linewidth = w5)
+// FAINT line when the MA is OFF (adjustable transparency) — see the curve without clutter
+plot((not en200 and enFaint) ? ma200 : na, "200 faint", color = color.new(col200, faintTransp), linewidth = 1)
+plot((not en150 and enFaint) ? ma150 : na, "150 faint", color = color.new(col150, faintTransp), linewidth = 1)
+plot((not en50  and enFaint) ? ma50  : na, "50 faint",  color = color.new(col50,  faintTransp), linewidth = 1)
+plot((not en20  and enFaint) ? ma    : na, "20 faint",  color = color.new(col20,  faintTransp), linewidth = 1)
+plot((not en5   and enFaint) ? ma5   : na, "5 faint",   color = color.new(col5,   faintTransp), linewidth = 1)
 
 // ── MA identity tags (small, faint, always — even when the line is off) ──────────
 _mtSz = maTagSz == "tiny" ? size.tiny : maTagSz == "normal" ? size.normal : size.small
