@@ -118,7 +118,7 @@ var float[]  _cV = array.new_float()
 var string[] _cN = array.new_string()
 var float[]  _cA = array.new_float()
 var color[]  _cC = array.new_color()
-confPct = input.float(0.4, "Confluence — merge levels within N% into one tag", minval = 0, maxval = 5, step = 0.05, group = gDraw, tooltip = "Levels stacked within this % of each other merge into ONE line + one combined tag naming every member (e.g. '20 SMA + PWH ·×2 · SUPPORT'), so overlapping tags never collide. 0 = no merging.")
+confPct = input.float(0.5, "Confluence — merge levels within N% into one tag", minval = 0, maxval = 5, step = 0.05, group = gDraw, tooltip = "Levels stacked within this % of each other merge into ONE line + one combined tag naming every member (e.g. '20 SMA + 8 EMA ·×2 · SUPPORT'), so overlapping tags never collide. Raise it to merge wider clusters, lower for stricter. 0 = no merging.")
 _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
 _tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
 // en = line ON → COLLECT for the confluence pass. en OFF → a small identity tag now.
