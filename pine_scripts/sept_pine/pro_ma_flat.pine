@@ -340,3 +340,61 @@ if barstate.islast
         for _r = 0 to 5
             _cell(0, _r, "", color.new(color.gray, 100), color.new(color.white, 0), false)
             _cell(1, _r, "", color.new(color.gray, 100), color.new(color.white, 0), true)
+
+// ═══ RECENT GAP ZONE (S/R) — FAINT — proximity-gated ═════════════════════════════
+// The gap window = prior close → the gap-day OPEN (its high & low edges). A gap UP
+// leaves that zone below as SUPPORT; a gap DOWN leaves it overhead as RESISTANCE.
+// Drawn as a very FAINT shaded box (no text) so it never over-colours the chart, and
+// only when price is within gapProx% of it. Chart-timeframe (daily gaps on a daily chart).
+gGap    = "Recent gap zone"
+enGap   = input.bool(true, "Show recent gap zone (S/R)", group = gGap)
+gapThr  = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart. Draws the gap window — prior close to the gap-day open (its high & low edges).")
+gapProx = input.float(15.0, "Only draw when price is within N% of the gap", minval = 0, maxval = 100, step = 1, group = gGap, tooltip = "Hide the gap zone when price has run far from it (a far gap only compresses the axis). 0 = always. Measured from the gap edge nearest price.")
+gapTransp = input.int(90, "Gap box faintness (0 = solid, 100 = invisible)", minval = 60, maxval = 100, group = gGap, tooltip = "How faint the shaded gap box is — high by default so it never over-colours the chart.")
+colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
+colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
+
+_gp = not na(close[1]) and close[1] != 0 ? (open - close[1]) / close[1] * 100.0 : na
+var float gUpHi = na
+var float gUpLo = na
+var int   gUpBar = na
+var float gDnHi = na
+var float gDnLo = na
+var int   gDnBar = na
+if not na(_gp) and _gp >= gapThr
+    gUpHi  := open
+    gUpLo  := close[1]
+    gUpBar := bar_index
+if not na(_gp) and _gp <= -gapThr
+    gDnHi  := close[1]
+    gDnLo  := open
+    gDnBar := bar_index
+
+f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
+var box gUpBx = na
+var box gDnBx = na
+if barstate.islast
+    if enGap and not na(gUpHi) and f_gapNear(gUpHi)
+        _ux2   = bar_index + tagOff
+        _uLeft = math.max(gUpBar, bar_index - 9000)
+        if na(gUpBx)
+            gUpBx := box.new(_uLeft, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, gapTransp))
+        else
+            box.set_lefttop(gUpBx, _uLeft, gUpHi)
+            box.set_rightbottom(gUpBx, _ux2, gUpLo)
+            box.set_bgcolor(gUpBx, color.new(colGapS, gapTransp))
+    else if not na(gUpBx)
+        box.delete(gUpBx)
+        gUpBx := na
+    if enGap and not na(gDnHi) and f_gapNear(gDnLo)
+        _dx2   = bar_index + tagOff
+        _dLeft = math.max(gDnBar, bar_index - 9000)
+        if na(gDnBx)
+            gDnBx := box.new(_dLeft, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, gapTransp))
+        else
+            box.set_lefttop(gDnBx, _dLeft, gDnHi)
+            box.set_rightbottom(gDnBx, _dx2, gDnLo)
+            box.set_bgcolor(gDnBx, color.new(colGapR, gapTransp))
+    else if not na(gDnBx)
+        box.delete(gDnBx)
+        gDnBx := na
