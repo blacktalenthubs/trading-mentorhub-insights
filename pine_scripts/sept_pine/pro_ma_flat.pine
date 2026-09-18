@@ -127,9 +127,10 @@ f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTa
             array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
             array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
         else if canTag and enMaTag
-            // MA line OFF → identity tag: the number + price (20 764.35), MA colour, no
-            // line. Sized by the Tag-size setting so it's easy to read.
-            array.push(_lb, label.new(bar_index + tagOff, v, array.get(str.split(nm, " "), 0) + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = col, size = _tagSz))
+            // MA line OFF → identity tag: the compact NAME + price ("8ema 720.50",
+            // "20sma 764.35"), MA colour, no line. Sized by the Tag-size setting.
+            _short = str.lower(str.replace_all(nm, " ", ""))
+            array.push(_lb, label.new(bar_index + tagOff, v, _short + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = col, size = _tagSz))
 
 // ── nearest support / resistance across every enabled MA (not proximity-gated) ───
 var float[] _mv = array.new_float()
