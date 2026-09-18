@@ -93,9 +93,13 @@ f_pair(int _len, bool _ema) =>
 [v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
 [v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
 [v30w,  v30wL]  = request.security(syminfo.tickerid, "W",  f_pair(30,  false), lookahead = barmerge.lookahead_on)
-atr = request.security(syminfo.tickerid, maTf, ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
+atr  = request.security(syminfo.tickerid, maTf, ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
+atrW = request.security(syminfo.tickerid, "W",  ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
 
-f_ang(_v, _vL) => na(atr) or atr == 0 or na(_v) or na(_vL) ? na : math.todegrees(math.atan(((_v - _vL) / slopeLb) / (atr * scale45)))
+// angle vs a chosen ATR normaliser — the 30W is a WEEKLY MA so it must use the WEEKLY
+// ATR, else a weekly rise measured against a daily ATR reads absurdly steep.
+f_angN(_v, _vL, _atr) => na(_atr) or _atr == 0 or na(_v) or na(_vL) ? na : math.todegrees(math.atan(((_v - _vL) / slopeLb) / (_atr * scale45)))
+f_ang(_v, _vL) => f_angN(_v, _vL, atr)
 f_slopeTxt(_a) =>
     _aa = math.abs(_a)
     _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
@@ -162,7 +166,7 @@ if barstate.islast
     f_flat(en150s, v150s, "150 SMA", f_ang(v150s, v150sL), colSMA, proxPct, true)
     f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true)
     f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true)
-    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct, true)
+    f_flat(en30w,  v30w,  "30W SMA", f_angN(v30w, v30wL, atrW), col30W, proxPct, true)
     // meta for nearest R/S (all enabled, ungated)
     f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en50s,  v50s,  "50 SMA")
