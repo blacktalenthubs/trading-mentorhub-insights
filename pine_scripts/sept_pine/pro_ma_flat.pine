@@ -112,25 +112,72 @@ st21 = request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1], lookahead 
 // ── flat line pool (rebuilt each last bar — handles a variable number of lines) ──
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
+// CONFLUENCE collection — enabled+near line items are COLLECTED here, then clustered
+// and drawn so several levels within confPct merge into ONE line + one combined tag.
+var float[]  _cV = array.new_float()
+var string[] _cN = array.new_string()
+var float[]  _cA = array.new_float()
+var color[]  _cC = array.new_color()
+confPct = input.float(0.4, "Confluence — merge levels within N% into one tag", minval = 0, maxval = 5, step = 0.05, group = gDraw, tooltip = "Levels stacked within this % of each other merge into ONE line + one combined tag naming every member (e.g. '20 SMA + PWH ·×2 · SUPPORT'), so overlapping tags never collide. 0 = no merging.")
 _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
 _tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
-// en = line ON → full flat line + role/degree tag. en OFF → a small identity tag only
-// (when near + enMaTag). `prox` 0 = always draw (used for the 20 & 50). Non-MA levels
-// pass en = true so they always draw their line+tag when near.
+// en = line ON → COLLECT for the confluence pass. en OFF → a small identity tag now.
+// `prox` 0 = always draw (used for the 20 & 50). Non-MA levels pass en = true.
 f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTag) =>
     _near = prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
     if not na(v) and v > 0 and _near
         if en
-            _sup  = close >= v
-            _tint = _sup ? supCol : resCol
-            _txt  = nm + " " + str.tostring(v, format.mintick) + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
-            array.push(_ln, line.new(bar_index - lineLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
-            array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+            array.push(_cV, v)
+            array.push(_cN, nm)
+            array.push(_cA, na(ang) ? na : ang)
+            array.push(_cC, col)
         else if canTag and enMaTag
-            // MA line OFF → identity tag: the compact NAME + price ("8ema 720.50",
-            // "20sma 764.35"), MA colour, no line. Sized by the Tag-size setting.
+            // MA line OFF → identity tag: the compact NAME + price ("8ema 720.50"),
+            // MA colour, no line. Sized by the Tag-size setting.
             _short = str.lower(str.replace_all(nm, " ", ""))
             array.push(_lb, label.new(bar_index + tagOff, v, _short + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = col, size = _tagSz))
+
+// draw the collected items, MERGING any within confPct into one line + combined tag.
+f_drawConfluence() =>
+    _n = array.size(_cV)
+    if _n > 0
+        // sort an index array by value (insertion sort — n is small)
+        _idx = array.new_int(0)
+        for _i = 0 to _n - 1
+            array.push(_idx, _i)
+        for _a = 1 to _n - 1
+            _ia = array.get(_idx, _a)
+            _va = array.get(_cV, _ia)
+            _b = _a - 1
+            while _b >= 0 and array.get(_cV, array.get(_idx, _b)) > _va
+                array.set(_idx, _b + 1, array.get(_idx, _b))
+                _b := _b - 1
+            array.set(_idx, _b + 1, _ia)
+        // walk the sorted list, grouping adjacent items within confPct
+        _k = 0
+        while _k < _n
+            _bi = array.get(_idx, _k)
+            _bv = array.get(_cV, _bi)
+            _sum = 0.0
+            _names = ""
+            _cnt = 0
+            _k2 = _k
+            while _k2 < _n and (confPct <= 0 ? _k2 == _k : math.abs(array.get(_cV, array.get(_idx, _k2)) - _bv) / _bv * 100.0 <= confPct)
+                _mi = array.get(_idx, _k2)
+                _sum := _sum + array.get(_cV, _mi)
+                _names := _names + (_names == "" ? "" : " + ") + array.get(_cN, _mi)
+                _cnt := _cnt + 1
+                _k2 := _k2 + 1
+            _cv   = _sum / _cnt
+            _sup  = close >= _cv
+            _tint = _sup ? supCol : resCol
+            _col  = array.get(_cC, _bi)
+            _ang  = _cnt == 1 ? array.get(_cA, _bi) : na
+            _head = _cnt == 1 ? _names + " " + str.tostring(_cv, format.mintick) : _names + " ·×" + str.tostring(_cnt) + " " + str.tostring(_cv, format.mintick)
+            _txt  = _head + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(_ang) ? "" : " · " + f_slopeTxt(_ang))
+            array.push(_ln, line.new(bar_index - lineLen, _cv, bar_index + tagOff, _cv, xloc = xloc.bar_index, color = _col, width = wLine + (_cnt > 1 ? 1 : 0), style = _lvlStyle))
+            array.push(_lb, label.new(bar_index + tagOff, _cv, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+            _k := _k2
 
 // ── nearest support / resistance across every enabled MA (not proximity-gated) ───
 var float[] _mv = array.new_float()
@@ -157,6 +204,10 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_mv)
     array.clear(_mn)
+    array.clear(_cV)
+    array.clear(_cN)
+    array.clear(_cA)
+    array.clear(_cC)
     // draw the stack (role + degree tags). 20 & 50 ALWAYS draw (prox 0); the rest are
     // proximity-gated — so anything below the 50 that price has run above gets hidden.
     f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true)
@@ -177,6 +228,8 @@ if barstate.islast
     f_flat(enWk, pwl, "PWL", na, supCol, lvProx, false)
     f_flat(enMo, pmh, "PMH", na, resCol, lvProx, false)
     f_flat(enMo, pml, "PML", na, supCol, lvProx, false)
+    // all collected → cluster confluent levels into one line + one combined tag
+    f_drawConfluence()
     // weekly base — K of the last M weekly lows clustered at one price
     if enBase
         _wLows = array.new_float()
