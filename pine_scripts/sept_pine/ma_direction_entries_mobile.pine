@@ -762,6 +762,7 @@ if barstate.islast
 gGap   = "Recent gap zone"
 enGap  = input.bool(true, "Show recent gap zone (S/R)", group = gGap)
 gapThr = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxval = 30, step = 0.5, group = gGap, tooltip = "Best on a DAILY chart. Draws the gap window — prior close to the gap-day open (its high & low edges).")
+gapProx = input.float(15.0, "Only draw when price is within N% of the gap", minval = 0, maxval = 100, step = 1, group = gGap, tooltip = "Hide the gap zone when price has run far from it — a far gap only compresses the chart's price scale and isn't in play. 0 = always draw. Measured from the gap edge nearest price.")
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
 
@@ -783,10 +784,14 @@ if not na(_gp) and _gp <= -gapThr
 
 // Gap zones are drawn as shaded BOXES only — no text label (the colour + position
 // already read as S/R; the tag just cluttered the chart).
+// proximity gate — draw a gap only when price is within gapProx% of its nearest edge
+// (far gaps just compress the axis). 0 = always. Gap-up support edge = its high; gap-
+// down resistance edge = its low.
+f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
 var box   gUpBx = na
 var box   gDnBx = na
 if barstate.islast
-    if enGap and not na(gUpHi)
+    if enGap and not na(gUpHi) and f_gapNear(gUpHi)
         _ux2 = bar_index + lvTagOff
         // clamp the left edge — TradingView caps bar_index-anchored boxes at ~10k bars
         // from the current bar; an old gap would otherwise overflow.
@@ -799,7 +804,7 @@ if barstate.islast
     else if not na(gUpBx)
         box.delete(gUpBx)
         gUpBx := na
-    if enGap and not na(gDnHi)
+    if enGap and not na(gDnHi) and f_gapNear(gDnLo)
         _dx2 = bar_index + lvTagOff
         _dLeft = math.max(gDnBar, bar_index - 9000)
         if na(gDnBx)
