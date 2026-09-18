@@ -44,6 +44,10 @@ gOpen  = "Open line & MA roles"
 enOpen = input.bool(true, "Show the open line + S/R context", group = gOpen, tooltip = "Draws the day's OPEN as a line. The label reads WHERE the open sits: 'between 20 & 50 SMA' (the two MAs bracketing it), or 'above all SMA · res PDH …' (nearest upside level when the open is above every MA), or 'below all SMA · sup PDL …'. Plus a bold green(S)/red(R) chip on each MA (open above = support, below = resistance), shown for all five MAs whether or not their lines are drawn.")
 colOpen = input.color(#B0BEC5, "Open colour", group = gOpen)
 wOpen   = input.int(1, "Open width", minval = 1, maxval = 4, group = gOpen)
+enWkOpen = input.bool(true, "Weekly open line",  inline = "wm", group = gOpen, tooltip = "Separate faint lines at the WEEKLY and MONTHLY open — the higher-timeframe reference: holding above the weekly/monthly open = the week/month is bullish from its open.")
+enMoOpen = input.bool(true, "Monthly open line", inline = "wm", group = gOpen)
+colWkOpen = input.color(#5C6BC0, "Weekly",  inline = "wmc", group = gOpen)
+colMoOpen = input.color(#8E24AA, "Monthly", inline = "wmc", group = gOpen)
 openSz  = input.string("normal", "Open + S/R chip size", options = ["small", "normal", "large"], group = gOpen, tooltip = "Sizes the 'Open' chip and (if shown) the green(S)/red(R) role chips.")
 enRoleChips = input.bool(false, "Show S/R chip at each MA (open-relative)", group = gOpen, tooltip = "OFF by default — the little green(S)/red(R) chip sitting at each MA's price clutters the chart and the MAs are already identifiable by colour. Turn ON only if you want the open-relative S/R chip on every MA.")
 
@@ -188,6 +192,10 @@ col200 = col200c
 //    line's little S/R tags, where price opened relative to ANY MA. Open above all = the
 //    closest MA below is the support entry. dayOpen = today's daily open (non-repainting).
 dayOpen = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_off)
+// weekly & monthly open — the current week's / month's opening print (live, updates
+// through the period), for a higher-timeframe open reference.
+wkOpen = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_off)
+moOpen = request.security(syminfo.tickerid, "M", open, lookahead = barmerge.lookahead_off)
 // prior levels — computed up here so the open-line context can name the nearest
 // upside (PDH/PWH/PMH) or downside (PDL/PWL/PML) level when the open is beyond all MAs.
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -582,6 +590,42 @@ if barstate.islast
         label.delete(lbOpen)
         lnOpen := na
         lbOpen := na
+
+// ── WEEKLY / MONTHLY OPEN — separate faint lines with a small tag ────────────────
+f_htfOpen(line ln, label lb, bool en, float v, string nm, color col) =>
+    line  _l = ln
+    label _b = lb
+    if en and not na(v)
+        _x2 = bar_index + lvTagOff
+        if na(_l)
+            _l := line.new(bar_index, v, _x2, v, xloc = xloc.bar_index, color = color.new(col, 25), width = wOpen, style = line.style_dashed, extend = extend.left)
+            _b := label.new(_x2, v, nm + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 0), textcolor = color.new(color.white, 0), size = _oSz)
+        else
+            line.set_xy1(_l, bar_index, v)
+            line.set_xy2(_l, _x2, v)
+            line.set_color(_l, color.new(col, 25))
+            label.set_xy(_b, _x2, v)
+            label.set_text(_b, nm + " " + str.tostring(v, format.mintick))
+            label.set_size(_b, _oSz)
+    else
+        if not na(_l)
+            line.delete(_l)
+            _l := na
+        if not na(_b)
+            label.delete(_b)
+            _b := na
+    [_l, _b]
+var line  lnWkO = na
+var label lbWkO = na
+var line  lnMoO = na
+var label lbMoO = na
+if barstate.islast
+    [_lwo, _bwo] = f_htfOpen(lnWkO, lbWkO, enWkOpen, wkOpen, "W Open", colWkOpen)
+    lnWkO := _lwo
+    lbWkO := _bwo
+    [_lmo, _bmo] = f_htfOpen(lnMoO, lbMoO, enMoOpen, moOpen, "M Open", colMoOpen)
+    lnMoO := _lmo
+    lbMoO := _bmo
 
 // bold S/R chip at each MA's price — solid green (S) / red (R) with white text
 f_roletag(label lb, float _m, string nm) =>
