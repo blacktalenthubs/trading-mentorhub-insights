@@ -369,17 +369,35 @@ hideFilled = input.bool(true, "Hide if the go fails intraday (price back into th
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
 
-// GAP & GO — a TODAY-ONLY signal: only when THIS bar's day opens beyond the prior
-// range (open > PDH = G&G ↑, open < PDL = G&G ↓). It's a same-day continuation trade,
-// so it shows only on the gap day and clears the next day. (Unfilled gaps as lingering
-// S/R live elsewhere — not duplicated here.) The band spans the gap window PDH→open /
-// open→PDL. Optionally hidden if the go FAILED intraday (closed back into the range).
-_pdh   = high[1]
-_pdl   = low[1]
-_gngUp = enGap and not na(_pdh) and open > _pdh
-_gngDn = enGap and not na(_pdl) and open < _pdl
-_upFail = _gngUp and close < _pdh   // opened above PDH but closed back below = failed
-_dnFail = _gngDn and close > _pdl
+// GAP zone = a bar opens BEYOND the prior range (open > PDH / open < PDL). The most
+// recent one PERSISTS as a faint S/R box until FILLED (price closes back into the range).
+// The "G&G ↑/↓" TEXT only shows on the DAY the gap formed (a same-day continuation
+// trade) — after that the box stays as an unfilled-gap S/R read with no text.
+_pdh = high[1]
+_pdl = low[1]
+var float gUpHi = na
+var float gUpLo = na
+var int   gUpBar = na
+var bool  gUpFilled = false
+var float gDnHi = na
+var float gDnLo = na
+var int   gDnBar = na
+var bool  gDnFilled = false
+if not na(_pdh) and open > _pdh
+    gUpHi := open
+    gUpLo := _pdh
+    gUpBar := bar_index
+    gUpFilled := false
+if not na(_pdl) and open < _pdl
+    gDnHi := _pdl
+    gDnLo := open
+    gDnBar := bar_index
+    gDnFilled := false
+// filled = price closed back INTO the prior range (below the PDH / above the PDL)
+if not na(gUpLo) and close < gUpLo
+    gUpFilled := true
+if not na(gDnHi) and close > gDnHi
+    gDnFilled := true
 
 f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
 var box   gUpBx = na
@@ -387,33 +405,41 @@ var label gUpLb = na
 var box   gDnBx = na
 var label gDnLb = na
 if barstate.islast
-    if _gngUp and (not hideFilled or not _upFail) and f_gapNear(_pdh)
-        _x1 = bar_index - lineLen
+    if enGap and not na(gUpHi) and (not hideFilled or not gUpFilled) and f_gapNear(gUpHi)
+        _uL = math.max(gUpBar, bar_index - 9000)
         _x2 = bar_index + tagOff
+        _txt = gUpBar == bar_index ? "G&G ↑" : ""   // text only on the day it formed
         if na(gUpBx)
-            gUpBx := box.new(_x1, open, _x2, _pdh, border_width = 0, bgcolor = color.new(colGapS, gapTransp))
-            gUpLb := label.new(_x2, open, "G&G ↑", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapS, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+            gUpBx := box.new(_uL, gUpHi, _x2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, gapTransp))
+            gUpLb := label.new(_x2, gUpHi, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapS, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
         else
-            box.set_lefttop(gUpBx, _x1, open)
-            box.set_rightbottom(gUpBx, _x2, _pdh)
+            box.set_lefttop(gUpBx, _uL, gUpHi)
+            box.set_rightbottom(gUpBx, _x2, gUpLo)
             box.set_bgcolor(gUpBx, color.new(colGapS, gapTransp))
-            label.set_xy(gUpLb, _x2, open)
+            label.set_xy(gUpLb, _x2, gUpHi)
+            label.set_text(gUpLb, _txt)
+            label.set_color(gUpLb, color.new(colGapS, _txt == "" ? 100 : 0))
+            label.set_textcolor(gUpLb, color.new(color.white, _txt == "" ? 100 : 0))
     else if not na(gUpBx)
         box.delete(gUpBx)
         label.delete(gUpLb)
         gUpBx := na
         gUpLb := na
-    if _gngDn and (not hideFilled or not _dnFail) and f_gapNear(_pdl)
-        _x1 = bar_index - lineLen
+    if enGap and not na(gDnHi) and (not hideFilled or not gDnFilled) and f_gapNear(gDnLo)
+        _dL = math.max(gDnBar, bar_index - 9000)
         _x2 = bar_index + tagOff
+        _txt = gDnBar == bar_index ? "G&G ↓" : ""
         if na(gDnBx)
-            gDnBx := box.new(_x1, _pdl, _x2, open, border_width = 0, bgcolor = color.new(colGapR, gapTransp))
-            gDnLb := label.new(_x2, open, "G&G ↓", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapR, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+            gDnBx := box.new(_dL, gDnHi, _x2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, gapTransp))
+            gDnLb := label.new(_x2, gDnLo, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapR, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
         else
-            box.set_lefttop(gDnBx, _x1, _pdl)
-            box.set_rightbottom(gDnBx, _x2, open)
+            box.set_lefttop(gDnBx, _dL, gDnHi)
+            box.set_rightbottom(gDnBx, _x2, gDnLo)
             box.set_bgcolor(gDnBx, color.new(colGapR, gapTransp))
-            label.set_xy(gDnLb, _x2, open)
+            label.set_xy(gDnLb, _x2, gDnLo)
+            label.set_text(gDnLb, _txt)
+            label.set_color(gDnLb, color.new(colGapR, _txt == "" ? 100 : 0))
+            label.set_textcolor(gDnLb, color.new(color.white, _txt == "" ? 100 : 0))
     else if not na(gDnBx)
         box.delete(gDnBx)
         label.delete(gDnLb)
