@@ -9,8 +9,10 @@ const COLS: { key: keyof OptionRow; label: string }[] = [
   { key: "type", label: "Type" },
   { key: "strike", label: "Strike" },
   { key: "mark", label: "Mark" },
-  { key: "delta", label: "Δ" },
-  { key: "theta", label: "Θ" },
+  { key: "delta", label: "Δ Delta" },
+  { key: "gamma", label: "Γ Gamma" },
+  { key: "theta", label: "Θ Theta" },
+  { key: "vega", label: "V Vega" },
   { key: "iv", label: "IV" },
   { key: "volume", label: "Vol" },
   { key: "open_interest", label: "OI" },
@@ -36,7 +38,7 @@ export function RobinhoodPanel() {
   const [sym, setSym] = useState("");
   const [exp, setExp] = useState("");
   const [otype, setOtype] = useState("both");
-  const [band, setBand] = useState(15);
+  const [near, setNear] = useState(10); // N nearest strikes each side of spot
   const chainMut = useOptionChain();
   const rows: OptionRow[] = chainMut.data?.rows ?? [];
 
@@ -130,15 +132,15 @@ export function RobinhoodPanel() {
             </select>
           </label>
           <label className="flex flex-col">
-            <span className={LABEL}>± % band</span>
+            <span className={LABEL}>Strikes ± (each side)</span>
             <input
-              type="number" min={0} max={100} step={5} value={band}
-              onChange={(e) => setBand(Number(e.target.value))}
+              type="number" min={1} max={50} step={1} value={near}
+              onChange={(e) => setNear(Math.max(1, Number(e.target.value)))}
               className={`${INPUT} w-20`}
             />
           </label>
           <button
-            onClick={() => chainMut.mutate({ symbol: sym, exp, type: otype, band })}
+            onClick={() => chainMut.mutate({ symbol: sym, exp, type: otype, near })}
             disabled={chainMut.isPending || !sym || !exp}
             className={BTN}
           >
@@ -150,7 +152,7 @@ export function RobinhoodPanel() {
           <div className="mt-2 text-[12px] text-text-faint">
             {chainMut.data.symbol} underlying{" "}
             <b className="text-text-secondary">${chainMut.data.underlying_price.toFixed(2)}</b>
-            {" · ±"}{band}% band · {rows.length} contract{rows.length === 1 ? "" : "s"}
+            {" · "}{near} strike{near === 1 ? "" : "s"} each side · {rows.length} contract{rows.length === 1 ? "" : "s"}
           </div>
         )}
         {rows.length > 0 && (
@@ -172,12 +174,19 @@ export function RobinhoodPanel() {
               </thead>
               <tbody>
                 {sorted.map((r, i) => (
-                  <tr key={i} className="border-b border-border-subtle/50 text-text-secondary">
-                    <td className="py-1 pr-3">{r.type}</td>
-                    <td className="py-1 pr-3">{r.strike.toFixed(2)}</td>
+                  <tr
+                    key={i}
+                    className={`border-b border-border-subtle/50 ${
+                      r.type === "call" ? "text-bullish-text" : r.type === "put" ? "text-bearish-text" : "text-text-secondary"
+                    }`}
+                  >
+                    <td className="py-1 pr-3 capitalize">{r.type}</td>
+                    <td className="py-1 pr-3 font-semibold text-text-primary">{r.strike.toFixed(2)}</td>
                     <td className="py-1 pr-3">{r.mark.toFixed(2)}</td>
                     <td className="py-1 pr-3">{r.delta.toFixed(3)}</td>
+                    <td className="py-1 pr-3">{r.gamma.toFixed(4)}</td>
                     <td className="py-1 pr-3">{r.theta.toFixed(3)}</td>
+                    <td className="py-1 pr-3">{r.vega.toFixed(3)}</td>
                     <td className="py-1 pr-3">{(r.iv * 100).toFixed(1)}%</td>
                     <td className="py-1 pr-3">{r.volume.toFixed(0)}</td>
                     <td className="py-1 pr-3">{r.open_interest.toFixed(0)}</td>

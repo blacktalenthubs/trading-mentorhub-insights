@@ -2805,9 +2805,10 @@ export interface OptionRow {
 
 export function useOptionChain() {
   return useMutation({
-    mutationFn: (v: { symbol: string; exp: string; type: string; band?: number }) => {
+    mutationFn: (v: { symbol: string; exp: string; type: string; band?: number; near?: number }) => {
       const p = new URLSearchParams({ symbol: v.symbol, exp: v.exp, type: v.type });
       if (v.band != null) p.set("band", String(v.band));
+      if (v.near != null) p.set("near", String(v.near));
       return api.get<{ symbol: string; expiration: string; type: string; underlying_price: number; rows: OptionRow[] }>(
         `/robinhood/options?${p.toString()}`
       );

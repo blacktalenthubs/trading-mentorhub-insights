@@ -22,13 +22,18 @@ def fetch_option_greeks(
     expiration_date: str,
     option_type: str = "both",
     moneyness_pct: float = 0.15,
+    near: int = 0,
     client: RobinhoodClient | None = None,
 ) -> dict:
     """Return {underlying_price, rows} for `symbol` at `expiration_date`.
 
-    Robinhood returns the ENTIRE chain (every strike ever listed), so we fetch
-    the live underlying price and keep only strikes within `moneyness_pct` of it
-    (default ±15%) — the relevant, near-the-money contracts. 0 = no filter.
+    Robinhood returns the ENTIRE chain (every strike ever listed), so we narrow to
+    the strikes around the live underlying price. Two mutually-exclusive filters:
+      - `near` > 0 : keep the N nearest strikes on EACH side of the price (so
+        near=10 with the underlying at 220 shows ~10 strikes down to ~210 and ~10
+        up to ~235). This is the count-based view. Takes precedence over band.
+      - else `moneyness_pct` : keep strikes within ±pct of the price (default ±15%);
+        0 = no filter.
 
     option_type: "call" | "put" | "both". READ-ONLY — no order is ever placed.
     `client` is injectable for tests. Raises RobinhoodError on failure.
@@ -78,8 +83,15 @@ def fetch_option_greeks(
             "volume": _f(o.get("volume")),
             "open_interest": _f(o.get("open_interest")),
         })
-    # Keep only strikes near the money (unless disabled or price unknown).
-    if price > 0 and moneyness_pct and moneyness_pct > 0:
+    # Narrow to the strikes around the money.
+    if price > 0 and near and near > 0:
+        # N nearest DISTINCT strikes on each side of the underlying price.
+        strikes = sorted({r["strike"] for r in rows if r["strike"] > 0})
+        below = [s for s in strikes if s < price][-near:]     # closest N under
+        above = [s for s in strikes if s >= price][:near]     # closest N at/over
+        keep = set(below) | set(above)
+        rows = [r for r in rows if r["strike"] in keep]
+    elif price > 0 and moneyness_pct and moneyness_pct > 0:
         lo, hi = price * (1 - moneyness_pct), price * (1 + moneyness_pct)
         rows = [r for r in rows if lo <= r["strike"] <= hi]
 
