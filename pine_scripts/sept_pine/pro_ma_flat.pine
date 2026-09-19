@@ -67,10 +67,11 @@ baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, ma
 baseProx = input.float(15.0, "  Only draw within N% of price", minval = 0, maxval = 100, step = 1, group = gBase)
 
 // ── weekly / monthly levels ──────────────────────────────────────────────────────
-gLvW    = "Weekly / monthly levels"
+gLvW    = "Daily / weekly / monthly levels"
+enDay   = input.bool(true, "Daily (PDH / PDL)",   inline = "w", group = gLvW)
 enWk    = input.bool(true, "Weekly (PWH / PWL)",  inline = "w", group = gLvW)
-enMo    = input.bool(true, "Monthly (PMH / PML)", inline = "w", group = gLvW)
-lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW)
+enMo    = input.bool(true, "Monthly (PMH / PML)", inline = "w2", group = gLvW)
+lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW, tooltip = "Prior day/week/month high & low, gated by proximity. Turn a level's line OFF and (with the MA-tag toggle on) it shows a small identity tag instead — same as the MAs.")
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 gH     = "HUD"
@@ -124,15 +125,16 @@ _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? li
 _tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
 // en = line ON → COLLECT for the confluence pass. en OFF → a small identity tag now.
 // `prox` 0 = always draw (used for the 20 & 50). Non-MA levels pass en = true.
-f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTag) =>
-    // Gating is structural, not just % : the 50 SMA is the divider.
-    //   • price ABOVE the 50 → the below-50 MAs aren't in play → hide them (the 50-floor),
-    //     and use the % proximity only to trim far lines on the in-play side.
-    //   • price BELOW the 50 → the whole ladder BELOW you is the support you're falling
-    //     toward → SHOW every MA (bypass the % gate). The 200 must appear here.
-    _belowFifty = canTag and not na(v50s) and close < v50s
+// isMa = subject to the structural 50-gate; canTag = show an identity tag when the line
+// is OFF. Levels pass isMa=false (they use plain % proximity, no 50-floor) but canTag=true.
+f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTag, bool isMa) =>
+    // Structural gate (MAs only): the 50 SMA is the divider.
+    //   • price ABOVE the 50 → below-50 MAs aren't in play → hide them (the 50-floor);
+    //     % proximity only trims far lines on the in-play side.
+    //   • price BELOW the 50 → SHOW the whole ladder below (bypass the % gate) — the 200 too.
+    _belowFifty = isMa and not na(v50s) and close < v50s
     _near  = _belowFifty or prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
-    _floor = floor50 and canTag and prox > 0 and not na(v50s) and close > v50s and not na(v) and v < v50s
+    _floor = floor50 and isMa and not na(v50s) and close > v50s and not na(v) and v < v50s
     if not na(v) and v > 0 and _near and not _floor
         if en
             array.push(_cV, v)
@@ -215,6 +217,7 @@ f_meta(bool en, float v, string nm) =>
 [_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
 _watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 // weekly / monthly levels
+[pdhL, pdlL] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
@@ -234,12 +237,12 @@ if barstate.islast
     array.clear(_cC)
     // draw the stack (role + degree tags). 20 & 50 ALWAYS draw (prox 0); the rest are
     // proximity-gated — so anything below the 50 that price has run above gets hidden.
-    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true)
-    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0,     true)
-    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct, true)
-    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true)
-    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true)
-    f_flat(en30w,  v30w,  "30W SMA", f_angN(v30w, v30wL, atrW), col30W, proxPct, true)
+    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true, true)
+    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0,     true, true)
+    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct, true, true)
+    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct, true, true)
+    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct, true, true)
+    f_flat(en30w,  v30w,  "30W SMA", f_angN(v30w, v30wL, atrW), col30W, proxPct, true, true)
     // meta for nearest R/S (all enabled, ungated)
     f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en50s,  v50s,  "50 SMA")
@@ -248,10 +251,13 @@ if barstate.islast
     f_meta(en8e,   v8e,   "8 EMA")
     f_meta(en30w,  v30w,  "30W SMA")
     // weekly / monthly levels (flat, proximity-gated; no identity tag when disabled)
-    f_flat(enWk, pwh, "PWH", na, resCol, lvProx, false)
-    f_flat(enWk, pwl, "PWL", na, supCol, lvProx, false)
-    f_flat(enMo, pmh, "PMH", na, resCol, lvProx, false)
-    f_flat(enMo, pml, "PML", na, supCol, lvProx, false)
+    // levels: canTag=true (tag when the line is off), isMa=false (plain % proximity, no 50-floor)
+    f_flat(enDay, pdhL, "PDH", na, resCol, lvProx, true, false)
+    f_flat(enDay, pdlL, "PDL", na, supCol, lvProx, true, false)
+    f_flat(enWk, pwh, "PWH", na, resCol, lvProx, true, false)
+    f_flat(enWk, pwl, "PWL", na, supCol, lvProx, true, false)
+    f_flat(enMo, pmh, "PMH", na, resCol, lvProx, true, false)
+    f_flat(enMo, pml, "PML", na, supCol, lvProx, true, false)
     // weekly base — K of the last M weekly lows clustered at one price. COLLECTED into
     // the confluence pool (below) so it merges with a nearby MA/level (e.g. BASE + 50 SMA).
     if enBase
