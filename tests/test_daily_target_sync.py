@@ -66,19 +66,21 @@ def test_multi_day_hold_is_labelled_swing():
     assert rows[0]["trade_type"] == "swing"
 
 
-def test_option_pnl_is_scaled_by_the_contract_multiplier():
-    """A contract controls 100 shares — without this the day's number is 100x low."""
+def test_option_row_passes_through_dollar_pnl_and_labels_option():
+    """The FIFO matcher now scales option contracts to dollars at the source, so the
+    bridge just passes realized_pnl / buy_amount through and labels the instrument."""
     rows = build_daily_trade_rows([
         _matched(symbol="SPY 2026-09-19 C 696", asset_type="option",
                  underlying_symbol="SPY", quantity=2.0,
-                 buy_price=3.25, sell_price=4.25, buy_amount=6.50,
-                 realized_pnl=2.0)  # matcher works per-share: 2 x $1.00
+                 buy_price=3.25, sell_price=4.25,
+                 buy_amount=650.0, sell_amount=850.0,
+                 realized_pnl=200.0)  # already dollars: 2 contracts x $1.00 x 100
     ], [], SESSION)
     r = rows[0]
     assert r["instrument"] == "option"
     assert r["symbol"] == "SPY"                      # underlying, not the contract key
-    assert r["entry_price"] == 3.25                  # premium stays as quoted
-    assert r["pnl"] == pytest.approx(200.0)          # 2 contracts x $1.00 x 100
+    assert r["entry_price"] == 3.25                  # premium stays as quoted (per-share)
+    assert r["pnl"] == pytest.approx(200.0)          # passed through, not re-scaled
     assert r["position_size"] == pytest.approx(650.0)
 
 

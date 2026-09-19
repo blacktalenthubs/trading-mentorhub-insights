@@ -411,9 +411,20 @@ class RobinhoodClient:
         if ROBINHOOD_TOTP_SECRET:
             try:
                 import pyotp
-                mfa_code = pyotp.TOTP(ROBINHOOD_TOTP_SECRET).now()
             except ImportError as exc:
                 raise RobinhoodError("pyotp is not installed — needed for TOTP login") from exc
+            try:
+                mfa_code = pyotp.TOTP(ROBINHOOD_TOTP_SECRET).now()
+            except Exception:
+                # A malformed/garbage TOTP secret (e.g. someone pasted the session
+                # B64 or password into ROBINHOOD_TOTP_SECRET) must NOT crash login —
+                # "Non-base32 digit found" would otherwise kill the import. Ignore it
+                # and rely on the restored session pickle (ROBINHOOD_SESSION_B64).
+                logger.warning(
+                    "ROBINHOOD_TOTP_SECRET is not valid base32 — ignoring it and relying "
+                    "on the stored session. Unset it on the host if you use ROBINHOOD_SESSION_B64."
+                )
+                mfa_code = None
 
         try:
             rh.login(

@@ -29,12 +29,6 @@ from models import MatchedTrade, TradeMonthly
 
 logger = logging.getLogger(__name__)
 
-# An option contract controls 100 shares. The FIFO matcher works in per-unit
-# prices, so its realized_pnl for an option is per-share and must be scaled to
-# dollars here — this is the number the Daily Target page measures the day by.
-OPTION_MULTIPLIER = 100.0
-
-
 @dataclass
 class DailyTargetSyncResult:
     inserted: int = 0
@@ -42,8 +36,8 @@ class DailyTargetSyncResult:
     skipped_manual: int = 0
 
 
-def _multiplier(asset_type: str) -> float:
-    return OPTION_MULTIPLIER if (asset_type or "").lower() == "option" else 1.0
+def _is_option(asset_type: str) -> bool:
+    return (asset_type or "").lower() == "option"
 
 
 def _alert_for(symbol: str, session_date: date) -> dict | None:
@@ -82,7 +76,6 @@ def build_daily_trade_rows(
     for m in matched:
         if m.sell_date != session_date:
             continue
-        mult = _multiplier(m.asset_type)
         underlying = (m.underlying_symbol or m.symbol or "").upper()
         alert = _alert_for(underlying, m.buy_date)
         rows.append({
@@ -90,14 +83,16 @@ def build_daily_trade_rows(
                            f":{m.quantity:g}:{m.buy_price:g}",
             "session_date": session_date.isoformat(),
             "symbol": underlying,
-            "instrument": "option" if mult > 1 else "stock",
+            "instrument": "option" if _is_option(m.asset_type) else "stock",
             "trade_type": "day" if m.holding_days == 0 else "swing",
             "direction": "long",  # the FIFO matcher pairs buy->sell only
             "entry_price": round(m.buy_price, 4),
             "exit_price": round(m.sell_price, 4),
             "quantity": m.quantity,
-            "position_size": round(m.buy_amount * mult, 2),
-            "pnl": round(m.realized_pnl * mult, 2),
+            # buy_amount / realized_pnl are already in dollars (the matcher scales
+            # option contracts by 100 at the source), so no multiplier here.
+            "position_size": round(m.buy_amount, 2),
+            "pnl": round(m.realized_pnl, 2),
             "is_open": False,
             "setup": (alert or {}).get("alert_type"),
             "target": _level_label(alert, "target_1"),
@@ -113,7 +108,6 @@ def build_daily_trade_rows(
             continue
         if (f.symbol, f.trade_date) in closed_keys:
             continue  # already represented by a round-trip above
-        mult = _multiplier(f.asset_type)
         underlying = (f.underlying_symbol or f.symbol or "").upper()
         alert = _alert_for(underlying, session_date)
         rows.append({

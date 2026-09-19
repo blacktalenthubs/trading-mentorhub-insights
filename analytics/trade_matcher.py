@@ -49,9 +49,6 @@ def match_trades_fifo(trades: list[TradeMonthly]) -> list[MatchedTrade]:
                 lot = buy_lots[key][0]
 
                 match_qty = min(remaining_qty, lot.quantity)
-                buy_cost = match_qty * lot.price
-                sell_proceeds = match_qty * sell_price
-
                 holding_days = (trade.trade_date - lot.trade_date).days
 
                 # Determine asset type and category
@@ -60,6 +57,14 @@ def match_trades_fifo(trades: list[TradeMonthly]) -> list[MatchedTrade]:
                 )
                 underlying = trade.underlying_symbol or trade.symbol
                 category = trade.category or categorize_symbol(underlying)
+
+                # An option contract controls 100 shares. Prices are quoted per share,
+                # so scale option cost/proceeds to real dollars HERE — realized_pnl,
+                # buy_amount and sell_amount are the dollar figures every consumer reads.
+                # buy_price/sell_price stay per-share (that's how a premium is quoted).
+                contract_mult = 100.0 if (asset_type or "").lower() == "option" else 1.0
+                buy_cost = match_qty * lot.price * contract_mult
+                sell_proceeds = match_qty * sell_price * contract_mult
 
                 matched.append(MatchedTrade(
                     account=trade.account,
