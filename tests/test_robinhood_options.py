@@ -56,6 +56,17 @@ def test_greeks_pass_through(patched):
     assert r["gamma"] == 0.02 and r["vega"] == 0.15 and r["delta"] == 0.5 and r["theta"] == -0.1
 
 
+def test_fetch_expirations_returns_sorted_listed_dates(monkeypatch):
+    monkeypatch.setattr(
+        rh, "get_chains",
+        lambda *_a, **_k: {"expiration_dates": ["2027-01-15", "2026-10-16", "2026-09-25", ""]},
+        raising=False,
+    )
+    client = types.SimpleNamespace()  # injected -> no login
+    exps = ro.fetch_expirations("CRDO", client=client)
+    assert exps == ["2026-09-25", "2026-10-16", "2027-01-15"]  # sorted, blanks dropped
+
+
 def test_band_still_works_when_near_zero(patched):
     client = types.SimpleNamespace()
     data = ro.fetch_option_greeks("NVDA", "2026-09-19", "call", moneyness_pct=0.05, near=0, client=client)

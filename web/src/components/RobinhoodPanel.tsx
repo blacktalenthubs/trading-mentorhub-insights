@@ -1,9 +1,14 @@
 /** Robinhood admin panel — on-demand trade import + read-only option chain.
  *  Rendered only for the owner account on the Daily Target page. No order
  *  placement: read-only import + option greeks lookup. */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
-import { useRobinhoodImport, useOptionChain, type OptionRow } from "../api/hooks";
+import {
+  useRobinhoodImport,
+  useOptionChain,
+  useOptionExpirations,
+  type OptionRow,
+} from "../api/hooks";
 
 const COLS: { key: keyof OptionRow; label: string }[] = [
   { key: "type", label: "Type" },
@@ -36,10 +41,24 @@ export function RobinhoodPanel() {
   const res = importMut.data;
 
   const [sym, setSym] = useState("");
+  const [symLoaded, setSymLoaded] = useState(""); // symbol whose expirations we've fetched
   const [exp, setExp] = useState("");
   const [otype, setOtype] = useState("both");
   const [near, setNear] = useState(10); // N nearest strikes each side of spot
+  const expQuery = useOptionExpirations(symLoaded);
+  const expirations = expQuery.data?.expirations ?? [];
   const chainMut = useOptionChain();
+
+  // When a symbol's real expirations load, snap to the nearest one if the current
+  // pick isn't a valid listed date (avoids the 0-contracts dead end).
+  useEffect(() => {
+    if (expirations.length && !expirations.includes(exp)) setExp(expirations[0]);
+  }, [expirations, exp]);
+
+  const loadExpirations = () => {
+    const s = sym.trim().toUpperCase();
+    if (s) setSymLoaded(s);
+  };
   const rows: OptionRow[] = chainMut.data?.rows ?? [];
 
   const [sortKey, setSortKey] = useState<keyof OptionRow>("strike");
@@ -116,12 +135,29 @@ export function RobinhoodPanel() {
             <input
               value={sym} placeholder="SPY"
               onChange={(e) => setSym(e.target.value.toUpperCase())}
+              onBlur={loadExpirations}
+              onKeyDown={(e) => { if (e.key === "Enter") loadExpirations(); }}
               className={`${INPUT} w-24 uppercase`}
             />
           </label>
           <label className="flex flex-col">
             <span className={LABEL}>Expiration</span>
-            <input type="date" value={exp} onChange={(e) => setExp(e.target.value)} className={INPUT} />
+            <select
+              value={exp}
+              onChange={(e) => setExp(e.target.value)}
+              disabled={expQuery.isFetching || !expirations.length}
+              className={`${INPUT} w-40`}
+            >
+              {expQuery.isFetching ? (
+                <option value="">Loading…</option>
+              ) : !symLoaded ? (
+                <option value="">Enter a symbol first</option>
+              ) : !expirations.length ? (
+                <option value="">No expirations</option>
+              ) : (
+                expirations.map((d) => <option key={d} value={d}>{d}</option>)
+              )}
+            </select>
           </label>
           <label className="flex flex-col">
             <span className={LABEL}>Type</span>
@@ -140,8 +176,8 @@ export function RobinhoodPanel() {
             />
           </label>
           <button
-            onClick={() => chainMut.mutate({ symbol: sym, exp, type: otype, near })}
-            disabled={chainMut.isPending || !sym || !exp}
+            onClick={() => chainMut.mutate({ symbol: symLoaded || sym.trim().toUpperCase(), exp, type: otype, near })}
+            disabled={chainMut.isPending || !exp}
             className={BTN}
           >
             <Search size={14} />

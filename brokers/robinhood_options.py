@@ -17,6 +17,30 @@ from brokers.robinhood import RobinhoodClient, RobinhoodError, _f
 logger = logging.getLogger(__name__)
 
 
+def fetch_expirations(symbol: str, client: RobinhoodClient | None = None) -> list[str]:
+    """Return the symbol's real, listed option expiration dates (YYYY-MM-DD), sorted.
+
+    Options only exist on specific dates (weeklies / 3rd-Friday monthlies), so the UI
+    should offer these instead of a free date picker. READ-ONLY. Raises RobinhoodError.
+    """
+    try:
+        import robin_stocks.robinhood as rh
+    except ImportError as exc:
+        raise RobinhoodError("robin_stocks is not installed") from exc
+
+    if client is None:
+        client = RobinhoodClient()
+        client.login()
+
+    try:
+        chains = rh.get_chains(symbol) or {}
+    except Exception as exc:
+        raise RobinhoodError(f"expirations fetch failed: {type(exc).__name__}") from exc
+
+    exps = [e for e in (chains.get("expiration_dates") or []) if e]
+    return sorted(exps)
+
+
 def fetch_option_greeks(
     symbol: str,
     expiration_date: str,

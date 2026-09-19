@@ -2803,6 +2803,19 @@ export interface OptionRow {
   volume: number; open_interest: number;
 }
 
+export function useOptionExpirations(symbol: string) {
+  return useQuery({
+    queryKey: ["option-expirations", symbol],
+    queryFn: () =>
+      api.get<{ symbol: string; expirations: string[] }>(
+        `/robinhood/expirations?symbol=${encodeURIComponent(symbol)}`,
+      ),
+    enabled: !!symbol,
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
 export function useOptionChain() {
   return useMutation({
     mutationFn: (v: { symbol: string; exp: string; type: string; band?: number; near?: number }) => {
