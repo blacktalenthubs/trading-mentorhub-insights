@@ -385,8 +385,15 @@ class RobinhoodClient:
         """
         if not ROBINHOOD_ENABLED:
             raise RobinhoodError("Robinhood integration is DISABLED (set ROBINHOOD_ENABLED=true to re-enable)")
-        if not ROBINHOOD_USERNAME or not ROBINHOOD_PASSWORD:
-            raise RobinhoodError("ROBINHOOD_USERNAME / ROBINHOOD_PASSWORD not set")
+        # On a headless host (Railway) a restored session pickle is all we need —
+        # rh.login() rides the cached session and never touches the password. So
+        # the password is only required when there is NO session seed to restore
+        # (i.e. a fresh interactive login). This lets Railway hold ROBINHOOD_SESSION_B64
+        # WITHOUT storing the plaintext account password.
+        if not ROBINHOOD_SESSION_B64 and not (ROBINHOOD_USERNAME and ROBINHOOD_PASSWORD):
+            raise RobinhoodError(
+                "Set ROBINHOOD_SESSION_B64 (headless), or ROBINHOOD_USERNAME + ROBINHOOD_PASSWORD for a fresh login"
+            )
 
         try:
             import robin_stocks.robinhood as rh
@@ -410,8 +417,8 @@ class RobinhoodClient:
 
         try:
             rh.login(
-                username=ROBINHOOD_USERNAME,
-                password=ROBINHOOD_PASSWORD,
+                username=ROBINHOOD_USERNAME or None,
+                password=ROBINHOOD_PASSWORD or None,
                 mfa_code=mfa_code,
                 store_session=True,
             )
