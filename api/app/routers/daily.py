@@ -338,26 +338,20 @@ async def reopen_day(
 #
 # Reads matched_trades (broker/monthly FIFO round-trips) ∪ trades_1099 (tax),
 # NOT daily_trades — so the calendar spans everything, not just Daily-Target rows.
-# Options in matched_trades are per-unit priced (contracts, no ×100); we scale
-# asset_type='option' rows by 100 here so option days aren't ~100× under-counted.
-# trades_1099.gain_loss is already in dollars. Read-only; owner-gated like the rest.
+# matched_trades.realized_pnl is already in dollars (the FIFO matcher scales option
+# contracts by 100 at the source), as is trades_1099.gain_loss. Read-only; owner-gated.
 # ─────────────────────────────────────────────────────────────────────────────
 
-_OPTION_MULTIPLIER = 100
-
-# Per-trade (date, pnl) rows, options scaled to dollars, unioned across both
-# realized-P&L sources. Callers append their own WHERE date-range on the alias `d`.
-_REALIZED_ROWS = f"""
-    SELECT sell_date AS d,
-           (CASE WHEN asset_type = 'option'
-                 THEN realized_pnl * {_OPTION_MULTIPLIER}
-                 ELSE realized_pnl END) AS pnl
+# Per-trade (date, pnl) rows in dollars, unioned across both realized-P&L sources.
+# Callers append their own WHERE date-range on the alias `d`.
+_REALIZED_ROWS = """
+    SELECT sell_date AS d, realized_pnl AS pnl
     FROM matched_trades
-    WHERE user_id = :uid {{mt_range}}
+    WHERE user_id = :uid {mt_range}
     UNION ALL
     SELECT date_sold AS d, gain_loss AS pnl
     FROM trades_1099
-    WHERE user_id = :uid {{t99_range}}
+    WHERE user_id = :uid {t99_range}
 """
 
 
@@ -447,12 +441,10 @@ async def day_detail(
         raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
 
     mt = await db.execute(
-        text(f"""
+        text("""
             SELECT symbol, underlying_symbol, quantity, buy_price, sell_price,
                    buy_date, holding_days, asset_type, holding_period_type,
-                   (CASE WHEN asset_type = 'option'
-                         THEN realized_pnl * {_OPTION_MULTIPLIER}
-                         ELSE realized_pnl END) AS pnl
+                   realized_pnl AS pnl
             FROM matched_trades
             WHERE user_id = :uid AND sell_date = :d
             ORDER BY symbol
