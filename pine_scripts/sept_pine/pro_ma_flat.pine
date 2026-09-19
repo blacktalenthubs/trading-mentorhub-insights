@@ -120,6 +120,7 @@ var float[]  _cV = array.new_float()
 var string[] _cN = array.new_string()
 var float[]  _cA = array.new_float()
 var color[]  _cC = array.new_color()
+var bool[]   _cL = array.new_bool()    // has a full line (enabled) vs tag-only (disabled)
 confPct = input.float(0.5, "Confluence — merge levels within N% into one tag", minval = 0, maxval = 5, step = 0.05, group = gDraw, tooltip = "Levels stacked within this % of each other merge into ONE line + one combined tag naming every member (e.g. '20 SMA + 8 EMA ·×2 · SUPPORT'), so overlapping tags never collide. Raise it to merge wider clusters, lower for stricter. 0 = no merging.")
 _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
 _tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
@@ -136,16 +137,20 @@ f_flat(bool en, float v, string nm, float ang, color col, float prox, bool canTa
     _near  = _belowFifty or prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
     _floor = floor50 and isMa and not na(v50s) and close > v50s and not na(v) and v < v50s
     if not na(v) and v > 0 and _near and not _floor
+        // COLLECT everything (line-on AND tag-only) so the confluence pass merges them —
+        // a disabled item's tag no longer overlaps an enabled neighbour's tag.
         if en
             array.push(_cV, v)
             array.push(_cN, nm)
             array.push(_cA, na(ang) ? na : ang)
             array.push(_cC, col)
+            array.push(_cL, true)      // has a full line
         else if canTag and enMaTag
-            // MA line OFF → BOLD identity chip: a filled MA-colour chip with white text
-            // ("8ema 720.50"), so an un-enabled MA is still impossible to ignore.
-            _short = str.lower(str.replace_all(nm, " ", ""))
-            array.push(_lb, label.new(bar_index + tagOff, v, _short + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+            array.push(_cV, v)
+            array.push(_cN, nm)
+            array.push(_cA, na)
+            array.push(_cC, col)
+            array.push(_cL, false)     // tag-only, no line
 
 // draw the collected items, MERGING any within confPct into one line + combined tag.
 f_drawConfluence() =>
@@ -179,6 +184,8 @@ f_drawConfluence() =>
             _sum = 0.0
             _names = ""
             _cnt = 0
+            _anyLine = false
+            color _lineCol = na
             _k2 = _k
             _grp = true
             while _grp
@@ -192,16 +199,20 @@ f_drawConfluence() =>
                     else
                         _sum := _sum + array.get(_cV, _mi)
                         _names := _names + (_names == "" ? "" : " + ") + array.get(_cN, _mi)
+                        if array.get(_cL, _mi) and not _anyLine
+                            _anyLine := true
+                            _lineCol := array.get(_cC, _mi)
                         _cnt := _cnt + 1
                         _k2 := _k2 + 1
             _cv   = _sum / _cnt
             _sup  = close >= _cv
             _tint = _sup ? supCol : resCol
-            _col  = array.get(_cC, _bi)
             _ang  = _cnt == 1 ? array.get(_cA, _bi) : na
             _head = _cnt == 1 ? _names + " " + str.tostring(_cv, format.mintick) : _names + " ·×" + str.tostring(_cnt) + " " + str.tostring(_cv, format.mintick)
             _txt  = _head + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(_ang) ? "" : " · " + f_slopeTxt(_ang))
-            array.push(_ln, line.new(bar_index - lineLen, _cv, bar_index + tagOff, _cv, xloc = xloc.bar_index, color = _col, width = wLine + (_cnt > 1 ? 1 : 0), style = _lvlStyle))
+            // line only when a member actually has one (tag-only clusters draw just the chip)
+            if _anyLine
+                array.push(_ln, line.new(bar_index - lineLen, _cv, bar_index + tagOff, _cv, xloc = xloc.bar_index, color = _lineCol, width = wLine + (_cnt > 1 ? 1 : 0), style = _lvlStyle))
             array.push(_lb, label.new(bar_index + tagOff, _cv, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
             _k := _k2
 
@@ -235,6 +246,7 @@ if barstate.islast
     array.clear(_cN)
     array.clear(_cA)
     array.clear(_cC)
+    array.clear(_cL)
     // draw the stack (role + degree tags). 20 & 50 ALWAYS draw (prox 0); the rest are
     // proximity-gated — so anything below the 50 that price has run above gets hidden.
     f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0,     true, true)
