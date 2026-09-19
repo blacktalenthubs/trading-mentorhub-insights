@@ -380,80 +380,83 @@ gapTransp = input.int(90, "Gap box faintness (0 = solid, 100 = invisible)", minv
 hideFilled = input.bool(true, "Hide if the go fails intraday (price back into the prior range)", group = gGap, tooltip = "A G&G that opened beyond the range but CLOSED back into it (a G&G ↑ closes below the PDH / a G&G ↓ closes above the PDL) failed — the continuation didn't hold. ON = drop it. OFF = keep showing the day's gap regardless.")
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
+maxGaps = input.int(12, "Max unfilled gaps to keep", minval = 1, maxval = 50, group = gGap, tooltip = "Track this many recent unfilled gaps at once; the oldest drops off beyond it.")
 
-// GAP zone = a bar opens BEYOND the prior range (open > PDH / open < PDL). The most
-// recent one PERSISTS as a faint S/R box until FILLED (price closes back into the range).
-// The "G&G ↑/↓" TEXT only shows on the DAY the gap formed (a same-day continuation
-// trade) — after that the box stays as an unfilled-gap S/R read with no text.
+// GAP zone = a bar opens BEYOND the prior range (open > PDH / open < PDL). EVERY such
+// gap is tracked and PERSISTS as a faint S/R box until it is FILLED (price closes back
+// through it) — so an older, still-unfilled overhead gap stays on the chart instead of
+// being overwritten by a newer one. The "G&G ↑/↓" TEXT shows only on the DAY the gap
+// formed; after that the box is a pure unfilled-gap S/R read.
 _pdh = high[1]
 _pdl = low[1]
-var float gUpHi = na
-var float gUpLo = na
-var int   gUpBar = na
-var bool  gUpFilled = false
-var float gDnHi = na
-var float gDnLo = na
-var int   gDnBar = na
-var bool  gDnFilled = false
+var array<float> gHi  = array.new_float()
+var array<float> gLo  = array.new_float()
+var array<int>   gBar = array.new_int()
+var array<int>   gDir = array.new_int()   // +1 = gap up (support below), -1 = gap down (resistance above)
+
+// Record a new gap the bar it forms.
 if not na(_pdh) and open > _pdh
-    gUpHi := open
-    gUpLo := _pdh
-    gUpBar := bar_index
-    gUpFilled := false
+    array.push(gHi, open)
+    array.push(gLo, _pdh)
+    array.push(gBar, bar_index)
+    array.push(gDir, 1)
 if not na(_pdl) and open < _pdl
-    gDnHi := _pdl
-    gDnLo := open
-    gDnBar := bar_index
-    gDnFilled := false
-// filled = price closed back INTO the prior range (below the PDH / above the PDL)
-if not na(gUpLo) and close < gUpLo
-    gUpFilled := true
-if not na(gDnHi) and close > gDnHi
-    gDnFilled := true
+    array.push(gHi, _pdl)
+    array.push(gLo, open)
+    array.push(gBar, bar_index)
+    array.push(gDir, -1)
+
+// Drop gaps that have been filled (price closed back through them), unless the user
+// wants every gap kept. Iterate backwards so a removal never shifts a pending index.
+if hideFilled and array.size(gDir) > 0
+    _i = array.size(gDir) - 1
+    while _i >= 0
+        _d  = array.get(gDir, _i)
+        _hi = array.get(gHi, _i)
+        _lo = array.get(gLo, _i)
+        _filled = (_d == 1 and close < _lo) or (_d == -1 and close > _hi)
+        if _filled
+            array.remove(gHi, _i)
+            array.remove(gLo, _i)
+            array.remove(gBar, _i)
+            array.remove(gDir, _i)
+        _i := _i - 1
+
+// Cap memory to the most-recent N unfilled gaps (drop the oldest beyond it).
+while array.size(gDir) > maxGaps
+    array.shift(gHi)
+    array.shift(gLo)
+    array.shift(gBar)
+    array.shift(gDir)
 
 f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
-var box   gUpBx = na
-var label gUpLb = na
-var box   gDnBx = na
-var label gDnLb = na
+
+var array<box>   gBox = array.new_box()
+var array<label> gLbl = array.new_label()
 if barstate.islast
-    if enGap and not na(gUpHi) and (not hideFilled or not gUpFilled) and f_gapNear(gUpHi)
-        _uL = math.max(gUpBar, bar_index - 9000)
+    // Redraw from scratch each update — the set of unfilled gaps is small.
+    if array.size(gBox) > 0
+        for _i = 0 to array.size(gBox) - 1
+            box.delete(array.get(gBox, _i))
+    if array.size(gLbl) > 0
+        for _i = 0 to array.size(gLbl) - 1
+            label.delete(array.get(gLbl, _i))
+    array.clear(gBox)
+    array.clear(gLbl)
+    if enGap and array.size(gDir) > 0
         _x2 = bar_index + tagOff
-        _txt = gUpBar == bar_index ? "G&G ↑" : ""   // text only on the day it formed
-        if na(gUpBx)
-            gUpBx := box.new(_uL, gUpHi, _x2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, gapTransp))
-            gUpLb := label.new(_x2, gUpHi, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapS, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
-        else
-            box.set_lefttop(gUpBx, _uL, gUpHi)
-            box.set_rightbottom(gUpBx, _x2, gUpLo)
-            box.set_bgcolor(gUpBx, color.new(colGapS, gapTransp))
-            label.set_xy(gUpLb, _x2, gUpHi)
-            label.set_text(gUpLb, _txt)
-            label.set_color(gUpLb, color.new(colGapS, _txt == "" ? 100 : 0))
-            label.set_textcolor(gUpLb, color.new(color.white, _txt == "" ? 100 : 0))
-    else if not na(gUpBx)
-        box.delete(gUpBx)
-        label.delete(gUpLb)
-        gUpBx := na
-        gUpLb := na
-    if enGap and not na(gDnHi) and (not hideFilled or not gDnFilled) and f_gapNear(gDnLo)
-        _dL = math.max(gDnBar, bar_index - 9000)
-        _x2 = bar_index + tagOff
-        _txt = gDnBar == bar_index ? "G&G ↓" : ""
-        if na(gDnBx)
-            gDnBx := box.new(_dL, gDnHi, _x2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, gapTransp))
-            gDnLb := label.new(_x2, gDnLo, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colGapR, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
-        else
-            box.set_lefttop(gDnBx, _dL, gDnHi)
-            box.set_rightbottom(gDnBx, _x2, gDnLo)
-            box.set_bgcolor(gDnBx, color.new(colGapR, gapTransp))
-            label.set_xy(gDnLb, _x2, gDnLo)
-            label.set_text(gDnLb, _txt)
-            label.set_color(gDnLb, color.new(colGapR, _txt == "" ? 100 : 0))
-            label.set_textcolor(gDnLb, color.new(color.white, _txt == "" ? 100 : 0))
-    else if not na(gDnBx)
-        box.delete(gDnBx)
-        label.delete(gDnLb)
-        gDnBx := na
-        gDnLb := na
+        for _i = 0 to array.size(gDir) - 1
+            _d   = array.get(gDir, _i)
+            _hi  = array.get(gHi, _i)
+            _lo  = array.get(gLo, _i)
+            _bar = array.get(gBar, _i)
+            _edge = _d == 1 ? _hi : _lo        // the S/R edge nearest price
+            if f_gapNear(_edge)
+                _col = _d == 1 ? colGapS : colGapR
+                _uL  = math.max(_bar, bar_index - 9000)
+                _txt = _bar == bar_index ? (_d == 1 ? "G&G ↑" : "G&G ↓") : ""
+                _bx  = box.new(_uL, _hi, _x2, _lo, border_width = 0, bgcolor = color.new(_col, gapTransp))
+                array.push(gBox, _bx)
+                _ly  = _d == 1 ? _hi : _lo
+                _lb  = label.new(_x2, _ly, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_col, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
+                array.push(gLbl, _lb)
