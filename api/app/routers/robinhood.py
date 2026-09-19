@@ -67,6 +67,26 @@ async def run_import(
     }
 
 
+@router.get("/expirations")
+@limiter.limit("20/minute")
+async def option_expirations(
+    request: Request,
+    symbol: str = Query(..., min_length=1, max_length=10),
+    user: User = Depends(get_current_user),
+):
+    """The symbol's real listed option expiration dates — so the UI offers valid dates
+    instead of a free date picker that returns 0 contracts. Read-only."""
+    _require_admin(user)
+    from brokers.robinhood import RobinhoodError
+    from brokers.robinhood_options import fetch_expirations
+
+    try:
+        exps = await run_in_threadpool(fetch_expirations, symbol.upper())
+    except RobinhoodError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return {"symbol": symbol.upper(), "expirations": exps}
+
+
 @router.get("/options")
 @limiter.limit("20/minute")
 async def options_chain(
