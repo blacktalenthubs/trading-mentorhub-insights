@@ -433,6 +433,14 @@ class RobinhoodClient:
                 mfa_code=mfa_code,
                 store_session=True,
             )
+        except EOFError as exc:
+            # robin_stocks fell through to an interactive prompt on a headless host:
+            # the stored session is dead and there's no unattended fallback.
+            raise RobinhoodError(
+                "Robinhood session expired and no unattended login is configured. "
+                "Re-mint ROBINHOOD_SESSION_B64, or set a valid ROBINHOOD_TOTP_SECRET "
+                "(authenticator app) for a durable headless login."
+            ) from exc
         except Exception as exc:
             # Never let a Robinhood credential reach a log line.
             raise RobinhoodError(f"Robinhood login failed: {type(exc).__name__}") from exc
