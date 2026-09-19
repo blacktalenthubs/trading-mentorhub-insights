@@ -774,56 +774,70 @@ gapThr = input.float(4.0, "Gap ≥ N% (open vs prior close)", minval = 0.5, maxv
 gapProx = input.float(15.0, "Only draw when price is within N% of the gap", minval = 0, maxval = 100, step = 1, group = gGap, tooltip = "Hide the gap zone when price has run far from it — a far gap only compresses the chart's price scale and isn't in play. 0 = always draw. Measured from the gap edge nearest price.")
 colGapS = input.color(#26A69A, "Gap-up support", inline = "gsr", group = gGap)
 colGapR = input.color(#EF5350, "Gap-down resistance", inline = "gsr", group = gGap)
+maxGaps = input.int(12, "Max unfilled gaps to keep", minval = 1, maxval = 50, group = gGap, tooltip = "Track this many recent unfilled gaps at once; the oldest drops off beyond it.")
 
+// EVERY qualifying gap is tracked and PERSISTS until FILLED (price closes back through
+// it), so an older still-unfilled overhead gap stays instead of being overwritten.
 _gp = not na(close[1]) and close[1] != 0 ? (open - close[1]) / close[1] * 100.0 : na
-var float gUpHi = na
-var float gUpLo = na
-var int   gUpBar = na
-var float gDnHi = na
-var float gDnLo = na
-var int   gDnBar = na
-if not na(_gp) and _gp >= gapThr
-    gUpHi  := open
-    gUpLo  := close[1]
-    gUpBar := bar_index
-if not na(_gp) and _gp <= -gapThr
-    gDnHi  := close[1]
-    gDnLo  := open
-    gDnBar := bar_index
+var array<float> gHi  = array.new_float()
+var array<float> gLo  = array.new_float()
+var array<int>   gBar = array.new_int()
+var array<int>   gDir = array.new_int()   // +1 gap up (support below), -1 gap down (resistance above)
 
-// Gap zones are drawn as shaded BOXES only — no text label (the colour + position
-// already read as S/R; the tag just cluttered the chart).
-// proximity gate — draw a gap only when price is within gapProx% of its nearest edge
-// (far gaps just compress the axis). 0 = always. Gap-up support edge = its high; gap-
-// down resistance edge = its low.
+if not na(_gp) and _gp >= gapThr
+    array.push(gHi, open)
+    array.push(gLo, close[1])
+    array.push(gBar, bar_index)
+    array.push(gDir, 1)
+if not na(_gp) and _gp <= -gapThr
+    array.push(gHi, close[1])
+    array.push(gLo, open)
+    array.push(gBar, bar_index)
+    array.push(gDir, -1)
+
+// Drop filled gaps (price closed back through). Iterate backwards so removals are safe.
+if array.size(gDir) > 0
+    _i = array.size(gDir) - 1
+    while _i >= 0
+        _d  = array.get(gDir, _i)
+        _hi = array.get(gHi, _i)
+        _lo = array.get(gLo, _i)
+        _filled = (_d == 1 and close < _lo) or (_d == -1 and close > _hi)
+        if _filled
+            array.remove(gHi, _i)
+            array.remove(gLo, _i)
+            array.remove(gBar, _i)
+            array.remove(gDir, _i)
+        _i := _i - 1
+
+while array.size(gDir) > maxGaps
+    array.shift(gHi)
+    array.shift(gLo)
+    array.shift(gBar)
+    array.shift(gDir)
+
+// Gap zones are drawn as shaded BOXES only — no text label. proximity gate: draw a gap
+// only when price is within gapProx% of its nearest edge (up = its high, down = its low).
 f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
-var box   gUpBx = na
-var box   gDnBx = na
+var array<box> gBox = array.new_box()
 if barstate.islast
-    if enGap and not na(gUpHi) and f_gapNear(gUpHi)
-        _ux2 = bar_index + lvTagOff
-        // clamp the left edge — TradingView caps bar_index-anchored boxes at ~10k bars
-        // from the current bar; an old gap would otherwise overflow.
-        _uLeft = math.max(gUpBar, bar_index - 9000)
-        if na(gUpBx)
-            gUpBx := box.new(_uLeft, gUpHi, _ux2, gUpLo, border_width = 0, bgcolor = color.new(colGapS, 82))
-        else
-            box.set_lefttop(gUpBx, _uLeft, gUpHi)
-            box.set_rightbottom(gUpBx, _ux2, gUpLo)
-    else if not na(gUpBx)
-        box.delete(gUpBx)
-        gUpBx := na
-    if enGap and not na(gDnHi) and f_gapNear(gDnLo)
-        _dx2 = bar_index + lvTagOff
-        _dLeft = math.max(gDnBar, bar_index - 9000)
-        if na(gDnBx)
-            gDnBx := box.new(_dLeft, gDnHi, _dx2, gDnLo, border_width = 0, bgcolor = color.new(colGapR, 82))
-        else
-            box.set_lefttop(gDnBx, _dLeft, gDnHi)
-            box.set_rightbottom(gDnBx, _dx2, gDnLo)
-    else if not na(gDnBx)
-        box.delete(gDnBx)
-        gDnBx := na
+    if array.size(gBox) > 0
+        for _i = 0 to array.size(gBox) - 1
+            box.delete(array.get(gBox, _i))
+    array.clear(gBox)
+    if enGap and array.size(gDir) > 0
+        _x2 = bar_index + lvTagOff
+        for _i = 0 to array.size(gDir) - 1
+            _d    = array.get(gDir, _i)
+            _hi   = array.get(gHi, _i)
+            _lo   = array.get(gLo, _i)
+            _bar  = array.get(gBar, _i)
+            _edge = _d == 1 ? _hi : _lo
+            if f_gapNear(_edge)
+                _col  = _d == 1 ? colGapS : colGapR
+                _left = math.max(_bar, bar_index - 9000)
+                _bx   = box.new(_left, _hi, _x2, _lo, border_width = 0, bgcolor = color.new(_col, 82))
+                array.push(gBox, _bx)
 
 // ═══ ENTRY PIVOT LINE + VCP STOP + BASE BOX ══════════════════════════════════════
 var line  enLn = na
