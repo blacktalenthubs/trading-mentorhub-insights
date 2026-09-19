@@ -1,0 +1,169 @@
+//@version=5
+// Volume Profile · Pro — horizontal volume-by-price over the last N bars, with POC,
+// Value Area (VAH/VAL) and a rolling/anchored VWAP. Every feature is a toggle you
+// control: columns, value-area %, histogram width/direction/offset, volume labels,
+// and the colours/opacities/widths of the blocks and lines. Overlay on price.
+indicator("Volume Profile · Pro", "VP-pro", overlay = true,
+     max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+gP = "Profile"
+barsBack = input.int(150, "Bars Back (per current timeframe)", minval = 10, maxval = 5000, group = gP)
+columns  = input.int(35,  "Columns (price rows)",              minval = 5,  maxval = 200,  group = gP)
+vaPct    = input.float(70, "Value Area %",                     minval = 1,  maxval = 100,  group = gP)
+
+// ── Histogram (the blocks) ───────────────────────────────────────────────────
+gH = "Histogram"
+histoWidth  = input.int(24, "Histogram width (bars)", minval = 1, maxval = 300, group = gH)
+histoDir    = input.string("Into chart", "Histogram direction", options = ["Into chart", "Out of chart"], group = gH)
+histoOffset = input.int(0, "Histogram Offset (bars)", group = gH)
+fillColor   = input.color(color.gray,  "Block fill color",    inline = "f", group = gH)
+fillTransp  = input.int(70, "fill transp %",  minval = 0, maxval = 100, inline = "f", group = gH, tooltip = "0 = solid, 100 = invisible.")
+bordColor   = input.color(color.black, "Block border color",  inline = "b", group = gH)
+bordTransp  = input.int(0,  "border transp %", minval = 0, maxval = 100, inline = "b", group = gH, tooltip = "0 = solid, 100 = hidden.")
+showVolLbl  = input.bool(true, "Show volume labels", group = gH)
+volLblSize  = input.string("tiny", "Volume label size", options = ["tiny", "small", "normal"], group = gH)
+volLblColor = input.color(color.black, "Volume label color", group = gH)
+
+// ── Levels (POC / VAH / VAL / AVWAP) ─────────────────────────────────────────
+gL = "Levels"
+showPOC   = input.bool(true,  "Show POC line", inline = "poc", group = gL)
+pocColor  = input.color(color.red, "", inline = "poc", group = gL)
+pocWidth  = input.int(2, "w", minval = 1, maxval = 5, inline = "poc", group = gL)
+showVA    = input.bool(true,  "Show VAH / VAL lines", inline = "va", group = gL)
+vaColor   = input.color(color.orange, "", inline = "va", group = gL)
+vaWidth   = input.int(1, "w", minval = 1, maxval = 5, inline = "va", group = gL)
+showAVWAP = input.bool(true,  "Show AVWAP (rolling VWAP over the window)", inline = "av", group = gL)
+avColor   = input.color(color.blue, "", inline = "av", group = gL)
+avWidth   = input.int(1, "w", minval = 1, maxval = 5, inline = "av", group = gL)
+showLbls  = input.bool(false, "Show line price labels (POC/VAH/VAL)", group = gL)
+
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+
+f_volTxt(float v) =>
+    _a = math.abs(v)
+    _s = _a >= 1e9 ? str.tostring(v / 1e9, "#.##") + "B" : _a >= 1e6 ? str.tostring(v / 1e6, "#.##") + "M" : _a >= 1e3 ? str.tostring(v / 1e3, "#.##") + "K" : str.tostring(v, "#")
+    _s
+
+// ── Rolling VWAP over the same window (the "AVWAP" line) ──────────────────────
+_hlc  = (high + low + close) / 3.0
+_sv   = math.sum(volume, barsBack)
+avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showAVWAP ? avwap : na, "AVWAP", color = avColor, linewidth = avWidth)
+
+// ── Build & draw the profile on the last bar ─────────────────────────────────
+var array<box>   vpBoxes = array.new_box()
+var array<label> vpLbls  = array.new_label()
+var array<line>  vpLines = array.new_line()
+
+if barstate.islast
+    // Clear the previous frame (bounded count; redrawn each update).
+    if array.size(vpBoxes) > 0
+        for _i = 0 to array.size(vpBoxes) - 1
+            box.delete(array.get(vpBoxes, _i))
+    if array.size(vpLbls) > 0
+        for _i = 0 to array.size(vpLbls) - 1
+            label.delete(array.get(vpLbls, _i))
+    if array.size(vpLines) > 0
+        for _i = 0 to array.size(vpLines) - 1
+            line.delete(array.get(vpLines, _i))
+    array.clear(vpBoxes)
+    array.clear(vpLbls)
+    array.clear(vpLines)
+
+    _n = math.min(barsBack, bar_index)
+    if _n >= 2
+        // Window price extent.
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / columns
+            vol = array.new_float(columns, 0.0)
+            // Distribute each bar's volume evenly across the price rows its range spans.
+            for _b = 0 to _n - 1
+                _loI = int(math.floor((low[_b]  - _lo) / _bs))
+                _hiI = int(math.floor((high[_b] - _lo) / _bs))
+                _loI := math.max(0, math.min(columns - 1, _loI))
+                _hiI := math.max(0, math.min(columns - 1, _hiI))
+                _span = _hiI - _loI + 1
+                _per  = volume[_b] / _span
+                for _k = _loI to _hiI
+                    array.set(vol, _k, array.get(vol, _k) + _per)
+
+            // Totals, POC, peak row.
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+
+            // Value area: grow out from the POC, taking the heavier neighbour, until
+            // the enclosed volume reaches vaPct% of total.
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaPct / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upV = -1.0
+                    _dnV = -1.0
+                    if _up < columns - 1
+                        _upV := array.get(vol, _up + 1)
+                    if _dn > 0
+                        _dnV := array.get(vol, _dn - 1)
+                    if _upV < 0 and _dnV < 0
+                        _go := false
+                    else if _upV >= _dnV
+                        _up    := _up + 1
+                        _vaVol := _vaVol + _upV
+                    else
+                        _dn    := _dn - 1
+                        _vaVol := _vaVol + _dnV
+
+            _vah      = _lo + (_up + 1) * _bs
+            _val      = _lo + _dn * _bs
+            _pocPrice = _lo + (_poc + 0.5) * _bs
+
+            // Histogram blocks, anchored at the right edge (+offset).
+            _anchor  = bar_index + histoOffset
+            _fillCol = color.new(fillColor, fillTransp)
+            _bordCol = color.new(bordColor, bordTransp)
+            _into    = histoDir == "Into chart"
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                if _v > 0 and _maxV > 0
+                    _w   = math.max(1, int(math.round(_v / _maxV * histoWidth)))
+                    _top = _lo + (_k + 1) * _bs
+                    _bot = _lo + _k * _bs
+                    _x1  = _into ? _anchor - _w : _anchor
+                    _x2  = _into ? _anchor : _anchor + _w
+                    array.push(vpBoxes, box.new(_x1, _top, _x2, _bot, border_color = _bordCol, border_width = 1, bgcolor = _fillCol))
+                    if showVolLbl
+                        _lx = _into ? _x1 : _x2
+                        _st = _into ? label.style_label_right : label.style_label_left
+                        array.push(vpLbls, label.new(_lx, (_top + _bot) / 2.0, f_volTxt(_v), xloc = xloc.bar_index, yloc = yloc.price, style = _st, color = color.new(color.gray, 100), textcolor = volLblColor, size = f_lblSize(volLblSize)))
+
+            // POC / VAH / VAL lines spanning the window.
+            _xL = math.max(bar_index - _n + 1, bar_index - 9000)
+            _xR = _anchor
+            if showPOC
+                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
+            if showVA
+                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
