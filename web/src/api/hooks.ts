@@ -2690,6 +2690,80 @@ export function useUpdateDailyTrade() {
   });
 }
 
+// ── P&L Calendar (full-history realized P&L: matched_trades ∪ trades_1099) ─────
+export interface CalendarDay {
+  date: string;      // YYYY-MM-DD
+  pnl: number;       // realized $ (options scaled ×100 server-side)
+  trades: number;
+  wins: number;
+  losses: number;
+  hit: boolean;      // met the day's Daily-Target goal
+}
+export function useDailyCalendar(month?: string) {
+  return useQuery({
+    queryKey: ["daily-calendar", month ?? "current"],
+    queryFn: () =>
+      api.get<{ month: string; days: CalendarDay[] }>(
+        `/daily/calendar${month ? `?month=${month}` : ""}`,
+      ),
+  });
+}
+
+export interface CalendarTrade {
+  source: "matched" | "1099";
+  symbol: string;
+  contract: string | null;   // full option contract when asset_type=option
+  asset_type: string;        // stock | option
+  trade_type: string | null; // day_trade | swing | position | short | long
+  direction: string | null;
+  quantity: number | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  opened: string | null;
+  holding_days: number | null;
+  pnl: number;
+}
+export interface DayDetail {
+  date: string;
+  total: number;
+  trade_count: number;
+  wins: number;
+  losses: number;
+  trades: CalendarTrade[];
+}
+export function useDayDetail(date: string | null) {
+  return useQuery({
+    queryKey: ["daily-day", date],
+    queryFn: () => api.get<DayDetail>(`/daily/day?date=${date}`),
+    enabled: !!date,
+  });
+}
+
+export type StatsRange = "month" | "quarter" | "year" | "all";
+export interface TradeStats {
+  range: StatsRange;
+  realized: number;
+  trade_count: number;
+  trading_days: number;
+  wins: number;
+  losses: number;
+  win_rate: number;          // 0..1
+  avg_win: number;
+  avg_loss: number;          // negative
+  gross_profit: number;
+  gross_loss: number;        // negative
+  profit_factor: number | null;
+  best_day: { date: string; pnl: number } | null;
+  worst_day: { date: string; pnl: number } | null;
+  streak: { type: "win" | "loss" | "flat"; count: number };
+}
+export function useTradeStats(range: StatsRange = "all") {
+  return useQuery({
+    queryKey: ["daily-stats", range],
+    queryFn: () => api.get<TradeStats>(`/daily/stats?range=${range}`),
+  });
+}
+
 // ── Robinhood (admin) — on-demand import + read-only option chain ─────────────
 export interface RobinhoodImportResult {
   session_date: string;

@@ -11,6 +11,7 @@ import { useAuthStore } from "../stores/auth";
 import { api } from "../api/client";
 import { toast } from "../components/Toast";
 import { RobinhoodPanel } from "../components/RobinhoodPanel";
+import PnLCalendarView from "../components/PnLCalendarView";
 import {
   useDailySummary,
   useDailyHistory,
@@ -572,7 +573,7 @@ export default function DailyTargetPage() {
   const [openWeeks, setOpenWeeks] = useState<Record<string, boolean>>({});
   const [dragOver, setDragOver] = useState(false);
   const [logOpen, setLogOpen] = useState(false); // the "Log a trade" form is collapsed by default (mobile-first)
-  const [view, setView] = useState<"journal" | "patterns">("journal");
+  const [view, setView] = useState<"journal" | "calendar" | "patterns">("journal");
   const [patternSort, setPatternSort] = useState<"total" | "winrate" | "avg" | "count">("total");
   const [groupBy, setGroupBy] = useState<"setup" | "target" | "stop" | "instrument">("setup");
   const [instFilter, setInstFilter] = useState<"all" | "stock" | "option">("all"); // scope patterns to stocks / options
@@ -905,9 +906,9 @@ export default function DailyTargetPage() {
         {/* Robinhood — owner-only import + option chain (read-only) */}
         <RobinhoodPanel />
 
-        {/* View switcher — Journal (log + history) vs Patterns (setup leaderboard) */}
+        {/* View switcher — Journal (log + history) vs Calendar (P&L calendar) vs Patterns (setup leaderboard) */}
         <div className="flex w-fit gap-1 rounded-lg border border-border-subtle bg-surface-1 p-1">
-          {(["journal", "patterns"] as const).map((v) => (
+          {(["journal", "calendar", "patterns"] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -915,10 +916,12 @@ export default function DailyTargetPage() {
                 view === v ? "bg-surface-3 text-accent" : "text-text-faint hover:text-text-secondary"
               }`}
             >
-              {v === "journal" ? "Journal" : "Patterns"}
+              {v === "journal" ? "Journal" : v === "calendar" ? "Calendar" : "Patterns"}
             </button>
           ))}
         </div>
+
+        {view === "calendar" && <PnLCalendarView />}
 
         {view === "journal" && (
           <>
