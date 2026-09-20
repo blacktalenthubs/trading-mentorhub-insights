@@ -232,6 +232,89 @@ _watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barme
 [pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
+// ── volume-profile levels (POC / VAH / VAL / VWAP), lockable to a timeframe ───────
+// Computed on a LOCKABLE timeframe (like the MAs) so they don't shift when you change
+// the chart TF, then fed through f_flat below so a level sitting on an MA MERGES into
+// one line + combined tag (no duplicate stacking). Lines only — no histogram.
+gVP      = "Volume-profile levels"
+enVP     = input.bool(true, "Show POC / VAH / VAL / VWAP", group = gVP)
+vpLock   = input.bool(true, "Lock to a fixed timeframe (off = follow chart)", group = gVP, tooltip = "ON (default) = computed on the timeframe below and drawn flat on any chart, like the SMAs — so the levels don't change when you switch chart TF. OFF = follow the chart timeframe.")
+vpTfPick = input.timeframe("D", "…locked timeframe", group = gVP)
+vpBars   = input.int(150, "Lookback bars", minval = 20, maxval = 2000, group = gVP)
+vpCols   = input.int(35, "Price rows", minval = 5, maxval = 200, group = gVP)
+vpVA     = input.float(70, "Value area %", minval = 1, maxval = 100, group = gVP)
+vpProx   = input.float(0.0, "Only draw within N% of price (0 = always)", minval = 0, maxval = 100, group = gVP, tooltip = "Hide a VP level once price runs far from it. 0 = always show (reminder).")
+vpPocCol  = input.color(color.red,    "POC",     inline = "vpc", group = gVP)
+vpVaCol   = input.color(color.orange, "VAH/VAL", inline = "vpc", group = gVP)
+vpVwapCol = input.color(color.blue,   "VWAP",    inline = "vpc", group = gVP)
+vpTf = vpLock ? vpTfPick : timeframe.period
+
+// Whole profile computed in-context so request.security can run it on the locked TF.
+f_vp(int _bars, int _cols, float _vapct) =>
+    _n = math.min(_bars, bar_index)
+    float _poc = na
+    float _vah = na
+    float _val = na
+    float _vw  = na
+    if _n >= 2
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / _cols
+            _vv = array.new_float(_cols, 0.0)
+            _pv = 0.0
+            _pvol = 0.0
+            for _b = 0 to _n - 1
+                _loI = int(math.floor((low[_b]  - _lo) / _bs))
+                _hiI = int(math.floor((high[_b] - _lo) / _bs))
+                _loI := math.max(0, math.min(_cols - 1, _loI))
+                _hiI := math.max(0, math.min(_cols - 1, _hiI))
+                _span = _hiI - _loI + 1
+                _per  = volume[_b] / _span
+                for _k = _loI to _hiI
+                    array.set(_vv, _k, array.get(_vv, _k) + _per)
+                _pv   := _pv + (high[_b] + low[_b] + close[_b]) / 3.0 * volume[_b]
+                _pvol := _pvol + volume[_b]
+            _tot = 0.0
+            _mx  = 0.0
+            _pi  = 0
+            for _k = 0 to _cols - 1
+                _v = array.get(_vv, _k)
+                _tot += _v
+                if _v > _mx
+                    _mx := _v
+                    _pi := _k
+            _va = array.get(_vv, _pi)
+            _up = _pi
+            _dn = _pi
+            _tg = _tot * _vapct / 100.0
+            _go = _tot > 0
+            while _go
+                if _va >= _tg
+                    _go := false
+                else
+                    _uV = _up < _cols - 1 ? array.get(_vv, _up + 1) : -1.0
+                    _dV = _dn > 0 ? array.get(_vv, _dn - 1) : -1.0
+                    if _uV < 0 and _dV < 0
+                        _go := false
+                    else if _uV >= _dV
+                        _up := _up + 1
+                        _va := _va + _uV
+                    else
+                        _dn := _dn - 1
+                        _va := _va + _dV
+            _poc := _lo + (_pi + 0.5) * _bs
+            _vah := _lo + (_up + 1) * _bs
+            _val := _lo + _dn * _bs
+            _vw  := _pvol > 0 ? _pv / _pvol : na
+    [_poc, _vah, _val, _vw]
+
+[vpPoc, vpVah, vpVal, vpVwap] = request.security(syminfo.tickerid, vpTf, f_vp(vpBars, vpCols, vpVA), lookahead = barmerge.lookahead_off)
+
 if barstate.islast
     // clear the pools
     for _l in _ln
@@ -270,6 +353,12 @@ if barstate.islast
     f_flat(enWk, pwl, "PWL", na, supCol, lvProx, true, false)
     f_flat(enMo, pmh, "PMH", na, resCol, lvProx, true, false)
     f_flat(enMo, pml, "PML", na, supCol, lvProx, true, false)
+    // volume-profile levels — pushed through the SAME engine so a POC/VAH/VAL/VWAP that
+    // sits on an MA merges into ONE line + combined tag instead of stacking a duplicate.
+    f_flat(enVP, vpPoc,  "POC",  na, vpPocCol,  vpProx, true, false)
+    f_flat(enVP, vpVah,  "VAH",  na, vpVaCol,   vpProx, true, false)
+    f_flat(enVP, vpVal,  "VAL",  na, vpVaCol,   vpProx, true, false)
+    f_flat(enVP, vpVwap, "VWAP", na, vpVwapCol, vpProx, true, false)
     // weekly base — K of the last M weekly lows clustered at one price. COLLECTED into
     // the confluence pool (below) so it merges with a nearby MA/level (e.g. BASE + 50 SMA).
     if enBase
@@ -463,116 +552,3 @@ if barstate.islast
                 _ly  = _d == 1 ? _hi : _lo
                 _lb  = label.new(_x2, _ly, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_col, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
                 array.push(gLbl, _lb)
-
-// ═══ VOLUME-PROFILE LEVELS (POC / VAH / VAL / VWAP) — lines only, no histogram ════
-// The four core levels from the VP-pro indicator, drawn here so they're on the flat-MA
-// chart too — a reminder to check value while you're reading the MAs. Same math as
-// volume_profile.pine (lookback bars, price rows, value-area %). No volume blocks.
-gVP     = "Volume-profile levels"
-enVP    = input.bool(true, "Show POC / VAH / VAL / VWAP", group = gVP)
-vpBars  = input.int(150, "Lookback bars", minval = 20, maxval = 2000, group = gVP)
-vpCols  = input.int(35, "Price rows", minval = 5, maxval = 200, group = gVP)
-vpVA    = input.float(70, "Value area %", minval = 1, maxval = 100, group = gVP)
-vpPocCol  = input.color(color.red,    "POC",     inline = "vpc", group = gVP)
-vpVaCol   = input.color(color.orange, "VAH/VAL", inline = "vpc", group = gVP)
-vpVwapCol = input.color(color.blue,   "VWAP",    inline = "vpc", group = gVP)
-vpWidth = input.int(2, "Line width", minval = 1, maxval = 6, group = gVP)
-vpLbls  = input.bool(true, "Show labels", group = gVP)
-
-// VWAP is a rolling/anchored VWAP over the same window — plotted as a line (dynamic).
-vp_hlc = (high + low + close) / 3.0
-vp_sv  = math.sum(volume, vpBars)
-vp_vwap = vp_sv > 0 ? math.sum(vp_hlc * volume, vpBars) / vp_sv : na
-plot(enVP ? vp_vwap : na, "VP VWAP", color = vpVwapCol, linewidth = vpWidth)
-
-// POC / VAH / VAL are horizontal levels — computed and drawn on the last bar.
-var line  vpPocLn = na
-var line  vpVahLn = na
-var line  vpValLn = na
-var label vpPocLb = na
-var label vpVahLb = na
-var label vpValLb = na
-if barstate.islast
-    if not na(vpPocLn)
-        line.delete(vpPocLn)
-    if not na(vpVahLn)
-        line.delete(vpVahLn)
-    if not na(vpValLn)
-        line.delete(vpValLn)
-    if not na(vpPocLb)
-        label.delete(vpPocLb)
-    if not na(vpVahLb)
-        label.delete(vpVahLb)
-    if not na(vpValLb)
-        label.delete(vpValLb)
-    vpPocLn := na
-    vpVahLn := na
-    vpValLn := na
-    vpPocLb := na
-    vpVahLb := na
-    vpValLb := na
-    if enVP
-        _vn = math.min(vpBars, bar_index)
-        if _vn >= 2
-            _vhi = high
-            _vlo = low
-            for _b = 0 to _vn - 1
-                _vhi := math.max(_vhi, high[_b])
-                _vlo := math.min(_vlo, low[_b])
-            _vrng = _vhi - _vlo
-            if _vrng > 0
-                _vbs = _vrng / vpCols
-                vpv = array.new_float(vpCols, 0.0)
-                for _b = 0 to _vn - 1
-                    _loI = int(math.floor((low[_b]  - _vlo) / _vbs))
-                    _hiI = int(math.floor((high[_b] - _vlo) / _vbs))
-                    _loI := math.max(0, math.min(vpCols - 1, _loI))
-                    _hiI := math.max(0, math.min(vpCols - 1, _hiI))
-                    _span = _hiI - _loI + 1
-                    _per  = volume[_b] / _span
-                    for _k = _loI to _hiI
-                        array.set(vpv, _k, array.get(vpv, _k) + _per)
-                _vtot = 0.0
-                _vmax = 0.0
-                _vpoc = 0
-                for _k = 0 to vpCols - 1
-                    _v = array.get(vpv, _k)
-                    _vtot += _v
-                    if _v > _vmax
-                        _vmax := _v
-                        _vpoc := _k
-                _vva = array.get(vpv, _vpoc)
-                _vup = _vpoc
-                _vdn = _vpoc
-                _vtgt = _vtot * vpVA / 100.0
-                _vgo = _vtot > 0
-                while _vgo
-                    if _vva >= _vtgt
-                        _vgo := false
-                    else
-                        _upV = -1.0
-                        _dnV = -1.0
-                        if _vup < vpCols - 1
-                            _upV := array.get(vpv, _vup + 1)
-                        if _vdn > 0
-                            _dnV := array.get(vpv, _vdn - 1)
-                        if _upV < 0 and _dnV < 0
-                            _vgo := false
-                        else if _upV >= _dnV
-                            _vup := _vup + 1
-                            _vva := _vva + _upV
-                        else
-                            _vdn := _vdn - 1
-                            _vva := _vva + _dnV
-                _pocY = _vlo + (_vpoc + 0.5) * _vbs
-                _vahY = _vlo + (_vup + 1) * _vbs
-                _valY = _vlo + _vdn * _vbs
-                _vxL = math.max(bar_index - _vn + 1, bar_index - 9000)
-                _vxR = bar_index + tagOff
-                vpPocLn := line.new(_vxL, _pocY, _vxR, _pocY, xloc = xloc.bar_index, color = vpPocCol, width = vpWidth)
-                vpVahLn := line.new(_vxL, _vahY, _vxR, _vahY, xloc = xloc.bar_index, color = vpVaCol, width = vpWidth)
-                vpValLn := line.new(_vxL, _valY, _vxR, _valY, xloc = xloc.bar_index, color = vpVaCol, width = vpWidth)
-                if vpLbls
-                    vpPocLb := label.new(_vxR, _pocY, "POC " + str.tostring(_pocY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpPocCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
-                    vpVahLb := label.new(_vxR, _vahY, "VAH " + str.tostring(_vahY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpVaCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
-                    vpValLb := label.new(_vxR, _valY, "VAL " + str.tostring(_valY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpVaCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
