@@ -15,8 +15,8 @@ vaPct    = input.float(70, "Value Area %",                     minval = 1,  maxv
 // ── Histogram (the blocks) ───────────────────────────────────────────────────
 gH = "Histogram"
 histoWidth  = input.int(24, "Histogram width (bars)", minval = 1, maxval = 300, group = gH)
-histoDir    = input.string("Into chart", "Histogram direction", options = ["Into chart", "Out of chart"], group = gH)
-histoOffset = input.int(0, "Histogram Offset (bars)", group = gH)
+histoDir    = input.string("Out of chart", "Histogram direction", options = ["Into chart", "Out of chart"], group = gH, tooltip = "Out of chart = blocks sit in the empty margin to the RIGHT of price (won't cover candles). Into chart = grow left over the candles.")
+histoOffset = input.int(3, "Histogram Offset (bars)", tooltip = "Gap (in bars) between the last candle and the profile. Increase to push it further right.", group = gH)
 fillColor   = input.color(color.gray,  "Block fill color",    inline = "f", group = gH)
 fillTransp  = input.int(70, "fill transp %",  minval = 0, maxval = 100, inline = "f", group = gH, tooltip = "0 = solid, 100 = invisible.")
 bordColor   = input.color(color.black, "Block border color",  inline = "b", group = gH)
