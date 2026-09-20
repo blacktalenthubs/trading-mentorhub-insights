@@ -138,23 +138,23 @@ if barstate.islast
                     if showHVN and _isH
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
                         if showLbls
-                            array.push(vpLbls, label.new(_xR, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+                            array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
                     else if showLVN and _isL
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
-                            array.push(vpLbls, label.new(_xR, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+                            array.push(vpLbls, label.new(_xR, _price, "LVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
             // POC / VAH / VAL.
             if showPOC
                 array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
             if showVA
                 array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
                 array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
-                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
 // ── Alerts: price trading into a key level ───────────────────────────────────
 alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
