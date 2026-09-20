@@ -3,7 +3,7 @@
 // fast-zones + rolling VWAP), NO histogram bars. Same profile math as VP-pro, but draws
 // only horizontal lines that sit within the existing price range, so it never extends
 // the axis / compresses the candles the way the right-margin volume blocks do. Overlay.
-indicator("Volume Profile · Lines", "VP-lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Volume Profile · Lines", "VP-lines", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100)
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 gP = "Profile"
@@ -160,3 +160,75 @@ if barstate.islast
 alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
 alertcondition(not na(vahLevel) and low <= vahLevel and high >= vahLevel, "Price at VAH", "{{ticker}} is trading at the Value Area High")
 alertcondition(not na(valLevel) and low <= valLevel and high >= valLevel, "Price at VAL", "{{ticker}} is trading at the Value Area Low")
+
+// ── Unfilled gaps — every gap tracked, persists until price closes back through ──
+// A bar opening beyond the prior range (open > PDH = gap up, open < PDL = gap down)
+// leaves an unfilled zone; it stays drawn (faint box) until filled, and is proximity-
+// gated so far gaps don't clutter or stretch the axis.
+gG = "Unfilled gaps"
+enGap     = input.bool(true, "Show unfilled gaps", group = gG)
+gapProx   = input.float(15.0, "Only draw within N% of price (0 = always)", minval = 0, maxval = 100, group = gG)
+gapTransp = input.int(88, "Gap box faintness (100 = invisible)", minval = 60, maxval = 100, group = gG)
+maxGaps   = input.int(12, "Max unfilled gaps to keep", minval = 1, maxval = 50, group = gG)
+colGapUp  = input.color(#26A69A, "Gap-up (support)", inline = "gc", group = gG)
+colGapDn  = input.color(#EF5350, "Gap-down (resistance)", inline = "gc", group = gG)
+
+_pdh = high[1]
+_pdl = low[1]
+var array<float> gHi  = array.new_float()
+var array<float> gLo  = array.new_float()
+var array<int>   gBar = array.new_int()
+var array<int>   gDir = array.new_int()   // +1 gap up (support below), -1 gap down (resistance above)
+
+if not na(_pdh) and open > _pdh
+    array.push(gHi, open)
+    array.push(gLo, _pdh)
+    array.push(gBar, bar_index)
+    array.push(gDir, 1)
+if not na(_pdl) and open < _pdl
+    array.push(gHi, _pdl)
+    array.push(gLo, open)
+    array.push(gBar, bar_index)
+    array.push(gDir, -1)
+
+// Drop filled gaps (price closed back through). Iterate backwards so removals are safe.
+if array.size(gDir) > 0
+    _gi = array.size(gDir) - 1
+    while _gi >= 0
+        _gd = array.get(gDir, _gi)
+        _gh = array.get(gHi, _gi)
+        _gl = array.get(gLo, _gi)
+        _gfilled = (_gd == 1 and close < _gl) or (_gd == -1 and close > _gh)
+        if _gfilled
+            array.remove(gHi, _gi)
+            array.remove(gLo, _gi)
+            array.remove(gBar, _gi)
+            array.remove(gDir, _gi)
+        _gi := _gi - 1
+
+while array.size(gDir) > maxGaps
+    array.shift(gHi)
+    array.shift(gLo)
+    array.shift(gBar)
+    array.shift(gDir)
+
+f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
+
+var array<box> gBox = array.new_box()
+if barstate.islast
+    if array.size(gBox) > 0
+        for _i = 0 to array.size(gBox) - 1
+            box.delete(array.get(gBox, _i))
+    array.clear(gBox)
+    if enGap and array.size(gDir) > 0
+        _gx2 = bar_index + rightPad
+        for _i = 0 to array.size(gDir) - 1
+            _d    = array.get(gDir, _i)
+            _h    = array.get(gHi, _i)
+            _l    = array.get(gLo, _i)
+            _bar  = array.get(gBar, _i)
+            _edge = _d == 1 ? _h : _l
+            if f_gapNear(_edge)
+                _col  = _d == 1 ? colGapUp : colGapDn
+                _left = math.max(_bar, bar_index - 9000)
+                array.push(gBox, box.new(_left, _h, _gx2, _l, border_width = 0, bgcolor = color.new(_col, gapTransp)))
