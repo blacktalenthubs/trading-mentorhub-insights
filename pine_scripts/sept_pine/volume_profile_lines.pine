@@ -45,6 +45,15 @@ enMo    = input.bool(true, "Prior month high / low (PMH / PML)", inline = "mo", 
 moColor = input.color(#AB47BC, "", inline = "mo", group = gWM)
 wmWidth = input.int(2, "W/M line width", minval = 1, maxval = 8, group = gWM)
 
+// ── Premium-selling HUD ──────────────────────────────────────────────────────
+gHUD     = "Premium HUD"
+enHUD    = input.bool(true, "Show premium-selling HUD", group = gHUD)
+hudPos   = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gHUD)
+hudSize  = input.string("small", "Size", options = ["tiny", "small", "normal"], group = gHUD)
+sellCalls = input.bool(true, "Also flag SELL CALLS at resistance", group = gHUD)
+hudProx  = input.float(2.0, "'Near a level' within N%", minval = 0.1, maxval = 10, step = 0.1, group = gHUD)
+hudRsiLen = input.int(14, "RSI length", minval = 2, group = gHUD)
+
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
 
 // ── Rolling VWAP (the one dynamic line) ──────────────────────────────────────
@@ -56,6 +65,18 @@ plot(showAVWAP ? avwap : na, "VWAP", color = avColor, linewidth = avWidth)
 // Prior week / month high & low (non-repainting — completed prior period).
 [pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// HUD inputs (global — computed every bar). RSI turn + a realized-vol PROXY for premium
+// richness (ATR% percentile). NOT option IV — Pine can't see it — so verify IV rank in
+// your broker; this only flags the TECHNICAL "at a defended bottom" timing.
+_rsiV    = ta.rsi(close, hudRsiLen)
+_rsiUp   = _rsiV > _rsiV[1]
+_atrp    = ta.atr(14) / close * 100.0
+_atrRank = ta.percentrank(_atrp, 100)
+_volTxt  = _atrRank >= 66 ? "rich" : _atrRank >= 33 ? "normal" : "thin"
+_hudPosC = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_hudSz   = hudSize == "tiny" ? size.tiny : hudSize == "normal" ? size.normal : size.small
+var table hud = na
 
 // ── Build the profile + draw the lines on the last bar ───────────────────────
 var array<line>  vpLines = array.new_line()
@@ -73,6 +94,9 @@ if barstate.islast
             label.delete(array.get(vpLbls, _i))
     array.clear(vpLines)
     array.clear(vpLbls)
+    if not enHUD and not na(hud)
+        table.delete(hud)
+        hud := na
 
     _n = math.min(barsBack, bar_index)
     if _n >= 2
@@ -181,6 +205,73 @@ if barstate.islast
                 if showLbls
                     array.push(vpLbls, label.new(_xR, pmh, "PMH " + str.tostring(pmh, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(moColor, 0), textcolor = color.new(color.white, 0), size = _sz))
                     array.push(vpLbls, label.new(_xR, pml, "PML " + str.tostring(pml, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(moColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+
+            // ── Premium-selling HUD ──────────────────────────────────────────
+            if enHUD
+                // Nearest support (level ≤ price) and resistance (level ≥ price) across
+                // POC / VAH / VAL / prior week & month H-L.
+                _cand = array.new_float()
+                _cnm  = array.new_string()
+                array.push(_cand, _pocPrice)
+                array.push(_cnm, "POC")
+                array.push(_cand, _vah)
+                array.push(_cnm, "VAH")
+                array.push(_cand, _val)
+                array.push(_cnm, "VAL")
+                if not na(pwh)
+                    array.push(_cand, pwh)
+                    array.push(_cnm, "PWH")
+                    array.push(_cand, pwl)
+                    array.push(_cnm, "PWL")
+                if not na(pmh)
+                    array.push(_cand, pmh)
+                    array.push(_cnm, "PMH")
+                    array.push(_cand, pml)
+                    array.push(_cnm, "PML")
+                _sup = float(na)
+                _supNm = ""
+                _res = float(na)
+                _resNm = ""
+                for _j = 0 to array.size(_cand) - 1
+                    _lv = array.get(_cand, _j)
+                    _nm = array.get(_cnm, _j)
+                    if not na(_lv) and _lv > 0
+                        if _lv <= close and (na(_sup) or _lv > _sup)
+                            _sup := _lv
+                            _supNm := _nm
+                        if _lv >= close and (na(_res) or _lv < _res)
+                            _res := _lv
+                            _resNm := _nm
+                _supD = not na(_sup) ? (close - _sup) / close * 100.0 : float(na)
+                _resD = not na(_res) ? (_res - close) / close * 100.0 : float(na)
+                _nearSup = not na(_supD) and _supD <= hudProx
+                _nearRes = not na(_resD) and _resD <= hudProx
+                _putsGood  = _nearSup and _rsiV < 45 and _rsiUp
+                _knife     = _rsiV < 35 and not _rsiUp
+                _callsGood = sellCalls and _nearRes and _rsiV > 55 and not _rsiUp
+                _verdict = _knife ? "WAIT · knife" : _putsGood ? "SELL PUTS" : _callsGood ? "SELL CALLS" : "WAIT"
+                _vCol = _putsGood or _callsGood ? #26A69A : _knife ? #EF5350 : #F5A623
+                _loc = close < _val ? "below value" : math.abs(close - _pocPrice) / close * 100.0 <= hudProx ? "at POC" : close > _vah ? "above value" : "inside value"
+                _strike = _putsGood and not na(_sup) ? "puts ≤ " + str.tostring(_sup, "#.##") : _callsGood and not na(_res) ? "calls ≥ " + str.tostring(_res, "#.##") : "—"
+                _supTxt = not na(_sup) ? _supNm + " " + str.tostring(_sup, "#.##") + " · " + str.tostring(_supD, "#.#") + "%" : "—"
+                _rsiTxt = str.tostring(_rsiV, "#") + (_rsiUp ? " ↑" : " ↓")
+                if na(hud)
+                    hud := table.new(_hudPosC, 2, 6, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+                _hb  = color.new(#0f1420, 8)
+                _lblC = color.new(color.gray, 0)
+                _txtC = color.new(color.white, 0)
+                table.cell(hud, 0, 0, "PREMIUM", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 0, _verdict, bgcolor = _hb, text_color = _vCol, text_size = _hudSz)
+                table.cell(hud, 0, 1, "Location", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 1, _loc, bgcolor = _hb, text_color = _txtC, text_size = _hudSz)
+                table.cell(hud, 0, 2, "Support", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 2, _supTxt, bgcolor = _hb, text_color = _txtC, text_size = _hudSz)
+                table.cell(hud, 0, 3, "Strike", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 3, _strike, bgcolor = _hb, text_color = _txtC, text_size = _hudSz)
+                table.cell(hud, 0, 4, "RSI", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 4, _rsiTxt, bgcolor = _hb, text_color = _txtC, text_size = _hudSz)
+                table.cell(hud, 0, 5, "Premium~", bgcolor = _hb, text_color = _lblC, text_size = _hudSz)
+                table.cell(hud, 1, 5, _volTxt + " (proxy)", bgcolor = _hb, text_color = _txtC, text_size = _hudSz)
 
 // ── Alerts: price trading into a key level ───────────────────────────────────
 alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
