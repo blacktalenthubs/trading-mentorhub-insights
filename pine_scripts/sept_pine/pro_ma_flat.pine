@@ -13,7 +13,7 @@
 //     the fast 8/21 Trend, and the Weinstein Stage (200). No reclaim markers.
 //   • Daily-locked by default; unlock to follow the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Proximity MAs · Flat v2", "MA-flat2", overlay = true)
+indicator("Proximity MAs · Flat v2", "MA-flat2", overlay = true, max_lines_count = 200, max_labels_count = 200, max_boxes_count = 100)
 
 // ── timeframe ───────────────────────────────────────────────────────────────────
 gTf    = "Timeframe"
@@ -460,3 +460,116 @@ if barstate.islast
                 _ly  = _d == 1 ? _hi : _lo
                 _lb  = label.new(_x2, _ly, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_col, _txt == "" ? 100 : 0), textcolor = color.new(color.white, _txt == "" ? 100 : 0), size = _tagSz)
                 array.push(gLbl, _lb)
+
+// ═══ VOLUME-PROFILE LEVELS (POC / VAH / VAL / VWAP) — lines only, no histogram ════
+// The four core levels from the VP-pro indicator, drawn here so they're on the flat-MA
+// chart too — a reminder to check value while you're reading the MAs. Same math as
+// volume_profile.pine (lookback bars, price rows, value-area %). No volume blocks.
+gVP     = "Volume-profile levels"
+enVP    = input.bool(true, "Show POC / VAH / VAL / VWAP", group = gVP)
+vpBars  = input.int(150, "Lookback bars", minval = 20, maxval = 2000, group = gVP)
+vpCols  = input.int(35, "Price rows", minval = 5, maxval = 200, group = gVP)
+vpVA    = input.float(70, "Value area %", minval = 1, maxval = 100, group = gVP)
+vpPocCol  = input.color(color.red,    "POC",     inline = "vpc", group = gVP)
+vpVaCol   = input.color(color.orange, "VAH/VAL", inline = "vpc", group = gVP)
+vpVwapCol = input.color(color.blue,   "VWAP",    inline = "vpc", group = gVP)
+vpWidth = input.int(2, "Line width", minval = 1, maxval = 6, group = gVP)
+vpLbls  = input.bool(true, "Show labels", group = gVP)
+
+// VWAP is a rolling/anchored VWAP over the same window — plotted as a line (dynamic).
+vp_hlc = (high + low + close) / 3.0
+vp_sv  = math.sum(volume, vpBars)
+vp_vwap = vp_sv > 0 ? math.sum(vp_hlc * volume, vpBars) / vp_sv : na
+plot(enVP ? vp_vwap : na, "VP VWAP", color = vpVwapCol, linewidth = vpWidth)
+
+// POC / VAH / VAL are horizontal levels — computed and drawn on the last bar.
+var line  vpPocLn = na
+var line  vpVahLn = na
+var line  vpValLn = na
+var label vpPocLb = na
+var label vpVahLb = na
+var label vpValLb = na
+if barstate.islast
+    if not na(vpPocLn)
+        line.delete(vpPocLn)
+    if not na(vpVahLn)
+        line.delete(vpVahLn)
+    if not na(vpValLn)
+        line.delete(vpValLn)
+    if not na(vpPocLb)
+        label.delete(vpPocLb)
+    if not na(vpVahLb)
+        label.delete(vpVahLb)
+    if not na(vpValLb)
+        label.delete(vpValLb)
+    vpPocLn := na
+    vpVahLn := na
+    vpValLn := na
+    vpPocLb := na
+    vpVahLb := na
+    vpValLb := na
+    if enVP
+        _vn = math.min(vpBars, bar_index)
+        if _vn >= 2
+            _vhi = high
+            _vlo = low
+            for _b = 0 to _vn - 1
+                _vhi := math.max(_vhi, high[_b])
+                _vlo := math.min(_vlo, low[_b])
+            _vrng = _vhi - _vlo
+            if _vrng > 0
+                _vbs = _vrng / vpCols
+                vpv = array.new_float(vpCols, 0.0)
+                for _b = 0 to _vn - 1
+                    _loI = int(math.floor((low[_b]  - _vlo) / _vbs))
+                    _hiI = int(math.floor((high[_b] - _vlo) / _vbs))
+                    _loI := math.max(0, math.min(vpCols - 1, _loI))
+                    _hiI := math.max(0, math.min(vpCols - 1, _hiI))
+                    _span = _hiI - _loI + 1
+                    _per  = volume[_b] / _span
+                    for _k = _loI to _hiI
+                        array.set(vpv, _k, array.get(vpv, _k) + _per)
+                _vtot = 0.0
+                _vmax = 0.0
+                _vpoc = 0
+                for _k = 0 to vpCols - 1
+                    _v = array.get(vpv, _k)
+                    _vtot += _v
+                    if _v > _vmax
+                        _vmax := _v
+                        _vpoc := _k
+                _vva = array.get(vpv, _vpoc)
+                _vup = _vpoc
+                _vdn = _vpoc
+                _vtgt = _vtot * vpVA / 100.0
+                _vgo = _vtot > 0
+                while _vgo
+                    if _vva >= _vtgt
+                        _vgo := false
+                    else
+                        _upV = -1.0
+                        _dnV = -1.0
+                        if _vup < vpCols - 1
+                            _upV := array.get(vpv, _vup + 1)
+                        if _vdn > 0
+                            _dnV := array.get(vpv, _vdn - 1)
+                        if _upV < 0 and _dnV < 0
+                            _vgo := false
+                        else if _upV >= _dnV
+                            _vup := _vup + 1
+                            _vva := _vva + _upV
+                        else
+                            _vdn := _vdn - 1
+                            _vva := _vva + _dnV
+                _pocY = _vlo + (_vpoc + 0.5) * _vbs
+                _vahY = _vlo + (_vup + 1) * _vbs
+                _valY = _vlo + _vdn * _vbs
+                _vxL = math.max(bar_index - _vn + 1, bar_index - 9000)
+                _vxR = bar_index + tagOff
+                vpPocLn := line.new(_vxL, _pocY, _vxR, _pocY, xloc = xloc.bar_index, color = vpPocCol, width = vpWidth)
+                vpVahLn := line.new(_vxL, _vahY, _vxR, _vahY, xloc = xloc.bar_index, color = vpVaCol, width = vpWidth)
+                vpValLn := line.new(_vxL, _valY, _vxR, _valY, xloc = xloc.bar_index, color = vpVaCol, width = vpWidth)
+                if vpLbls
+                    vpPocLb := label.new(_vxR, _pocY, "POC " + str.tostring(_pocY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpPocCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+                    vpVahLb := label.new(_vxR, _vahY, "VAH " + str.tostring(_vahY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpVaCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+                    vpValLb := label.new(_vxR, _valY, "VAL " + str.tostring(_valY), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vpVaCol, 0), textcolor = color.new(color.white, 0), size = _tagSz)
