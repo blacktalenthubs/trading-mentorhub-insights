@@ -656,6 +656,33 @@ async def lifespan(app: FastAPI):
             scheduler.add_job(lambda: _run_daily_structural(False), _CronD(hour=8, minute=41, day_of_week="mon-fri", timezone=_etd),
                               id="daily_structural_premkt", replace_existing=True)
             logger.info("Daily-structural scan scheduled (16:12 + 08:41 ET, mon-fri)")
+
+            def _run_volume_signals(send_telegram: bool = True):
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    from analytics.volume_signal_scan import scan as _vs_scan, publish as _vs_pub, _telegram as _vs_tg
+                    from analytics.minervini_scan import _send_to_telegram as _vs_send
+                    from analytics.swing_setups_report import _watchlist as _vs_wl
+                    _dsn = _os.environ.get("DATABASE_URL")
+                    _syms = _vs_wl(_dsn) if _dsn else []
+                    if not _syms:
+                        logger.warning("volume-signal scan skipped (no watchlist)")
+                        return
+                    _rep = _vs_scan(_syms)
+                    _date = _dt.date.today().isoformat()
+                    _vs_pub(_rep, _date)
+                    if send_telegram:
+                        _vs_send(_vs_tg(_rep, _date))
+                    logger.info("Volume-signal scan posted (%d setups, telegram=%s)", len(_rep["rows"]), send_telegram)
+                except Exception:
+                    logger.exception("volume-signal scan failed")
+
+            scheduler.add_job(lambda: _run_volume_signals(True), _CronD(hour=16, minute=18, day_of_week="mon-fri", timezone=_etd),
+                              id="volume_signals_close", replace_existing=True)
+            scheduler.add_job(lambda: _run_volume_signals(False), _CronD(hour=8, minute=43, day_of_week="mon-fri", timezone=_etd),
+                              id="volume_signals_premkt", replace_existing=True)
+            logger.info("Volume-signal scan scheduled (16:18 + 08:43 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register daily-structural scan job")
 

@@ -326,6 +326,42 @@ const PM_LABEL: Record<string, string> = {
 };
 /** Compact "moving premarket" strip — premarket-signal names as chips, shown at the
  *  TOP of Today's Focus (merged in; no longer its own section). Null when nothing's moving. */
+interface VsRow {
+  sym: string; signal: string; label: string; direction: string;
+  price: number; level: number; level_name: string; stop: number;
+  risk_pct: number; confluence: string[];
+}
+function VolumeSignals({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: VsRow[]; scanned?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  if (rows.length === 0)
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No volume-profile setups in the last scan.</div>;
+  const dirColor = (d: string) => (d === "short" ? "text-bearish-text" : "text-bullish-text");
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[10.5px] text-text-faint">
+        {rows.length} setups · scanned {parsed?.scanned ?? "—"} names · ⭐ = level stacks with an MA
+      </div>
+      {rows.map((r, i) => (
+        <div key={r.sym + r.signal + i} className="flex items-center justify-between gap-2 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <button onClick={() => onChart(r.sym)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.sym}</button>
+            <span className={`text-[11px] font-semibold ${dirColor(r.direction)}`}>{r.label}</span>
+            {r.confluence && r.confluence.length > 0 && (
+              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent">⭐ {r.confluence.join(", ")}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
+            <span>{r.level_name} {r.level.toFixed(2)}</span>
+            <span className="text-text-secondary">${r.price.toFixed(2)}</span>
+            <span className="text-text-faint">risk {r.risk_pct}%</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
   let sigs: PmSignal[] = [];
   try { sigs = (body ? (JSON.parse(body).signals as PmSignal[]) : []) ?? []; } catch { sigs = []; }
@@ -477,6 +513,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sw = data?.swing_setups ?? null;
   const ma20 = data?.ma20_setups ?? null;
   const gap = data?.gap_setups ?? null;
+  const vs = data?.volume_signals ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -547,6 +584,10 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-gap", time: "PREMKT", title: "Gap setups", present: !!gap,
       wait: "The gap scan runs premarket (analytics/gap_scanner.py).",
       render: () => <GapSetups body={gap?.body ?? ""} onChart={onChart} /> },
+    // ── Volume signals — POC/VA/VWAP setups from the volume profile (premkt + close). ──
+    { id: "sec-volsig", time: "PREMKT+CLOSE", title: "Volume signals", present: !!vs,
+      wait: "Runs premarket + after the close (POC / value area / VWAP setups).",
+      render: () => <VolumeSignals body={vs?.body ?? ""} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
