@@ -307,6 +307,9 @@ if barstate.islast
                 array.push(_cN, "BASE·" + str.tostring(_bCnt) + "x")
                 array.push(_cA, na)
                 array.push(_cC, supCol)
+                array.push(_cL, true)   // the BASE draws a full line — keep _cL in sync
+                                        // with the other pool arrays or f_drawConfluence
+                                        // reads array.get(_cL, idx) out of bounds.
     // all collected (MAs + levels + base) → cluster confluent ones into one line + tag
     f_drawConfluence()
 
