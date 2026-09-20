@@ -1,0 +1,162 @@
+//@version=5
+// Volume Profile · Lines — the value LEVELS only (POC / VAH / VAL + HVN shelves / LVN
+// fast-zones + rolling VWAP), NO histogram bars. Same profile math as VP-pro, but draws
+// only horizontal lines that sit within the existing price range, so it never extends
+// the axis / compresses the candles the way the right-margin volume blocks do. Overlay.
+indicator("Volume Profile · Lines", "VP-lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+gP = "Profile"
+barsBack = input.int(150, "Bars Back", minval = 10, maxval = 5000, group = gP)
+columns  = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gP)
+vaPct    = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gP)
+lineLen  = input.int(120, "Line length (bars left)", minval = 5, maxval = 5000, group = gP)
+rightPad = input.int(10, "Label offset (bars right)", minval = 0, maxval = 100, group = gP)
+
+// ── Core levels (POC / VAH / VAL / VWAP) ─────────────────────────────────────
+gL = "Core levels"
+showPOC   = input.bool(true, "POC", inline = "poc", group = gL)
+pocColor  = input.color(color.red, "", inline = "poc", group = gL)
+pocWidth  = input.int(3, "w", minval = 1, maxval = 8, inline = "poc", group = gL)
+showVA    = input.bool(true, "VAH / VAL", inline = "va", group = gL)
+vaColor   = input.color(color.orange, "", inline = "va", group = gL)
+vaWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "va", group = gL)
+showAVWAP = input.bool(true, "VWAP", inline = "av", group = gL)
+avColor   = input.color(color.blue, "", inline = "av", group = gL)
+avWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "av", group = gL)
+showLbls  = input.bool(true, "Show labels", group = gL)
+lblSize   = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gL)
+
+// ── Volume nodes (HVN shelves / LVN fast-zones) ──────────────────────────────
+gN = "Volume nodes"
+showHVN   = input.bool(true, "HVN shelves (S/R)", inline = "hvn", group = gN)
+hvnColor  = input.color(#26A69A, "", inline = "hvn", group = gN)
+showLVN   = input.bool(true, "LVN fast-zones", inline = "lvn", group = gN)
+lvnColor  = input.color(#EF5350, "", inline = "lvn", group = gN)
+hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gN)
+lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN)
+nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
+
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+
+// ── Rolling VWAP (the one dynamic line) ──────────────────────────────────────
+_hlc  = (high + low + close) / 3.0
+_sv   = math.sum(volume, barsBack)
+avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showAVWAP ? avwap : na, "VWAP", color = avColor, linewidth = avWidth)
+
+// ── Build the profile + draw the lines on the last bar ───────────────────────
+var array<line>  vpLines = array.new_line()
+var array<label> vpLbls  = array.new_label()
+var float pocLevel = na
+var float vahLevel = na
+var float valLevel = na
+
+if barstate.islast
+    if array.size(vpLines) > 0
+        for _i = 0 to array.size(vpLines) - 1
+            line.delete(array.get(vpLines, _i))
+    if array.size(vpLbls) > 0
+        for _i = 0 to array.size(vpLbls) - 1
+            label.delete(array.get(vpLbls, _i))
+    array.clear(vpLines)
+    array.clear(vpLbls)
+
+    _n = math.min(barsBack, bar_index)
+    if _n >= 2
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / columns
+            vol = array.new_float(columns, 0.0)
+            for _b = 0 to _n - 1
+                _loI = int(math.floor((low[_b]  - _lo) / _bs))
+                _hiI = int(math.floor((high[_b] - _lo) / _bs))
+                _loI := math.max(0, math.min(columns - 1, _loI))
+                _hiI := math.max(0, math.min(columns - 1, _hiI))
+                _span = _hiI - _loI + 1
+                _per  = volume[_b] / _span
+                for _k = _loI to _hiI
+                    array.set(vol, _k, array.get(vol, _k) + _per)
+
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaPct / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upV = _up < columns - 1 ? array.get(vol, _up + 1) : -1.0
+                    _dnV = _dn > 0 ? array.get(vol, _dn - 1) : -1.0
+                    if _upV < 0 and _dnV < 0
+                        _go := false
+                    else if _upV >= _dnV
+                        _up    := _up + 1
+                        _vaVol := _vaVol + _upV
+                    else
+                        _dn    := _dn - 1
+                        _vaVol := _vaVol + _dnV
+
+            _vah      = _lo + (_up + 1) * _bs
+            _val      = _lo + _dn * _bs
+            _pocPrice = _lo + (_poc + 0.5) * _bs
+            pocLevel := _pocPrice
+            vahLevel := _vah
+            valLevel := _val
+
+            _xL = math.max(bar_index - lineLen, bar_index - 9000)
+            _xR = bar_index + rightPad
+            _sz = f_lblSize(lblSize)
+
+            // HVN shelves (local peaks) + LVN fast-zones (local valleys).
+            if showHVN or showLVN
+                _hmin = _maxV * hvnPct / 100.0
+                _lmax = _maxV * lvnPct / 100.0
+                for _k = 1 to columns - 2
+                    _vk    = array.get(vol, _k)
+                    _vp    = array.get(vol, _k - 1)
+                    _vn    = array.get(vol, _k + 1)
+                    _price = _lo + (_k + 0.5) * _bs
+                    _isH = _vk >= _vp and _vk >= _vn and _vk >= _hmin
+                    _isL = _vk <= _vp and _vk <= _vn and _vk <= _lmax and _vk > 0
+                    if showHVN and _isH
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
+                        if showLbls
+                            array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+                    else if showLVN and _isL
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
+                        if showLbls
+                            array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+
+            // POC / VAH / VAL.
+            if showPOC
+                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+            if showVA
+                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+
+// ── Alerts: price trading into a key level ───────────────────────────────────
+alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
+alertcondition(not na(vahLevel) and low <= vahLevel and high >= vahLevel, "Price at VAH", "{{ticker}} is trading at the Value Area High")
+alertcondition(not na(valLevel) and low <= valLevel and high >= valLevel, "Price at VAL", "{{ticker}} is trading at the Value Area Low")
