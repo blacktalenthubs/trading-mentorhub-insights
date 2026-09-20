@@ -37,6 +37,14 @@ hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 1
 lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN)
 nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
 
+// ── Weekly / Monthly high & low (prior period) ───────────────────────────────
+gWM = "Weekly / Monthly levels"
+enWk    = input.bool(true, "Prior week high / low (PWH / PWL)", inline = "wk", group = gWM)
+wkColor = input.color(#26C6DA, "", inline = "wk", group = gWM)
+enMo    = input.bool(true, "Prior month high / low (PMH / PML)", inline = "mo", group = gWM)
+moColor = input.color(#AB47BC, "", inline = "mo", group = gWM)
+wmWidth = input.int(2, "W/M line width", minval = 1, maxval = 8, group = gWM)
+
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
 
 // ── Rolling VWAP (the one dynamic line) ──────────────────────────────────────
@@ -44,6 +52,10 @@ _hlc  = (high + low + close) / 3.0
 _sv   = math.sum(volume, barsBack)
 avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
 plot(showAVWAP ? avwap : na, "VWAP", color = avColor, linewidth = avWidth)
+
+// Prior week / month high & low (non-repainting — completed prior period).
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
 // ── Build the profile + draw the lines on the last bar ───────────────────────
 var array<line>  vpLines = array.new_line()
@@ -155,6 +167,20 @@ if barstate.islast
                 if showLbls
                     array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
                     array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+
+            // Weekly / monthly prior high & low.
+            if enWk and not na(pwh)
+                array.push(vpLines, line.new(_xL, pwh, _xR, pwh, color = wkColor, width = wmWidth))
+                array.push(vpLines, line.new(_xL, pwl, _xR, pwl, color = wkColor, width = wmWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, pwh, "PWH " + str.tostring(pwh, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(wkColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, pwl, "PWL " + str.tostring(pwl, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(wkColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+            if enMo and not na(pmh)
+                array.push(vpLines, line.new(_xL, pmh, _xR, pmh, color = moColor, width = wmWidth))
+                array.push(vpLines, line.new(_xL, pml, _xR, pml, color = moColor, width = wmWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, pmh, "PMH " + str.tostring(pmh, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(moColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, pml, "PML " + str.tostring(pml, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(moColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
 // ── Alerts: price trading into a key level ───────────────────────────────────
 alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
