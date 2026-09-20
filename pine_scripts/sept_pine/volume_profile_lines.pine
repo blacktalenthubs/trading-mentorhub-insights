@@ -138,11 +138,11 @@ if barstate.islast
                     if showHVN and _isH
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
                         if showLbls
-                            array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+                            array.push(vpLbls, label.new(_xR, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
                     else if showLVN and _isL
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
-                            array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
+                            array.push(vpLbls, label.new(_xR, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = size.tiny))
 
             // POC / VAH / VAL.
             if showPOC
