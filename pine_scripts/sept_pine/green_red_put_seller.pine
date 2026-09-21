@@ -1,10 +1,13 @@
 //@version=5
-// RSI Put-Seller Backtest — does the analyst's put-selling routine actually work? His
-// routine COMBINES two indicators: sell a ~30-DTE cash-secured put only when RSI(14) is
-// under 50 AND the EMA cloud is green (daily + weekly). Both cloud checks default ON, so
-// out of the box this backtests the combined RSI + EMA-cloud setup. To isolate the pure
-// RSI edge, turn the cloud filters OFF and compare the win rate. One put at a time,
-// re-armed after each expiry.
+// RSI Put-Seller Backtest — does the analyst's put-selling routine actually work? Two
+// selectable signal modes:
+//   1. "RSI < threshold" — his TREND routine: sell a ~30-DTE put while RSI(14) is under 50,
+//      best paired with the EMA-cloud filter (green daily + weekly, default ON). This keeps
+//      you out of red-cloud declines but rarely fires in an uptrend (RSI is high there).
+//   2. "RSI bullish divergence" — his BOTTOM-caller: price makes a LOWER low while RSI makes
+//      a HIGHER low ("price new low, RSI holds higher = I buy"). These bottoms happen with
+//      the cloud RED, so turn the cloud filters OFF in this mode.
+// One put at a time, re-armed after each expiry.
 // Options can't run in Pine's Strategy Tester, so this tracks every signal to expiry and
 // tallies the outcome: WIN = price held ABOVE the strike at expiry (put expires worthless
 // / you'd have hit your 50% exit); LOSS = price below the strike (assigned). Hold-to-expiry
@@ -13,8 +16,10 @@ indicator("RSI Put-Seller Backtest", "RSI-puts", overlay = true, max_labels_coun
 
 // ── The two signals ──────────────────────────────────────────────────────────
 gS = "Signal — the core test"
+sigMode = input.string("RSI < threshold", "What fires a put", options = ["RSI < threshold", "RSI bullish divergence"], group = gS, tooltip = "RSI < threshold = his trend routine (sell while RSI is under 50, best paired with the cloud filter below). RSI bullish divergence = his bottom-caller: price makes a LOWER low while RSI makes a HIGHER low. Divergence bottoms happen with the cloud RED, so turn the cloud filters OFF when testing this mode.")
 rsiLen  = input.int(14, "RSI length", minval = 2, group = gS)
-rsiMax  = input.float(50, "Sell a put when RSI is UNDER", minval = 1, maxval = 100, group = gS, tooltip = "The one thing being tested: does selling ~30d puts whenever RSI is below this level actually work? One put at a time, re-armed after each expiry.")
+rsiMax  = input.float(50, "RSI<threshold mode: sell when RSI is UNDER", minval = 1, maxval = 100, group = gS, tooltip = "Only used in 'RSI < threshold' mode. One put at a time, re-armed after each expiry.")
+pivLen  = input.int(5, "Divergence mode: pivot lookback (bars each side)", minval = 1, maxval = 30, group = gS, tooltip = "Only used in 'RSI bullish divergence' mode. A swing low needs this many bars on each side to confirm, so the signal fires ~this many bars AFTER the low — realistic (you know the low held). Compares each confirmed price low + its RSI to the previous one.")
 
 // His actual setup = RSI < 50 AND the EMA cloud green (daily + weekly). Both ON by
 // default; turn a cloud off to isolate the pure RSI edge and compare.
@@ -48,8 +53,23 @@ _wf = request.security(syminfo.tickerid, "W", ta.ema(close, emaFast), lookahead 
 _ws = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off)
 _weeklyGreen = _wf > _ws
 
-// Core test: RSI below the threshold. The rest are optional filters (default off).
-signal = _rsi < rsiMax and (not reqDrop or _dropped) and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
+// RSI bullish divergence: on each CONFIRMED swing low, compare it (and the RSI reading
+// at that low) to the PREVIOUS swing low. Lower price low + higher RSI low = the
+// snapback setup ("price new low, RSI holds higher = I buy"). Fires pivLen bars after
+// the low, so the low is already confirmed.
+_pl        = ta.pivotlow(low, pivLen, pivLen)          // price of the swing low, na if none here
+var float _prevLowP = na                               // previous swing low price
+var float _prevLowR = na                               // RSI at that previous swing low
+_bullDiv = false
+if not na(_pl)
+    _rsiAtLow = _rsi[pivLen]                            // RSI reading back at the pivot bar
+    _bullDiv := not na(_prevLowP) and _pl < _prevLowP and _rsiAtLow > _prevLowR
+    _prevLowP := _pl
+    _prevLowR := _rsiAtLow
+
+// Core signal depends on the mode; filters below apply to both (default off in divergence).
+_core  = sigMode == "RSI bullish divergence" ? _bullDiv : _rsi < rsiMax
+signal = _core and (not reqDrop or _dropped) and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
 
 // ── EMA cloud + signal marker ────────────────────────────────────────────────
 p1 = plot(showCloud ? _ef : na, "EMA fast", color = color.new(#26A69A, 30))
@@ -103,8 +123,9 @@ if barstate.islast
     _hb = color.new(#0f1420, 8)
     _lc = color.new(color.gray, 0)
     _tc = color.new(color.white, 0)
+    _modeTxt = sigMode == "RSI bullish divergence" ? "DIVERGENCE" : "RSI<" + str.tostring(rsiMax, "#")
     table.cell(t, 0, 0, "PUT-SELL BACKTEST", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 0, syminfo.ticker, bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 1, 0, syminfo.ticker + " · " + _modeTxt, bgcolor = _hb, text_color = _tc, text_size = size.small)
     table.cell(t, 0, 1, "Signals", bgcolor = _hb, text_color = _lc, text_size = size.small)
     table.cell(t, 1, 1, str.tostring(nSig), bgcolor = _hb, text_color = _tc, text_size = size.small)
     table.cell(t, 0, 2, "Closed", bgcolor = _hb, text_color = _lc, text_size = size.small)
@@ -121,4 +142,4 @@ if barstate.islast
     table.cell(t, 1, 7, str.tostring(_rsi, "#") + (_rsi < rsiMax ? " ✓" : ""), bgcolor = _hb, text_color = _tc, text_size = size.small)
 
 // Alert when a fresh signal fires (sell a put).
-alertcondition(signal, "Sell-put signal", "{{ticker}}: RSI<50 + EMA cloud green → sell a ~30d put")
+alertcondition(signal, "Sell-put signal", "{{ticker}}: put-seller signal fired → sell a ~30d put (check the mode: RSI<50+cloud or RSI divergence)")
