@@ -122,6 +122,7 @@ from alert_config import (
     VWAP_BOUNCE_TOUCH_PCT,
     VWAP_RECLAIM_MAX_DISTANCE_PCT,
     VWAP_SYMBOLS,
+    LEVEL_ALERT_SYMBOLS,
     VWAP_RECLAIM_MIN_BARS_AFTER_LOW,
     VWAP_RECLAIM_MIN_RECOVERY_PCT,
     VWAP_RECLAIM_MORNING_BARS,
@@ -8817,7 +8818,8 @@ def evaluate_rules(
             (AlertType.PWH_BREAKOUT_RETEST, prior_day.get("prior_week_high"), "PWH"),
             (AlertType.PMH_BREAKOUT_RETEST, prior_day.get("prior_month_high"), "PMH"),
         ]:
-            if _br_at.value in ENABLED_RULES and _br_lvl:
+            # Weekly/monthly LEVEL alerts fire only for the selected names (2026-09-21).
+            if _br_at.value in ENABLED_RULES and _br_lvl and symbol.upper() in LEVEL_ALERT_SYMBOLS:
                 sig = check_level_breakout_retest(
                     symbol, intraday_bars, _br_lvl, _br_lbl, _br_at,
                     prior_day=prior_day, other_emas=_other_emas_br,
@@ -8843,7 +8845,8 @@ def evaluate_rules(
             (AlertType.PQH_RECLAIM, prior_day.get("prior_quarter_high"), "PQH"),
             (AlertType.PQL_RECLAIM, prior_day.get("prior_quarter_low"), "PQL"),
         ]:
-            if _lv_at.value in ENABLED_RULES and _lv_lvl:
+            # Weekly/monthly/quarterly LEVEL reclaims fire only for the selected names (2026-09-21).
+            if _lv_at.value in ENABLED_RULES and _lv_lvl and symbol.upper() in LEVEL_ALERT_SYMBOLS:
                 sig = check_ma_reclaim(
                     symbol, intraday_bars, _lv_lvl, _lv_lbl, _lv_at, today_open,
                     prior_day=prior_day, other_levels=_other_emas_br,

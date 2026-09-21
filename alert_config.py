@@ -447,6 +447,13 @@ CONFLUENCE_BAND_PCT = 0.005  # 0.5%
 # bounce-then-fade behaviour around VWAP.
 VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 
+# (2026-09-21, trader directive) Weekly/monthly LEVEL alerts (pwh_breakout_retest,
+# pwl_reclaim, and any re-enabled weekly/monthly ladder) fire ONLY for these names —
+# everywhere else they're noise. SMA-1h support alerts (ma20/50/200_support_1h) are gated
+# to the same short list. Gated at the generation sites (intraday_rules / monitor).
+LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META"}
+SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
+
 # VWAP Reclaim: morning reversal pattern — session low in first hour, reclaims VWAP
 VWAP_RECLAIM_MORNING_BARS = 12          # low must be in first 60 min (12 × 5-min bars)
 VWAP_RECLAIM_MIN_RECOVERY_PCT = 0.005   # 0.5% minimum bounce from session low
@@ -663,18 +670,15 @@ ENABLED_RULES: set[str] = {
     # Everything else is OFF. See scanner_ma20_support_spec.md.
     # ============================================================================
 
-    # ── Daily MA support: 20 (rising, gated in intraday_rules) + 200 ────────────
-    "ma_reclaim_20",
+    # ── Daily MA support: 50 + 200 (the daily 20 SMA is OFF — 2026-09-21, too noisy) ─
     "ma_reclaim_50",
     "ma_reclaim_150",
     "ma_reclaim_200",
     # ── Daily MA BOUNCE (2026-09-15) — pull back to the SMA and CLOSE ABOVE it.
     # The reclaim rules above are open-above/hold and almost never fire on daily,
     # so the actual daily support bounces (HOOD@20, LRCX@200) were computed but
-    # suppressed as "rule_not_enabled". Enabled for the 20/50/150/200 SMAs (the
-    # pine's MAs); ma_bounce_150 added 2026-09-15. (ma_bounce_100 left OFF — not
-    # one of the four; still computed, just not delivered.)
-    "ma_bounce_20",
+    # suppressed as "rule_not_enabled". (2026-09-21: the daily 20 SMA — ma_reclaim_20
+    # + ma_bounce_20 — turned OFF as too noisy; 50/150/200 stay on.)
     "ma_bounce_50",
     "ma_bounce_150",
     "ma_bounce_200",
