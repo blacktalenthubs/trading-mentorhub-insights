@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analytics.volume_profile_signals import detect_premium_signals, detect_signals  # noqa: E402
+from analytics.volume_profile_signals import detect_signals  # noqa: E402
 
 try:
     from alert_config import SHORT_UNIVERSE
@@ -31,8 +31,6 @@ KIND_LABEL = {
     "vah_breakout": "VAH breakout",
     "vwap_reclaim": "VWAP reclaim",
     "vwap_loss":    "VWAP loss",
-    "sell_puts":    "SELL PUTS",
-    "sell_calls":   "SELL CALLS",
 }
 
 
@@ -61,21 +59,9 @@ def check(sym: str, df) -> list[dict]:
             "risk_pct": round(risk / s.price * 100, 1) if s.price else 0.0,
             "confluence": s.confluence,
         })
-    # Premium-selling setups (options): SELL PUTS at a bottom / SELL CALLS at a top.
-    for s in detect_premium_signals(df, sym, calls_ok=True):
-        _dir = "long" if s.kind == "sell_puts" else "short"   # puts bullish / calls bearish (colour)
-        rows.append({
-            "sym": sym,
-            "signal": s.kind,
-            "label": KIND_LABEL.get(s.kind, s.kind) + (" · " + s.reason if s.reason else ""),
-            "direction": _dir,
-            "price": round(s.price, 2),
-            "level": round(s.level, 2),
-            "level_name": s.level_name,
-            "stop": round(s.level, 2),
-            "risk_pct": round(abs(s.price - s.level) / s.price * 100, 1) if s.price else 0.0,
-            "confluence": s.confluence,
-        })
+    # Put/call SELLING lives in the dedicated put-seller scan now (analytics/putsell_scan.py
+    # -> the "Put sellers" section) so there's ONE put-selling surface. This scan is
+    # directional VP setups only (POC / value area / VWAP).
     return rows
 
 
