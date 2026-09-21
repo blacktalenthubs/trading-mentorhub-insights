@@ -14,6 +14,7 @@ columns  = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gP)
 vaPct    = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gP)
 lineLen  = input.int(120, "Line length (bars left)", minval = 5, maxval = 5000, group = gP)
 rightPad = input.int(10, "Label offset (bars right)", minval = 0, maxval = 100, group = gP)
+drawProx = input.float(20.0, "Only draw levels within N% of price (0 = all)", minval = 0, maxval = 100, group = gP, tooltip = "Hides levels far from price so a wide-range locked profile doesn't compress the chart. 0 = draw every level.")
 vpTf = vpLock ? vpTfPick : timeframe.period
 
 // ── Core levels (POC / VAH / VAL / VWAP) ─────────────────────────────────────
@@ -177,6 +178,9 @@ f_line(float _y, color _c, int _w, string _sty) =>
     line.new(math.max(bar_index - lineLen, bar_index - 9000), _y, bar_index + rightPad, _y, xloc = xloc.bar_index, color = _c, width = _w, style = _sty)
 f_tag(float _y, string _t, color _c) =>
     label.new(bar_index + rightPad, _y, _t, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_c, 0), textcolor = color.new(color.white, 0), size = f_lblSize(lblSize))
+// Draw a level only when it's real and within drawProx% of price (so a wide-range locked
+// profile doesn't drag far levels onto the axis and compress the candles). na → false.
+f_near(float _lv) => not na(_lv) and _lv != 0 and (drawProx <= 0 or math.abs(close - _lv) / close * 100.0 <= drawProx)
 
 if barstate.islast
     if array.size(vpLines) > 0
@@ -191,50 +195,55 @@ if barstate.islast
         table.delete(hud)
         hud := na
 
-    // HVN / LVN nodes (drawing gated by toggles; the HUD reads them regardless below).
-    _hvn = array.new_float()
-    for _v in array.from(vpH0, vpH1, vpH2, vpH3, vpH4, vpH5)
-        if not na(_v)
-            array.push(_hvn, _v)
-            if showHVN
+    // HVN / LVN nodes — drawn only when near price (proximity-gated) so far shelves in a
+    // wide locked profile don't compress the chart.
+    if showHVN
+        for _v in array.from(vpH0, vpH1, vpH2, vpH3, vpH4, vpH5)
+            if f_near(_v)
                 array.push(vpLines, f_line(_v, hvnColor, nodeWidth, line.style_solid))
                 if showLbls
                     array.push(vpLbls, f_tag(_v, "HVN " + str.tostring(_v, "#.##"), hvnColor))
     if showLVN
         for _v in array.from(vpL0, vpL1, vpL2, vpL3, vpL4, vpL5)
-            if not na(_v)
+            if f_near(_v)
                 array.push(vpLines, f_line(_v, lvnColor, nodeWidth, line.style_dotted))
                 if showLbls
                     array.push(vpLbls, f_tag(_v, "LVN " + str.tostring(_v, "#.##"), lvnColor))
 
-    // POC / VAH / VAL / VWAP.
-    if showPOC and not na(vpPoc)
+    // POC / VAH / VAL / VWAP — each gated individually.
+    if showPOC and f_near(vpPoc)
         array.push(vpLines, f_line(vpPoc, pocColor, pocWidth, line.style_solid))
         if showLbls
             array.push(vpLbls, f_tag(vpPoc, "POC " + str.tostring(vpPoc, "#.##"), pocColor))
-    if showVA and not na(vpVah)
+    if showVA and f_near(vpVah)
         array.push(vpLines, f_line(vpVah, vaColor, vaWidth, line.style_solid))
-        array.push(vpLines, f_line(vpVal, vaColor, vaWidth, line.style_solid))
         if showLbls
             array.push(vpLbls, f_tag(vpVah, "VAH " + str.tostring(vpVah, "#.##"), vaColor))
+    if showVA and f_near(vpVal)
+        array.push(vpLines, f_line(vpVal, vaColor, vaWidth, line.style_solid))
+        if showLbls
             array.push(vpLbls, f_tag(vpVal, "VAL " + str.tostring(vpVal, "#.##"), vaColor))
-    if showAVWAP and not na(vpVwap)
+    if showAVWAP and f_near(vpVwap)
         array.push(vpLines, f_line(vpVwap, avColor, avWidth, line.style_solid))
         if showLbls
             array.push(vpLbls, f_tag(vpVwap, "VWAP " + str.tostring(vpVwap, "#.##"), avColor))
 
-    // Weekly / monthly prior high & low.
-    if enWk and not na(pwh)
+    // Weekly / monthly prior high & low — each gated individually.
+    if enWk and f_near(pwh)
         array.push(vpLines, f_line(pwh, wkColor, wmWidth, line.style_solid))
-        array.push(vpLines, f_line(pwl, wkColor, wmWidth, line.style_solid))
         if showLbls
             array.push(vpLbls, f_tag(pwh, "PWH " + str.tostring(pwh, "#.##"), wkColor))
+    if enWk and f_near(pwl)
+        array.push(vpLines, f_line(pwl, wkColor, wmWidth, line.style_solid))
+        if showLbls
             array.push(vpLbls, f_tag(pwl, "PWL " + str.tostring(pwl, "#.##"), wkColor))
-    if enMo and not na(pmh)
+    if enMo and f_near(pmh)
         array.push(vpLines, f_line(pmh, moColor, wmWidth, line.style_solid))
-        array.push(vpLines, f_line(pml, moColor, wmWidth, line.style_solid))
         if showLbls
             array.push(vpLbls, f_tag(pmh, "PMH " + str.tostring(pmh, "#.##"), moColor))
+    if enMo and f_near(pml)
+        array.push(vpLines, f_line(pml, moColor, wmWidth, line.style_solid))
+        if showLbls
             array.push(vpLbls, f_tag(pml, "PML " + str.tostring(pml, "#.##"), moColor))
 
     // ── Premium-selling HUD (volume levels + RSI, on the locked timeframe) ──
