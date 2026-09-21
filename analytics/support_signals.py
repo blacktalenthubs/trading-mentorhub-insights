@@ -25,6 +25,7 @@ MA_TOL = 0.01      # how close the low must get to a level to count as tagging i
 OTM = 0.05         # put strike this far out-of-the-money
 DTE = 30
 RISE_LOOKBACK = 5  # a MA is "rising" if it's higher than this many bars ago
+AMBIG = 0.95       # peak_ratio at/above this = two near-tied nodes → volume levels unreliable
 
 
 @dataclass
@@ -38,6 +39,7 @@ class SupportSignal:
     levels: list[str] = field(default_factory=list)      # "POC 123.4" refs for the tooltip
     strike: float = 0.0                   # suggested put strike (price - OTM%)
     dte: int = DTE
+    ambiguous: bool = False               # volume profile has near-tied nodes → verify on chart
 
     @property
     def at_support(self) -> bool:
@@ -78,6 +80,13 @@ def _bounce(o: float, l: float, c: float, level: float | None, tol: float) -> bo
     return level is not None and o > level and l <= level * (1 + tol) and c > o
 
 
+def _wick_hold(l: float, c: float, o: float, level: float | None, tol: float) -> bool:
+    """Reversal off a level: the WICK tags it (within tol) and the bar closes back above it,
+    green. Gated on the wick — not the close — so a name that flushed to the level and ran
+    far above it intraday (APP) still counts, while one that just sits above (QQQ) does not."""
+    return level is not None and l <= level * (1 + tol) and c > level and c > o
+
+
 def detect_support(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str, *,
                    zone: float = OVERSOLD_ZONE, ma_tol: float = MA_TOL,
                    otm: float = OTM, dte: int = DTE) -> SupportSignal | None:
@@ -93,6 +102,7 @@ def detect_support(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str, *,
     do = daily["Open"].astype(float)
     dl = daily["Low"].astype(float)
     c, o, l = float(dc.iloc[-1]), float(do.iloc[-1]), float(dl.iloc[-1])
+    pc = float(dc.iloc[-2])   # prior close — distinguishes reclaim (from below) vs bounce/break
 
     rsi_d = _rsi(dc)
     rsi_w = _rsi(weekly["Close"].astype(float))
@@ -118,19 +128,46 @@ def detect_support(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str, *,
         triggers.append("200 SMA")
         levels.append(f"200MA {sma200:.2f}")
 
-    # Volume-profile supports: rolling VWAP, POC, value-area low — a bounce off each.
+    # Volume-profile levels — edge-triggered, wick-gated (validated on SPY/APP/NVDA):
+    #   POC / VAL / VWAP reclaim: wick tags the level, closes back above it, green.
+    #   HVN hold: wick tags a high-volume node from ABOVE and holds (support).
+    #   HVN break: price crosses UP through a high-volume node (prev close below, now above).
+    # No LVN (too noisy). `ambiguous` flags near-tied-node names where the level may be off.
     prof = compute_profile(daily)
     vwap = rolling_vwap(daily)
-    if _bounce(o, l, c, vwap, ma_tol):
+    ambiguous = prof is not None and prof.peak_ratio >= AMBIG
+    _added: list[float] = []   # dedupe levels within tol so POC/HVN at one price don't double
+
+    def _new(price: float) -> bool:
+        if any(abs(price - x) / price <= ma_tol for x in _added):
+            return False
+        _added.append(price)
+        return True
+
+    # Order = strongest level first (POC/VAL/HVN before the derived VWAP), so when two
+    # levels sit at the same price the dedupe keeps the more meaningful label.
+    if prof is not None:
+        if _wick_hold(l, c, o, prof.poc, ma_tol) and _new(prof.poc):
+            triggers.append("POC reclaim" if pc < prof.poc else "POC bounce")
+            levels.append(f"POC {prof.poc:.2f}")
+        if _wick_hold(l, c, o, prof.val, ma_tol) and _new(prof.val):
+            triggers.append("VAL reclaim")
+            levels.append(f"VAL {prof.val:.2f}")
+        # HVN hold — wicked to a node and held, coming from clearly ABOVE it (support).
+        for h in sorted(prof.hvns, key=lambda x: abs(x - l)):
+            if _wick_hold(l, c, o, h, ma_tol) and pc >= h and _new(h):
+                triggers.append("HVN hold")
+                levels.append(f"HVN {h:.2f}")
+                break
+        # HVN break — the highest node price just crossed UP through (came from below).
+        for h in sorted(prof.hvns, reverse=True):
+            if pc <= h < c and _new(h):
+                triggers.append("HVN break")
+                levels.append(f"HVN {h:.2f}")
+                break
+    if _wick_hold(l, c, o, vwap, ma_tol) and _new(vwap):
         triggers.append("VWAP")
         levels.append(f"VWAP {vwap:.2f}")
-    if prof is not None:
-        if _bounce(o, l, c, prof.poc, ma_tol):
-            triggers.append("POC")
-            levels.append(f"POC {prof.poc:.2f}")
-        if _bounce(o, l, c, prof.val, ma_tol):
-            triggers.append("VAL")
-            levels.append(f"VAL {prof.val:.2f}")
 
     # RSI reclaims (daily + weekly turn up from oversold).
     if _rsi_reversal(rsi_d, zone):
@@ -146,5 +183,5 @@ def detect_support(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str, *,
     return SupportSignal(
         symbol=symbol, price=round(c, 2), rsi_d=round(rd, 1), rsi_w=round(rw, 1),
         weekly_oversold=weekly_oversold, triggers=triggers, levels=levels,
-        strike=round(c * (1 - otm), 2), dte=dte,
+        strike=round(c * (1 - otm), 2), dte=dte, ambiguous=ambiguous,
     )

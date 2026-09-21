@@ -43,6 +43,7 @@ def check(sym: str) -> dict | None:  # pragma: no cover - network
         "sym": s.symbol, "price": s.price, "rsi_d": s.rsi_d, "rsi_w": s.rsi_w,
         "weekly_oversold": s.weekly_oversold, "triggers": s.triggers,
         "levels": s.levels, "at_support": s.at_support, "strike": s.strike, "dte": s.dte,
+        "ambiguous": s.ambiguous,
     }
 
 
