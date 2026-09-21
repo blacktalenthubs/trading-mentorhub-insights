@@ -451,8 +451,12 @@ VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 # pwl_reclaim, and any re-enabled weekly/monthly ladder) fire ONLY for these names —
 # everywhere else they're noise. SMA-1h support alerts (ma20/50/200_support_1h) are gated
 # to the same short list. Gated at the generation sites (intraday_rules / monitor).
-LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META"}
+LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META",
+                                 "SPY", "QQQ", "MSFT", "HOOD"}
 SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
+# Hourly volume-profile support alerts (POC reclaim / VAL reclaim / VWAP support), computed
+# on 1h bars — same isolated names (too noisy universe-wide).
+HOURLY_VP_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
 
 # VWAP Reclaim: morning reversal pattern — session low in first hour, reclaims VWAP
 VWAP_RECLAIM_MORNING_BARS = 12          # low must be in first 60 min (12 × 5-min bars)
@@ -687,6 +691,10 @@ ENABLED_RULES: set[str] = {
     "ma20_support_1h",
     "ma50_support_1h",
     "ma200_support_1h",
+    # ── Hourly volume-profile support (isolated names only) — POC/VAL/VWAP (2026-09-21) ─
+    "hourly_poc_reclaim",
+    "hourly_val_reclaim",
+    "hourly_vwap_support",
     # ── 4H MA support bounces (day-trade): 20 (rising) + 50 + 200 ────────────────
     "ma20_support_4h",
     "ma50_support_4h",
