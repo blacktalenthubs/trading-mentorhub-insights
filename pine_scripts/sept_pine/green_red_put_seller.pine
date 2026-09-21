@@ -1,38 +1,26 @@
 //@version=5
-// RSI Put-Seller Backtest — does the analyst's put-selling routine actually work? Two
-// selectable signal modes, both EVENT triggers (they fire on a turn, not while a level
-// holds — because "RSI under 50" is true the whole way DOWN a trend, so selling puts on
-// that state alone dumps you into every falling knife):
-//   1. "RSI reversal" — RSI dips into the oversold zone (default under 40 — catches the
-//      ~33 and ~40 bounces) and TURNS BACK UP. One put on the turn, not on the way down.
-//   2. "RSI bullish divergence" — price makes a LOWER low while RSI makes a HIGHER low
-//      ("price new low, RSI holds higher = I buy"). The deeper bottom-caller.
-// EMA-cloud filters are OPTIONAL (default off) — a red-cloud downtrend is exactly where
-// these oversold bounces happen, so cloud-green would veto the best signals.
-// One put at a time, re-armed after each expiry.
-// Options can't run in Pine's Strategy Tester, so this tracks every signal to expiry and
-// tallies the outcome: WIN = price held ABOVE the strike at expiry (put expires worthless
-// / you'd have hit your 50% exit); LOSS = price below the strike (assigned). Hold-to-expiry
-// is a CONSERVATIVE proxy — the 50%-profit exit only improves it.
+// RSI Put-Seller Backtest — sell cash-secured puts ONLY at oversold reversal / support
+// points, never into a falling knife. Fires a ~30-DTE put when ANY enabled trigger hits:
+//   • Daily RSI reversal  — RSI dips under the oversold zone (default 40) and turns back up
+//   • Weekly RSI reversal — the WEEKLY RSI turns up from under the zone (bigger-picture turn)
+//   • 50 SMA bounce       — price wicks down to the 50-day SMA and closes back above it (green)
+//   • 200 SMA bounce      — same, at the 200-day SMA
+// No EMA cloud, no fixed % drop — those don't time a reversal.
+// Options can't run in Pine's Strategy Tester, so this tracks each signal to expiry:
+// WIN = close held ABOVE the strike (put expires worthless / you'd hit the 50% exit);
+// LOSS = close below the strike (assigned). Hold-to-expiry is CONSERVATIVE — the 50%
+// profit exit only improves it. One put at a time, re-armed after each expiry.
 indicator("RSI Put-Seller Backtest", "RSI-puts", overlay = true, max_labels_count = 500)
 
-// ── The two signals ──────────────────────────────────────────────────────────
-gS = "Signal — the core test"
-sigMode = input.string("RSI reversal", "What fires a put", options = ["RSI reversal", "RSI bullish divergence"], group = gS, tooltip = "RSI reversal = RSI dips into the oversold zone and TURNS BACK UP (an event, so it fires on the bounce — not the whole way down like a plain 'RSI<50' would). RSI bullish divergence = the deeper bottom-caller: price makes a LOWER low while RSI makes a HIGHER low.")
+// ── Triggers (any enabled one fires a put) ───────────────────────────────────
+gS = "Signal — oversold reversals (any fires a put)"
+tRsiD = input.bool(true, "Daily RSI reversal (turn up from oversold)", group = gS)
+tRsiW = input.bool(true, "Weekly RSI reversal (weekly turn up from oversold)", group = gS)
+t50   = input.bool(true, "50 SMA bounce", group = gS)
+t200  = input.bool(true, "200 SMA bounce", group = gS)
 rsiLen  = input.int(14, "RSI length", minval = 2, group = gS)
-rsiZone = input.float(40, "RSI reversal mode: oversold zone — turn up from UNDER", minval = 1, maxval = 100, group = gS, tooltip = "Only used in 'RSI reversal' mode. RSI must have dipped BELOW this to arm; the put fires on the bar RSI turns back up. 40 catches both the ~33 deep bounces and the ~40 shallow ones. One put at a time, re-armed after each expiry.")
-pivLen  = input.int(5, "Divergence mode: pivot lookback (bars each side)", minval = 1, maxval = 30, group = gS, tooltip = "Only used in 'RSI bullish divergence' mode. A swing low needs this many bars on each side to confirm, so the signal fires ~this many bars AFTER the low — realistic (you know the low held). Compares each confirmed price low + its RSI to the previous one.")
-
-// Optional trend filters. DEFAULT OFF: the oversold bounces this fires on happen in
-// red-cloud downtrends, so requiring cloud-green would veto the best signals. Turn one on
-// only to test "bounces, but only while the bigger trend is still up".
-gF = "Filters (default off — cloud vetoes red-trend bounces)"
-reqDaily  = input.bool(false, "Require DAILY EMA cloud green", group = gF)
-reqWeekly = input.bool(false, "Require WEEKLY EMA cloud green", group = gF)
-emaFast   = input.int(8,  "EMA cloud — fast", minval = 1, inline = "e", group = gF)
-emaSlow   = input.int(21, "slow", minval = 2, inline = "e", group = gF)
-reqDrop   = input.bool(false, "Also require a drop day (down N%)", inline = "d", group = gF)
-dropPct   = input.float(5.0, "N%", minval = 0.5, maxval = 30, step = 0.5, inline = "d", group = gF)
+rsiZone = input.float(40, "Oversold zone — RSI must dip under this", minval = 1, maxval = 100, group = gS, tooltip = "Arms the RSI triggers. 40 catches both the ~33 deep bounces and the ~40 shallow ones. Daily fires when RSI turns up from under it; weekly fires when the WEEKLY RSI turns up from under it.")
+maTol   = input.float(1.0, "SMA bounce tolerance %", minval = 0, maxval = 5, step = 0.1, group = gS, tooltip = "How close the bar's low must get to the SMA to count as tagging it. A bounce = wick tags the SMA, close holds ABOVE it, green bar.")
 
 // ── The put (for the backtest) ───────────────────────────────────────────────
 gPut = "Put model"
@@ -42,47 +30,43 @@ creditPct = input.float(3.0, "Est. credit (% of strike)", minval = 0.1, maxval =
 oneAtTime = input.bool(true, "One open put at a time", group = gPut)
 
 gV = "Visuals"
-showCloud = input.bool(true, "Show EMA cloud + signals", group = gV)
-hudPos    = input.string("top_right", "Stats position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gV)
+showMAs = input.bool(true, "Show 50/200 SMA + signals", group = gV)
+hudPos  = input.string("top_right", "Stats position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gV)
 
-// ── Compute the two signals ──────────────────────────────────────────────────
-_ef = ta.ema(close, emaFast)
-_es = ta.ema(close, emaSlow)
-_dailyGreen = _ef > _es
-_rsi = ta.rsi(close, rsiLen)
-_dropped = (low - close[1]) / close[1] * 100.0 <= -dropPct   // touched down N% from prior close
+// ── Weekly RSI helpers (evaluated in the weekly context) ─────────────────────
+f_wRev(simple int len, simple float zone) =>
+    r = ta.rsi(close, len)
+    r > r[1] and r[1] <= r[2] and r[1] < zone   // weekly RSI turned up from under the zone
+f_wRsi(simple int len) => ta.rsi(close, len)
 
-_wf = request.security(syminfo.tickerid, "W", ta.ema(close, emaFast), lookahead = barmerge.lookahead_off)
-_ws = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off)
-_weeklyGreen = _wf > _ws
+// ── Compute the triggers ─────────────────────────────────────────────────────
+_rsi    = ta.rsi(close, rsiLen)
+_sma50  = ta.sma(close, 50)
+_sma200 = ta.sma(close, 200)
 
-// RSI bullish divergence: on each CONFIRMED swing low, compare it (and the RSI reading
-// at that low) to the PREVIOUS swing low. Lower price low + higher RSI low = the
-// snapback setup ("price new low, RSI holds higher = I buy"). Fires pivLen bars after
-// the low, so the low is already confirmed.
-_pl        = ta.pivotlow(low, pivLen, pivLen)          // price of the swing low, na if none here
-var float _prevLowP = na                               // previous swing low price
-var float _prevLowR = na                               // RSI at that previous swing low
-_bullDiv = false
-if not na(_pl)
-    _rsiAtLow = _rsi[pivLen]                            // RSI reading back at the pivot bar
-    _bullDiv := not na(_prevLowP) and _pl < _prevLowP and _rsiAtLow > _prevLowR
-    _prevLowP := _pl
-    _prevLowR := _rsiAtLow
+// Daily RSI reversal: RSI[1] a local trough inside the zone, RSI now turning up.
+_rsiTrough = _rsi[1] < _rsi and _rsi[1] <= _rsi[2]
+_dRev = _rsiTrough and _rsi[1] < rsiZone
 
-// RSI reversal: RSI[1] was a local trough (falling in, now turning up) AND that trough sat
-// in the oversold zone. Fires on the turn — one signal per dip, not every bar RSI is low.
-_rsiTrough = _rsi[1] < _rsi and _rsi[1] <= _rsi[2]     // rsi[1] is a local low, rsi now rising
-_rsiReversal = _rsiTrough and _rsi[1] < rsiZone        // that low was inside the oversold zone
+// Weekly RSI reversal + current weekly RSI value (surfaced from the weekly timeframe).
+_wRev = request.security(syminfo.tickerid, "W", f_wRev(rsiLen, rsiZone), lookahead = barmerge.lookahead_off)
+_rsiW = request.security(syminfo.tickerid, "W", f_wRsi(rsiLen), lookahead = barmerge.lookahead_off)
 
-// Core signal depends on the mode; the filters below apply to both.
-_core  = sigMode == "RSI bullish divergence" ? _bullDiv : _rsiReversal
-signal = _core and (not reqDrop or _dropped) and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
+// SMA bounce: wick tags the SMA, close holds above it, green bar (turning up off support).
+_bounce50  = low <= _sma50  * (1 + maTol / 100.0) and close > _sma50  and close > open
+_bounce200 = low <= _sma200 * (1 + maTol / 100.0) and close > _sma200 and close > open
 
-// ── EMA cloud + signal marker ────────────────────────────────────────────────
-p1 = plot(showCloud ? _ef : na, "EMA fast", color = color.new(#26A69A, 30))
-p2 = plot(showCloud ? _es : na, "EMA slow", color = color.new(#FB8C00, 30))
-fill(p1, p2, color = showCloud ? (_dailyGreen ? color.new(color.green, 82) : color.new(color.red, 82)) : na)
+// Any enabled trigger fires a put; _why names the one that did (priority order).
+_fD   = tRsiD and _dRev
+_fW   = tRsiW and _wRev
+_f50  = t50  and _bounce50
+_f200 = t200 and _bounce200
+signal = _fD or _fW or _f50 or _f200
+_why = _f200 ? "200 bounce" : _f50 ? "50 bounce" : _fD ? "RSI rev" : _fW ? "Wk RSI" : ""
+
+// ── Plot the SMAs + signal marker ────────────────────────────────────────────
+plot(showMAs ? _sma50  : na, "50 SMA",  color = color.new(#42A5F5, 0), linewidth = 1)
+plot(showMAs ? _sma200 : na, "200 SMA", color = color.new(#FB8C00, 0), linewidth = 2)
 
 // ── Backtest: track each signalled put to expiry ─────────────────────────────
 var array<float> posK   = array.new_float()
@@ -98,8 +82,8 @@ if _canEnter and barstate.isconfirmed
     array.push(posK, _k)
     array.push(posExp, bar_index + dte)
     nSig += 1
-    if showCloud
-        label.new(bar_index, low, "PUT ≤ " + str.tostring(_k, format.mintick), yloc = yloc.belowbar, style = label.style_label_up, color = color.new(#26A69A, 15), textcolor = color.white, size = size.tiny)
+    if showMAs
+        label.new(bar_index, low, _why + " · PUT ≤ " + str.tostring(_k, format.mintick), yloc = yloc.belowbar, style = label.style_label_up, color = color.new(#26A69A, 15), textcolor = color.white, size = size.tiny)
 
 // Resolve any position that reached expiry (iterate backwards so removals are safe).
 if array.size(posExp) > 0
@@ -122,32 +106,40 @@ _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? pos
 var table t = na
 if barstate.islast
     _closed = nWin + nLoss
-    _wr = _closed > 0 ? nWin / _closed * 100.0 : 0.0
+    _wr  = _closed > 0 ? nWin / _closed * 100.0 : 0.0
     _avg = _closed > 0 ? pnl / _closed : 0.0
-    _cloudTxt = (_dailyGreen ? "D✓" : "D✗") + "  " + (_weeklyGreen ? "W✓" : "W✗")
-    _cloudCol = _dailyGreen and _weeklyGreen ? #26A69A : _dailyGreen or _weeklyGreen ? #F5A623 : #EF5350
+    _trg = (tRsiD ? "RSI " : "") + (tRsiW ? "Wk " : "") + (t50 ? "50 " : "") + (t200 ? "200" : "")
+    _armed = _rsi < rsiZone or _rsiW < rsiZone
+    _rsiTxt = str.tostring(_rsi, "#") + " / W" + str.tostring(_rsiW, "#") + (_armed ? " ·armed" : "")
+    // What to actually trade: the put strike at current price, and whether a signal is live now.
+    _sellK  = close * (1 - otmPct / 100.0)
+    _sigTxt = signal ? _why + " ✓ FIRED" : _armed ? "armed — watch for the turn" : "—"
+    _sigCol = signal ? #26A69A : _armed ? #F5A623 : color.new(color.gray, 0)
     if na(t)
-        t := table.new(_pos, 2, 8, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+        t := table.new(_pos, 2, 10, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
     _hb = color.new(#0f1420, 8)
     _lc = color.new(color.gray, 0)
     _tc = color.new(color.white, 0)
-    _modeTxt = sigMode == "RSI bullish divergence" ? "DIVERGENCE" : "REVERSAL <" + str.tostring(rsiZone, "#")
     table.cell(t, 0, 0, "PUT-SELL BACKTEST", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 0, syminfo.ticker + " · " + _modeTxt, bgcolor = _hb, text_color = _tc, text_size = size.small)
-    table.cell(t, 0, 1, "Signals", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 1, str.tostring(nSig), bgcolor = _hb, text_color = _tc, text_size = size.small)
-    table.cell(t, 0, 2, "Closed", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 2, str.tostring(_closed) + "  (" + str.tostring(array.size(posK)) + " open)", bgcolor = _hb, text_color = _tc, text_size = size.small)
-    table.cell(t, 0, 3, "Win rate", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 3, str.tostring(_wr, "#.#") + "%  (" + str.tostring(nWin) + "W/" + str.tostring(nLoss) + "L)", bgcolor = _hb, text_color = _wr >= 70 ? #26A69A : _wr >= 50 ? #F5A623 : #EF5350, text_size = size.small)
-    table.cell(t, 0, 4, "Avg / trade", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 4, str.tostring(_avg, "#.##") + "%", bgcolor = _hb, text_color = _avg >= 0 ? #26A69A : #EF5350, text_size = size.small)
-    table.cell(t, 0, 5, "Total return", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 5, str.tostring(pnl, "#.#") + "%", bgcolor = _hb, text_color = pnl >= 0 ? #26A69A : #EF5350, text_size = size.small)
-    table.cell(t, 0, 6, "Clouds now", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 6, _cloudTxt, bgcolor = _hb, text_color = _cloudCol, text_size = size.small)
-    table.cell(t, 0, 7, "RSI now", bgcolor = _hb, text_color = _lc, text_size = size.small)
-    table.cell(t, 1, 7, str.tostring(_rsi, "#") + (_rsi < rsiZone ? " ·armed" : ""), bgcolor = _hb, text_color = _rsi < rsiZone ? #F5A623 : _tc, text_size = size.small)
+    table.cell(t, 1, 0, syminfo.ticker, bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 1, "Triggers", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 1, _trg, bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 2, "Signals", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 2, str.tostring(nSig), bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 3, "Closed", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 3, str.tostring(_closed) + "  (" + str.tostring(array.size(posK)) + " open)", bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 4, "Win rate", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 4, str.tostring(_wr, "#.#") + "%  (" + str.tostring(nWin) + "W/" + str.tostring(nLoss) + "L)", bgcolor = _hb, text_color = _wr >= 70 ? #26A69A : _wr >= 50 ? #F5A623 : #EF5350, text_size = size.small)
+    table.cell(t, 0, 5, "Avg / trade", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 5, str.tostring(_avg, "#.##") + "%", bgcolor = _hb, text_color = _avg >= 0 ? #26A69A : #EF5350, text_size = size.small)
+    table.cell(t, 0, 6, "Total return", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 6, str.tostring(pnl, "#.#") + "%", bgcolor = _hb, text_color = pnl >= 0 ? #26A69A : #EF5350, text_size = size.small)
+    table.cell(t, 0, 7, "RSI D/W", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 7, _rsiTxt, bgcolor = _hb, text_color = _armed ? #F5A623 : _tc, text_size = size.small)
+    table.cell(t, 0, 8, "Signal now", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 8, _sigTxt, bgcolor = _hb, text_color = _sigCol, text_size = size.small)
+    table.cell(t, 0, 9, "Sell PUT ≤", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 9, str.tostring(_sellK, format.mintick) + "  (~" + str.tostring(dte) + "d · " + str.tostring(otmPct, "#.#") + "% OTM)", bgcolor = _hb, text_color = signal ? #26A69A : _tc, text_size = size.small)
 
 // Alert when a fresh signal fires (sell a put).
-alertcondition(signal, "Sell-put signal", "{{ticker}}: put-seller signal fired → sell a ~30d put (RSI reversal / divergence — check the mode)")
+alertcondition(signal, "Sell-put signal", "{{ticker}}: oversold-reversal put signal → sell a ~30d put (RSI / weekly RSI / 50-200 SMA bounce)")
