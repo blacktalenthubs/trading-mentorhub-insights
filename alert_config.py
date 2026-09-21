@@ -708,8 +708,10 @@ ENABLED_RULES: set[str] = {
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
     "prior_day_low_reclaim",     # PDL reclaim
-    "pwh_breakout_retest",       # PWH breakout + retest
-    "pwl_reclaim",               # PWL reclaim
+    "pwh_breakout_retest",       # PWH breakout + retest (weekly)
+    "pwl_reclaim",               # PWL reclaim (weekly)
+    "pmh_breakout_retest",       # PMH breakout + retest (monthly, 2026-09-21)
+    "pml_reclaim",               # PML reclaim (monthly)
     "rsi_30_35",                 # RSI-30 oversold-turn reclaim (RSI back above 30 into 30-35)
     "gap_and_go",                # gap up >=1% + 2x first-bar volume, holding above the gap open (long)
 
