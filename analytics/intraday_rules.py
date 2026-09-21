@@ -323,10 +323,13 @@ class AlertType(str, Enum):
     MA20_SUPPORT_1H = "ma20_support_1h"
     MA50_SUPPORT_1H = "ma50_support_1h"
     MA200_SUPPORT_1H = "ma200_support_1h"
-    # Hourly volume-profile support (isolated names only) — 1h POC / VAL / VWAP holds.
+    # Hourly volume-profile (isolated names only) — 1h POC / VAL / VWAP holds + VAH break/reject.
     HOURLY_POC_RECLAIM = "hourly_poc_reclaim"
     HOURLY_VAL_RECLAIM = "hourly_val_reclaim"
     HOURLY_VWAP_SUPPORT = "hourly_vwap_support"
+    HOURLY_VAH_BREAKOUT = "hourly_vah_breakout"
+    HOURLY_VAH_REJECT = "hourly_vah_reject"
+    HOURLY_VAH_SUPPORT = "hourly_vah_support"   # VAH holding as support (after a breakout)
     # 4H support bounces (day-trade)
     MA20_SUPPORT_4H = "ma20_support_4h"
     MA50_SUPPORT_4H = "ma50_support_4h"
@@ -8395,6 +8398,78 @@ def check_hourly_vp_level(
             entry=entry, stop=stop, target_1=round(entry + 2 * risk, 2),
             target_2=round(entry + 3 * risk, 2), confidence="high",
             message=f"{label} — price holding the hourly {label} as support",
+        )
+    except Exception:
+        return None
+
+
+def check_hourly_vp_breakout(
+    symbol: str,
+    bars,
+    level: "float | None",
+    label: str,
+    alert_type: "AlertType",
+    stop_off: float = 0.007,
+):
+    """HOURLY value-area-high BREAKOUT (LONG) — price crossed UP through the 1h VAH on the
+    last completed bar (prior close at/below it, now closed above). BUY the level as the
+    retest. Pure over `bars` — never raises."""
+    try:
+        if bars is None or len(bars) < 10 or level is None or level <= 0:
+            return None
+        c = float(bars["Close"].iloc[-1])
+        pc = float(bars["Close"].iloc[-2])
+        if not (pc <= level and c > level):
+            return None
+        entry = round(level, 2)
+        stop = round(level * (1 - stop_off), 2)
+        risk = entry - stop
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol, alert_type=alert_type, direction="BUY", price=c,
+            entry=entry, stop=stop, target_1=round(entry + 2 * risk, 2),
+            target_2=round(entry + 3 * risk, 2), confidence="high",
+            message=f"{label} — broke out above the hourly {label}",
+        )
+    except Exception:
+        return None
+
+
+def check_hourly_vp_reject(
+    symbol: str,
+    bars,
+    level: "float | None",
+    label: str,
+    alert_type: "AlertType",
+    prox_pct: float = 0.006,
+    stop_off: float = 0.007,
+):
+    """HOURLY value-area-high REJECTION (SHORT) — the level version of check_ma_reject_htf:
+    the high tagged the 1h VAH and the bar closed back below it. Pure over `bars` —
+    never raises."""
+    try:
+        if bars is None or len(bars) < 10 or level is None or level <= 0:
+            return None
+        o = float(bars["Open"].iloc[-1])
+        h = float(bars["High"].iloc[-1])
+        c = float(bars["Close"].iloc[-1])
+        near = abs(h - level) / level <= prox_pct
+        rejected = c < level
+        open_below = o <= level
+        poked = h > level and c < level
+        if not (rejected and near and (open_below or poked)):
+            return None
+        entry = round(level, 2)
+        stop = round(level * (1 + stop_off), 2)
+        risk = stop - entry
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol, alert_type=alert_type, direction="SHORT", price=c,
+            entry=entry, stop=stop, target_1=round(entry - 2 * risk, 2),
+            target_2=round(entry - 3 * risk, 2), confidence="high",
+            message=f"{label} — rejected at the hourly {label} (resistance)",
         )
     except Exception:
         return None

@@ -27,7 +27,7 @@ from analytics.htf_bias import (  # noqa: E402
     confluence_score,
 )
 from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
-from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, evaluate_rules  # noqa: E402
+from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, check_hourly_vp_breakout, check_hourly_vp_reject, evaluate_rules  # noqa: E402
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
@@ -707,6 +707,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                             if _x: signals.append(_x)
                                         if "hourly_vwap_support" in _ENABLED_RULES:
                                             _x = check_hourly_vp_level(symbol, _h1, _rv(_h1), "VWAP (1h)", AlertType.HOURLY_VWAP_SUPPORT)
+                                            if _x: signals.append(_x)
+                                        # VAH — break up through it (long), reject at it (short), or hold it as support (long)
+                                        if _vp is not None and "hourly_vah_breakout" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_breakout(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_BREAKOUT)
+                                            if _x: signals.append(_x)
+                                        if _vp is not None and "hourly_vah_reject" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_reject(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_REJECT)
+                                            if _x: signals.append(_x)
+                                        if _vp is not None and "hourly_vah_support" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_level(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_SUPPORT)
                                             if _x: signals.append(_x)
                                     except Exception:
                                         pass

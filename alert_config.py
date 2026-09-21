@@ -452,7 +452,7 @@ VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 # everywhere else they're noise. SMA-1h support alerts (ma20/50/200_support_1h) are gated
 # to the same short list. Gated at the generation sites (intraday_rules / monitor).
 LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META",
-                                 "SPY", "QQQ", "MSFT", "HOOD"}
+                                 "SPY", "QQQ", "MSFT", "HOOD", "BTC-USD", "ETH-USD"}
 SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
 # Hourly volume-profile support alerts (POC reclaim / VAL reclaim / VWAP support), computed
 # on 1h bars — same isolated names (too noisy universe-wide).
@@ -691,10 +691,13 @@ ENABLED_RULES: set[str] = {
     "ma20_support_1h",
     "ma50_support_1h",
     "ma200_support_1h",
-    # ── Hourly volume-profile support (isolated names only) — POC/VAL/VWAP (2026-09-21) ─
+    # ── Hourly volume-profile (isolated names only) — POC/VAL/VWAP support + VAH (2026-09-21) ─
     "hourly_poc_reclaim",
     "hourly_val_reclaim",
     "hourly_vwap_support",
+    "hourly_vah_breakout",   # long — broke up through the 1h value-area high
+    "hourly_vah_reject",     # short — rejected at the 1h value-area high
+    "hourly_vah_support",    # long — VAH holding as support after a breakout
     # ── 4H MA support bounces (day-trade): 20 (rising) + 50 + 200 ────────────────
     "ma20_support_4h",
     "ma50_support_4h",
