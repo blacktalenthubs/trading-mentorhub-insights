@@ -566,8 +566,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const reportDates = datesData?.dates ?? [];
   const fmtDate = (d: string) =>
     new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  const pre = data?.premarket ?? null;
-  const eod = data?.eod ?? null;
   const mf = data?.morning_focus ?? null;
   const sw = data?.swing_setups ?? null;
   const ma20 = data?.ma20_setups ?? null;
@@ -620,16 +618,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             ? <TopSpotlights body={mf.body} onChart={onChart} />
             : <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Top spotlights drop ~8:55 ET.</div>}
           <PremarketStrip body={ps?.body} onChart={onChart} />
-        </div>
-      ) },
-    // ── CONTEXT — premarket read + EOD recap in ONE card. ──
-    { id: "sec-briefing", time: "BRIEF", title: "Briefing", present: !!pre || !!eod,
-      wait: "Premarket read ~8:30 AM · EOD recap ~4:05 PM ET.",
-      render: () => (
-        <div className="space-y-4">
-          {pre && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-accent">Premarket read</div><ReportBody body={pre.body} onChart={onChart} /></div>}
-          {eod && <div><div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">EOD recap</div><ReportBody body={eod.body} onChart={onChart} /></div>}
-          {!pre && !eod && <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Briefing drops pre-open + after the close.</div>}
         </div>
       ) },
     // ── DISCOVERY — trend + swing merged into ONE finder (which names are in a swing zone). ──
