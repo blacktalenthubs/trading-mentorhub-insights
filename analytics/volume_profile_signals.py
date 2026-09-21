@@ -240,9 +240,12 @@ def detect_premium_signals(df: pd.DataFrame, symbol: str, *, calls_ok: bool = Tr
 
     near200 = sma200 is not None and abs(c - sma200) / c <= prox
 
-    # SELL PUTS — a bullish turn at a low (price still near the level).
+    # SELL PUTS — a bullish turn at a low (price still near the level). RSI-30 only counts
+    # in the LOWER value region (VAL..POC) so it can't fire mid-range or on a name in
+    # freefall below value.
+    _lowerValue = prof.val * (1 - prox) <= c <= prof.poc * (1 + prox)
     val_bounce = (near(prof.val) or (c > prof.val and pc <= prof.val)) and rsi_up
-    rsi30 = 30 <= r <= 42 and rsi_up and rsi_lo10 < 33
+    rsi30 = 30 <= r <= 42 and rsi_up and rsi_lo10 < 33 and _lowerValue
     ma200_recl = near200 and c > sma200 and cl_lo10 < sma200
     if val_bounce or rsi30 or ma200_recl:
         why = "VAL bounce" if val_bounce else "RSI-30 reclaim" if rsi30 else "200SMA reclaim"
@@ -253,8 +256,9 @@ def detect_premium_signals(df: pd.DataFrame, symbol: str, *, calls_ok: bool = Tr
 
     # SELL CALLS — the mirror at a high (price still near the level).
     if calls_ok:
+        _upperValue = prof.poc * (1 - prox) <= c <= prof.vah * (1 + prox)
         vah_reject = (near(prof.vah) or (c < prof.vah and pc >= prof.vah)) and not rsi_up
-        rsi70 = r >= 58 and not rsi_up and rsi_hi10 > 68
+        rsi70 = r >= 58 and not rsi_up and rsi_hi10 > 68 and _upperValue
         ma200_loss = near200 and c < sma200 and cl_hi10 > sma200
         if vah_reject or rsi70 or ma200_loss:
             why = "VAH reject" if vah_reject else "RSI-70 roll" if rsi70 else "200SMA loss"
