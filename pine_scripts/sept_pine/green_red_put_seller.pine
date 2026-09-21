@@ -1,24 +1,30 @@
 //@version=5
-// Green/Red · Put-Seller Backtest — the two-signal put-selling routine, backtested.
-//   Sell a ~30-DTE cash-secured put ONLY when, on a ~5% drop day:
-//     • the EMA cloud is GREEN (fast EMA > slow EMA) on BOTH the daily and the weekly, and
-//     • RSI(14) is UNDER 50.
-//   On green days with no drop → no signal (go live your life).
+// RSI Put-Seller Backtest — does the analyst's put-selling routine actually work? His
+// routine COMBINES two indicators: sell a ~30-DTE cash-secured put only when RSI(14) is
+// under 50 AND the EMA cloud is green (daily + weekly). Both cloud checks default ON, so
+// out of the box this backtests the combined RSI + EMA-cloud setup. To isolate the pure
+// RSI edge, turn the cloud filters OFF and compare the win rate. One put at a time,
+// re-armed after each expiry.
 // Options can't run in Pine's Strategy Tester, so this tracks every signal to expiry and
 // tallies the outcome: WIN = price held ABOVE the strike at expiry (put expires worthless
 // / you'd have hit your 50% exit); LOSS = price below the strike (assigned). Hold-to-expiry
-// is a CONSERVATIVE proxy — the 50%-profit exit only improves it. Two indicators, on purpose.
-indicator("Green/Red · Put-Seller Backtest", "G/R puts", overlay = true, max_labels_count = 500)
+// is a CONSERVATIVE proxy — the 50%-profit exit only improves it.
+indicator("RSI Put-Seller Backtest", "RSI-puts", overlay = true, max_labels_count = 500)
 
 // ── The two signals ──────────────────────────────────────────────────────────
-gS = "Setup"
-emaFast = input.int(8,  "EMA cloud — fast", minval = 1, inline = "e", group = gS)
-emaSlow = input.int(21, "slow", minval = 2, inline = "e", group = gS)
+gS = "Signal — the core test"
 rsiLen  = input.int(14, "RSI length", minval = 2, group = gS)
-rsiMax  = input.float(50, "…must be UNDER", minval = 1, maxval = 100, group = gS)
-dropPct = input.float(5.0, "Drop trigger — down N% on the day", minval = 0.5, maxval = 30, step = 0.5, group = gS)
-reqDaily  = input.bool(true, "Require DAILY cloud green", group = gS)
-reqWeekly = input.bool(true, "Require WEEKLY cloud green", group = gS)
+rsiMax  = input.float(50, "Sell a put when RSI is UNDER", minval = 1, maxval = 100, group = gS, tooltip = "The one thing being tested: does selling ~30d puts whenever RSI is below this level actually work? One put at a time, re-armed after each expiry.")
+
+// His actual setup = RSI < 50 AND the EMA cloud green (daily + weekly). Both ON by
+// default; turn a cloud off to isolate the pure RSI edge and compare.
+gF = "Filters — his combo (toggle to isolate)"
+reqDaily  = input.bool(true, "Require DAILY EMA cloud green", group = gF)
+reqWeekly = input.bool(true, "Require WEEKLY EMA cloud green", group = gF)
+emaFast   = input.int(8,  "EMA cloud — fast", minval = 1, inline = "e", group = gF)
+emaSlow   = input.int(21, "slow", minval = 2, inline = "e", group = gF)
+reqDrop   = input.bool(false, "Also require a drop day (down N%)", inline = "d", group = gF)
+dropPct   = input.float(5.0, "N%", minval = 0.5, maxval = 30, step = 0.5, inline = "d", group = gF)
 
 // ── The put (for the backtest) ───────────────────────────────────────────────
 gPut = "Put model"
@@ -42,7 +48,8 @@ _wf = request.security(syminfo.tickerid, "W", ta.ema(close, emaFast), lookahead 
 _ws = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off)
 _weeklyGreen = _wf > _ws
 
-signal = _dropped and _rsi < rsiMax and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
+// Core test: RSI below the threshold. The rest are optional filters (default off).
+signal = _rsi < rsiMax and (not reqDrop or _dropped) and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
 
 // ── EMA cloud + signal marker ────────────────────────────────────────────────
 p1 = plot(showCloud ? _ef : na, "EMA fast", color = color.new(#26A69A, 30))
@@ -114,4 +121,4 @@ if barstate.islast
     table.cell(t, 1, 7, str.tostring(_rsi, "#") + (_rsi < rsiMax ? " ✓" : ""), bgcolor = _hb, text_color = _tc, text_size = size.small)
 
 // Alert when a fresh signal fires (sell a put).
-alertcondition(signal, "Sell-put signal", "{{ticker}}: DROP + clouds green + RSI<50 → sell a ~30d put")
+alertcondition(signal, "Sell-put signal", "{{ticker}}: RSI<50 + EMA cloud green → sell a ~30d put")
