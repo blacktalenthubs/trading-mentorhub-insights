@@ -1,0 +1,588 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY-TRADE TOOL — one self-sufficient overlay. Everything you level off of, in one
+// indicator (toggle off what you don't want):
+//   • Volume profile LINES: POC / VAH / VAL + HVN shelves / LVN fast-zones + rolling
+//     VWAP (no histogram, so it never compresses the candles).
+//   • MA/EMA stack as FLAT tags (SUPPORT/RESISTANCE + slope°): 20/21/50/100/200 SMA +
+//     8/21/50/100/200 EMA + 30W SMA — proximity-gated so far lines never clutter.
+//   • Weekly BASE (K of the last M weekly lows at one price).
+//   • Weekly / monthly HIGH-LOW (PWH/PWL/PMH/PML) + weekly / monthly OPEN (faint).
+//   • Unfilled gaps (persist until filled).
+//   • Two HUDs: Premium-selling read (volume+RSI) and MA read (nearest S/R, trend, stage).
+//   • MAs + levels + base LOCK to a fixed timeframe (Daily default; set 60 = hourly, W,
+//     etc). The volume profile follows the CHART timeframe — switch the chart TF for a
+//     1h / daily / weekly profile.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Day-Trade Tool", "DT-1", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100)
+
+// ── Timeframe lock (MAs / levels / base) ─────────────────────────────────────
+gTf      = "Timeframe lock (MAs / levels / base)"
+lockOn   = input.bool(true, "Lock to a fixed timeframe (off = follow chart)", group = gTf, tooltip = "ON = MAs/levels/base computed on the timeframe below and drawn flat on any chart. Set it to 60 (hourly), D (daily), or W (weekly). The volume profile always follows the CHART timeframe.")
+maTfPick = input.timeframe("D", "…locked timeframe", group = gTf)
+maTf     = lockOn ? maTfPick : timeframe.period
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+gP = "Volume profile"
+barsBack = input.int(150, "Bars Back", minval = 10, maxval = 5000, group = gP)
+columns  = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gP)
+vaPct    = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gP)
+vpLen    = input.int(120, "Line length (bars left)", minval = 5, maxval = 5000, group = gP)
+rightPad = input.int(10, "Label offset (bars right)", minval = 0, maxval = 100, group = gP)
+
+gL = "Profile — core levels"
+showPOC   = input.bool(true, "POC", inline = "poc", group = gL)
+pocColor  = input.color(color.red, "", inline = "poc", group = gL)
+pocWidth  = input.int(3, "w", minval = 1, maxval = 8, inline = "poc", group = gL)
+showVA    = input.bool(true, "VAH / VAL", inline = "va", group = gL)
+vaColor   = input.color(color.orange, "", inline = "va", group = gL)
+vaWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "va", group = gL)
+showAVWAP = input.bool(true, "VWAP", inline = "av", group = gL)
+avColor   = input.color(color.blue, "", inline = "av", group = gL)
+avWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "av", group = gL)
+showLbls  = input.bool(true, "Show labels", group = gL)
+lblSize   = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gL)
+
+gN = "Profile — volume nodes"
+showHVN   = input.bool(true, "HVN shelves (S/R)", inline = "hvn", group = gN)
+hvnColor  = input.color(#26A69A, "", inline = "hvn", group = gN)
+showLVN   = input.bool(true, "LVN fast-zones", inline = "lvn", group = gN)
+lvnColor  = input.color(#EF5350, "", inline = "lvn", group = gN)
+hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gN)
+lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN)
+nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
+
+// ── MA / EMA stack ───────────────────────────────────────────────────────────
+gSma   = "SMA stack"
+en20s  = input.bool(true, "20 SMA",  inline = "s0", group = gSma)
+en21s  = input.bool(false,"21 SMA",  inline = "s0", group = gSma)
+en50s  = input.bool(true, "50 SMA",  inline = "s1", group = gSma)
+en100s = input.bool(false,"100 SMA", inline = "s1", group = gSma)
+en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
+colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
+gEma   = "EMA stack"
+en8e   = input.bool(true,  "8 EMA",   inline = "e1", group = gEma)
+en21e  = input.bool(true,  "21 EMA",  inline = "e1", group = gEma)
+en50e  = input.bool(false, "50 EMA",  inline = "e2", group = gEma)
+en100e = input.bool(false, "100 EMA", inline = "e2", group = gEma)
+en200e = input.bool(false, "200 EMA", inline = "e3", group = gEma)
+colEMA = input.color(#7E57C2, "EMA line colour", group = gEma)
+gW30   = "30-week SMA"
+en30w  = input.bool(true, "30W SMA (weekly-locked)", group = gW30)
+col30W = input.color(#00897B, "30W line colour", group = gW30)
+
+gS      = "Slope / angle"
+slopeLb = input.int(5, "Slope lookback (bars)", minval = 1, group = gS)
+atrLen  = input.int(14, "ATR length (normaliser)", minval = 1, group = gS)
+scale45 = input.float(0.15, "ATR/bar that reads as 45°", minval = 0.02, maxval = 3, step = 0.01, group = gS)
+flatThr = input.float(12, "Flat threshold (°)", minval = 0, maxval = 45, group = gS)
+idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, group = gS)
+idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
+
+gDraw   = "MA flat lines"
+proxPct = input.float(8.0, "Only draw a MA within N% of price", minval = 0, maxval = 50, step = 0.5, group = gDraw)
+maLen   = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
+tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
+lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
+tagSz   = input.string("normal", "Tag size", options = ["small", "normal", "large"], group = gDraw)
+supCol  = input.color(#26A69A, "Support tint", inline = "rc", group = gDraw)
+resCol  = input.color(#EF5350, "Resistance tint", inline = "rc", group = gDraw)
+wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gDraw)
+
+gBase   = "Weekly base"
+enBase  = input.bool(true, "Draw the weekly base (K of the last M weekly lows)", group = gBase)
+baseM   = input.int(5, "  Weeks to scan (M)", minval = 2, maxval = 12, group = gBase)
+baseK   = input.int(3, "  Min touches (K)", minval = 2, maxval = 10, group = gBase)
+baseTol = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gBase) / 100.0
+baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gBase)
+baseProx = input.float(15.0, "  Only draw within N% of price", minval = 0, maxval = 100, step = 1, group = gBase)
+
+gLvW    = "Weekly / monthly levels"
+enWk    = input.bool(true, "Weekly high/low (PWH / PWL)",  inline = "w", group = gLvW)
+enMo    = input.bool(true, "Monthly high/low (PMH / PML)", inline = "w", group = gLvW)
+enWkO   = input.bool(true, "Weekly OPEN (faint)",  inline = "o", group = gLvW)
+enMoO   = input.bool(true, "Monthly OPEN (faint)", inline = "o", group = gLvW)
+opColor = input.color(color.new(#90A4AE, 45), "Open line colour (faint)", group = gLvW)
+lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW)
+
+// ── Premium-selling HUD ──────────────────────────────────────────────────────
+gHUD     = "Premium HUD (volume + RSI)"
+enHUD    = input.bool(true, "Show premium HUD", group = gHUD)
+hudPos   = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gHUD)
+hudSize  = input.string("small", "Size", options = ["tiny", "small", "normal"], group = gHUD)
+sellCalls = input.bool(true, "Also flag SELL CALLS at resistance", group = gHUD)
+hudProx  = input.float(2.0, "'Near a level' within N%", minval = 0.1, maxval = 10, step = 0.1, group = gHUD)
+hudRsiLen = input.int(14, "RSI length", minval = 2, group = gHUD)
+
+// ── MA HUD ───────────────────────────────────────────────────────────────────
+gMH    = "MA HUD (S/R, trend, stage)"
+enMaHud = input.bool(true, "Show MA HUD", group = gMH)
+mHudPos = input.string("top_left", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gMH)
+mHudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gMH)
+rsiLen  = input.int(14, "Daily RSI length", group = gMH, minval = 2)
+rsiOS   = input.float(30, "Oversold ≤", group = gMH, minval = 5, maxval = 50)
+rsiOB   = input.float(70, "Overbought ≥", group = gMH, minval = 50, maxval = 95)
+rsiConsiderHi = input.float(33, "Consider-a-position band top", group = gMH, minval = 30, maxval = 50)
+
+// ── Unfilled gaps ────────────────────────────────────────────────────────────
+gG = "Unfilled gaps"
+enGap     = input.bool(true, "Show unfilled gaps", group = gG)
+gapProx   = input.float(15.0, "Only draw within N% of price (0 = always)", minval = 0, maxval = 100, group = gG)
+gapTransp = input.int(88, "Gap box faintness (100 = invisible)", minval = 60, maxval = 100, group = gG)
+maxGaps   = input.int(12, "Max unfilled gaps to keep", minval = 1, maxval = 50, group = gG)
+colGapUp  = input.color(#26A69A, "Gap-up (support)", inline = "gc", group = gG)
+colGapDn  = input.color(#EF5350, "Gap-down (resistance)", inline = "gc", group = gG)
+
+// ── Global helpers ───────────────────────────────────────────────────────────
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+f_pair(int _len, bool _ema) =>
+    _m = _ema ? ta.ema(close, _len) : ta.sma(close, _len)
+    [_m[1], _m[1 + slopeLb]]
+
+// ── Rolling VWAP (profile's dynamic line) ────────────────────────────────────
+_hlc  = (high + low + close) / 3.0
+_sv   = math.sum(volume, barsBack)
+avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showAVWAP ? avwap : na, "VWAP", color = avColor, linewidth = avWidth)
+
+// ── Shared weekly / monthly levels + OPEN (non-repainting completed periods) ──
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+wkOpen = request.security(syminfo.tickerid, "W", open, lookahead = barmerge.lookahead_on)
+moOpen = request.security(syminfo.tickerid, "M", open, lookahead = barmerge.lookahead_on)
+
+// ── Premium HUD inputs (every bar) ───────────────────────────────────────────
+_rsiV    = ta.rsi(close, hudRsiLen)
+_rsiUp   = _rsiV > _rsiV[1]
+_ma200   = ta.sma(close, 200)
+_rsiLo10 = ta.lowest(_rsiV, 10)
+_rsiHi10 = ta.highest(_rsiV, 10)
+_clLo10  = ta.lowest(close, 10)
+_clHi10  = ta.highest(close, 10)
+_atrp    = ta.atr(14) / close * 100.0
+_atrRank = ta.percentrank(_atrp, 100)
+_volTxt  = _atrRank >= 66 ? "rich" : _atrRank >= 33 ? "normal" : "thin"
+_pHudPos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+_pHudSz  = hudSize == "tiny" ? size.tiny : hudSize == "normal" ? size.normal : size.small
+var table pHud = na
+
+// ── MA stack (locked to maTf) ────────────────────────────────────────────────
+[v20s,  v20sL]  = request.security(syminfo.tickerid, maTf, f_pair(20,  false), lookahead = barmerge.lookahead_on)
+[v21s,  v21sL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  false), lookahead = barmerge.lookahead_on)
+[v50s,  v50sL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  false), lookahead = barmerge.lookahead_on)
+[v100s, v100sL] = request.security(syminfo.tickerid, maTf, f_pair(100, false), lookahead = barmerge.lookahead_on)
+[v200s, v200sL] = request.security(syminfo.tickerid, maTf, f_pair(200, false), lookahead = barmerge.lookahead_on)
+[v8e,   v8eL]   = request.security(syminfo.tickerid, maTf, f_pair(8,   true),  lookahead = barmerge.lookahead_on)
+[v21e,  v21eL]  = request.security(syminfo.tickerid, maTf, f_pair(21,  true),  lookahead = barmerge.lookahead_on)
+[v50e,  v50eL]  = request.security(syminfo.tickerid, maTf, f_pair(50,  true),  lookahead = barmerge.lookahead_on)
+[v100e, v100eL] = request.security(syminfo.tickerid, maTf, f_pair(100, true),  lookahead = barmerge.lookahead_on)
+[v200e, v200eL] = request.security(syminfo.tickerid, maTf, f_pair(200, true),  lookahead = barmerge.lookahead_on)
+[v30w,  v30wL]  = request.security(syminfo.tickerid, "W",  f_pair(30,  false), lookahead = barmerge.lookahead_on)
+atr = request.security(syminfo.tickerid, maTf, ta.atr(atrLen)[1], lookahead = barmerge.lookahead_on)
+
+f_ang(_v, _vL) => na(atr) or atr == 0 or na(_v) or na(_vL) ? na : math.todegrees(math.atan(((_v - _vL) / slopeLb) / (atr * scale45)))
+f_slopeTxt(_a) =>
+    _aa = math.abs(_a)
+    _ar = na(_a) ? "—" : _a > flatThr ? "↑" : _a < -flatThr ? "↓" : "→"
+    _wd = na(_a) ? "" : _aa <= flatThr ? " flat" : _aa < idealLo ? " shallow" : _aa <= idealHi ? " ideal" : " steep"
+    na(_a) ? "—" : _ar + " " + str.tostring(_a, "#.#") + "°" + _wd
+
+st8  = request.security(syminfo.tickerid, maTf, ta.ema(close, 8)[1],  lookahead = barmerge.lookahead_on)
+st21 = request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1], lookahead = barmerge.lookahead_on)
+[rsiD, rsiDp] = request.security(syminfo.tickerid, "D", [ta.rsi(close, rsiLen), ta.rsi(close, rsiLen)[1]], lookahead = barmerge.lookahead_off)
+
+// weekly base inputs + weekly atr
+[_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+_watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+
+// ── MA flat pools + helpers ──────────────────────────────────────────────────
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+var float[] _mv = array.new_float()
+var string[] _mn = array.new_string()
+_lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
+_tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
+f_flat(bool en, float v, string nm, float ang, color col, float prox) =>
+    _near = prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
+    if en and not na(v) and v > 0 and _near
+        _sup  = close >= v
+        _tint = _sup ? supCol : resCol
+        _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
+        array.push(_ln, line.new(bar_index - maLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
+        array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+f_meta(bool en, float v, string nm) =>
+    if en and not na(v) and v > 0
+        array.push(_mv, v)
+        array.push(_mn, nm)
+
+// ── Profile pools ────────────────────────────────────────────────────────────
+var array<line>  vpLines = array.new_line()
+var array<label> vpLbls  = array.new_label()
+var float pocLevel = na
+var float vahLevel = na
+var float valLevel = na
+
+// ═══ BLOCK 1 — volume profile + premium HUD (last bar) ═══════════════════════
+if barstate.islast
+    if array.size(vpLines) > 0
+        for _i = 0 to array.size(vpLines) - 1
+            line.delete(array.get(vpLines, _i))
+    if array.size(vpLbls) > 0
+        for _i = 0 to array.size(vpLbls) - 1
+            label.delete(array.get(vpLbls, _i))
+    array.clear(vpLines)
+    array.clear(vpLbls)
+    if not enHUD and not na(pHud)
+        table.delete(pHud)
+        pHud := na
+
+    _n = math.min(barsBack, bar_index)
+    if _n >= 2
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / columns
+            vol = array.new_float(columns, 0.0)
+            for _b = 0 to _n - 1
+                _loI = int(math.floor((low[_b]  - _lo) / _bs))
+                _hiI = int(math.floor((high[_b] - _lo) / _bs))
+                _loI := math.max(0, math.min(columns - 1, _loI))
+                _hiI := math.max(0, math.min(columns - 1, _hiI))
+                _span = _hiI - _loI + 1
+                _per  = volume[_b] / _span
+                for _k = _loI to _hiI
+                    array.set(vol, _k, array.get(vol, _k) + _per)
+
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaPct / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upV = _up < columns - 1 ? array.get(vol, _up + 1) : -1.0
+                    _dnV = _dn > 0 ? array.get(vol, _dn - 1) : -1.0
+                    if _upV < 0 and _dnV < 0
+                        _go := false
+                    else if _upV >= _dnV
+                        _up    := _up + 1
+                        _vaVol := _vaVol + _upV
+                    else
+                        _dn    := _dn - 1
+                        _vaVol := _vaVol + _dnV
+
+            _vah      = _lo + (_up + 1) * _bs
+            _val      = _lo + _dn * _bs
+            _pocPrice = _lo + (_poc + 0.5) * _bs
+            pocLevel := _pocPrice
+            vahLevel := _vah
+            valLevel := _val
+
+            _xL = math.max(bar_index - vpLen, bar_index - 9000)
+            _xR = bar_index + rightPad
+            _sz = f_lblSize(lblSize)
+
+            _hvnArr = array.new_float()
+            if showHVN or showLVN or enHUD
+                _hmin = _maxV * hvnPct / 100.0
+                _lmax = _maxV * lvnPct / 100.0
+                for _k = 1 to columns - 2
+                    _vk    = array.get(vol, _k)
+                    _vpv   = array.get(vol, _k - 1)
+                    _vn    = array.get(vol, _k + 1)
+                    _price = _lo + (_k + 0.5) * _bs
+                    _isH = _vk >= _vpv and _vk >= _vn and _vk >= _hmin
+                    _isL = _vk <= _vpv and _vk <= _vn and _vk <= _lmax and _vk > 0
+                    if _isH
+                        array.push(_hvnArr, _price)
+                        if showHVN
+                            array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
+                            if showLbls
+                                array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    else if showLVN and _isL
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
+                        if showLbls
+                            array.push(vpLbls, label.new(_xR, _price, "LVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+
+            if showPOC
+                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+            if showVA
+                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+
+            if enHUD
+                _cand = array.new_float()
+                _cnm  = array.new_string()
+                array.push(_cand, _pocPrice)
+                array.push(_cnm, "POC")
+                array.push(_cand, _vah)
+                array.push(_cnm, "VAH")
+                array.push(_cand, _val)
+                array.push(_cnm, "VAL")
+                if array.size(_hvnArr) > 0
+                    for _hj = 0 to array.size(_hvnArr) - 1
+                        array.push(_cand, array.get(_hvnArr, _hj))
+                        array.push(_cnm, "HVN")
+                _sup = float(na)
+                _supNm = ""
+                _res = float(na)
+                _resNm = ""
+                for _j = 0 to array.size(_cand) - 1
+                    _lv = array.get(_cand, _j)
+                    _nm = array.get(_cnm, _j)
+                    if not na(_lv) and _lv > 0
+                        if _lv <= close and (na(_sup) or _lv > _sup)
+                            _sup := _lv
+                            _supNm := _nm
+                        if _lv >= close and (na(_res) or _lv < _res)
+                            _res := _lv
+                            _resNm := _nm
+                _supD = not na(_sup) ? (close - _sup) / close * 100.0 : float(na)
+                _resD = not na(_res) ? (_res - close) / close * 100.0 : float(na)
+                _valBounce = not na(_val) and (math.abs(close - _val) / close * 100.0 <= hudProx or (close > _val and close[1] <= _val)) and _rsiUp
+                _rsi30     = _rsiV >= 30 and _rsiV <= 42 and _rsiUp and _rsiLo10 < 33
+                _ma200Recl = not na(_ma200) and close > _ma200 and _clLo10 < _ma200
+                _putsGood  = _valBounce or _rsi30 or _ma200Recl
+                _putWhy    = _valBounce ? "VAL bounce" : _rsi30 ? "RSI-30 reclaim" : "200SMA reclaim"
+                _vahReject = not na(_vah) and (math.abs(close - _vah) / close * 100.0 <= hudProx or (close < _vah and close[1] >= _vah)) and not _rsiUp
+                _rsi70     = _rsiV <= 70 and _rsiV >= 58 and not _rsiUp and _rsiHi10 > 68
+                _ma200Loss = not na(_ma200) and close < _ma200 and _clHi10 > _ma200
+                _callsGood = sellCalls and (_vahReject or _rsi70 or _ma200Loss)
+                _callWhy   = _vahReject ? "VAH reject" : _rsi70 ? "RSI-70 roll" : "200SMA loss"
+                _knife     = _rsiV < 30 and not _rsiUp
+                _verdict = _knife ? "WAIT · knife" : _putsGood ? "SELL PUTS · " + _putWhy : _callsGood ? "SELL CALLS · " + _callWhy : "WAIT"
+                _vCol = _putsGood or _callsGood ? #26A69A : _knife ? #EF5350 : #F5A623
+                _loc = close < _val ? "below value" : math.abs(close - _pocPrice) / close * 100.0 <= hudProx ? "at POC" : close > _vah ? "above value" : "inside value"
+                _strike = _putsGood and not na(_sup) ? "puts ≤ " + str.tostring(_sup, "#.##") : _callsGood and not na(_res) ? "calls ≥ " + str.tostring(_res, "#.##") : "—"
+                _supTxt = not na(_sup) ? _supNm + " " + str.tostring(_sup, "#.##") + " · " + str.tostring(_supD, "#.#") + "%" : "—"
+                _rsiTxt = str.tostring(_rsiV, "#") + (_rsiUp ? " ↑" : " ↓")
+                if na(pHud)
+                    pHud := table.new(_pHudPos, 2, 6, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+                _hb   = color.new(#0f1420, 8)
+                _lblC = color.new(color.gray, 0)
+                _txtC = color.new(color.white, 0)
+                table.cell(pHud, 0, 0, "PREMIUM", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 0, _verdict, bgcolor = _hb, text_color = _vCol, text_size = _pHudSz)
+                table.cell(pHud, 0, 1, "Location", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 1, _loc, bgcolor = _hb, text_color = _txtC, text_size = _pHudSz)
+                table.cell(pHud, 0, 2, "Support", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 2, _supTxt, bgcolor = _hb, text_color = _txtC, text_size = _pHudSz)
+                table.cell(pHud, 0, 3, "Strike", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 3, _strike, bgcolor = _hb, text_color = _txtC, text_size = _pHudSz)
+                table.cell(pHud, 0, 4, "RSI", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 4, _rsiTxt, bgcolor = _hb, text_color = _txtC, text_size = _pHudSz)
+                table.cell(pHud, 0, 5, "Premium~", bgcolor = _hb, text_color = _lblC, text_size = _pHudSz)
+                table.cell(pHud, 1, 5, _volTxt + " (proxy)", bgcolor = _hb, text_color = _txtC, text_size = _pHudSz)
+
+// ═══ BLOCK 2 — MA flat stack + base + W/M levels + OPEN + MA HUD ══════════════
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_mv)
+    array.clear(_mn)
+    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, proxPct)
+    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, proxPct)
+    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, proxPct)
+    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct)
+    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct)
+    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct)
+    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct)
+    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct)
+    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct)
+    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct)
+    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct)
+    f_meta(en20s,  v20s,  "20 SMA")
+    f_meta(en21s,  v21s,  "21 SMA")
+    f_meta(en50s,  v50s,  "50 SMA")
+    f_meta(en100s, v100s, "100 SMA")
+    f_meta(en200s, v200s, "200 SMA")
+    f_meta(en8e,   v8e,   "8 EMA")
+    f_meta(en21e,  v21e,  "21 EMA")
+    f_meta(en50e,  v50e,  "50 EMA")
+    f_meta(en100e, v100e, "100 EMA")
+    f_meta(en200e, v200e, "200 EMA")
+    f_meta(en30w,  v30w,  "30W SMA")
+    // weekly / monthly high-low + OPEN (faint)
+    f_flat(enWk, pwh, "PWH", na, resCol, lvProx)
+    f_flat(enWk, pwl, "PWL", na, supCol, lvProx)
+    f_flat(enMo, pmh, "PMH", na, resCol, lvProx)
+    f_flat(enMo, pml, "PML", na, supCol, lvProx)
+    f_flat(enWkO, wkOpen, "W Open", na, opColor, lvProx)
+    f_flat(enMoO, moOpen, "M Open", na, opColor, lvProx)
+    // weekly base
+    if enBase
+        _wLows = array.new_float()
+        _wAll  = array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12)
+        _wi = 0
+        while _wi < array.size(_wAll) and array.size(_wLows) < baseM
+            _wv = array.get(_wAll, _wi)
+            if not na(_wv) and _wv > 0
+                array.push(_wLows, _wv)
+            _wi += 1
+        _bCnt = 0
+        float _bCand = na
+        if array.size(_wLows) > 0
+            for _bc = 0 to array.size(_wLows) - 1
+                _cand = array.get(_wLows, _bc)
+                _tpC = na(_watr) ? _cand * baseTol : math.min(_cand * baseTol, baseAtr * _watr)
+                _cnt = 0
+                for _bj = 0 to array.size(_wLows) - 1
+                    if math.abs(array.get(_wLows, _bj) - _cand) <= _tpC
+                        _cnt += 1
+                if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
+                    _bCnt := _cnt
+                    _bCand := _cand
+        if _bCnt >= baseK and not na(_bCand)
+            _tpB = na(_watr) ? _bCand * baseTol : math.min(_bCand * baseTol, baseAtr * _watr)
+            _bmin = _bCand
+            for _bj = 0 to array.size(_wLows) - 1
+                _lj = array.get(_wLows, _bj)
+                if math.abs(_lj - _bCand) <= _tpB
+                    _bmin := math.min(_bmin, _lj)
+            _bNear = baseProx <= 0 or (_bmin > 0 and math.abs(close - _bmin) / close * 100.0 <= baseProx)
+            if _bNear
+                array.push(_ln, line.new(bar_index - maLen, _bmin, bar_index + tagOff, _bmin, xloc = xloc.bar_index, color = supCol, width = wLine + 1, style = _lvlStyle))
+                array.push(_lb, label.new(bar_index + tagOff, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " · " + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_wLows)) + "w", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(supCol, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+
+// ── MA HUD ───────────────────────────────────────────────────────────────────
+_mHudPos = mHudPos == "top_left" ? position.top_left : mHudPos == "bottom_right" ? position.bottom_right : mHudPos == "bottom_left" ? position.bottom_left : position.top_right
+_mHudSz  = mHudSz == "small" ? size.small : mHudSz == "large" ? size.large : size.normal
+var table mHud = table.new(_mHudPos, 2, 6, border_width = 1, border_color = color.new(color.gray, 60))
+f_mcell(int c, int r, string t, color bg, color tc, bool right) => table.cell(mHud, c, r, t, text_color = tc, bgcolor = bg, text_size = _mHudSz, text_halign = right ? text.align_right : text.align_left)
+if barstate.islast
+    if enMaHud
+        _hb  = color.new(#0B0B12, 0)
+        _lbl = color.new(#C7C9D9, 0)
+        _hw  = color.new(color.white, 0)
+        _red = color.new(#EF5350, 0)
+        _grn = color.new(#26A69A, 0)
+        float _nRes = na
+        string _nResN = ""
+        float _nSup = na
+        string _nSupN = ""
+        if array.size(_mv) > 0
+            for _i = 0 to array.size(_mv) - 1
+                _vv = array.get(_mv, _i)
+                if _vv >= close and (na(_nRes) or _vv < _nRes)
+                    _nRes := _vv
+                    _nResN := array.get(_mn, _i)
+                if _vv <= close and (na(_nSup) or _vv > _nSup)
+                    _nSup := _vv
+                    _nSupN := array.get(_mn, _i)
+        _resTxt = na(_nRes) ? "—" : str.tostring(_nRes, format.mintick) + "  " + _nResN + "  (" + str.tostring((_nRes - close) / close * 100, "#.##") + "%)"
+        _supTxt = na(_nSup) ? "—" : str.tostring(_nSup, format.mintick) + "  " + _nSupN + "  (" + str.tostring((close - _nSup) / close * 100, "#.##") + "%)"
+        _consider = not na(rsiD) and not na(rsiDp) and rsiD > rsiOS and rsiD <= rsiConsiderHi and rsiD >= rsiDp
+        _rsiTxt = na(rsiD) ? "—" : str.tostring(rsiD, "#.0") + " · " + (_consider ? "Consider a position — watch the bottom" : rsiD <= rsiOS ? "oversold" : rsiD >= rsiOB ? "overbought" : "neutral")
+        _rsiCol = na(rsiD) ? color.new(color.gray, 10) : _consider ? color.new(#FBC02D, 0) : rsiD <= rsiOS ? _grn : rsiD >= rsiOB ? _red : _hw
+        _trTxt = na(st8) or na(st21) ? "—" : (close > st8 and close > st21) ? "UPTREND" : (close < st8 and close < st21) ? "DOWNTREND" : "MIXED"
+        _trCol = na(st8) or na(st21) ? color.new(color.gray, 10) : (close > st8 and close > st21) ? _grn : (close < st8 and close < st21) ? _red : _hw
+        _sAbove = not na(v200s) and close >= v200s
+        _sRise  = not na(v200s) and not na(v200sL) and v200s > v200sL
+        _stgTxt = na(v200s) ? "—" : _sAbove and _sRise ? "2 · UPTREND" : _sAbove ? "1 · BASING" : _sRise ? "3 · TOPPING" : "4 · DOWNTREND"
+        _stgCol = na(v200s) ? color.new(color.gray, 10) : _sAbove and _sRise ? _grn : _sAbove ? color.new(#F59E0B, 0) : _sRise ? color.new(#F59E0B, 0) : _red
+        f_mcell(0, 0, "MA · Flat", color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), false)
+        f_mcell(1, 0, syminfo.ticker, color.new(#1E1B4B, 0), color.new(#A5B4FC, 0), true)
+        f_mcell(0, 1, "Nearest Resistance", _hb, _red, false)
+        f_mcell(1, 1, _resTxt, _hb, _red, true)
+        f_mcell(0, 2, "Nearest Support", _hb, _grn, false)
+        f_mcell(1, 2, _supTxt, _hb, _grn, true)
+        f_mcell(0, 3, "Daily RSI", _hb, _lbl, false)
+        f_mcell(1, 3, _rsiTxt, _hb, _rsiCol, true)
+        f_mcell(0, 4, "Trend (8/21)", _hb, _lbl, false)
+        f_mcell(1, 4, _trTxt, _hb, _trCol, true)
+        f_mcell(0, 5, "Stage (200)", _hb, _lbl, false)
+        f_mcell(1, 5, _stgTxt, _hb, _stgCol, true)
+    else
+        for _r = 0 to 5
+            f_mcell(0, _r, "", color.new(color.gray, 100), color.new(color.white, 0), false)
+            f_mcell(1, _r, "", color.new(color.gray, 100), color.new(color.white, 0), true)
+
+// ═══ BLOCK 3 — unfilled gaps ═════════════════════════════════════════════════
+_pdh = high[1]
+_pdl = low[1]
+var array<float> gHi  = array.new_float()
+var array<float> gLo  = array.new_float()
+var array<int>   gBar = array.new_int()
+var array<int>   gDir = array.new_int()
+
+if not na(_pdh) and open > _pdh
+    array.push(gHi, open)
+    array.push(gLo, _pdh)
+    array.push(gBar, bar_index)
+    array.push(gDir, 1)
+if not na(_pdl) and open < _pdl
+    array.push(gHi, _pdl)
+    array.push(gLo, open)
+    array.push(gBar, bar_index)
+    array.push(gDir, -1)
+
+if array.size(gDir) > 0
+    _gi = array.size(gDir) - 1
+    while _gi >= 0
+        _gd = array.get(gDir, _gi)
+        _gh = array.get(gHi, _gi)
+        _gl = array.get(gLo, _gi)
+        _gfilled = (_gd == 1 and close < _gl) or (_gd == -1 and close > _gh)
+        if _gfilled
+            array.remove(gHi, _gi)
+            array.remove(gLo, _gi)
+            array.remove(gBar, _gi)
+            array.remove(gDir, _gi)
+        _gi := _gi - 1
+
+while array.size(gDir) > maxGaps
+    array.shift(gHi)
+    array.shift(gLo)
+    array.shift(gBar)
+    array.shift(gDir)
+
+f_gapNear(float _edge) => gapProx <= 0 or (not na(_edge) and _edge != 0 and math.abs(close - _edge) / close * 100.0 <= gapProx)
+
+var array<box> gBox = array.new_box()
+if barstate.islast
+    if array.size(gBox) > 0
+        for _i = 0 to array.size(gBox) - 1
+            box.delete(array.get(gBox, _i))
+    array.clear(gBox)
+    if enGap and array.size(gDir) > 0
+        _gx2 = bar_index + rightPad
+        for _i = 0 to array.size(gDir) - 1
+            _d    = array.get(gDir, _i)
+            _h    = array.get(gHi, _i)
+            _l    = array.get(gLo, _i)
+            _bar  = array.get(gBar, _i)
+            _edge = _d == 1 ? _h : _l
+            if f_gapNear(_edge)
+                _col  = _d == 1 ? colGapUp : colGapDn
+                _left = math.max(_bar, bar_index - 9000)
+                array.push(gBox, box.new(_left, _h, _gx2, _l, border_width = 0, bgcolor = color.new(_col, gapTransp)))
+
+// ── Alerts: price trading into a key level ───────────────────────────────────
+alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
+alertcondition(not na(vahLevel) and low <= vahLevel and high >= vahLevel, "Price at VAH", "{{ticker}} is trading at the Value Area High")
+alertcondition(not na(valLevel) and low <= valLevel and high >= valLevel, "Price at VAL", "{{ticker}} is trading at the Value Area Low")
