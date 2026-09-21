@@ -29,6 +29,7 @@ columns  = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gP)
 vaPct    = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gP)
 vpLen    = input.int(120, "Line length (bars left)", minval = 5, maxval = 5000, group = gP)
 rightPad = input.int(10, "Label offset (bars right)", minval = 0, maxval = 100, group = gP)
+vpProx   = input.float(12.0, "Only draw a profile level within N% of price (0 = always)", minval = 0, maxval = 100, step = 0.5, group = gP, tooltip = "Hides POC/VAH/VAL/HVN/LVN lines that are far from price so a stock that ran off its value doesn't clutter. The HUD still uses them. MAs use their own proximity (MA flat lines), weekly/monthly use theirs.")
 
 gL = "Profile — core levels"
 showPOC   = input.bool(true, "POC", inline = "poc", group = gL)
@@ -135,6 +136,7 @@ colGapDn  = input.color(#EF5350, "Gap-down (resistance)", inline = "gc", group =
 
 // ── Global helpers ───────────────────────────────────────────────────────────
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+f_vpNear(float _v) => vpProx <= 0 or (not na(_v) and _v > 0 and math.abs(close - _v) / close * 100.0 <= vpProx)
 f_pair(int _len, bool _ema) =>
     _m = _ema ? ta.ema(close, _len) : ta.sma(close, _len)
     [_m[1], _m[1 + slopeLb]]
@@ -311,24 +313,26 @@ if barstate.islast
                     _isL = _vk <= _vpv and _vk <= _vn and _vk <= _lmax and _vk > 0
                     if _isH
                         array.push(_hvnArr, _price)
-                        if showHVN
+                        if showHVN and f_vpNear(_price)
                             array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
                             if showLbls
                                 array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
-                    else if showLVN and _isL
+                    else if showLVN and _isL and f_vpNear(_price)
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
                             array.push(vpLbls, label.new(_xR, _price, "LVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
-            if showPOC
+            if showPOC and f_vpNear(_pocPrice)
                 array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
                 if showLbls
                     array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
-            if showVA
+            if showVA and f_vpNear(_vah)
                 array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
-                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
                 if showLbls
                     array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+            if showVA and f_vpNear(_val)
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
+                if showLbls
                     array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
             if enHUD
