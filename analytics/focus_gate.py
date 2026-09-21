@@ -13,7 +13,9 @@ import time
 
 from alert_config import LEVEL_ALERT_SYMBOLS
 
-_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "mentorhubnetworks@gmail.com")
+# The account whose FOCUS drives the gate = the trader's live/telegram account. Its OWN
+# env (not ADMIN_EMAIL, which is the admin login) so the two can't collide.
+_FOCUS_EMAIL = os.environ.get("FOCUS_ACCOUNT_EMAIL", "vbolofinde@gmail.com")
 _TTL_SEC = 300.0
 _cache: dict = {"at": 0.0, "syms": None}
 
@@ -38,7 +40,7 @@ def focus_symbols(force: bool = False) -> set[str]:
             cur.execute(
                 "SELECT UPPER(w.symbol) FROM watchlist w JOIN users u ON u.id = w.user_id "
                 "WHERE w.focus AND u.email = %s",
-                (_ADMIN_EMAIL,),
+                (_FOCUS_EMAIL,),
             )
             syms = {r[0] for r in cur.fetchall()}
             cur.close(); conn.close()
