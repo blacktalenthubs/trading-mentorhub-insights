@@ -1,0 +1,117 @@
+//@version=5
+// Green/Red · Put-Seller Backtest — the two-signal put-selling routine, backtested.
+//   Sell a ~30-DTE cash-secured put ONLY when, on a ~5% drop day:
+//     • the EMA cloud is GREEN (fast EMA > slow EMA) on BOTH the daily and the weekly, and
+//     • RSI(14) is UNDER 50.
+//   On green days with no drop → no signal (go live your life).
+// Options can't run in Pine's Strategy Tester, so this tracks every signal to expiry and
+// tallies the outcome: WIN = price held ABOVE the strike at expiry (put expires worthless
+// / you'd have hit your 50% exit); LOSS = price below the strike (assigned). Hold-to-expiry
+// is a CONSERVATIVE proxy — the 50%-profit exit only improves it. Two indicators, on purpose.
+indicator("Green/Red · Put-Seller Backtest", "G/R puts", overlay = true, max_labels_count = 500)
+
+// ── The two signals ──────────────────────────────────────────────────────────
+gS = "Setup"
+emaFast = input.int(8,  "EMA cloud — fast", minval = 1, inline = "e", group = gS)
+emaSlow = input.int(21, "slow", minval = 2, inline = "e", group = gS)
+rsiLen  = input.int(14, "RSI length", minval = 2, group = gS)
+rsiMax  = input.float(50, "…must be UNDER", minval = 1, maxval = 100, group = gS)
+dropPct = input.float(5.0, "Drop trigger — down N% on the day", minval = 0.5, maxval = 30, step = 0.5, group = gS)
+reqDaily  = input.bool(true, "Require DAILY cloud green", group = gS)
+reqWeekly = input.bool(true, "Require WEEKLY cloud green", group = gS)
+
+// ── The put (for the backtest) ───────────────────────────────────────────────
+gPut = "Put model"
+dte       = input.int(30, "Days to expiry (bars held)", minval = 1, maxval = 365, group = gPut)
+otmPct    = input.float(5.0, "Strike % out-of-the-money", minval = 0, maxval = 30, step = 0.5, group = gPut)
+creditPct = input.float(3.0, "Est. credit (% of strike)", minval = 0.1, maxval = 30, step = 0.1, group = gPut, tooltip = "Rough premium for a ~5% OTM 30-day put on a high-IV name — the return per WIN on the cash-secured amount. Verify against real IV; this is a proxy, not live option data.")
+oneAtTime = input.bool(true, "One open put at a time", group = gPut)
+
+gV = "Visuals"
+showCloud = input.bool(true, "Show EMA cloud + signals", group = gV)
+hudPos    = input.string("top_right", "Stats position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gV)
+
+// ── Compute the two signals ──────────────────────────────────────────────────
+_ef = ta.ema(close, emaFast)
+_es = ta.ema(close, emaSlow)
+_dailyGreen = _ef > _es
+_rsi = ta.rsi(close, rsiLen)
+_dropped = (low - close[1]) / close[1] * 100.0 <= -dropPct   // touched down N% from prior close
+
+_wf = request.security(syminfo.tickerid, "W", ta.ema(close, emaFast), lookahead = barmerge.lookahead_off)
+_ws = request.security(syminfo.tickerid, "W", ta.ema(close, emaSlow), lookahead = barmerge.lookahead_off)
+_weeklyGreen = _wf > _ws
+
+signal = _dropped and _rsi < rsiMax and (not reqDaily or _dailyGreen) and (not reqWeekly or _weeklyGreen)
+
+// ── EMA cloud + signal marker ────────────────────────────────────────────────
+p1 = plot(showCloud ? _ef : na, "EMA fast", color = color.new(#26A69A, 30))
+p2 = plot(showCloud ? _es : na, "EMA slow", color = color.new(#FB8C00, 30))
+fill(p1, p2, color = showCloud ? (_dailyGreen ? color.new(color.green, 82) : color.new(color.red, 82)) : na)
+
+// ── Backtest: track each signalled put to expiry ─────────────────────────────
+var array<float> posK   = array.new_float()
+var array<int>   posExp = array.new_int()
+var int   nSig  = 0
+var int   nWin  = 0
+var int   nLoss = 0
+var float pnl   = 0.0   // cumulative % return on the cash-secured amount
+
+_canEnter = signal and (not oneAtTime or array.size(posK) == 0)
+if _canEnter and barstate.isconfirmed
+    _k = close * (1 - otmPct / 100.0)
+    array.push(posK, _k)
+    array.push(posExp, bar_index + dte)
+    nSig += 1
+    if showCloud
+        label.new(bar_index, low, "PUT ≤ " + str.tostring(_k, format.mintick), yloc = yloc.belowbar, style = label.style_label_up, color = color.new(#26A69A, 15), textcolor = color.white, size = size.tiny)
+
+// Resolve any position that reached expiry (iterate backwards so removals are safe).
+if array.size(posExp) > 0
+    _i = array.size(posExp) - 1
+    while _i >= 0
+        if bar_index >= array.get(posExp, _i)
+            _k = array.get(posK, _i)
+            if close >= _k
+                nWin += 1
+                pnl += creditPct
+            else
+                nLoss += 1
+                pnl += creditPct - (_k - close) / _k * 100.0
+            array.remove(posK, _i)
+            array.remove(posExp, _i)
+        _i := _i - 1
+
+// ── Stats table ──────────────────────────────────────────────────────────────
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : position.top_right
+var table t = na
+if barstate.islast
+    _closed = nWin + nLoss
+    _wr = _closed > 0 ? nWin / _closed * 100.0 : 0.0
+    _avg = _closed > 0 ? pnl / _closed : 0.0
+    _cloudTxt = (_dailyGreen ? "D✓" : "D✗") + "  " + (_weeklyGreen ? "W✓" : "W✗")
+    _cloudCol = _dailyGreen and _weeklyGreen ? #26A69A : _dailyGreen or _weeklyGreen ? #F5A623 : #EF5350
+    if na(t)
+        t := table.new(_pos, 2, 8, border_width = 1, frame_width = 1, frame_color = color.new(color.gray, 40))
+    _hb = color.new(#0f1420, 8)
+    _lc = color.new(color.gray, 0)
+    _tc = color.new(color.white, 0)
+    table.cell(t, 0, 0, "PUT-SELL BACKTEST", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 0, syminfo.ticker, bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 1, "Signals", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 1, str.tostring(nSig), bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 2, "Closed", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 2, str.tostring(_closed) + "  (" + str.tostring(array.size(posK)) + " open)", bgcolor = _hb, text_color = _tc, text_size = size.small)
+    table.cell(t, 0, 3, "Win rate", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 3, str.tostring(_wr, "#.#") + "%  (" + str.tostring(nWin) + "W/" + str.tostring(nLoss) + "L)", bgcolor = _hb, text_color = _wr >= 70 ? #26A69A : _wr >= 50 ? #F5A623 : #EF5350, text_size = size.small)
+    table.cell(t, 0, 4, "Avg / trade", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 4, str.tostring(_avg, "#.##") + "%", bgcolor = _hb, text_color = _avg >= 0 ? #26A69A : #EF5350, text_size = size.small)
+    table.cell(t, 0, 5, "Total return", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 5, str.tostring(pnl, "#.#") + "%", bgcolor = _hb, text_color = pnl >= 0 ? #26A69A : #EF5350, text_size = size.small)
+    table.cell(t, 0, 6, "Clouds now", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 6, _cloudTxt, bgcolor = _hb, text_color = _cloudCol, text_size = size.small)
+    table.cell(t, 0, 7, "RSI now", bgcolor = _hb, text_color = _lc, text_size = size.small)
+    table.cell(t, 1, 7, str.tostring(_rsi, "#") + (_rsi < rsiMax ? " ✓" : ""), bgcolor = _hb, text_color = _tc, text_size = size.small)
+
+// Alert when a fresh signal fires (sell a put).
+alertcondition(signal, "Sell-put signal", "{{ticker}}: DROP + clouds green + RSI<50 → sell a ~30d put")
