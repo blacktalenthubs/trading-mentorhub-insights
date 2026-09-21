@@ -111,6 +111,7 @@ export interface MarketReportsResponse {
   gap_setups: MarketReport | null;
   volume_signals: MarketReport | null;
   putsell_signals: MarketReport | null;
+  support: MarketReport | null;
   premarket_signals: MarketReport | null;
 }
 export function useMarketReports(date?: string) {
