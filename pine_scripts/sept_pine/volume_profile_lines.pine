@@ -71,6 +71,11 @@ plot(showAVWAP ? avwap : na, "VWAP", color = avColor, linewidth = avWidth)
 // your broker; this only flags the TECHNICAL "at a defended bottom" timing.
 _rsiV    = ta.rsi(close, hudRsiLen)
 _rsiUp   = _rsiV > _rsiV[1]
+_ma200   = ta.sma(close, 200)
+_rsiLo10 = ta.lowest(_rsiV, 10)
+_rsiHi10 = ta.highest(_rsiV, 10)
+_clLo10  = ta.lowest(close, 10)
+_clHi10  = ta.highest(close, 10)
 _atrp    = ta.atr(14) / close * 100.0
 _atrRank = ta.percentrank(_atrp, 100)
 _volTxt  = _atrRank >= 66 ? "rich" : _atrRank >= 33 ? "normal" : "thin"
@@ -246,10 +251,24 @@ if barstate.islast
                 _resD = not na(_res) ? (_res - close) / close * 100.0 : float(na)
                 _nearSup = not na(_supD) and _supD <= hudProx
                 _nearRes = not na(_resD) and _resD <= hudProx
-                _putsGood  = _nearSup and _rsiV < 45 and _rsiUp
-                _knife     = _rsiV < 35 and not _rsiUp
-                _callsGood = sellCalls and _nearRes and _rsiV > 55 and not _rsiUp
-                _verdict = _knife ? "WAIT · knife" : _putsGood ? "SELL PUTS" : _callsGood ? "SELL CALLS" : "WAIT"
+                // SELL PUTS = a bullish turn at a LOW — any of the three reclaim triggers:
+                //   • VAL bounce/reclaim (at the value low and turning up, or crossed back above it)
+                //   • RSI-30 reclaim (came off ~30 and turning up)
+                //   • 200 SMA reclaim (back above the 200 after being below)
+                _valBounce = not na(_val) and (math.abs(close - _val) / close * 100.0 <= hudProx or (close > _val and close[1] <= _val)) and _rsiUp
+                _rsi30     = _rsiV >= 30 and _rsiV <= 42 and _rsiUp and _rsiLo10 < 33
+                _ma200Recl = not na(_ma200) and close > _ma200 and _clLo10 < _ma200
+                _putsGood  = _valBounce or _rsi30 or _ma200Recl
+                _putWhy    = _valBounce ? "VAL bounce" : _rsi30 ? "RSI-30 reclaim" : "200SMA reclaim"
+                // SELL CALLS = the mirror at a HIGH — stretched & rolling over:
+                //   • VAH reject · RSI-70 roll-over · 200 SMA loss
+                _vahReject = not na(_vah) and (math.abs(close - _vah) / close * 100.0 <= hudProx or (close < _vah and close[1] >= _vah)) and not _rsiUp
+                _rsi70     = _rsiV <= 70 and _rsiV >= 58 and not _rsiUp and _rsiHi10 > 68
+                _ma200Loss = not na(_ma200) and close < _ma200 and _clHi10 > _ma200
+                _callsGood = sellCalls and (_vahReject or _rsi70 or _ma200Loss)
+                _callWhy   = _vahReject ? "VAH reject" : _rsi70 ? "RSI-70 roll" : "200SMA loss"
+                _knife     = _rsiV < 30 and not _rsiUp
+                _verdict = _knife ? "WAIT · knife" : _putsGood ? "SELL PUTS · " + _putWhy : _callsGood ? "SELL CALLS · " + _callWhy : "WAIT"
                 _vCol = _putsGood or _callsGood ? #26A69A : _knife ? #EF5350 : #F5A623
                 _loc = close < _val ? "below value" : math.abs(close - _pocPrice) / close * 100.0 <= hudProx ? "at POC" : close > _vah ? "above value" : "inside value"
                 _strike = _putsGood and not na(_sup) ? "puts ≤ " + str.tostring(_sup, "#.##") : _callsGood and not na(_res) ? "calls ≥ " + str.tostring(_res, "#.##") : "—"
