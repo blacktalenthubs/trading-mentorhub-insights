@@ -699,23 +699,27 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     try:
                                         from analytics.volume_profile_signals import compute_profile as _cp, rolling_vwap as _rv
                                         _vp = _cp(_h1)
-                                        if _vp is not None and "hourly_poc_reclaim" in _ENABLED_RULES:
+                                        # Skip the profile-node levels (POC/VAL/VAH) when two nodes are near-tied
+                                        # (peak_ratio >= 0.95) — the node can flip by data source and be wrong.
+                                        # VWAP is not node-based, so it still fires.
+                                        _vp_ok = _vp is not None and _vp.peak_ratio < 0.95
+                                        if _vp_ok and "hourly_poc_reclaim" in _ENABLED_RULES:
                                             _x = check_hourly_vp_level(symbol, _h1, _vp.poc, "POC (1h)", AlertType.HOURLY_POC_RECLAIM)
                                             if _x: signals.append(_x)
-                                        if _vp is not None and "hourly_val_reclaim" in _ENABLED_RULES:
+                                        if _vp_ok and "hourly_val_reclaim" in _ENABLED_RULES:
                                             _x = check_hourly_vp_level(symbol, _h1, _vp.val, "VAL (1h)", AlertType.HOURLY_VAL_RECLAIM)
                                             if _x: signals.append(_x)
                                         if "hourly_vwap_support" in _ENABLED_RULES:
                                             _x = check_hourly_vp_level(symbol, _h1, _rv(_h1), "VWAP (1h)", AlertType.HOURLY_VWAP_SUPPORT)
                                             if _x: signals.append(_x)
                                         # VAH — break up through it (long), reject at it (short), or hold it as support (long)
-                                        if _vp is not None and "hourly_vah_breakout" in _ENABLED_RULES:
+                                        if _vp_ok and "hourly_vah_breakout" in _ENABLED_RULES:
                                             _x = check_hourly_vp_breakout(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_BREAKOUT)
                                             if _x: signals.append(_x)
-                                        if _vp is not None and "hourly_vah_reject" in _ENABLED_RULES:
+                                        if _vp_ok and "hourly_vah_reject" in _ENABLED_RULES:
                                             _x = check_hourly_vp_reject(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_REJECT)
                                             if _x: signals.append(_x)
-                                        if _vp is not None and "hourly_vah_support" in _ENABLED_RULES:
+                                        if _vp_ok and "hourly_vah_support" in _ENABLED_RULES:
                                             _x = check_hourly_vp_level(symbol, _h1, _vp.vah, "VAH (1h)", AlertType.HOURLY_VAH_SUPPORT)
                                             if _x: signals.append(_x)
                                     except Exception:
