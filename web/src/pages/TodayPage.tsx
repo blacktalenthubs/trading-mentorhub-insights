@@ -132,7 +132,7 @@ function SwingSetups({ body, onChart, exclude = [] }: { body: string; onChart: (
               {sub && <span className="hidden truncate text-[10px] text-text-faint sm:inline">· {sub}</span>}
               <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${bStyle(b).pill}`}>{(buckets[b] ?? []).length}</span>
             </div>
-            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{(buckets[b] ?? []).map((x) => card(x, b))}</div>
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">{(buckets[b] ?? []).slice(0, 6).map((x) => card(x, b))}</div>
           </section>
         );
       })}
@@ -222,7 +222,7 @@ function GapSetups({ body, onChart }: { body: string; onChart: (s: string) => vo
               <span className="ml-auto shrink-0 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] font-bold text-text-secondary">{b.items.length}</span>
               <ChevronDown className={`h-4 w-4 shrink-0 text-text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
-            {isOpen && <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">{b.items.map(b.render)}</div>}
+            {isOpen && <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">{b.items.slice(0, 6).map(b.render)}</div>}
           </div>
         );
       })}
@@ -255,13 +255,14 @@ function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => vo
   const rows = parsed?.rows ?? [];
   if (rows.length === 0)
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Nothing at a support point in the last scan.</div>;
-  const at = rows.filter((r) => r.at_support);
+  const atAll = rows.filter((r) => r.at_support);
+  const at = atAll.slice(0, 6);   // show the top 6 (rows are already ranked best-first)
   const watch = rows.filter((r) => !r.at_support);
   const rsiCol = (v: number) => (v < 40 ? "text-bullish-text" : "text-text-muted");
   return (
     <div className="space-y-2.5">
       <div className="text-[10.5px] text-text-faint">
-        {at.length} at support · {watch.length} on the oversold (RSI&lt;40) watch · scanned {parsed?.scanned ?? "—"} · strike = sell a ~30d put here
+        {atAll.length} at support{atAll.length > 6 ? " · top 6" : ""} · {watch.length} on the oversold (RSI&lt;40) watch · scanned {parsed?.scanned ?? "—"} · strike = sell a ~30d put here
       </div>
       {/* AT SUPPORT NOW — the trigger(s) it's bouncing on; the strike to sell on the right. */}
       {at.map((r, i) => (
@@ -418,7 +419,14 @@ function SpotlightCard({ it, rank, onChart }: { it: RankedPick; rank: number; on
 function TopSpotlights({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
   let market_ok: boolean | undefined;
   try { market_ok = body ? JSON.parse(body).market_ok : undefined; } catch { market_ok = undefined; }
-  const top = rankedPicks(body).slice(0, 3);
+  // Spotlight only the SOLID ones: a real ≥2R reward and still near the entry (not already
+  // chased away from it). Ranked by the engine score, capped at 6. Fewer on a thin day.
+  const top = rankedPicks(body).filter((p) => {
+    const risk = Math.max(p.entry - p.stop, 0.01);
+    const rr = (p.target - p.entry) / risk;
+    const away = ((p.price - p.entry) / p.entry) * 100;
+    return rr >= 2 && Math.abs(away) <= 4;
+  }).slice(0, 6);
   if (!top.length) return (
     <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center">
       <p className="text-[13px] font-semibold text-text-secondary">No spotlight setups right now</p>
@@ -594,14 +602,13 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             </select>
           </div>
         )}
-        {sections.flatMap((s, i) => {
+        {sections.map((s, i) => {
           const open = openSecs.has(s.id);
           const showGroup = i === 0 || sections[i - 1].group !== s.group;
-          const out = [];
-          if (showGroup)
-            out.push(<h3 key={`gh-${s.group}`} className="-mb-3 text-[10px] font-bold uppercase tracking-wider text-accent/80">{s.group}</h3>);
-          out.push(
+          return (
             <section key={s.id} id={s.id} className="scroll-mt-4">
+              {/* group label sits INSIDE the section (above the header) so it can't overlap it */}
+              {showGroup && <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-accent/80">{s.group}</div>}
               {/* collapsible header — tap to expand/collapse (collapsed = less context) */}
               <button
                 type="button"
@@ -617,9 +624,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
               {open && (s.present ? s.render() : (
                 <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
               ))}
-            </section>,
+            </section>
           );
-          return out;
         })}
       </div>
     </div>
