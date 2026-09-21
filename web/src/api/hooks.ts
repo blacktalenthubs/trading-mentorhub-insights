@@ -121,6 +121,9 @@ export function useMarketReports(date?: string) {
       `/intel/market-report/latest${date ? `?date=${encodeURIComponent(date)}` : ""}`,
     ),
     staleTime: 5 * 60_000,
+    // Poll the latest reports so the Today board picks up the intraday scan republishes.
+    // A past-session review (date set) is fixed history — don't poll it.
+    refetchInterval: date ? false : 5 * 60_000,
   });
 }
 

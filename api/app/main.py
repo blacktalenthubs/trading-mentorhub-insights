@@ -683,6 +683,43 @@ async def lifespan(app: FastAPI):
             scheduler.add_job(lambda: _run_volume_signals(False), _CronD(hour=8, minute=43, day_of_week="mon-fri", timezone=_etd),
                               id="volume_signals_premkt", replace_existing=True)
             logger.info("Volume-signal scan scheduled (16:18 + 08:43 ET, mon-fri)")
+
+            # Support/Oversold scan (the Today "At Support · Oversold" board) — rising 20/50
+            # & 200 SMA, VWAP/POC/VAL, daily/weekly RSI reclaims, each with the put strike.
+            # Refreshes through the day so the board stays current; Telegram digest on the
+            # premarket + close runs only (intraday refreshes publish, no repeat ping).
+            def _run_support(send_telegram: bool = False):
+                try:
+                    import os as _os
+                    import datetime as _dt
+                    from analytics.support_scan import scan as _sp_scan, publish as _sp_pub, _telegram as _sp_tg
+                    from analytics.minervini_scan import _send_to_telegram as _sp_send
+                    from analytics.swing_setups_report import _watchlist as _sp_wl
+                    _dsn = _os.environ.get("DATABASE_URL")
+                    _syms = _sp_wl(_dsn) if _dsn else []
+                    if not _syms:
+                        logger.warning("support scan skipped (no watchlist)")
+                        return
+                    _rep = _sp_scan(_syms)
+                    _date = _dt.date.today().isoformat()
+                    _sp_pub(_rep, _date)
+                    if send_telegram:
+                        _sp_send(_sp_tg(_rep, _date))
+                    _at = sum(1 for r in _rep["rows"] if r.get("at_support"))
+                    logger.info("Support scan posted (%d at support / %d rows, telegram=%s)", _at, len(_rep["rows"]), send_telegram)
+                except Exception:
+                    logger.exception("support scan failed")
+
+            # (h, m, telegram?) — premarket + close ping; midday refreshes publish only.
+            _sup_times = [(8, 45, True), (10, 15, False), (12, 15, False), (14, 15, False), (15, 50, True)]
+            for _si, (_sh, _sm, _stg) in enumerate(_sup_times):
+                def _mks(send):
+                    def _job():
+                        _run_support(send)
+                    return _job
+                scheduler.add_job(_mks(_stg), _CronD(hour=_sh, minute=_sm, day_of_week="mon-fri", timezone=_etd),
+                                  id=f"support_scan_{_si}", replace_existing=True)
+            logger.info("Support scan scheduled (08:45/10:15/12:15/14:15/15:50 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register daily-structural scan job")
 
