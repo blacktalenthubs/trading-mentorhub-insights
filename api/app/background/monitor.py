@@ -27,10 +27,11 @@ from analytics.htf_bias import (  # noqa: E402
     confluence_score,
 )
 from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
-from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, evaluate_rules  # noqa: E402
+from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, evaluate_rules  # noqa: E402
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
+from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
@@ -693,6 +694,22 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 if _sma1h_ok and "ma200_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
+                                # ── 1H volume-profile support (isolated names) — POC / VAL / VWAP holds ──
+                                if symbol.upper() in _HOURLY_VP_SYMBOLS:
+                                    try:
+                                        from analytics.volume_profile_signals import compute_profile as _cp, rolling_vwap as _rv
+                                        _vp = _cp(_h1)
+                                        if _vp is not None and "hourly_poc_reclaim" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_level(symbol, _h1, _vp.poc, "POC (1h)", AlertType.HOURLY_POC_RECLAIM)
+                                            if _x: signals.append(_x)
+                                        if _vp is not None and "hourly_val_reclaim" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_level(symbol, _h1, _vp.val, "VAL (1h)", AlertType.HOURLY_VAL_RECLAIM)
+                                            if _x: signals.append(_x)
+                                        if "hourly_vwap_support" in _ENABLED_RULES:
+                                            _x = check_hourly_vp_level(symbol, _h1, _rv(_h1), "VWAP (1h)", AlertType.HOURLY_VWAP_SUPPORT)
+                                            if _x: signals.append(_x)
+                                    except Exception:
+                                        pass
                                 # ── 1H rejection SHORTS (index set only) ──
                                 if _short:
                                     for _rk, _rl, _rt in (("ma20_reject_1h", 20, AlertType.MA20_REJECT_1H), ("ma50_reject_1h", 50, AlertType.MA50_REJECT_1H), ("ma200_reject_1h", 200, AlertType.MA200_REJECT_1H)):

@@ -323,6 +323,10 @@ class AlertType(str, Enum):
     MA20_SUPPORT_1H = "ma20_support_1h"
     MA50_SUPPORT_1H = "ma50_support_1h"
     MA200_SUPPORT_1H = "ma200_support_1h"
+    # Hourly volume-profile support (isolated names only) — 1h POC / VAL / VWAP holds.
+    HOURLY_POC_RECLAIM = "hourly_poc_reclaim"
+    HOURLY_VAL_RECLAIM = "hourly_val_reclaim"
+    HOURLY_VWAP_SUPPORT = "hourly_vwap_support"
     # 4H support bounces (day-trade)
     MA20_SUPPORT_4H = "ma20_support_4h"
     MA50_SUPPORT_4H = "ma50_support_4h"
@@ -8342,6 +8346,47 @@ def check_ma_support_1h(
                 return None
         entry = round(ma, 2)
         stop = round(ma * (1 - stop_off), 2)
+        risk = entry - stop
+        if risk <= 0:
+            return None
+        return AlertSignal(
+            symbol=symbol, alert_type=alert_type, direction="BUY", price=c,
+            entry=entry, stop=stop, target_1=round(entry + 2 * risk, 2),
+            target_2=round(entry + 3 * risk, 2), confidence="high",
+            message=f"{label} — price holding the hourly {label} as support",
+        )
+    except Exception:
+        return None
+
+
+def check_hourly_vp_level(
+    symbol: str,
+    bars,
+    level: "float | None",
+    label: str,
+    alert_type: "AlertType",
+    prox_pct: float = 0.006,
+    stop_off: float = 0.007,
+):
+    """HOURLY volume-profile support hold — the 1h POC / VAL / VWAP version of
+    check_ma_support_1h. `level` is a price from the 1h volume profile (POC or VAL) or the
+    1h rolling VWAP, computed by the caller. Fires when the LAST completed hourly bar CLOSED
+    above the level, its low came to it (within prox_pct), and it either OPENED above it
+    (hold) or wicked below and reclaimed. BUY. Pure over `bars` — never raises."""
+    try:
+        if bars is None or len(bars) < 10 or level is None or level <= 0:
+            return None
+        o = float(bars["Open"].iloc[-1])
+        l = float(bars["Low"].iloc[-1])
+        c = float(bars["Close"].iloc[-1])
+        near = abs(l - level) / level <= prox_pct
+        held = c > level
+        open_above = o >= level
+        reclaimed = l < level and c > level
+        if not (held and near and (open_above or reclaimed)):
+            return None
+        entry = round(level, 2)
+        stop = round(level * (1 - stop_off), 2)
         risk = entry - stop
         if risk <= 0:
             return None
