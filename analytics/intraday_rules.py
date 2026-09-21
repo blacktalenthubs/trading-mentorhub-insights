@@ -22,6 +22,8 @@ import pandas as pd
 
 logger = logging.getLogger("intraday_rules")
 
+from analytics.focus_gate import focus_symbols  # focus-driven gate for level alerts
+
 from alert_config import (
     SHORT_UNIVERSE,
     BOUNCE_ALERT_TYPES,
@@ -8939,7 +8941,7 @@ def evaluate_rules(
             (AlertType.PMH_BREAKOUT_RETEST, prior_day.get("prior_month_high"), "PMH"),
         ]:
             # Weekly/monthly LEVEL alerts fire only for the selected names (2026-09-21).
-            if _br_at.value in ENABLED_RULES and _br_lvl and symbol.upper() in LEVEL_ALERT_SYMBOLS:
+            if _br_at.value in ENABLED_RULES and _br_lvl and symbol.upper() in focus_symbols():
                 sig = check_level_breakout_retest(
                     symbol, intraday_bars, _br_lvl, _br_lbl, _br_at,
                     prior_day=prior_day, other_emas=_other_emas_br,
@@ -8966,7 +8968,7 @@ def evaluate_rules(
             (AlertType.PQL_RECLAIM, prior_day.get("prior_quarter_low"), "PQL"),
         ]:
             # Weekly/monthly/quarterly LEVEL reclaims fire only for the selected names (2026-09-21).
-            if _lv_at.value in ENABLED_RULES and _lv_lvl and symbol.upper() in LEVEL_ALERT_SYMBOLS:
+            if _lv_at.value in ENABLED_RULES and _lv_lvl and symbol.upper() in focus_symbols():
                 sig = check_ma_reclaim(
                     symbol, intraday_bars, _lv_lvl, _lv_lbl, _lv_at, today_open,
                     prior_day=prior_day, other_levels=_other_emas_br,

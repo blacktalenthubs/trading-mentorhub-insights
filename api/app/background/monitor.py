@@ -32,6 +32,7 @@ from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
 from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
+from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
@@ -684,7 +685,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _short = symbol.upper() in _SHORT_UNIVERSE
                             if _h1 is not None and not _h1.empty:
                                 # ── 1H support (selected names only, 2026-09-21 — too noisy universe-wide) ──
-                                _sma1h_ok = symbol.upper() in _SMA1H_SYMBOLS
+                                _sma1h_ok = symbol.upper() in _focus_symbols()
                                 if _sma1h_ok and "ma20_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
                                     if _x: signals.append(_x)
@@ -695,7 +696,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                     _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
                                 # ── 1H volume-profile support (isolated names) — POC / VAL / VWAP holds ──
-                                if symbol.upper() in _HOURLY_VP_SYMBOLS:
+                                if symbol.upper() in _focus_symbols():
                                     try:
                                         from analytics.volume_profile_signals import compute_profile as _cp, rolling_vwap as _rv
                                         _vp = _cp(_h1)
