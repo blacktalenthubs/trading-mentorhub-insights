@@ -4,9 +4,14 @@ import pytest
 
 from analytics.volume_profile_signals import (
     compute_profile,
+    detect_premium_signals,
     detect_signals,
     rolling_vwap,
 )
+
+
+def _series(prices, vol=10.0):
+    return _df([[p, p + 0.5, p - 0.5, p, vol] for p in prices])
 
 
 def _df(rows):
@@ -64,3 +69,26 @@ def test_rolling_vwap_matches_manual():
     rows = [[10, 10, 10, 10, 2], [20, 20, 20, 20, 3]]
     # hlc3 = 10 and 20; vwap = (10*2 + 20*3)/5 = 16
     assert rolling_vwap(_df(rows)) == pytest.approx(16.0)
+
+
+def test_sell_puts_on_200sma_reclaim():
+    # 200 flat bars → 200 SMA ≈ 100; dip below, then reclaim above it while turning up.
+    prices = [100.0] * 200 + [97.0, 96.0, 96.5, 98.0, 99.0, 100.6]
+    sigs = detect_premium_signals(_series(prices), "T")
+    puts = [s for s in sigs if s.kind == "sell_puts"]
+    assert puts, "expected a SELL PUTS on the 200 SMA reclaim"
+    assert not any(s.kind == "sell_calls" for s in sigs)  # never both
+
+
+def test_no_sell_puts_once_price_ran_far_from_the_level():
+    # Reclaimed long ago and ran ~25% above the 200 SMA → NOT a fresh signal.
+    prices = [100.0] * 200 + list(range(101, 127))
+    sigs = detect_premium_signals(_series([float(p) for p in prices]), "T")
+    assert not any(s.kind == "sell_puts" for s in sigs)
+
+
+def test_sell_calls_at_a_stalling_top():
+    # Run up hard then stall/tick down near the highs → VAH reject / RSI-70 roll.
+    prices = [100.0] * 190 + [104, 108, 112, 116, 118, 120, 121, 120.5, 120.2, 119.8]
+    sigs = detect_premium_signals(_series(prices), "T")
+    assert any(s.kind == "sell_calls" for s in sigs)
