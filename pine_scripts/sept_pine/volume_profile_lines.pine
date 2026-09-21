@@ -160,8 +160,10 @@ if barstate.islast
             _xR = bar_index + rightPad
             _sz = f_lblSize(lblSize)
 
-            // HVN shelves (local peaks) + LVN fast-zones (local valleys).
-            if showHVN or showLVN
+            // HVN shelves (local peaks) + LVN fast-zones (local valleys). Always detect
+            // (for the HUD's volume-based S/R); the DRAWING is gated by the toggles.
+            _hvnArr = array.new_float()
+            if showHVN or showLVN or enHUD
                 _hmin = _maxV * hvnPct / 100.0
                 _lmax = _maxV * lvnPct / 100.0
                 for _k = 1 to columns - 2
@@ -171,10 +173,12 @@ if barstate.islast
                     _price = _lo + (_k + 0.5) * _bs
                     _isH = _vk >= _vp and _vk >= _vn and _vk >= _hmin
                     _isL = _vk <= _vp and _vk <= _vn and _vk <= _lmax and _vk > 0
-                    if showHVN and _isH
-                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
-                        if showLbls
-                            array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    if _isH
+                        array.push(_hvnArr, _price)
+                        if showHVN
+                            array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
+                            if showLbls
+                                array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
                     else if showLVN and _isL
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
@@ -208,8 +212,10 @@ if barstate.islast
 
             // ── Premium-selling HUD ──────────────────────────────────────────
             if enHUD
-                // Nearest support (level ≤ price) and resistance (level ≥ price) across
-                // POC / VAH / VAL / prior week & month H-L.
+                // Nearest support (level ≤ price) and resistance (level ≥ price) across the
+                // VOLUME levels only — POC / VAH / VAL + the HVN shelves. (Weekly/monthly
+                // highs/lows are arbitrary period boundaries, so they're deliberately NOT
+                // used for the bullish/bearish read — volume + RSI decide it.)
                 _cand = array.new_float()
                 _cnm  = array.new_string()
                 array.push(_cand, _pocPrice)
@@ -218,16 +224,10 @@ if barstate.islast
                 array.push(_cnm, "VAH")
                 array.push(_cand, _val)
                 array.push(_cnm, "VAL")
-                if not na(pwh)
-                    array.push(_cand, pwh)
-                    array.push(_cnm, "PWH")
-                    array.push(_cand, pwl)
-                    array.push(_cnm, "PWL")
-                if not na(pmh)
-                    array.push(_cand, pmh)
-                    array.push(_cnm, "PMH")
-                    array.push(_cand, pml)
-                    array.push(_cnm, "PML")
+                if array.size(_hvnArr) > 0
+                    for _hj = 0 to array.size(_hvnArr) - 1
+                        array.push(_cand, array.get(_hvnArr, _hj))
+                        array.push(_cnm, "HVN")
                 _sup = float(na)
                 _supNm = ""
                 _res = float(na)
