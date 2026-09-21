@@ -331,6 +331,65 @@ interface VsRow {
   price: number; level: number; level_name: string; stop: number;
   risk_pct: number; confluence: string[];
 }
+interface PsRow {
+  sym: string; price: number; rsi_d: number; rsi_w: number;
+  weekly_oversold: boolean; triggers: string[]; fired: boolean;
+  strike: number; dte: number;
+}
+// Put-seller setups: names firing an oversold-reversal trigger NOW (with the strike to
+// sell), plus the weekly-RSI<40 watchlist to hunt. Sell puts only at reversals.
+function PutSellers({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: PsRow[]; scanned?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  if (rows.length === 0)
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No put-seller setups in the last scan.</div>;
+  const fired = rows.filter((r) => r.fired);
+  const watch = rows.filter((r) => !r.fired);
+  const rsiCol = (v: number) => (v < 40 ? "text-bullish-text" : "text-text-muted");
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10.5px] text-text-faint">
+        {fired.length} firing now · {watch.length} on the weekly-oversold (RSI&lt;40) watch · scanned {parsed?.scanned ?? "—"}
+      </div>
+      {/* FIRING NOW — a trigger fired; the strike to sell is on the right. */}
+      {fired.map((r, i) => (
+        <div key={r.sym + i} className="flex items-center justify-between gap-2 rounded-lg border border-bullish-text/30 bg-bullish-text/5 px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <button onClick={() => onChart(r.sym)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.sym}</button>
+            {r.triggers.map((t) => (
+              <span key={t} className="rounded bg-bullish-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-bullish-text">{t}</span>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
+            <span className={rsiCol(r.rsi_w)}>RSI d{r.rsi_d}/w{r.rsi_w}</span>
+            <span className="text-text-secondary">${r.price.toFixed(2)}</span>
+            <span className="font-semibold text-bullish-text">sell PUT ≤ {r.strike.toFixed(2)} · ~{r.dte}d</span>
+          </div>
+        </div>
+      ))}
+      {/* WEEKLY-OVERSOLD WATCH — under 40 weekly RSI, waiting for the turn. */}
+      {watch.length > 0 && (
+        <div className="rounded-lg border border-border-subtle bg-surface-1 p-2.5">
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-muted">Weekly-oversold watch (RSI&lt;40 — wait for the turn)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {watch.map((r) => (
+              <button
+                key={r.sym}
+                onClick={() => onChart(r.sym)}
+                title={`weekly RSI ${r.rsi_w} · daily ${r.rsi_d} · $${r.price.toFixed(2)}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-surface-2 px-2.5 py-1 text-[11px] transition-colors hover:border-accent"
+              >
+                <b className="text-text-primary">{r.sym}</b>
+                <span className={`font-mono ${rsiCol(r.rsi_w)}`}>w{r.rsi_w}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 function VolumeSignals({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   let parsed: { rows?: VsRow[]; scanned?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
@@ -514,6 +573,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const ma20 = data?.ma20_setups ?? null;
   const gap = data?.gap_setups ?? null;
   const vs = data?.volume_signals ?? null;
+  const psell = data?.putsell_signals ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -588,6 +648,10 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-volsig", time: "PREMKT+CLOSE", title: "Volume signals", present: !!vs,
       wait: "Runs premarket + after the close (POC / value area / VWAP setups).",
       render: () => <VolumeSignals body={vs?.body ?? ""} onChart={onChart} /> },
+    // ── Put sellers — oversold-reversal put-sell triggers + the weekly-RSI<40 watch. ──
+    { id: "sec-putsell", time: "AFTER·CLOSE", title: "Put sellers", present: !!psell,
+      wait: "Run analytics/putsell_scan.py — oversold reversals + SMA bounces, with the strike.",
+      render: () => <PutSellers body={psell?.body ?? ""} onChart={onChart} /> },
     { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
       wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
