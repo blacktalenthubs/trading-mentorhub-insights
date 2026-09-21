@@ -87,8 +87,10 @@ def test_no_sell_puts_once_price_ran_far_from_the_level():
     assert not any(s.kind == "sell_puts" for s in sigs)
 
 
-def test_sell_calls_at_a_stalling_top():
-    # Run up hard then stall/tick down near the highs → VAH reject / RSI-70 roll.
-    prices = [100.0] * 190 + [104, 108, 112, 116, 118, 120, 121, 120.5, 120.2, 119.8]
-    sigs = detect_premium_signals(_series(prices), "T")
+def test_sell_calls_at_the_value_high():
+    # A range builds a value area; price sits AT the VAH and rolls over (ticks down).
+    base = [100.0 + (i % 7) - 3 for i in range(190)]   # oscillate ~97-103 → VAH ≈ 103-104
+    top  = [104.0, 104.5, 104.8, 104.6, 104.3]         # up into the VAH, last bar down
+    sigs = detect_premium_signals(_series(base + top), "T")
     assert any(s.kind == "sell_calls" for s in sigs)
+    assert not any(s.kind == "sell_puts" for s in sigs)  # never both
