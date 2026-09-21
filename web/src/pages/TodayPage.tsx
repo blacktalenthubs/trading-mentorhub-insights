@@ -73,11 +73,15 @@ const BUCKET_SHORT: Record<string, string> = {
 };
 const bStyle = (b: string) => BUCKET_STYLE[b] ?? BUCKET_FALLBACK;
 
-function SwingSetups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+function SwingSetups({ body, onChart, exclude = [] }: { body: string; onChart: (s: string) => void; exclude?: string[] }) {
   let parsed: SwingReport | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const buckets = parsed?.buckets ?? {};
-  const order = (parsed?.bucket_order ?? Object.keys(buckets)).filter((b) => (buckets[b] ?? []).length > 0);
+  // Momentum view drops the oversold/support buckets (rsi30, sma200, ma_hold) — those live
+  // in the "At Support / Oversold" board now, so a name never shows in two sections.
+  const order = (parsed?.bucket_order ?? Object.keys(buckets))
+    .filter((b) => !exclude.includes(b))
+    .filter((b) => (buckets[b] ?? []).length > 0);
   const titles = parsed?.bucket_title ?? {};
   const total = order.reduce((n, b) => n + (buckets[b] ?? []).length, 0);
   if (order.length === 0) {
@@ -331,30 +335,32 @@ interface VsRow {
   price: number; level: number; level_name: string; stop: number;
   risk_pct: number; confluence: string[];
 }
-interface PsRow {
+interface SupRow {
   sym: string; price: number; rsi_d: number; rsi_w: number;
-  weekly_oversold: boolean; triggers: string[]; fired: boolean;
-  strike: number; dte: number;
+  weekly_oversold: boolean; triggers: string[]; levels: string[];
+  at_support: boolean; strike: number; dte: number;
 }
-// Put-seller setups: names firing an oversold-reversal trigger NOW (with the strike to
-// sell), plus the weekly-RSI<40 watchlist to hunt. Sell puts only at reversals.
-function PutSellers({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { rows?: PsRow[]; scanned?: number } | null = null;
+// At Support / Oversold: names bouncing at a support point NOW (rising 20/50, 200 SMA,
+// VWAP/POC/VAL, or an RSI reclaim) with the put strike inline, plus the oversold watch
+// ladder (under 40 weekly RSI, waiting for the turn). One board — selling a put is just
+// what you do at these support points.
+function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: SupRow[]; scanned?: number } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const rows = parsed?.rows ?? [];
   if (rows.length === 0)
-    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No put-seller setups in the last scan.</div>;
-  const fired = rows.filter((r) => r.fired);
-  const watch = rows.filter((r) => !r.fired);
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">Nothing at a support point in the last scan.</div>;
+  const at = rows.filter((r) => r.at_support);
+  const watch = rows.filter((r) => !r.at_support);
   const rsiCol = (v: number) => (v < 40 ? "text-bullish-text" : "text-text-muted");
   return (
     <div className="space-y-2.5">
       <div className="text-[10.5px] text-text-faint">
-        {fired.length} firing now · {watch.length} on the weekly-oversold (RSI&lt;40) watch · scanned {parsed?.scanned ?? "—"}
+        {at.length} at support · {watch.length} on the oversold (RSI&lt;40) watch · scanned {parsed?.scanned ?? "—"} · strike = sell a ~30d put here
       </div>
-      {/* FIRING NOW — a trigger fired; the strike to sell is on the right. */}
-      {fired.map((r, i) => (
-        <div key={r.sym + i} className="flex items-center justify-between gap-2 rounded-lg border border-bullish-text/30 bg-bullish-text/5 px-3 py-2">
+      {/* AT SUPPORT NOW — the trigger(s) it's bouncing on; the strike to sell on the right. */}
+      {at.map((r, i) => (
+        <div key={r.sym + i} title={r.levels.join(" · ")} className="flex items-center justify-between gap-2 rounded-lg border border-bullish-text/30 bg-bullish-text/5 px-3 py-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <button onClick={() => onChart(r.sym)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.sym}</button>
             {r.triggers.map((t) => (
@@ -364,14 +370,14 @@ function PutSellers({ body, onChart }: { body: string; onChart: (s: string) => v
           <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
             <span className={rsiCol(r.rsi_w)}>RSI d{r.rsi_d}/w{r.rsi_w}</span>
             <span className="text-text-secondary">${r.price.toFixed(2)}</span>
-            <span className="font-semibold text-bullish-text">sell PUT ≤ {r.strike.toFixed(2)} · ~{r.dte}d</span>
+            <span className="font-semibold text-bullish-text">PUT ≤ {r.strike.toFixed(2)} · ~{r.dte}d</span>
           </div>
         </div>
       ))}
-      {/* WEEKLY-OVERSOLD WATCH — under 40 weekly RSI, waiting for the turn. */}
+      {/* OVERSOLD WATCH — under 40 weekly RSI, not bouncing yet; wait for the turn. */}
       {watch.length > 0 && (
         <div className="rounded-lg border border-border-subtle bg-surface-1 p-2.5">
-          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-muted">Weekly-oversold watch (RSI&lt;40 — wait for the turn)</div>
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-text-muted">Oversold watch (weekly RSI&lt;40 — wait for the turn)</div>
           <div className="flex flex-wrap gap-1.5">
             {watch.map((r) => (
               <button
@@ -570,8 +576,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sw = data?.swing_setups ?? null;
   const ma20 = data?.ma20_setups ?? null;
   const gap = data?.gap_setups ?? null;
-  const vs = data?.volume_signals ?? null;
-  const psell = data?.putsell_signals ?? null;
+  const sup = data?.support ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -580,7 +585,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // actionable core) starts open. Jumping from the rail also expands the target.
   const [openSecs, setOpenSecs] = useState<Set<string>>(() => {
     try { const raw = sessionStorage.getItem("today.open"); if (raw) return new Set<string>(JSON.parse(raw)); } catch { /* ignore */ }
-    return new Set(["sec-focus"]);
+    return new Set(["sec-focus", "sec-support"]);
   });
   // Persist view state so returning from the chart page lands you exactly where you were.
   useEffect(() => { sessionStorage.setItem("today.date", selectedDate); }, [selectedDate]);
@@ -608,7 +613,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
 
   const sections = [
     // ── ACTIONABLE CORE — Today's Focus leads (the plays for THIS day). ──
-    { id: "sec-focus", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
+    { id: "sec-focus", group: "Plays", time: "8:55a", title: "Today's Focus", present: !!mf || !!ps,
       wait: "Leaders Near a Buy Point drop pre-open (~8:45 AM ET).",
       render: () => (
         <div className="space-y-4">
@@ -620,28 +625,20 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
           <PremarketStrip body={ps?.body} onChart={onChart} />
         </div>
       ) },
-    // ── DISCOVERY — trend + swing merged into ONE finder (which names are in a swing zone). ──
-    { id: "sec-swing", time: "AFTER·CLOSE", title: "Swing setups", present: !!sw,
-      wait: "The swing finder runs after the close (~4:25 PM ET).",
-      render: () => <SwingSetups body={sw?.body ?? ""} onChart={onChart} /> },
-    // ── 20-MA setups — names at a 20-day MA entry now (on-demand scan). ──
-    { id: "sec-ma20", time: "ON·DEMAND", title: "20-MA setups", present: !!ma20,
-      wait: "Run analytics/ma20_scan_report.py to populate.",
-      render: () => <Ma20Setups body={ma20?.body ?? ""} onChart={onChart} /> },
-    // ── Gap setups — big (≥4%) gaps + the 3-2-1 contraction (premarket scan). ──
-    { id: "sec-gap", time: "PREMKT", title: "Gap setups", present: !!gap,
+    // ── AT SUPPORT / OVERSOLD — ONE board: rising 20/50 & 200 SMA, VWAP/POC/VAL, RSI
+    //    reclaims, each with the put strike. Absorbs the old put-sellers, bottom-watch,
+    //    volume-signals and 20-MA sections so a name shows in exactly one place. ──
+    { id: "sec-support", group: "Buy the dip", time: "INTRADAY", title: "At Support · Oversold", present: !!sup,
+      wait: "Run analytics/support_scan.py — rising 20/50 & 200 SMA, VWAP/POC/VAL, RSI reclaims, with the strike.",
+      render: () => <AtSupport body={sup?.body ?? ""} onChart={onChart} /> },
+    // ── MOMENTUM — the swing finder's breakout/structure buckets only (the oversold ones
+    //    moved to the support board) + premarket gaps. ──
+    { id: "sec-swing", group: "Momentum", time: "10:30·15:00", title: "Momentum / Swing", present: !!sw,
+      wait: "The swing finder runs midday + before the close.",
+      render: () => <SwingSetups body={sw?.body ?? ""} onChart={onChart} exclude={["rsi30", "sma200", "ma_hold"]} /> },
+    { id: "sec-gap", group: "Momentum", time: "PREMKT", title: "Gap setups", present: !!gap,
       wait: "The gap scan runs premarket (analytics/gap_scanner.py).",
       render: () => <GapSetups body={gap?.body ?? ""} onChart={onChart} /> },
-    // ── Volume signals — POC/VA/VWAP setups from the volume profile (premkt + close). ──
-    { id: "sec-volsig", time: "PREMKT+CLOSE", title: "Volume signals", present: !!vs,
-      wait: "Runs premarket + after the close (POC / value area / VWAP setups).",
-      render: () => <VolumeSignals body={vs?.body ?? ""} onChart={onChart} /> },
-    // ── Put sellers — oversold-reversal put-sell triggers + the weekly-RSI<40 watch. ──
-    { id: "sec-putsell", time: "AFTER·CLOSE", title: "Put sellers", present: !!psell,
-      wait: "Run analytics/putsell_scan.py — oversold reversals + SMA bounces, with the strike.",
-      render: () => <PutSellers body={psell?.body ?? ""} onChart={onChart} /> },
-    { id: "sec-bottom", time: "ALL·DAY", title: "Bottom watch", present: true,
-      wait: "", render: () => <BottomWatchBoard onChart={onChart} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);
@@ -654,19 +651,26 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
       <nav className="hidden self-start md:sticky md:top-2 md:block">
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-text-muted">🕘 Your Day</div>
         <div className="space-y-0.5">
-          {sections.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => jump(s.id)}
-              className={`w-full rounded-lg border-l-2 px-2.5 py-2 text-left transition-colors ${activeSec === s.id ? "border-accent bg-accent/10" : "border-transparent hover:bg-surface-2"}`}
-            >
-              <div className="font-mono text-[9px] uppercase tracking-wide text-text-faint">{s.time}</div>
-              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary">
-                {s.present ? <span className="text-bullish-text">✓</span> : <span className="text-text-faint">—</span>}
-                {s.title}
-              </div>
-            </button>
-          ))}
+          {sections.flatMap((s, i) => {
+            const showGroup = i === 0 || sections[i - 1].group !== s.group;
+            const out = [];
+            if (showGroup)
+              out.push(<div key={`g-${s.group}`} className="mt-2.5 mb-1 px-2.5 text-[9px] font-bold uppercase tracking-wider text-text-faint first:mt-0">{s.group}</div>);
+            out.push(
+              <button
+                key={s.id}
+                onClick={() => jump(s.id)}
+                className={`w-full rounded-lg border-l-2 px-2.5 py-2 text-left transition-colors ${activeSec === s.id ? "border-accent bg-accent/10" : "border-transparent hover:bg-surface-2"}`}
+              >
+                <div className="font-mono text-[9px] uppercase tracking-wide text-text-faint">{s.time}</div>
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary">
+                  {s.present ? <span className="text-bullish-text">✓</span> : <span className="text-text-faint">—</span>}
+                  {s.title}
+                </div>
+              </button>,
+            );
+            return out;
+          })}
         </div>
 
         {/* Live now — the signal feed lives on the Trading page only. */}
@@ -717,9 +721,13 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
             </select>
           </div>
         )}
-        {sections.map((s) => {
+        {sections.flatMap((s, i) => {
           const open = openSecs.has(s.id);
-          return (
+          const showGroup = i === 0 || sections[i - 1].group !== s.group;
+          const out = [];
+          if (showGroup)
+            out.push(<h3 key={`gh-${s.group}`} className="-mb-3 text-[10px] font-bold uppercase tracking-wider text-accent/80">{s.group}</h3>);
+          out.push(
             <section key={s.id} id={s.id} className="scroll-mt-4">
               {/* collapsible header — tap to expand/collapse (collapsed = less context) */}
               <button
@@ -736,8 +744,9 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
               {open && (s.present ? s.render() : (
                 <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
               ))}
-            </section>
+            </section>,
           );
+          return out;
         })}
       </div>
     </div>
