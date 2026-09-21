@@ -85,7 +85,7 @@ proxPct = input.float(8.0, "Only draw a MA within N% of price", minval = 0, maxv
 maLen   = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
 tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
 lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
-tagSz   = input.string("normal", "Tag size", options = ["small", "normal", "large"], group = gDraw)
+tagSz   = input.string("small", "Tag size", options = ["tiny", "small", "normal", "large"], group = gDraw)
 supCol  = input.color(#26A69A, "Support tint", inline = "rc", group = gDraw)
 resCol  = input.color(#EF5350, "Resistance tint", inline = "rc", group = gDraw)
 wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gDraw)
@@ -105,6 +105,11 @@ enWkO   = input.bool(true, "Weekly OPEN (faint)",  inline = "o", group = gLvW)
 enMoO   = input.bool(true, "Monthly OPEN (faint)", inline = "o", group = gLvW)
 opColor = input.color(color.new(#90A4AE, 45), "Open line colour (faint)", group = gLvW)
 lvProx  = input.float(5.0, "Only draw within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLvW)
+
+// ── Confluence (merge colliding tags) ────────────────────────────────────────
+gCf     = "Confluence"
+enConf  = input.bool(true, "Merge tags that collide (one label lists both)", group = gCf, tooltip = "When an MA / weekly-monthly / base tag lands within N% of a profile level (POC/VAH/VAL/HVN) or another MA, they collapse into ONE label (e.g. 'HVN 763.18 + PWH + 200 SMA') instead of overlapping tags.")
+confTol = input.float(0.35, "…within N% of each other", minval = 0.05, maxval = 3, step = 0.05, group = gCf)
 
 // ── Premium-selling HUD ──────────────────────────────────────────────────────
 gHUD     = "Premium HUD (volume + RSI)"
@@ -203,15 +208,36 @@ var label[] _lb = array.new_label()
 var float[] _mv = array.new_float()
 var string[] _mn = array.new_string()
 _lvlStyle = lvlStyle == "dashed" ? line.style_dashed : lvlStyle == "dotted" ? line.style_dotted : line.style_solid
-_tagSz    = tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
+_tagSz    = tagSz == "tiny" ? size.tiny : tagSz == "small" ? size.small : tagSz == "large" ? size.large : size.normal
+// Confluence pool: every drawn level registers here; a later level within confTol% of
+// one merges INTO its label instead of drawing an overlapping tag.
+var float[] _cfV = array.new_float()
+var label[] _cfL = array.new_label()
+f_cfFind(float v) =>
+    _r = -1
+    if enConf and v > 0 and array.size(_cfV) > 0
+        for _q = 0 to array.size(_cfV) - 1
+            if math.abs(array.get(_cfV, _q) - v) / v * 100.0 <= confTol
+                _r := _q
+    _r
+f_cfAdd(float v, label lb) =>
+    array.push(_cfV, v)
+    array.push(_cfL, lb)
 f_flat(bool en, float v, string nm, float ang, color col, float prox) =>
     _near = prox <= 0 or (v > 0 and math.abs(close - v) / close * 100.0 <= prox)
     if en and not na(v) and v > 0 and _near
-        _sup  = close >= v
-        _tint = _sup ? supCol : resCol
-        _txt  = nm + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
-        array.push(_ln, line.new(bar_index - maLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
-        array.push(_lb, label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+        _hit = f_cfFind(v)
+        if _hit >= 0
+            _mlb = array.get(_cfL, _hit)
+            label.set_text(_mlb, label.get_text(_mlb) + " + " + nm)
+        else
+            _sup  = close >= v
+            _tint = _sup ? supCol : resCol
+            _txt  = nm + " " + str.tostring(v, format.mintick) + " · " + (_sup ? "SUPPORT" : "RESISTANCE") + (na(ang) ? "" : " · " + f_slopeTxt(ang))
+            array.push(_ln, line.new(bar_index - maLen, v, bar_index + tagOff, v, xloc = xloc.bar_index, color = col, width = wLine, style = _lvlStyle))
+            _nlb = label.new(bar_index + tagOff, v, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(_tint, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+            array.push(_lb, _nlb)
+            f_cfAdd(v, _nlb)
 f_meta(bool en, float v, string nm) =>
     if en and not na(v) and v > 0
         array.push(_mv, v)
@@ -234,6 +260,8 @@ if barstate.islast
             label.delete(array.get(vpLbls, _i))
     array.clear(vpLines)
     array.clear(vpLbls)
+    array.clear(_cfV)          // fresh confluence pool each rebuild (profile registers first)
+    array.clear(_cfL)
     if not enHUD and not na(pHud)
         table.delete(pHud)
         pHud := na
@@ -316,7 +344,9 @@ if barstate.islast
                         if showHVN and f_vpNear(_price)
                             array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
                             if showLbls
-                                array.push(vpLbls, label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                                _hlb = label.new(_xR, _price, "HVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(hvnColor, 0), textcolor = color.new(color.white, 0), size = _sz)
+                                array.push(vpLbls, _hlb)
+                                f_cfAdd(_price, _hlb)
                     else if showLVN and _isL and f_vpNear(_price)
                         array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
@@ -325,15 +355,21 @@ if barstate.islast
             if showPOC and f_vpNear(_pocPrice)
                 array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    _plb = label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz)
+                    array.push(vpLbls, _plb)
+                    f_cfAdd(_pocPrice, _plb)
             if showVA and f_vpNear(_vah)
                 array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    _vhlb = label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz)
+                    array.push(vpLbls, _vhlb)
+                    f_cfAdd(_vah, _vhlb)
             if showVA and f_vpNear(_val)
                 array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz))
+                    _vllb = label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz)
+                    array.push(vpLbls, _vllb)
+                    f_cfAdd(_val, _vllb)
 
             if enHUD
                 _cand = array.new_float()
