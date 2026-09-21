@@ -48,12 +48,22 @@ class Profile:
 @dataclass
 class Signal:
     symbol: str
-    kind: str            # poc_reclaim | val_bounce | vah_breakout | vwap_reclaim | vwap_loss
-    direction: str       # long | short
+    kind: str            # poc_reclaim | val_bounce | vah_breakout | vwap_reclaim | vwap_loss | sell_puts | sell_calls
+    direction: str       # long | short | puts | calls
     level: float
     level_name: str
     price: float
     confluence: list[str] = field(default_factory=list)
+    reason: str = ""     # premium signals: which trigger fired (e.g. "VAL bounce")
+
+
+def _rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder's RSI (same as the scanner + pine)."""
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False).mean()
+    dn = (-d.clip(upper=0)).ewm(alpha=1 / n, adjust=False).mean()
+    rs = up / dn.replace(0, 1e-9)
+    return 100 - 100 / (1 + rs)
 
 
 def compute_profile(df: pd.DataFrame, bars_back: int = BARS_BACK, columns: int = COLUMNS,
@@ -193,5 +203,63 @@ def detect_signals(df: pd.DataFrame, symbol: str, *, short_ok: bool = False,
     if short_ok and c < vwap and (pc >= vwap or o < vwap):
         out.append(Signal(symbol, "vwap_loss", "short", vwap, "VWAP", c,
                           _confluence(vwap, mas)))
+
+    return out
+
+
+def detect_premium_signals(df: pd.DataFrame, symbol: str, *, calls_ok: bool = True,
+                           prox: float = 0.03) -> list[Signal]:
+    """Premium-selling setups, mirroring the VP-lines HUD.
+
+    SELL PUTS (bullish bottom) on any: VAL bounce/reclaim · RSI-30 reclaim · 200 SMA reclaim.
+    SELL CALLS (bearish top, if calls_ok) on any: VAH reject · RSI-70 roll · 200 SMA loss.
+    A signal only fires while price is still NEAR the level (default 3%) — so a name that
+    already ran off it goes quiet (no late signal), which also keeps puts and calls from
+    both firing on the same name. Each carries `reason`. Timing only — verify IV in-broker.
+    """
+    prof = compute_profile(df)
+    if prof is None or len(df) < 30:
+        return []
+    close = df["Close"].astype(float)
+    c = float(close.iloc[-1])
+    pc = float(close.iloc[-2])
+    rsi = _rsi(close, 14)
+    r = float(rsi.iloc[-1])
+    rp = float(rsi.iloc[-2])
+    rsi_up = r > rp
+    rsi_lo10 = float(rsi.tail(10).min())
+    rsi_hi10 = float(rsi.tail(10).max())
+    cl_lo10 = float(close.tail(10).min())
+    cl_hi10 = float(close.tail(10).max())
+    mas = _mas(df)
+    sma200 = mas.get("200 SMA")
+    out: list[Signal] = []
+
+    def near(level: float) -> bool:
+        return abs(c - level) / level <= prox
+
+    near200 = sma200 is not None and abs(c - sma200) / c <= prox
+
+    # SELL PUTS — a bullish turn at a low (price still near the level).
+    val_bounce = (near(prof.val) or (c > prof.val and pc <= prof.val)) and rsi_up
+    rsi30 = 30 <= r <= 42 and rsi_up and rsi_lo10 < 33
+    ma200_recl = near200 and c > sma200 and cl_lo10 < sma200
+    if val_bounce or rsi30 or ma200_recl:
+        why = "VAL bounce" if val_bounce else "RSI-30 reclaim" if rsi30 else "200SMA reclaim"
+        # strike reference = the level that actually triggered (the one price is near).
+        lvl, lname = (sma200, "200 SMA") if ma200_recl and not val_bounce else (prof.val, "VAL")
+        out.append(Signal(symbol, "sell_puts", "puts", lvl, lname, c,
+                          _confluence(lvl, mas), why))
+
+    # SELL CALLS — the mirror at a high (price still near the level).
+    if calls_ok:
+        vah_reject = (near(prof.vah) or (c < prof.vah and pc >= prof.vah)) and not rsi_up
+        rsi70 = r >= 58 and not rsi_up and rsi_hi10 > 68
+        ma200_loss = near200 and c < sma200 and cl_hi10 > sma200
+        if vah_reject or rsi70 or ma200_loss:
+            why = "VAH reject" if vah_reject else "RSI-70 roll" if rsi70 else "200SMA loss"
+            lvl, lname = (sma200, "200 SMA") if ma200_loss and not vah_reject else (prof.vah, "VAH")
+            out.append(Signal(symbol, "sell_calls", "calls", lvl, lname, c,
+                              _confluence(lvl, mas), why))
 
     return out
