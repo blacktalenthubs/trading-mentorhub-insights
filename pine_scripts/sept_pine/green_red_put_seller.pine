@@ -52,9 +52,10 @@ _dRev = _rsiTrough and _rsi[1] < rsiZone
 _wRev = request.security(syminfo.tickerid, "W", f_wRev(rsiLen, rsiZone), lookahead = barmerge.lookahead_off)
 _rsiW = request.security(syminfo.tickerid, "W", f_wRsi(rsiLen), lookahead = barmerge.lookahead_off)
 
-// SMA bounce: wick tags the SMA, close holds above it, green bar (turning up off support).
-_bounce50  = low <= _sma50  * (1 + maTol / 100.0) and close > _sma50  and close > open
-_bounce200 = low <= _sma200 * (1 + maTol / 100.0) and close > _sma200 and close > open
+// SMA bounce: bar OPENS above the SMA (support from above), wicks down to tag it, and
+// closes green — not a bar that just straddles a flat SMA in chop.
+_bounce50  = open > _sma50  and low <= _sma50  * (1 + maTol / 100.0) and close > open
+_bounce200 = open > _sma200 and low <= _sma200 * (1 + maTol / 100.0) and close > open
 
 // Any enabled trigger fires a put; _why names the one that did (priority order).
 _fD   = tRsiD and _dRev
