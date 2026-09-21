@@ -7,10 +7,10 @@
  *  Its own scroll root (AppLayout <main> is overflow-hidden — see
  *  feedback_page_scroll_container).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown, Star } from "lucide-react";
-import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useBottomWatch, useToggleWatchlistFocus, useWatchlist, type BottomWatchItem } from "../api/hooks";
+import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useToggleWatchlistFocus, useWatchlist } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
@@ -140,96 +140,6 @@ function SwingSetups({ body, onChart, exclude = [] }: { body: string; onChart: (
   );
 }
 
-type Ma20Row = { symbol: string; side: string; trigger: string; setup: string; angle: number; state: string; ext_atr: number; ext_pct: number; entry: number; stop: number; target: number; rr: number; close: number; lt_trend: string; with_trend: boolean };
-/** 20-MA Setups — names at a 20-day MA entry NOW (pullback to the MA in a trend, or a
- *  fade back to it when extended), each with entry / stop / target / R:R and a with/counter
- *  200-trend flag. Mirrors the ma20_direction Pine; populated by analytics/ma20_scan_report.py. */
-// buckets, in review order — long first, pullbacks before fades.
-const MA20_BUCKETS: { key: string; side: string; trigger: string; title: string; sub: string }[] = [
-  { key: "LONG-pullback",  side: "LONG",  trigger: "pullback", title: "Long · pullback",  sub: "rising 20-MA reclaim (support)" },
-  { key: "SHORT-pullback", side: "SHORT", trigger: "pullback", title: "Short · pullback", sub: "falling 20-MA reject (resistance)" },
-  { key: "LONG-fade",      side: "LONG",  trigger: "fade",     title: "Long · fade",      sub: "extended below → snap back to the MA" },
-  { key: "SHORT-fade",     side: "SHORT", trigger: "fade",     title: "Short · fade",     sub: "extended above → fade back to the MA" },
-];
-function Ma20Setups({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  const toggleFocus = useToggleWatchlistFocus();
-  const { data: wl } = useWatchlist();
-  const focused = new Set((wl ?? []).filter((w) => w.focus).map((w) => w.symbol));
-  const [openB, setOpenB] = useState<Set<string>>(() => new Set(MA20_BUCKETS.map((b) => b.key)));
-  let parsed: { rows?: Ma20Row[]; counts?: { long: number; short: number }; universe?: number; total?: number } | null = null;
-  try { parsed = JSON.parse(body); } catch { parsed = null; }
-  const rows = parsed?.rows ?? [];
-  if (rows.length === 0) {
-    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No name is at a 20-MA entry right now — the scan runs on demand (analytics/ma20_scan_report.py).</div>;
-  }
-  const byKey: Record<string, Ma20Row[]> = {};
-  for (const r of rows) { const k = `${r.side}-${r.trigger}`; (byKey[k] ??= []).push(r); }
-  const shown = MA20_BUCKETS.filter((b) => (byKey[b.key] ?? []).length > 0);
-  const toggle = (k: string) => setOpenB((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const cell = (label: string, val: number | string, tone: string) => (
-    <div><div className="text-[8.5px] font-medium uppercase tracking-wide text-text-faint">{label}</div><div className={`font-mono text-[12px] ${tone}`}>{val}</div></div>
-  );
-  const card = (x: Ma20Row) => {
-    const long = x.side === "LONG";
-    const pill = long ? "border-bullish-muted bg-bullish-subtle text-bullish-text" : "border-bearish-muted bg-bearish-subtle text-bearish-text";
-    return (
-      <div key={x.symbol} className="rounded-xl border border-border-subtle bg-surface-1 p-3 transition-colors hover:border-accent">
-        <div className="flex items-center justify-between gap-2">
-          <button onClick={() => onChart(x.symbol)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{x.symbol}</button>
-          <div className="flex items-center gap-1.5">
-            <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${pill}`}>{x.side} · {x.trigger}</span>
-            {(() => { const isFav = focused.has(x.symbol); return (
-              <button title={isFav ? `${x.symbol} in Focus — click to remove` : `Add ${x.symbol} to Focus`} aria-label={isFav ? `Remove ${x.symbol} from Focus` : `Add ${x.symbol} to Focus`} onClick={() => toggleFocus.mutate(x.symbol)} className={`rounded p-1 transition-colors hover:bg-surface-2 ${isFav ? "text-amber-400" : "text-text-faint hover:text-amber-400"}`}><Star className={`h-3.5 w-3.5 ${isFav ? "fill-amber-400" : ""}`} /></button>
-            ); })()}
-          </div>
-        </div>
-        <button onClick={() => onChart(x.symbol)} className="mt-1 block w-full text-left">
-          <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-text-muted">
-            <span className="font-mono">{x.angle}°</span><span>·</span>
-            <span>{x.state}</span><span>·</span>
-            <span className="font-mono">{x.ext_atr >= 0 ? "+" : ""}{x.ext_atr} ATR from MA</span>
-          </div>
-          <div className="mt-2 grid grid-cols-4 gap-1.5">
-            {cell("entry", x.entry, "text-text-primary")}
-            {cell("stop", x.stop, "text-bearish-text")}
-            {cell("tgt", x.target, "text-bullish-text")}
-            {cell("r:r", `${x.rr}`, "text-text-secondary")}
-          </div>
-          <div className="mt-2 flex items-center gap-1.5 text-[9.5px]">
-            <span className={`rounded px-1.5 py-0.5 font-medium ${x.with_trend ? "bg-bullish-subtle text-bullish-text" : "bg-amber-500/15 text-amber-400"}`}>{x.with_trend ? "with 200-trend ✓" : "counter 200-trend ⚠"}</span>
-            <span className="truncate text-text-faint">{x.setup}</span>
-          </div>
-        </button>
-      </div>
-    );
-  };
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold text-text-secondary">{parsed?.total ?? rows.length} setup{(parsed?.total ?? rows.length) === 1 ? "" : "s"}</span>
-        <span className="text-[10.5px] text-text-faint">{parsed?.counts?.long ?? 0} long · {parsed?.counts?.short ?? 0} short{parsed?.universe ? ` · scanned ${parsed.universe}` : ""}</span>
-      </div>
-      {shown.map((b) => {
-        const items = byKey[b.key] ?? [];
-        const isOpen = openB.has(b.key);
-        return (
-          <div key={b.key} className="overflow-hidden rounded-xl border border-border-subtle">
-            <button onClick={() => toggle(b.key)} className="flex w-full items-center gap-2 bg-surface-2/40 px-3 py-2 text-left transition-colors hover:bg-surface-2/70">
-              <span className={`h-2 w-2 shrink-0 rounded-full ${b.side === "LONG" ? "bg-bullish-text" : "bg-bearish-text"}`} />
-              <span className="text-[11px] font-bold uppercase tracking-wide text-text-secondary">{b.title}</span>
-              <span className="hidden truncate text-[10px] text-text-faint sm:inline">· {b.sub}</span>
-              <span className="ml-auto shrink-0 rounded-full bg-surface-1 px-2 py-0.5 text-[10px] font-bold text-text-secondary">{items.length}</span>
-              <ChevronDown className={`h-4 w-4 shrink-0 text-text-faint transition-transform ${isOpen ? "rotate-180" : ""}`} />
-            </button>
-            {isOpen && <div className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">{items.map(card)}</div>}
-          </div>
-        );
-      })}
-      <p className="text-[11px] leading-snug text-text-faint">Names at a 20-day MA entry now, grouped by type. Tap a header to expand/collapse; ★ adds the name to your Focus list (the ★ tab on the Trading page) to review later. Educational, not financial advice.</p>
-    </div>
-  );
-}
-
 type GapRow = { sym: string; dir?: string; gap_pct: number; open?: number; prev_close?: number; bias?: string;
   or?: { or_high: number; or_low: number; last: number; state: string } | null;
   gap_dir?: string; days_ago?: number; direction?: string; trigger?: number; stop?: number;
@@ -330,11 +240,6 @@ const PM_LABEL: Record<string, string> = {
 };
 /** Compact "moving premarket" strip — premarket-signal names as chips, shown at the
  *  TOP of Today's Focus (merged in; no longer its own section). Null when nothing's moving. */
-interface VsRow {
-  sym: string; signal: string; label: string; direction: string;
-  price: number; level: number; level_name: string; stop: number;
-  risk_pct: number; confluence: string[];
-}
 interface SupRow {
   sym: string; price: number; rsi_d: number; rsi_w: number;
   weekly_oversold: boolean; triggers: string[]; levels: string[];
@@ -393,37 +298,6 @@ function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => vo
           </div>
         </div>
       )}
-    </div>
-  );
-}
-function VolumeSignals({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  let parsed: { rows?: VsRow[]; scanned?: number } | null = null;
-  try { parsed = JSON.parse(body); } catch { parsed = null; }
-  const rows = parsed?.rows ?? [];
-  if (rows.length === 0)
-    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No volume-profile setups in the last scan.</div>;
-  const dirColor = (d: string) => (d === "short" ? "text-bearish-text" : "text-bullish-text");
-  return (
-    <div className="space-y-1.5">
-      <div className="text-[10.5px] text-text-faint">
-        {rows.length} setups · scanned {parsed?.scanned ?? "—"} names · ⭐ = level stacks with an MA
-      </div>
-      {rows.map((r, i) => (
-        <div key={r.sym + r.signal + i} className="flex items-center justify-between gap-2 rounded-lg border border-border-subtle bg-surface-1 px-3 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <button onClick={() => onChart(r.sym)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.sym}</button>
-            <span className={`text-[11px] font-semibold ${dirColor(r.direction)}`}>{r.label}</span>
-            {r.confluence && r.confluence.length > 0 && (
-              <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent">⭐ {r.confluence.join(", ")}</span>
-            )}
-          </div>
-          <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
-            <span>{r.level_name} {r.level.toFixed(2)}</span>
-            <span className="text-text-secondary">${r.price.toFixed(2)}</span>
-            <span className="text-text-faint">risk {r.risk_pct}%</span>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
@@ -574,7 +448,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   const mf = data?.morning_focus ?? null;
   const sw = data?.swing_setups ?? null;
-  const ma20 = data?.ma20_setups ?? null;
   const gap = data?.gap_setups ?? null;
   const sup = data?.support ?? null;
   const ps = data?.premarket_signals ?? null;
@@ -748,169 +621,6 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
           );
           return out;
         })}
-      </div>
-    </div>
-  );
-}
-
-/** Linkify a ticker token (an uppercase symbol immediately followed by a "$" price,
- *  e.g. "MSTR $98.70") → a clickable chart link, without disturbing the monospace
- *  layout (inline, no padding). Non-ticker uppercase words (RSI, ADX, MA…) aren't
- *  followed by a "$", so they're left alone. */
-function Linked({ text, onChart }: { text: string; onChart: (s: string) => void }) {
-  const parts = text.split(/(\b[A-Z]{2,5}\b)(?=\s*\$)/g);
-  return (
-    <>
-      {parts.map((p, i) =>
-        i % 2 === 1
-          ? <button key={i} onClick={() => onChart(p)} className="inline text-accent hover:underline">{p}</button>
-          : <span key={i}>{p}</span>,
-      )}
-    </>
-  );
-}
-
-/** Render a Telegram-HTML report body (premarket brief / EOD recap) as readable
- *  STRUCTURE — bold section headers, monospace cards for the <pre> tables, and plain
- *  prose. Tickers ("MSTR $98.70") link to the chart. Our own content only. */
-function ReportBody({ body, onChart }: { body: string; onChart: (s: string) => void }) {
-  if (!body || !body.trim()) return null;
-  const strip = (s: string) => s.replace(/<\/?(b|strong|i|em|code)>/gi, "");
-  const parts = body.split(/(<pre>[\s\S]*?<\/pre>)/g).filter((p) => p.trim() !== "");
-  return (
-    <div className="max-w-3xl space-y-1.5 rounded-xl border border-border-subtle bg-surface-1 p-4">
-      {parts.map((part, i) => {
-        if (part.startsWith("<pre>")) {
-          return (
-            <pre key={i} className="overflow-x-auto whitespace-pre rounded-lg border border-border-subtle bg-surface-2 p-2.5 font-mono text-[12px] leading-relaxed text-text-secondary"><Linked text={strip(part.replace(/<\/?pre>/g, ""))} onChart={onChart} /></pre>
-          );
-        }
-        return part.split("\n").filter((l) => l.trim() !== "").map((line, j) => {
-          const t = line.trim();
-          const isHeader = /^(<b>|<strong>).*(<\/b>|<\/strong>)$/i.test(t);
-          return isHeader
-            ? <div key={`${i}-${j}`} className="pt-1.5 text-[13px] font-bold text-text-primary">{strip(t)}</div>
-            : <p key={`${i}-${j}`} className="text-[13px] leading-relaxed text-text-secondary"><Linked text={strip(t)} onChart={onChart} /></p>;
-        });
-      })}
-    </div>
-  );
-}
-
-/* ── Bottom Watch — watchlist ranked by daily RSI. Catch the bottom in washed-out
-   names + judge if it's worth buying (P/E, EPS, analyst rating, target upside). ── */
-function bwTone(state: BottomWatchItem["state"]): string {
-  if (state === "reclaimed_30") return "bg-accent/15 text-accent";
-  if (state === "oversold") return "bg-bearish/15 text-bearish-text";
-  if (state === "buy_zone") return "bg-warning/15 text-warning-text";
-  if (state === "approaching") return "bg-warning/10 text-warning-text";
-  if (state === "at_200ma") return "bg-accent/10 text-accent";
-  return "bg-surface-3 text-text-muted";
-}
-const BW_STATE_RANK: Record<BottomWatchItem["state"], number> = {
-  reclaimed_30: 0, oversold: 1, buy_zone: 2, approaching: 3, at_200ma: 4, cooling: 5,
-};
-const BW_REC_RANK: Record<string, number> = {
-  strong_buy: 0, buy: 1, hold: 2, underperform: 3, sell: 4,
-};
-function bwCap(c: number | null | undefined): string {
-  if (!c) return "—";
-  if (c >= 1e12) return `$${(c / 1e12).toFixed(1)}T`;
-  if (c >= 1e9) return `$${(c / 1e9).toFixed(0)}B`;
-  return `$${(c / 1e6).toFixed(0)}M`;
-}
-function bwRec(rec: string | null | undefined): string {
-  if (!rec) return "—";
-  return rec.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-}
-type BwSortKey = "symbol" | "rsi" | "state" | "dist" | "pe" | "rec" | "upside" | "cap";
-function bwVal(w: BottomWatchItem, k: BwSortKey): number | string | null {
-  switch (k) {
-    case "symbol": return w.symbol;
-    case "rsi": return w.rsi;
-    case "state": return BW_STATE_RANK[w.state];
-    case "dist": return w.dist_200ma_pct;
-    case "pe": return w.fund?.pe ?? null;
-    case "rec": return w.fund?.rec ? (BW_REC_RANK[w.fund.rec] ?? 9) : null;
-    case "upside": return w.fund?.target_upside_pct ?? null;
-    case "cap": return w.fund?.mkt_cap ?? null;
-  }
-}
-function BottomWatchBoard({ onChart }: { onChart: (s: string) => void }) {
-  const { data, isLoading } = useBottomWatch();
-  const [sortKey, setSortKey] = useState<BwSortKey>("rsi");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const rows = data ?? [];
-  const sorted = useMemo(() => {
-    const arr = [...rows];
-    arr.sort((a, b) => {
-      const va = bwVal(a, sortKey), vb = bwVal(b, sortKey);
-      if (va == null && vb == null) return 0;
-      if (va == null) return 1;       // nulls always sink
-      if (vb == null) return -1;
-      const c = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
-      return sortDir === "asc" ? c : -c;
-    });
-    return arr;
-  }, [rows, sortKey, sortDir]);
-  const onSort = (k: BwSortKey) => {
-    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortKey(k); setSortDir(k === "symbol" || k === "rsi" ? "asc" : "desc"); }
-  };
-  const Th = ({ k, label, right }: { k: BwSortKey; label: string; right?: boolean }) => (
-    <th className={`px-2.5 py-2 font-medium ${right ? "text-right" : "text-left"}`}>
-      <button onClick={() => onSort(k)} className="inline-flex items-center gap-0.5 hover:text-text-secondary">
-        {label}{sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
-      </button>
-    </th>
-  );
-
-  if (isLoading && rows.length === 0)
-    return <div className="p-8 text-center text-sm text-text-muted">Scanning RSI…</div>;
-  if (rows.length === 0)
-    return <div className="p-8 text-center text-sm text-text-muted">No names to rank yet.</div>;
-  return (
-    <div className="space-y-2">
-      <p className="px-1 text-[12px] leading-relaxed text-text-muted">
-        The market's washed-out names ranked by <b>daily RSI</b> (not just your watchlist) — catch the bottom, then judge if it's worth buying:
-        <b> P/E</b> + <b>analyst rating</b> + <b>target upside</b> separate a quality dip from a falling knife.
-        <b> Tap a header to sort</b>; tap a row → chart. (Fundamentals fill in over a few seconds.)
-      </p>
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full text-[12px]">
-          <thead className="text-text-faint border-b border-border">
-            <tr>
-              <Th k="symbol" label="Sym" />
-              <Th k="rsi" label="RSI" />
-              <Th k="state" label="Setup" />
-              <Th k="dist" label="vs 200" right />
-              <Th k="pe" label="P/E" right />
-              <Th k="rec" label="Rating" />
-              <Th k="upside" label="Upside" right />
-              <Th k="cap" label="Mkt Cap" right />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {sorted.map((w) => (
-              <tr key={w.symbol} onClick={() => onChart(w.symbol)} className="cursor-pointer transition-colors hover:bg-surface-2/50">
-                <td className="px-2.5 py-2 font-semibold text-text-primary">{w.symbol}</td>
-                <td className="px-2.5 py-2 font-mono tabular-nums text-text-secondary">{w.rsi}</td>
-                <td className="px-2.5 py-2">
-                  <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${bwTone(w.state)}`}>{w.state_label}</span>
-                </td>
-                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-faint">
-                  {w.dist_200ma_pct != null ? `${w.dist_200ma_pct > 0 ? "+" : ""}${w.dist_200ma_pct}%` : "—"}
-                </td>
-                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-secondary">{w.fund?.pe ?? "—"}</td>
-                <td className="px-2.5 py-2 text-text-muted">{bwRec(w.fund?.rec)}</td>
-                <td className={`px-2.5 py-2 text-right font-mono tabular-nums ${(w.fund?.target_upside_pct ?? 0) > 0 ? "text-bullish-text" : "text-text-faint"}`}>
-                  {w.fund?.target_upside_pct != null ? `${w.fund.target_upside_pct > 0 ? "+" : ""}${w.fund.target_upside_pct}%` : "—"}
-                </td>
-                <td className="px-2.5 py-2 text-right font-mono tabular-nums text-text-muted">{bwCap(w.fund?.mkt_cap)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
     </div>
   );
