@@ -43,6 +43,10 @@ class Profile:
     lvns: list[float] = field(default_factory=list)
     total: float = 0.0
     max_vol: float = 0.0
+    # Ambiguity: volume of the highest SEPARATED second peak / the POC's volume. When this
+    # is high (~0.9+) there are two near-tied nodes and the POC can flip by data source
+    # (yfinance vs TradingView) — the QQQ case. Low = one clear POC (SPY). 0 = no rival peak.
+    peak_ratio: float = 0.0
 
 
 @dataclass
@@ -127,7 +131,18 @@ def compute_profile(df: pd.DataFrame, bars_back: int = BARS_BACK, columns: int =
         elif vol[k] <= vol[k - 1] and vol[k] <= vol[k + 1] and vol[k] <= l_max and vol[k] > 0:
             lvns.append(price)
 
-    return Profile(poc=poc, vah=vah, val=val, hvns=hvns, lvns=lvns, total=total, max_vol=max_vol)
+    # Peak ambiguity: the tallest local peak that is a SEPARATE node from the POC — far
+    # enough away (>= columns/3 rows) that it's a rival cluster, not the POC's own shoulder —
+    # as a fraction of the POC's volume. High => two rival nodes (POC can flip by source).
+    sep = max(4, columns // 3)
+    second = 0.0
+    for k in range(1, columns - 1):
+        if vol[k] >= vol[k - 1] and vol[k] >= vol[k + 1] and abs(k - poc_i) >= sep and vol[k] > second:
+            second = vol[k]
+    peak_ratio = second / max_vol if max_vol > 0 else 0.0
+
+    return Profile(poc=poc, vah=vah, val=val, hvns=hvns, lvns=lvns, total=total,
+                   max_vol=max_vol, peak_ratio=peak_ratio)
 
 
 def rolling_vwap(df: pd.DataFrame, bars_back: int = BARS_BACK) -> float | None:

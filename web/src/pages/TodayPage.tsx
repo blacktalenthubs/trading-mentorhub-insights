@@ -243,7 +243,7 @@ const PM_LABEL: Record<string, string> = {
 interface SupRow {
   sym: string; price: number; rsi_d: number; rsi_w: number;
   weekly_oversold: boolean; triggers: string[]; levels: string[];
-  at_support: boolean; strike: number; dte: number;
+  at_support: boolean; strike: number; dte: number; ambiguous?: boolean;
 }
 // At Support / Oversold: names bouncing at a support point NOW (rising 20/50, 200 SMA,
 // VWAP/POC/VAL, or an RSI reclaim) with the put strike inline, plus the oversold watch
@@ -272,6 +272,9 @@ function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => vo
             {r.triggers.map((t) => (
               <span key={t} className="rounded bg-bullish-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-bullish-text">{t}</span>
             ))}
+            {r.ambiguous && r.triggers.some((t) => /POC|VAL|HVN|VWAP/.test(t)) && (
+              <span title="Two near-tied volume nodes — the profile level may differ from your chart. Verify before trading." className="rounded bg-warning-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-warning-text">⚠ verify level</span>
+            )}
           </div>
           <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
             <span className={rsiCol(r.rsi_w)}>RSI d{r.rsi_d}/w{r.rsi_w}</span>
