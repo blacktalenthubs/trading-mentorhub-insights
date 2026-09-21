@@ -30,6 +30,7 @@ from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch
 from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, evaluate_rules  # noqa: E402
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
+from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
@@ -681,14 +682,15 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="180d")
                             _short = symbol.upper() in _SHORT_UNIVERSE
                             if _h1 is not None and not _h1.empty:
-                                # ── 1H support (all symbols) ──
-                                if "ma20_support_1h" in _ENABLED_RULES:
+                                # ── 1H support (selected names only, 2026-09-21 — too noisy universe-wide) ──
+                                _sma1h_ok = symbol.upper() in _SMA1H_SYMBOLS
+                                if _sma1h_ok and "ma20_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
                                     if _x: signals.append(_x)
-                                if "ma50_support_1h" in _ENABLED_RULES:
+                                if _sma1h_ok and "ma50_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 50, AlertType.MA50_SUPPORT_1H, "50 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
-                                if "ma200_support_1h" in _ENABLED_RULES:
+                                if _sma1h_ok and "ma200_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
                                 # ── 1H rejection SHORTS (index set only) ──
