@@ -687,9 +687,8 @@ ENABLED_RULES: set[str] = {
     "ma_bounce_150",
     "ma_bounce_200",
 
-    # ── Hourly MA support: 20 (rising) + 50 + 200 ───────────────────────────────
+    # ── Hourly MA support: 20 (rising) + 200 only (2026-09-21 — 50 removed) ──────
     "ma20_support_1h",
-    "ma50_support_1h",
     "ma200_support_1h",
     # ── Hourly volume-profile (isolated names only) — POC/VAL/VWAP support + VAH (2026-09-21) ─
     "hourly_poc_reclaim",
@@ -703,7 +702,7 @@ ENABLED_RULES: set[str] = {
     "ma50_support_4h",
     "ma200_support_4h",
     # ── 1H / 4H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ───────────
-    "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
+    "ma20_reject_1h", "ma200_reject_1h",
     "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
