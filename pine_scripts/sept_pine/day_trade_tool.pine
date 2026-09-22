@@ -6,7 +6,7 @@
 //     VWAP (no histogram, so it never compresses the candles).
 //   • MA/EMA stack as FLAT tags (SUPPORT/RESISTANCE + slope°): 20/21/50/100/200 SMA +
 //     8/21/50/100/200 EMA + 30W SMA — proximity-gated so far lines never clutter.
-//   • Weekly BASE (K of the last M weekly lows at one price).
+//   • Weekly + Daily BASE (K of the last M weekly / daily lows clustered at one price).
 //   • Weekly / monthly HIGH-LOW (PWH/PWL/PMH/PML) + weekly / monthly OPEN (faint).
 //   • Unfilled gaps (persist until filled).
 //   • Two HUDs: Premium-selling read (volume+RSI) and MA read (nearest S/R, trend, stage).
@@ -98,6 +98,15 @@ baseK   = input.int(3, "  Min touches (K)", minval = 2, maxval = 10, group = gBa
 baseTol = input.float(2.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gBase) / 100.0
 baseAtr = input.float(0.75, "  Max base width (× weekly ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gBase)
 baseProx = input.float(15.0, "  Only draw within N% of price", minval = 0, maxval = 100, step = 1, group = gBase)
+
+gDBase   = "Daily base"
+enDBase  = input.bool(true, "Draw the daily base (K of the last M daily lows at one price)", group = gDBase)
+dBaseM   = input.int(6, "  Days to scan (M)", minval = 3, maxval = 12, group = gDBase)
+dBaseK   = input.int(3, "  Min touches (K)", minval = 2, maxval = 10, group = gDBase)
+dBaseTol = input.float(1.0, "  Touch tolerance (% cap)", minval = 0.1, maxval = 10, step = 0.1, group = gDBase) / 100.0
+dBaseAtr = input.float(0.5, "  Max base width (× daily ATR)", minval = 0.1, maxval = 3, step = 0.05, group = gDBase)
+dBaseProx = input.float(10.0, "  Only draw within N% of price", minval = 0, maxval = 100, step = 1, group = gDBase)
+dBaseCol = input.color(#00ACC1, "  Daily base colour", group = gDBase)
 
 gLvW    = "Weekly / monthly levels"
 enWk    = input.bool(true, "Weekly high/low (PWH / PWL)",  inline = "w", group = gLvW)
@@ -202,6 +211,8 @@ st21 = request.security(syminfo.tickerid, maTf, ta.ema(close, 21)[1], lookahead 
 // weekly base inputs + weekly atr
 [_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12] = request.security(syminfo.tickerid, "W", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
 _watr = request.security(syminfo.tickerid, "W", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+[_db1, _db2, _db3, _db4, _db5, _db6, _db7, _db8, _db9, _db10, _db11, _db12] = request.security(syminfo.tickerid, "D", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12]], lookahead = barmerge.lookahead_on)
+_datr = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
 
 // ── MA flat pools + helpers ──────────────────────────────────────────────────
 var line[]  _ln = array.new_line()
@@ -243,6 +254,42 @@ f_meta(bool en, float v, string nm) =>
     if en and not na(v) and v > 0
         array.push(_mv, v)
         array.push(_mn, nm)
+// Base = K of the last M `lows` clustered within tol (capped by atrMult×ATR). Draws one
+// line at the cluster's lowest touch. Used for both the weekly and the daily base.
+f_base(float[] lows, float batr, int M, int K, float tol, float atrMult, float prox, string tag, color col) =>
+    _bLows = array.new_float()
+    _bi = 0
+    while _bi < array.size(lows) and array.size(_bLows) < M
+        _bv = array.get(lows, _bi)
+        if not na(_bv) and _bv > 0
+            array.push(_bLows, _bv)
+        _bi += 1
+    _bCnt = 0
+    float _bCand = na
+    if array.size(_bLows) > 0
+        for _bc = 0 to array.size(_bLows) - 1
+            _cand = array.get(_bLows, _bc)
+            _tpC = na(batr) ? _cand * tol : math.min(_cand * tol, atrMult * batr)
+            _cnt = 0
+            for _bj = 0 to array.size(_bLows) - 1
+                if math.abs(array.get(_bLows, _bj) - _cand) <= _tpC
+                    _cnt += 1
+            if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
+                _bCnt := _cnt
+                _bCand := _cand
+    if _bCnt >= K and not na(_bCand)
+        _tpB = na(batr) ? _bCand * tol : math.min(_bCand * tol, atrMult * batr)
+        _bmin = _bCand
+        for _bj = 0 to array.size(_bLows) - 1
+            _lj = array.get(_bLows, _bj)
+            if math.abs(_lj - _bCand) <= _tpB
+                _bmin := math.min(_bmin, _lj)
+        _bNear = prox <= 0 or (_bmin > 0 and math.abs(close - _bmin) / close * 100.0 <= prox)
+        if _bNear
+            _blb = label.new(bar_index + tagOff, _bmin, tag + " " + str.tostring(_bmin, format.mintick) + " · " + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_bLows)), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 0), textcolor = color.new(color.white, 0), size = _tagSz)
+            array.push(_ln, line.new(bar_index - maLen, _bmin, bar_index + tagOff, _bmin, xloc = xloc.bar_index, color = col, width = wLine + 1, style = _lvlStyle))
+            array.push(_lb, _blb)
+            f_cfAdd(_bmin, _blb)
 
 // ── Profile pools ────────────────────────────────────────────────────────────
 var array<line>  vpLines = array.new_line()
@@ -477,40 +524,11 @@ if barstate.islast
     f_flat(enMo, pml, "PML", na, supCol, lvProx)
     f_flat(enWkO, wkOpen, "W Open", na, opColor, lvProx)
     f_flat(enMoO, moOpen, "M Open", na, opColor, lvProx)
-    // weekly base
+    // weekly + daily base (K of the last M lows clustered at one price)
     if enBase
-        _wLows = array.new_float()
-        _wAll  = array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12)
-        _wi = 0
-        while _wi < array.size(_wAll) and array.size(_wLows) < baseM
-            _wv = array.get(_wAll, _wi)
-            if not na(_wv) and _wv > 0
-                array.push(_wLows, _wv)
-            _wi += 1
-        _bCnt = 0
-        float _bCand = na
-        if array.size(_wLows) > 0
-            for _bc = 0 to array.size(_wLows) - 1
-                _cand = array.get(_wLows, _bc)
-                _tpC = na(_watr) ? _cand * baseTol : math.min(_cand * baseTol, baseAtr * _watr)
-                _cnt = 0
-                for _bj = 0 to array.size(_wLows) - 1
-                    if math.abs(array.get(_wLows, _bj) - _cand) <= _tpC
-                        _cnt += 1
-                if _cnt > _bCnt or (_cnt == _bCnt and (na(_bCand) or _cand < _bCand))
-                    _bCnt := _cnt
-                    _bCand := _cand
-        if _bCnt >= baseK and not na(_bCand)
-            _tpB = na(_watr) ? _bCand * baseTol : math.min(_bCand * baseTol, baseAtr * _watr)
-            _bmin = _bCand
-            for _bj = 0 to array.size(_wLows) - 1
-                _lj = array.get(_wLows, _bj)
-                if math.abs(_lj - _bCand) <= _tpB
-                    _bmin := math.min(_bmin, _lj)
-            _bNear = baseProx <= 0 or (_bmin > 0 and math.abs(close - _bmin) / close * 100.0 <= baseProx)
-            if _bNear
-                array.push(_ln, line.new(bar_index - maLen, _bmin, bar_index + tagOff, _bmin, xloc = xloc.bar_index, color = supCol, width = wLine + 1, style = _lvlStyle))
-                array.push(_lb, label.new(bar_index + tagOff, _bmin, "BASE " + str.tostring(_bmin, format.mintick) + " · " + str.tostring(_bCnt) + "x/" + str.tostring(array.size(_wLows)) + "w", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(supCol, 0), textcolor = color.new(color.white, 0), size = _tagSz))
+        f_base(array.from(_wb1, _wb2, _wb3, _wb4, _wb5, _wb6, _wb7, _wb8, _wb9, _wb10, _wb11, _wb12), _watr, baseM, baseK, baseTol, baseAtr, baseProx, "W-BASE", supCol)
+    if enDBase
+        f_base(array.from(_db1, _db2, _db3, _db4, _db5, _db6, _db7, _db8, _db9, _db10, _db11, _db12), _datr, dBaseM, dBaseK, dBaseTol, dBaseAtr, dBaseProx, "D-BASE", dBaseCol)
 
 // ── MA HUD ───────────────────────────────────────────────────────────────────
 _mHudPos = mHudPos == "top_left" ? position.top_left : mHudPos == "bottom_right" ? position.bottom_right : mHudPos == "bottom_left" ? position.bottom_left : position.top_right
