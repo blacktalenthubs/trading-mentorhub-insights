@@ -29,7 +29,7 @@ columns  = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gP)
 vaPct    = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gP)
 vpLen    = input.int(120, "Line length (bars left)", minval = 5, maxval = 5000, group = gP)
 rightPad = input.int(10, "Label offset (bars right)", minval = 0, maxval = 100, group = gP)
-vpProx   = input.float(12.0, "Only draw a profile level within N% of price (0 = always)", minval = 0, maxval = 100, step = 0.5, group = gP, tooltip = "Hides POC/VAH/VAL/HVN/LVN lines that are far from price so a stock that ran off its value doesn't clutter. The HUD still uses them. MAs use their own proximity (MA flat lines), weekly/monthly use theirs.")
+vpProx   = input.float(12.0, "Only draw HVN/LVN nodes within N% of price (0 = always)", minval = 0, maxval = 100, step = 0.5, group = gP, tooltip = "HVN/LVN shelves spread across the profile range, so far ones are hidden by this gate. POC / VAH / VAL always draw (core value). The HUD still uses every level.")
 
 gL = "Profile — core levels"
 showPOC   = input.bool(true, "POC", inline = "poc", group = gL)
@@ -62,7 +62,6 @@ en50s  = input.bool(true, "50 SMA",  inline = "s1", group = gSma)
 en100s = input.bool(false,"100 SMA", inline = "s1", group = gSma)
 en200s = input.bool(true, "200 SMA", inline = "s2", group = gSma)
 colSMA = input.color(#1565C0, "SMA line colour", group = gSma)
-alw20  = input.bool(true, "Always show the 20 SMA (ignore proximity)", group = gSma)
 gEma   = "EMA stack"
 en8e   = input.bool(true,  "8 EMA",   inline = "e1", group = gEma)
 en21e  = input.bool(true,  "21 EMA",  inline = "e1", group = gEma)
@@ -83,7 +82,7 @@ idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, g
 idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
 
 gDraw   = "MA flat lines"
-proxPct = input.float(8.0, "Only draw a MA within N% of price", minval = 0, maxval = 50, step = 0.5, group = gDraw)
+proxPct = input.float(8.0, "Only draw the 200 SMA/EMA within N% of price", minval = 0, maxval = 50, step = 0.5, group = gDraw, tooltip = "The 200 SMA (and 200 EMA) are the only MAs proximity-gated — they can sit far out. The rest of the stack always draws.")
 maLen   = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
 tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
 lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
@@ -360,13 +359,13 @@ if barstate.islast
                     _plb = label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz)
                     array.push(vpLbls, _plb)
                     f_cfAdd(_pocPrice, _plb)
-            if showVA and f_vpNear(_vah)
+            if showVA
                 array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
                 if showLbls
                     _vhlb = label.new(_xR, _vah, "VAH " + str.tostring(_vah, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz)
                     array.push(vpLbls, _vhlb)
                     f_cfAdd(_vah, _vhlb)
-            if showVA and f_vpNear(_val)
+            if showVA
                 array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
                 if showLbls
                     _vllb = label.new(_xR, _val, "VAL " + str.tostring(_val, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.new(color.white, 0), size = _sz)
@@ -447,17 +446,19 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_mv)
     array.clear(_mn)
-    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, alw20 ? 0.0 : proxPct)
-    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, proxPct)
-    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, proxPct)
-    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, proxPct)
+    // Only the 200 SMA is proximity-gated (it's the one MA that can sit far out). The 200
+    // EMA rides with it. Everything else in the stack always draws (near price anyway).
+    f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0)
+    f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, 0.0)
+    f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0)
+    f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, 0.0)
     f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct)
-    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, proxPct)
-    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, proxPct)
-    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, proxPct)
-    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, proxPct)
+    f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, 0.0)
+    f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, 0.0)
+    f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, 0.0)
+    f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, 0.0)
     f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct)
-    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, proxPct)
+    f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, 0.0)
     f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en21s,  v21s,  "21 SMA")
     f_meta(en50s,  v50s,  "50 SMA")
