@@ -8370,25 +8370,24 @@ def check_hourly_vp_level(
     level: "float | None",
     label: str,
     alert_type: "AlertType",
-    prox_pct: float = 0.006,
+    prox_pct: float = 0.004,
     stop_off: float = 0.007,
 ):
     """HOURLY volume-profile support hold — the 1h POC / VAL / VWAP version of
     check_ma_support_1h. `level` is a price from the 1h volume profile (POC or VAL) or the
-    1h rolling VWAP, computed by the caller. Fires when the LAST completed hourly bar CLOSED
-    above the level, its low came to it (within prox_pct), and it either OPENED above it
-    (hold) or wicked below and reclaimed. BUY. Pure over `bars` — never raises."""
+    1h rolling VWAP, computed by the caller. Fires when the LAST completed hourly bar's LOW
+    actually came DOWN to the level (tagged it), CLOSED above it (support held), AND the
+    close is still within prox_pct of the level — so it fires while price is AT the entry,
+    not after it bounced far above. BUY. Pure over `bars` — never raises."""
     try:
         if bars is None or len(bars) < 10 or level is None or level <= 0:
             return None
-        o = float(bars["Open"].iloc[-1])
         l = float(bars["Low"].iloc[-1])
         c = float(bars["Close"].iloc[-1])
-        near = abs(l - level) / level <= prox_pct
-        held = c > level
-        open_above = o >= level
-        reclaimed = l < level and c > level
-        if not (held and near and (open_above or reclaimed)):
+        tagged   = l <= level * (1 + 0.0015)          # the wick reached DOWN to the level
+        held     = c > level                          # closed above it → support held
+        at_entry = (c - level) / level <= prox_pct    # price still at the level (actionable)
+        if not (tagged and held and at_entry):
             return None
         entry = round(level, 2)
         stop = round(level * (1 - stop_off), 2)
@@ -8444,23 +8443,22 @@ def check_hourly_vp_reject(
     level: "float | None",
     label: str,
     alert_type: "AlertType",
-    prox_pct: float = 0.006,
+    prox_pct: float = 0.004,
     stop_off: float = 0.007,
 ):
     """HOURLY value-area-high REJECTION (SHORT) — the level version of check_ma_reject_htf:
-    the high tagged the 1h VAH and the bar closed back below it. Pure over `bars` —
-    never raises."""
+    the high actually reached UP to the 1h VAH, the bar closed back below it, AND the close
+    is still within prox_pct of the level — so it fires while price is AT the entry, not
+    after it dropped far below. Pure over `bars` — never raises."""
     try:
         if bars is None or len(bars) < 10 or level is None or level <= 0:
             return None
-        o = float(bars["Open"].iloc[-1])
         h = float(bars["High"].iloc[-1])
         c = float(bars["Close"].iloc[-1])
-        near = abs(h - level) / level <= prox_pct
-        rejected = c < level
-        open_below = o <= level
-        poked = h > level and c < level
-        if not (rejected and near and (open_below or poked)):
+        tagged   = h >= level * (1 - 0.0015)          # the wick reached UP to the level
+        rejected = c < level                          # closed below it → rejected
+        at_entry = (level - c) / level <= prox_pct    # price still at the level (actionable)
+        if not (tagged and rejected and at_entry):
             return None
         entry = round(level, 2)
         stop = round(level * (1 + stop_off), 2)
