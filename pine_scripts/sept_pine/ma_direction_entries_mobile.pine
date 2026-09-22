@@ -137,7 +137,6 @@ maxBelowHi  = input.float(25.0, "Rule 7 — max % below 52-wk high", minval = 0,
 // ── HUD ───────────────────────────────────────────────────────────────────────
 gH     = "HUD"
 enHud  = input.bool(true, "Show the HUD", group = gH)
-hudCollapse = input.bool(false, "Collapse HUD (Action + Stage only)", group = gH, tooltip = "Collapsed = just the Action + Stage rows (a small footprint that won't cover the chart). Expanded = the full read (MA degrees, RSI, TT, extension, entry/stop/target/R:R, base). Flip here to expand/collapse.")
 hudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gH)
 
 // ── prior levels — PDH / PDL / PWH / PWL / PMH / PML ─────────────────────────────
@@ -154,6 +153,9 @@ lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2
 lvTagSz = input.string("normal", "Level tag size", options = ["small", "normal", "large"], group = gLv, tooltip = "Sizes the PDH/PDL/PWH/PWL/PMH/PML tag chips. The line stays faint (dotted) — only the label is bold, so a level is easy to read even when the line is subtle.")
 gateWM = input.bool(true, "Gate weekly/monthly by proximity", group = gLv, tooltip = "Only draw the weekly (PWH/PWL) and monthly (PMH/PML) levels when price is within the % below — far ones are hidden so the chart stays clean. Daily levels (PDH/PDL) are always shown.")
 lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLv)
+lvWidth = input.int(1, "Level line width", minval = 1, maxval = 8, inline = "lw", group = gLv)
+lvStyle = input.string("dotted", "style", options = ["solid", "dashed", "dotted"], inline = "lw", group = gLv)
+_lvStyleV = lvStyle == "dashed" ? line.style_dashed : lvStyle == "solid" ? line.style_solid : line.style_dotted
 
 // ── volume profile (POC/VAH/VAL flat) + rolling VWAP (curve) — for pattern testing ──
 gVP      = "Volume profile + VWAP"
@@ -164,9 +166,12 @@ vpVaPct  = input.float(70, "Value area %", minval = 1, maxval = 100, group = gVP
 vpLineLen = input.int(120, "Level line length (bars left)", minval = 5, maxval = 5000, group = gVP)
 colPOC   = input.color(color.red, "POC", inline = "vc", group = gVP)
 colVA    = input.color(color.orange, "VAH/VAL", inline = "vc", group = gVP)
+wVP      = input.int(2, "POC/VAH/VAL width", minval = 1, maxval = 8, inline = "vw", group = gVP)
+vpStyle  = input.string("solid", "style", options = ["solid", "dashed", "dotted"], inline = "vw", group = gVP)
 enAVWAP  = input.bool(true, "Show rolling VWAP (curve)", group = gVP)
-colAVWAP = input.color(color.blue, "VWAP colour", group = gVP)
-wAVWAP   = input.int(2, "VWAP width", minval = 1, maxval = 6, group = gVP)
+colAVWAP = input.color(color.blue, "VWAP colour", inline = "aw", group = gVP)
+wAVWAP   = input.int(2, "width", minval = 1, maxval = 6, inline = "aw", group = gVP)
+_vpStyleV = vpStyle == "dashed" ? line.style_dashed : vpStyle == "dotted" ? line.style_dotted : line.style_solid
 
 // Rolling VWAP over the same window — a CURVE (like the MAs), not a flat line.
 _vpHlc  = (high + low + close) / 3.0
@@ -589,7 +594,6 @@ plot(pctEntry, "% from pivot",       display = display.data_window)
 plot(baseDepth,"Base depth %",       display = display.data_window)
 plot(volRatio, "Volume × average",   display = display.data_window)
 plot(riskPct,  "Pivot→stop risk %",  display = display.data_window)
-plotshape(breakoutVCP, "Breakout", style = shape.triangleup, location = location.belowbar, color = colEntry, size = size.small, text = "BRK")
 alertcondition(formingVCP and not formingVCP[1], "VCP base forming", "{{ticker}} — VCP base forming, coiling under the pivot")
 alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleared the pivot on volume")
 
@@ -599,34 +603,17 @@ alertcondition(breakoutVCP, "VCP breakout", "{{ticker}} — VCP breakout: cleare
 _sz  = hudSz == "small" ? size.small : hudSz == "large" ? size.large : size.normal
 _hb  = color.new(#0B0B12, 0)
 _hw  = color.new(color.white, 0)
-var table hud = table.new(position.top_right, 1, 15, border_width = 1, border_color = color.new(color.gray, 55))
+// Simplified (2026-09-22): only the 20-SMA slope degree + RSI. No action / stage /
+// score / extension / entry-stop-target / base recommendation.
+var table hud = table.new(position.top_right, 1, 2, border_width = 1, border_color = color.new(color.gray, 55))
 _row(int r, string txt, color bg, color tc) => table.cell(hud, 0, r, txt, text_color = tc, bgcolor = bg, text_size = _sz, text_halign = text.align_left)
 if barstate.islast
     if enHud
-        _row(0, actTxt, actBg, _hw)
-        _row(1, "Stage " + stageTxt, stageBg, _hw)
-        if hudCollapse
-            // collapsed — blank every row below Stage (small footprint)
-            for _r = 2 to 14
-                table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
-        else
-            _row(2, "5   " + f_slopeTxt(angle5),   _hb, f_slopeCol(angle5))
-            _row(3, "20  " + f_slopeTxt(angle),    _hb, f_slopeCol(angle))
-            _row(4, "50  " + f_slopeTxt(angle50),  _hb, f_slopeCol(angle50))
-            _row(5, "150 " + f_slopeTxt(angle150), _hb, f_slopeCol(angle150))
-            _row(6, "200 " + f_slopeTxt(angle200), _hb, f_slopeCol(angle200))
-            _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
-            _row(7, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr + (rsiBuy ? " · BUY" : ""), rsiBuy ? _actGrn : _hb, _hw)
-            _row(8, "TT " + str.tostring(ttCount) + "/8 · Mnv " + (mrvOk ? "✓" : "✗"), mrvOk ? _actGrn : _hb, _hw)
-            _row(9, "Ext " + (extAtr >= 0 ? "+" : "") + str.tostring(extAtr, "#.#") + " ATR" + (_extended ? " · EXT" : _coiling ? " · COIL" : ""), _extended ? color.new(#F59E0B, 20) : _hb, _hw)
-            _row(10, "E  " + (na(entry) ? "—" : str.tostring(entry, format.mintick)), _hb, _hw)
-            _row(11, "S  " + (na(stop) ? "—" : str.tostring(stop, format.mintick) + (na(_riskPct) ? "" : "  −" + str.tostring(_riskPct, "#.#") + "%")), _hb, color.new(#EF5350, 0))
-            _row(12, "T  " + (na(tgt) ? "—" : str.tostring(tgt, format.mintick) + (na(_tgtPct) ? "" : "  +" + str.tostring(_tgtPct, "#.#") + "%")), _hb, color.new(#26A69A, 0))
-            _row(13, "R:R " + (na(rr) ? "—" : str.tostring(rr, "#.#") + (align == "" ? "" : " · " + align)), _hb, _hw)
-            _bs = breakoutVCP ? "BREAKOUT ▲" : formingVCP ? "READY" : hasBase ? "forming" : _trendOk ? "await base" : "no base"
-            _row(14, "Base " + _bs, (breakoutVCP or formingVCP) ? _actGrn : _hb, _hw)
+        _row(0, "20 SMA  " + f_slopeTxt(angle), _hb, f_slopeCol(angle))
+        _rArr = (not na(rsi14) and not na(rsi14Prev) and rsi14 > rsi14Prev) ? " ↑" : (not na(rsi14) and not na(rsi14Prev) and rsi14 < rsi14Prev) ? " ↓" : ""
+        _row(1, "RSI " + (na(rsi14) ? "—" : str.tostring(rsi14, "#.#")) + _rArr, _hb, _hw)
     else
-        for _r = 0 to 14
+        for _r = 0 to 1
             table.cell(hud, 0, _r, "", bgcolor = color.new(color.gray, 100))
 
 
@@ -746,7 +733,7 @@ f_lvl(line ln, label lb, bool on, float px, string txt, color col) =>
         // faint dotted line, but a BOLD chip — solid colour fill + white text — so the
         // level reads clearly even when the line is subtle.
         if na(_l)
-            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = color.new(col, 45), width = 1, style = line.style_dotted, extend = extend.left)
+            _l := line.new(bar_index, px, bar_index + lvTagOff, px, xloc = xloc.bar_index, color = color.new(col, 45), width = lvWidth, style = _lvStyleV, extend = extend.left)
             _b := label.new(bar_index + lvTagOff, px, txt + " " + str.tostring(px, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(col, 0), textcolor = color.new(color.white, 0), size = _lvSz)
         else
             line.set_xy1(_l, bar_index, px)
@@ -859,68 +846,9 @@ if barstate.islast
                 array.push(gBox, _bx)
 
 // ═══ ENTRY PIVOT LINE + VCP STOP + BASE BOX ══════════════════════════════════════
-var line  enLn = na
-var label enLb = na
-// Only draw the entry pivot when a REAL base exists (or a breakout) — otherwise the
-// "pivot" is just the highest high over baseLen, which on a name with no base is an
-// all-time high far above price. No base → no pivot line (the HUD Base row still says so).
-if barstate.islast
-    if showEntry and (hasBase or breakoutVCP) and not na(pivot)
-        _x1 = bar_index - baseLen
-        _x2 = bar_index + 8
-        _enCol = colEntry
-        if na(enLn)
-            enLn := line.new(_x1, pivot, _x2, pivot, color = _enCol, width = 2, style = line.style_dashed)
-            enLb := label.new(_x2, pivot, "", style = label.style_label_left, color = _enCol, textcolor = color.white, size = size.small)
-        else
-            line.set_xy1(enLn, _x1, pivot)
-            line.set_xy2(enLn, _x2, pivot)
-            line.set_color(enLn, _enCol)
-            label.set_xy(enLb, _x2, pivot)
-            label.set_color(enLb, _enCol)
-        label.set_text(enLb, "ENTRY " + str.tostring(pivot, format.mintick) + (na(pctEntry) ? "" : "  (" + str.tostring(pctEntry, "+#.#;-#.#") + "%)"))
-    else if not na(enLn)
-        line.delete(enLn)
-        label.delete(enLb)
-        enLn := na
-        enLb := na
-
-var line  stLn = na
-var label stLb = na
-if barstate.islast
-    if (hasBase or breakoutVCP) and not na(stopLevel)
-        _sx1 = bar_index - baseLen
-        _sx2 = bar_index + 8
-        if na(stLn)
-            stLn := line.new(_sx1, stopLevel, _sx2, stopLevel, color = colStp, width = 1, style = line.style_dashed)
-            stLb := label.new(_sx2, stopLevel, "", style = label.style_label_left, color = colStp, textcolor = color.white, size = size.small)
-        else
-            line.set_xy1(stLn, _sx1, stopLevel)
-            line.set_xy2(stLn, _sx2, stopLevel)
-            label.set_xy(stLb, _sx2, stopLevel)
-        label.set_text(stLb, "STOP " + str.tostring(stopLevel, format.mintick) + (na(riskPct) ? "" : "  (" + str.tostring(riskPct, "#.#") + "%)"))
-    else if not na(stLn)
-        line.delete(stLn)
-        label.delete(stLb)
-        stLn := na
-        stLb := na
-
-var box baseBox = na
-if barstate.islast
-    if showBox and (hasBase or breakoutVCP) and not na(pivot) and not na(baseFloor)
-        _bx1   = bar_index - baseLen
-        _bxCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 82) : color.new(#42A5F5, 85)
-        _bdCol = (formingVCP or breakoutVCP) ? color.new(#26A69A, 30) : color.new(#42A5F5, 35)
-        if na(baseBox)
-            baseBox := box.new(_bx1, pivot, bar_index, baseFloor, border_color = _bdCol, border_width = 1, bgcolor = _bxCol)
-        else
-            box.set_lefttop(baseBox, _bx1, pivot)
-            box.set_rightbottom(baseBox, bar_index, baseFloor)
-            box.set_border_color(baseBox, _bdCol)
-            box.set_bgcolor(baseBox, _bxCol)
-    else if not na(baseBox)
-        box.delete(baseBox)
-        baseBox := na
+// Entry pivot line, stop line, and the VCP base box were REMOVED (2026-09-22) — the base
+// detection wasn't reliable and the entry point wasn't accurate. The VCP compute stays
+// (unused) so the file's other references don't break.
 
 // ── Volume profile POC / VAH / VAL — FLAT levels (curves are the MAs + VWAP above) ──
 var array<line>  _vpLnA = array.new_line()
@@ -989,9 +917,9 @@ if barstate.islast
                 _vxL = math.max(bar_index - vpLineLen, bar_index - 9000)
                 _vxR = bar_index + lvTagOff
                 _vsz = lvTagSz == "small" ? size.small : lvTagSz == "large" ? size.large : size.normal
-                array.push(_vpLnA, line.new(_vxL, _vpocPx, _vxR, _vpocPx, color = colPOC, width = 2))
+                array.push(_vpLnA, line.new(_vxL, _vpocPx, _vxR, _vpocPx, color = colPOC, width = wVP, style = _vpStyleV))
                 array.push(_vpLbA, label.new(_vxR, _vpocPx, "POC " + str.tostring(_vpocPx, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colPOC, 0), textcolor = color.new(color.white, 0), size = _vsz))
-                array.push(_vpLnA, line.new(_vxL, _vah, _vxR, _vah, color = colVA, width = 2))
+                array.push(_vpLnA, line.new(_vxL, _vah, _vxR, _vah, color = colVA, width = wVP, style = _vpStyleV))
                 array.push(_vpLbA, label.new(_vxR, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colVA, 0), textcolor = color.new(color.white, 0), size = _vsz))
-                array.push(_vpLnA, line.new(_vxL, _val, _vxR, _val, color = colVA, width = 2))
+                array.push(_vpLnA, line.new(_vxL, _val, _vxR, _val, color = colVA, width = wVP, style = _vpStyleV))
                 array.push(_vpLbA, label.new(_vxR, _val, "VAL " + str.tostring(_val, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colVA, 0), textcolor = color.new(color.white, 0), size = _vsz))
