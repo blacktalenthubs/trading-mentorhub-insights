@@ -35,6 +35,7 @@ gL = "Profile — core levels"
 showPOC   = input.bool(true, "POC", inline = "poc", group = gL)
 pocColor  = input.color(color.red, "", inline = "poc", group = gL)
 pocWidth  = input.int(3, "w", minval = 1, maxval = 8, inline = "poc", group = gL)
+alwPOC    = input.bool(true, "Always show POC (ignore proximity)", group = gL)
 showVA    = input.bool(true, "VAH / VAL", inline = "va", group = gL)
 vaColor   = input.color(color.orange, "", inline = "va", group = gL)
 vaWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "va", group = gL)
@@ -353,7 +354,7 @@ if barstate.islast
                         if showLbls
                             array.push(vpLbls, label.new(_xR, _price, "LVN " + str.tostring(_price, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(lvnColor, 0), textcolor = color.new(color.white, 0), size = _sz))
 
-            if showPOC and f_vpNear(_pocPrice)
+            if showPOC and (alwPOC or f_vpNear(_pocPrice))
                 array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = pocColor, width = pocWidth))
                 if showLbls
                     _plb = label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice, "#.##"), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.new(color.white, 0), size = _sz)
