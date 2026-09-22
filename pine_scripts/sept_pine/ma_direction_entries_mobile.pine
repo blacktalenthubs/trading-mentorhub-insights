@@ -30,7 +30,7 @@
 // intraday — flip "Lock MAs to a fixed timeframe" (Daily by default) to lock them. For the full
 // tabular read + reported fundamentals, use the desktop "MA · Direction & Entries" pine.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA · Entries (mobile)", "MA-entries·m", overlay = true)
+indicator("MA · Entries (mobile)", "MA-entries·m", overlay = true, max_lines_count = 100, max_labels_count = 150)
 
 // ── the four moving averages — each independent (uncheck / colour / width) ──────
 gTf    = "Timeframe"
@@ -154,6 +154,25 @@ lvTagOff = input.int(10, "Tag column — bars right of the last bar", minval = 2
 lvTagSz = input.string("normal", "Level tag size", options = ["small", "normal", "large"], group = gLv, tooltip = "Sizes the PDH/PDL/PWH/PWL/PMH/PML tag chips. The line stays faint (dotted) — only the label is bold, so a level is easy to read even when the line is subtle.")
 gateWM = input.bool(true, "Gate weekly/monthly by proximity", group = gLv, tooltip = "Only draw the weekly (PWH/PWL) and monthly (PMH/PML) levels when price is within the % below — far ones are hidden so the chart stays clean. Daily levels (PDH/PDL) are always shown.")
 lvProx = input.float(5.0, "…within N% of price", minval = 0.5, maxval = 50, step = 0.5, group = gLv)
+
+// ── volume profile (POC/VAH/VAL flat) + rolling VWAP (curve) — for pattern testing ──
+gVP      = "Volume profile + VWAP"
+enVP     = input.bool(true, "Show POC / VAH / VAL (flat levels)", group = gVP, tooltip = "Volume-by-price over the last N chart bars: POC (peak-volume price), VAH/VAL (value-area edges). Drawn as flat horizontal levels. Follows the CHART timeframe.")
+vpBars   = input.int(150, "Bars back", minval = 10, maxval = 5000, group = gVP)
+vpCols   = input.int(35,  "Price rows", minval = 5, maxval = 200, group = gVP)
+vpVaPct  = input.float(70, "Value area %", minval = 1, maxval = 100, group = gVP)
+vpLineLen = input.int(120, "Level line length (bars left)", minval = 5, maxval = 5000, group = gVP)
+colPOC   = input.color(color.red, "POC", inline = "vc", group = gVP)
+colVA    = input.color(color.orange, "VAH/VAL", inline = "vc", group = gVP)
+enAVWAP  = input.bool(true, "Show rolling VWAP (curve)", group = gVP)
+colAVWAP = input.color(color.blue, "VWAP colour", group = gVP)
+wAVWAP   = input.int(2, "VWAP width", minval = 1, maxval = 6, group = gVP)
+
+// Rolling VWAP over the same window — a CURVE (like the MAs), not a flat line.
+_vpHlc  = (high + low + close) / 3.0
+_vpSv   = math.sum(volume, vpBars)
+avwapV  = _vpSv > 0 ? math.sum(_vpHlc * volume, vpBars) / _vpSv : na
+plot(enAVWAP ? avwapV : na, "Rolling VWAP", color = colAVWAP, linewidth = wAVWAP)
 
 // ── compute — on `lockTf` (chart TF by default, or a locked one). One request.security pulls each MA, its value
 //    `slopeLb` bars back, ATR and ATR's own average — so a lower chart TF still
@@ -902,3 +921,77 @@ if barstate.islast
     else if not na(baseBox)
         box.delete(baseBox)
         baseBox := na
+
+// ── Volume profile POC / VAH / VAL — FLAT levels (curves are the MAs + VWAP above) ──
+var array<line>  _vpLnA = array.new_line()
+var array<label> _vpLbA = array.new_label()
+if barstate.islast
+    if array.size(_vpLnA) > 0
+        for _i = 0 to array.size(_vpLnA) - 1
+            line.delete(array.get(_vpLnA, _i))
+    if array.size(_vpLbA) > 0
+        for _i = 0 to array.size(_vpLbA) - 1
+            label.delete(array.get(_vpLbA, _i))
+    array.clear(_vpLnA)
+    array.clear(_vpLbA)
+    if enVP
+        _vn = math.min(vpBars, bar_index)
+        if _vn >= 2
+            _vhi = high
+            _vlo = low
+            for _b = 0 to _vn - 1
+                _vhi := math.max(_vhi, high[_b])
+                _vlo := math.min(_vlo, low[_b])
+            _vrng = _vhi - _vlo
+            if _vrng > 0
+                _vbs = _vrng / vpCols
+                _vvol = array.new_float(vpCols, 0.0)
+                for _b = 0 to _vn - 1
+                    _vloI = int(math.floor((low[_b]  - _vlo) / _vbs))
+                    _vhiI = int(math.floor((high[_b] - _vlo) / _vbs))
+                    _vloI := math.max(0, math.min(vpCols - 1, _vloI))
+                    _vhiI := math.max(0, math.min(vpCols - 1, _vhiI))
+                    _vspan = _vhiI - _vloI + 1
+                    _vper  = volume[_b] / _vspan
+                    for _k = _vloI to _vhiI
+                        array.set(_vvol, _k, array.get(_vvol, _k) + _vper)
+                _vtot = 0.0
+                _vmax = 0.0
+                _vpoc = 0
+                for _k = 0 to vpCols - 1
+                    _vv = array.get(_vvol, _k)
+                    _vtot += _vv
+                    if _vv > _vmax
+                        _vmax := _vv
+                        _vpoc := _k
+                _vaV  = array.get(_vvol, _vpoc)
+                _vup  = _vpoc
+                _vdn  = _vpoc
+                _vtgt = _vtot * vpVaPct / 100.0
+                _vgo  = _vtot > 0
+                while _vgo
+                    if _vaV >= _vtgt
+                        _vgo := false
+                    else
+                        _vupV = _vup < vpCols - 1 ? array.get(_vvol, _vup + 1) : -1.0
+                        _vdnV = _vdn > 0 ? array.get(_vvol, _vdn - 1) : -1.0
+                        if _vupV < 0 and _vdnV < 0
+                            _vgo := false
+                        else if _vupV >= _vdnV
+                            _vup := _vup + 1
+                            _vaV := _vaV + _vupV
+                        else
+                            _vdn := _vdn - 1
+                            _vaV := _vaV + _vdnV
+                _vah    = _vlo + (_vup + 1) * _vbs
+                _val    = _vlo + _vdn * _vbs
+                _vpocPx = _vlo + (_vpoc + 0.5) * _vbs
+                _vxL = math.max(bar_index - vpLineLen, bar_index - 9000)
+                _vxR = bar_index + lvTagOff
+                _vsz = lvTagSz == "small" ? size.small : lvTagSz == "large" ? size.large : size.normal
+                array.push(_vpLnA, line.new(_vxL, _vpocPx, _vxR, _vpocPx, color = colPOC, width = 2))
+                array.push(_vpLbA, label.new(_vxR, _vpocPx, "POC " + str.tostring(_vpocPx, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colPOC, 0), textcolor = color.new(color.white, 0), size = _vsz))
+                array.push(_vpLnA, line.new(_vxL, _vah, _vxR, _vah, color = colVA, width = 2))
+                array.push(_vpLbA, label.new(_vxR, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colVA, 0), textcolor = color.new(color.white, 0), size = _vsz))
+                array.push(_vpLnA, line.new(_vxL, _val, _vxR, _val, color = colVA, width = 2))
+                array.push(_vpLbA, label.new(_vxR, _val, "VAL " + str.tostring(_val, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(colVA, 0), textcolor = color.new(color.white, 0), size = _vsz))
