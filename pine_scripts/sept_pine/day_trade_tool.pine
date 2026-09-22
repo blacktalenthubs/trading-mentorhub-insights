@@ -9,7 +9,7 @@
 //   • Weekly + Daily BASE (K of the last M weekly / daily lows clustered at one price).
 //   • Weekly / monthly HIGH-LOW (PWH/PWL/PMH/PML) + weekly / monthly OPEN (faint).
 //   • Unfilled gaps (persist until filled).
-//   • Two HUDs: Premium-selling read (volume+RSI) and MA read (nearest S/R, trend, stage).
+//   • Optional HUDs (OFF by default): premium-selling read + MA read.
 //   • MAs + levels + base LOCK to a fixed timeframe (Daily default; set 60 = hourly, W,
 //     etc). The volume profile follows the CHART timeframe — switch the chart TF for a
 //     1h / daily / weekly profile.
@@ -82,7 +82,6 @@ idealLo = input.float(30, "Ideal band — from (°)", minval = 0, maxval = 90, g
 idealHi = input.float(55, "Ideal band — to (°)",   minval = 0, maxval = 90, group = gS)
 
 gDraw   = "MA flat lines"
-proxPct = input.float(8.0, "Only draw the 200 SMA/EMA within N% of price", minval = 0, maxval = 50, step = 0.5, group = gDraw, tooltip = "The 200 SMA (and 200 EMA) are the only MAs proximity-gated — they can sit far out. The rest of the stack always draws.")
 maLen   = input.int(60, "Line length (bars left)", minval = 5, maxval = 500, group = gDraw)
 tagOff  = input.int(10, "Tag column (bars right of last)", minval = 2, maxval = 40, group = gDraw)
 lvlStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gDraw)
@@ -123,7 +122,7 @@ confTol = input.float(0.35, "…within N% of each other", minval = 0.05, maxval 
 
 // ── Premium-selling HUD ──────────────────────────────────────────────────────
 gHUD     = "Premium HUD (volume + RSI)"
-enHUD    = input.bool(true, "Show premium HUD", group = gHUD)
+enHUD    = input.bool(false, "Show premium HUD", group = gHUD)
 hudPos   = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gHUD)
 hudSize  = input.string("small", "Size", options = ["tiny", "small", "normal"], group = gHUD)
 sellCalls = input.bool(true, "Also flag SELL CALLS at resistance", group = gHUD)
@@ -132,7 +131,7 @@ hudRsiLen = input.int(14, "RSI length", minval = 2, group = gHUD)
 
 // ── MA HUD ───────────────────────────────────────────────────────────────────
 gMH    = "MA HUD (S/R, trend, stage)"
-enMaHud = input.bool(true, "Show MA HUD", group = gMH)
+enMaHud = input.bool(false, "Show MA HUD", group = gMH)
 mHudPos = input.string("top_left", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = gMH)
 mHudSz  = input.string("normal", "Text size", options = ["small", "normal", "large"], group = gMH)
 rsiLen  = input.int(14, "Daily RSI length", group = gMH, minval = 2)
@@ -144,7 +143,7 @@ rsiConsiderHi = input.float(33, "Consider-a-position band top", group = gMH, min
 gG = "Unfilled gaps"
 enGap     = input.bool(true, "Show unfilled gaps", group = gG)
 gapProx   = input.float(15.0, "Only draw within N% of price (0 = always)", minval = 0, maxval = 100, group = gG)
-gapTransp = input.int(88, "Gap box faintness (100 = invisible)", minval = 60, maxval = 100, group = gG)
+gapTransp = input.int(93, "Gap box faintness (100 = invisible)", minval = 60, maxval = 100, group = gG)
 maxGaps   = input.int(12, "Max unfilled gaps to keep", minval = 1, maxval = 50, group = gG)
 colGapUp  = input.color(#26A69A, "Gap-up (support)", inline = "gc", group = gG)
 colGapDn  = input.color(#EF5350, "Gap-down (resistance)", inline = "gc", group = gG)
@@ -493,18 +492,17 @@ if barstate.islast
     array.clear(_lb)
     array.clear(_mv)
     array.clear(_mn)
-    // Only the 200 SMA is proximity-gated (it's the one MA that can sit far out). The 200
-    // EMA rides with it. Everything else in the stack always draws (near price anyway).
+    // The whole MA stack always draws (no proximity gate) — they sit near price anyway.
     f_flat(en20s,  v20s,  "20 SMA",  f_ang(v20s,  v20sL),  colSMA, 0.0)
     f_flat(en21s,  v21s,  "21 SMA",  f_ang(v21s,  v21sL),  colSMA, 0.0)
     f_flat(en50s,  v50s,  "50 SMA",  f_ang(v50s,  v50sL),  colSMA, 0.0)
     f_flat(en100s, v100s, "100 SMA", f_ang(v100s, v100sL), colSMA, 0.0)
-    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, proxPct)
+    f_flat(en200s, v200s, "200 SMA", f_ang(v200s, v200sL), colSMA, 0.0)
     f_flat(en8e,   v8e,   "8 EMA",   f_ang(v8e,   v8eL),   colEMA, 0.0)
     f_flat(en21e,  v21e,  "21 EMA",  f_ang(v21e,  v21eL),  colEMA, 0.0)
     f_flat(en50e,  v50e,  "50 EMA",  f_ang(v50e,  v50eL),  colEMA, 0.0)
     f_flat(en100e, v100e, "100 EMA", f_ang(v100e, v100eL), colEMA, 0.0)
-    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, proxPct)
+    f_flat(en200e, v200e, "200 EMA", f_ang(v200e, v200eL), colEMA, 0.0)
     f_flat(en30w,  v30w,  "30W SMA", f_ang(v30w,  v30wL),  col30W, 0.0)
     f_meta(en20s,  v20s,  "20 SMA")
     f_meta(en21s,  v21s,  "21 SMA")
@@ -533,10 +531,12 @@ if barstate.islast
 // ── MA HUD ───────────────────────────────────────────────────────────────────
 _mHudPos = mHudPos == "top_left" ? position.top_left : mHudPos == "bottom_right" ? position.bottom_right : mHudPos == "bottom_left" ? position.bottom_left : position.top_right
 _mHudSz  = mHudSz == "small" ? size.small : mHudSz == "large" ? size.large : size.normal
-var table mHud = table.new(_mHudPos, 2, 6, border_width = 1, border_color = color.new(color.gray, 60))
+var table mHud = na
 f_mcell(int c, int r, string t, color bg, color tc, bool right) => table.cell(mHud, c, r, t, text_color = tc, bgcolor = bg, text_size = _mHudSz, text_halign = right ? text.align_right : text.align_left)
 if barstate.islast
     if enMaHud
+        if na(mHud)
+            mHud := table.new(_mHudPos, 2, 6, border_width = 1, border_color = color.new(color.gray, 60))
         _hb  = color.new(#0B0B12, 0)
         _lbl = color.new(#C7C9D9, 0)
         _hw  = color.new(color.white, 0)
@@ -579,9 +579,9 @@ if barstate.islast
         f_mcell(0, 5, "Stage (200)", _hb, _lbl, false)
         f_mcell(1, 5, _stgTxt, _hb, _stgCol, true)
     else
-        for _r = 0 to 5
-            f_mcell(0, _r, "", color.new(color.gray, 100), color.new(color.white, 0), false)
-            f_mcell(1, _r, "", color.new(color.gray, 100), color.new(color.white, 0), true)
+        if not na(mHud)
+            table.delete(mHud)
+            mHud := na
 
 // ═══ BLOCK 3 — unfilled gaps ═════════════════════════════════════════════════
 _pdh = high[1]
