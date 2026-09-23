@@ -12,46 +12,57 @@ from analytics import premium_score as ps
 from analytics.premium_score import PremiumCandidate, rank, score_candidate
 
 
-# --- tier classification -----------------------------------------------------
+# --- tier classification (ENTRY quality, not trend strength) -----------------
 
-def test_tier_high_when_below_200():
-    # Structure broken → high risk regardless of everything else.
-    assert ps._tier(above200=False, above50=True, r50=True, rd=55, rw=55, rev_d=False) == "high"
+def test_tier_high_when_extended():
+    # AAPL case — RSI near the top; selling a put here is selling near the top.
+    assert ps._tier(above200=True, extended=True, turning=False, bounce_key=False) == "high"
+
+
+def test_tier_low_on_oversold_turn():
+    # AVGO case — turning up off an oversold low. The prime CSP entry.
+    assert ps._tier(above200=True, extended=False, turning=True, bounce_key=False) == "low"
+
+
+def test_tier_low_on_key_ma_bounce_even_below_200():
+    # A bounce off the 50/200 is a low-risk entry even if not (yet) above the 200.
+    assert ps._tier(above200=False, extended=False, turning=False, bounce_key=True) == "low"
 
 
 def test_tier_high_on_falling_knife():
-    # Deep daily RSI, no reversal, above the 200 but still a knife.
-    assert ps._tier(above200=True, above50=False, r50=False, rd=22, rw=45, rev_d=False) == "high"
+    # Below the 200 and nothing turning up → knife.
+    assert ps._tier(above200=False, extended=False, turning=False, bounce_key=False) == "high"
 
 
-def test_tier_low_on_clean_uptrend():
-    assert ps._tier(above200=True, above50=True, r50=True, rd=58, rw=52, rev_d=False) == "low"
+def test_tier_med_neutral_middle():
+    # Above 200, not extended, no bounce/turn — a mid-trend grind, not a great entry.
+    assert ps._tier(above200=True, extended=False, turning=False, bounce_key=False) == "med"
 
 
-def test_tier_low_blocked_when_overbought():
-    # Above structure but stretched (rd>70) → not low, drops to med.
-    assert ps._tier(above200=True, above50=True, r50=True, rd=78, rw=52, rev_d=False) == "med"
+def test_extended_beats_a_bounce():
+    # Even a name that bounced but has already ripped to a high RSI is extended → high.
+    assert ps._tier(above200=True, extended=True, turning=True, bounce_key=True) == "high"
 
 
-def test_tier_med_default():
-    # Above 200 but below a rising 50 → neither clean nor broken.
-    assert ps._tier(above200=True, above50=False, r50=False, rd=50, rw=50, rev_d=False) == "med"
+# --- component scores --------------------------------------------------------
+
+def test_entry_score_rewards_dip_penalizes_extension():
+    dip = ps._entry_score(rd=38, rev_d=True, rev_w=False, recovering=True, bounce_key=False)
+    ext = ps._entry_score(rd=68, rev_d=False, rev_w=False, recovering=False, bounce_key=False)
+    assert dip > ext
+    assert 0 <= ext <= 100 and 0 <= dip <= 100
+    assert ext < 50  # extension is a net penalty
 
 
-# --- component score bounds --------------------------------------------------
-
-def test_trend_score_bounds_and_direction():
-    strong = ps._trend_score(100, 90, 85, 80, True, True, True, True, True)
-    weak = ps._trend_score(70, 90, 95, 100, False, False, False, False, False)
-    assert 0 <= weak < strong <= 100
-    assert strong > 70 and weak < 40
+def test_context_score_rewards_above_200():
+    assert ps._context_score(True, True) > ps._context_score(False, False)
 
 
-def test_rsi_score_rewards_reversal_penalizes_overbought():
-    rev = ps._rsi_score(rd=35, rw=45, rev_d=True, rev_w=False)
-    ob = ps._rsi_score(rd=80, rw=72, rev_d=False, rev_w=False)
-    assert rev > ob
-    assert 0 <= ob <= 100 and 0 <= rev <= 100
+def test_recovering_detects_turn_from_oversold():
+    import pandas as pd
+    assert ps._recovering(pd.Series([50, 45, 40, 35, 33, 40, 47, 49]))       # dipped to 33, now 49
+    assert not ps._recovering(pd.Series([50, 45, 40, 36, 34, 33, 32, 31]))   # still falling
+    assert not ps._recovering(pd.Series([55, 56, 57, 58, 59, 60, 61, 62]))   # never oversold
 
 
 # --- score_candidate end-to-end ----------------------------------------------
