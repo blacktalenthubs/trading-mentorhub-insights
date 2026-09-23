@@ -36,6 +36,7 @@ import WatchlistPage from "./pages/WatchlistPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
+import PremiumDeskPage from "./pages/PremiumDeskPage";
 import PatternLearnPage from "./pages/PatternLearnPage";
 import UniverseResearchPage from "./pages/UniverseResearchPage";
 import DailyTargetPage from "./pages/DailyTargetPage";
@@ -137,6 +138,7 @@ export default function App() {
                 <Route path="pattern/:code" element={<ErrorBoundary><PatternLearnPage /></ErrorBoundary>} />
                 <Route path="trading"     element={<ErrorBoundary><TradingPageV2 /></ErrorBoundary>} />
                 <Route path="trade-ideas" element={<ErrorBoundary><FocusListPage /></ErrorBoundary>} />
+                <Route path="premium-desk" element={<ErrorBoundary><PremiumDeskPage /></ErrorBoundary>} />
                 <Route path="conviction"  element={<Navigate to="/trade-ideas" replace />} />
                 <Route path="watchlist"   element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
                 <Route path="research"    element={<ErrorBoundary><UniverseResearchPage /></ErrorBoundary>} />

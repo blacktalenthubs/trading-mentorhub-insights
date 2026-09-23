@@ -127,6 +127,32 @@ export function useMarketReports(date?: string) {
   });
 }
 
+// --- Premium Desk (S3) — ranked leveraged-ETF premium-selling candidates ---
+export interface PremiumDeskRow {
+  sym: string; theme: string; price: number; score: number;
+  tier: "low" | "med" | "high"; qualifies: boolean; side: string;
+  strike: number; dte: number;
+  iv: number; iv_rank: number; iv_pct: number; iv_n: number; iv_warming: boolean;
+  rsi_d: number; rsi_w: number;
+  above_200: boolean; above_50: boolean; above_20: boolean;
+  reclaim: string; rationale: string[];
+}
+export interface PremiumDeskReport {
+  rows: PremiumDeskRow[];
+  scanned: number;
+  tiers: { low: number; med: number; high: number };
+}
+export function usePremiumDesk(date?: string) {
+  return useQuery({
+    queryKey: ["premium-desk", date || "latest"],
+    queryFn: () => api.get<{ premium_desk: MarketReport | null; session_date: string | null }>(
+      `/intel/premium-desk/latest${date ? `?date=${encodeURIComponent(date)}` : ""}`,
+    ),
+    staleTime: 5 * 60_000,
+    refetchInterval: date ? false : 5 * 60_000,  // pick up intraday scan republishes
+  });
+}
+
 export function useReportDates() {
   return useQuery({
     queryKey: ["market-report-dates"],
