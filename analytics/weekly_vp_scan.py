@@ -137,10 +137,11 @@ def check(sym: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> dic
     row = classify(sym, cur["price"], prof.poc, prof.val, vwap, prof.peak_ratio, tol, cur["week_open"])
     # FRESH reclaim: the prior completed day is the FIRST close above the level the name is
     # at (the day before it was at/below) — a just-happened weekly-value reclaim, not a stale one.
+    cl = cur.get("closes", [])
+    row["prior_close"] = round(cl[-1], 2) if cl else row["price"]   # last completed daily close
     row["fresh"] = False
     if row["at"]:
         lvl = {"POC": prof.poc, "VWAP": vwap, "VAL": prof.val}[row["at"]]
-        cl = cur.get("closes", [])
         row["fresh"] = len(cl) >= 2 and cl[-1] > lvl and cl[-2] <= lvl
     return row
 
@@ -205,6 +206,47 @@ def build_report(symbols, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL, 
     return {"rows": at[:top], "scanned": len(rows), "at": len(at),
             "held": sum(1 for r in at if r["held"]), "fresh": sum(1 for r in at if r.get("fresh")),
             "weeks": weeks, "tol": tol}
+
+
+def run_daily(symbols, session_date: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL, top: int = 10) -> dict:  # pragma: no cover - network
+    """One daily pass: scan the universe once, CACHE every symbol's weekly levels (for the
+    alert job), and return the top-N at-level report (for the Today board)."""
+    rows = scan(symbols, weeks, tol)
+    try:
+        store_levels(rows, session_date)
+    except Exception:
+        pass
+    at = [r for r in rows if r["at"]]
+    return {"rows": at[:top], "scanned": len(rows), "at": len(at),
+            "held": sum(1 for r in at if r["held"]), "fresh": sum(1 for r in at if r.get("fresh")),
+            "weeks": weeks, "tol": tol}
+
+
+_LEVELS_DDL = """
+CREATE TABLE IF NOT EXISTS weekly_vp_levels (
+  symbol TEXT PRIMARY KEY, poc REAL, vwap REAL, val REAL, week_open REAL,
+  prior_close REAL, session_date TEXT, updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+)
+"""
+
+
+def store_levels(rows, session_date: str) -> None:  # pragma: no cover - DB
+    """Cache EVERY scanned symbol's weekly POC/VWAP/VAL (+ this week's open, prior daily
+    close) so the intraday alert job can check live price against them without recomputing."""
+    import os
+    import psycopg2
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=15)
+    cur = conn.cursor()
+    cur.execute(_LEVELS_DDL)
+    for r in rows:
+        cur.execute(
+            "INSERT INTO weekly_vp_levels (symbol, poc, vwap, val, week_open, prior_close, session_date, updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s, NOW()) "
+            "ON CONFLICT (symbol) DO UPDATE SET poc=EXCLUDED.poc, vwap=EXCLUDED.vwap, val=EXCLUDED.val, "
+            "week_open=EXCLUDED.week_open, prior_close=EXCLUDED.prior_close, session_date=EXCLUDED.session_date, updated_at=NOW()",
+            (r["sym"], r["poc"], r["vwap"], r["val"], r.get("week_open"), r.get("prior_close"), session_date),
+        )
+    conn.commit(); cur.close(); conn.close()
 
 
 def publish(rep: dict, session_date: str) -> None:  # pragma: no cover - DB
