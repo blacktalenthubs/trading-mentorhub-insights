@@ -43,18 +43,6 @@ const TIER_ORDER: Tier[] = ["low", "med", "high"];
 const estCredit = (r: PremiumDeskRow) =>
   Math.round(r.strike * 100 * (r.iv / 100) * Math.sqrt(r.dte / 365) * 0.4);
 
-// US market status from the viewer's clock, in ET. Off-hours the desk shows the last
-// close — that IS the next session's starting map, so we frame it that way.
-function marketStatus(): { label: string; open: boolean } {
-  const now = new Date();
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = et.getDay(); // 0 Sun … 6 Sat
-  const mins = et.getHours() * 60 + et.getMinutes();
-  if (day === 0 || day === 6) return { label: "Weekend · last close", open: false };
-  if (mins >= 570 && mins < 960) return { label: "Market open", open: true };       // 9:30–16:00
-  if (mins >= 240 && mins < 570) return { label: "Pre-market · last close", open: false }; // 4:00–9:30
-  return { label: "Market closed · last close", open: false };
-}
 
 export default function PremiumDeskPage() {
   const nav = useNavigate();
@@ -72,7 +60,6 @@ export default function PremiumDeskPage() {
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 
-  const mkt = marketStatus();
   const rows = rep?.rows ?? [];
   const qual = rows.filter((r) => r.qualifies);
   const watch = rows.filter((r) => !r.qualifies);
@@ -104,22 +91,14 @@ export default function PremiumDeskPage() {
           className="whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1.5 text-[12px] font-semibold text-text-secondary transition-colors hover:border-accent"
         >P&amp;L →</button>
       </div>
-      <div className="mt-1.5 flex items-center gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-          mkt.open ? "bg-bullish-text/15 text-bullish-text" : "bg-surface-3 text-text-muted"
-        }`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${mkt.open ? "bg-bullish-text" : "bg-text-faint"}`} />
-          {mkt.label}
-        </span>
-        {asOf && <span className="font-mono text-[10.5px] text-text-faint">scan {asOf}</span>}
-      </div>
+      {asOf && <div className="mt-1 font-mono text-[10.5px] text-text-faint">as of {asOf}</div>}
 
       {isLoading && <div className="mt-8 text-center text-[13px] text-text-faint">Loading the desk…</div>}
       {!isLoading && !rep && (
         <div className="mt-6 rounded-xl border border-border-subtle bg-surface-1 p-6 text-center">
           <div className="text-[13px] font-semibold text-text-secondary">The desk is warming up.</div>
           <div className="mx-auto mt-1.5 max-w-sm text-[12px] leading-snug text-text-faint">
-            The first ranked scan publishes at the next market session, then stays available around the clock so you can plan the following day off the close.
+            Ranked candidates will appear here shortly. Check back in a moment.
           </div>
         </div>
       )}
