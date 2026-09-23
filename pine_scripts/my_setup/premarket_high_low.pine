@@ -1,31 +1,33 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// PREMARKET HIGH / LOW — marks each day's premarket high (PMH) and low (PML) and
-// keeps the last N days on the chart. Works even when the chart's EXTENDED HOURS
-// toggle is OFF: the premarket range is pulled from the extended-session feed via
-// request.security (an extended-hours ticker), not from the chart's own bars.
-// Intraday only. US equities premarket defaults to 04:00–09:30 America/New_York.
+// PREMARKET RANGE (PMH / PML) — draws each day's premarket high–low as a RECTANGLE
+// and keeps the last N days. Works with the chart's EXTENDED HOURS toggle OFF (the
+// range is pulled from the extended-session feed via request.security). The range is
+// computed at a FIXED fine resolution (default 1-min), so PMH/PML are identical on
+// every chart timeframe. Intraday only. US premarket defaults to 04:00–09:30 ET.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Premarket High / Low", "PMH·PML", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Premarket Range · PMH/PML", "PMH·PML", overlay = true, max_boxes_count = 500, max_labels_count = 500)
 
 // ── Session ──
 pmSession = input.session("0400-0930", "Premarket session", group = "Session")
 tz        = input.string("America/New_York", "Timezone",    group = "Session")
+pmRes     = input.string("1", "Premarket calc resolution (min)", options = ["1", "5", "15"], tooltip = "Fixed so PMH/PML don't change with the chart timeframe. 1 = most precise (recent days only).", group = "Session")
 
 // ── Display ──
 nDays   = input.int(4, "Days to display", minval = 1, maxval = 30, group = "Display")
-gLabels = input.bool(true, "Show PMH / PML labels",               group = "Display")
+gLabels = input.bool(true, "Show PMH / PML labels", group = "Display")
 
 // ── Style ──
-cHigh   = input.color(#26a69a, "PMH color", group = "Style")
-cLow    = input.color(#ef5350, "PML color", group = "Style")
-wdth    = input.int(1, "Line width", minval = 1, maxval = 5, group = "Style")
-styleIn = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = "Style")
-lStyle  = styleIn == "dashed" ? line.style_dashed : styleIn == "dotted" ? line.style_dotted : line.style_solid
+cFill   = input.color(color.new(#2962ff, 88), "Range fill",   group = "Style")
+cBorder = input.color(color.new(#787b86, 40), "Border color", group = "Style")
+bWid    = input.int(1, "Border width", minval = 0, maxval = 4, group = "Style")
+styleIn = input.string("dashed", "Border style", options = ["solid", "dashed", "dotted"], group = "Style")
+bStyle  = styleIn == "solid" ? line.style_solid : styleIn == "dotted" ? line.style_dotted : line.style_dashed
+cHigh   = input.color(#26a69a, "PMH label", group = "Style")
+cLow    = input.color(#ef5350, "PML label", group = "Style")
 
-// Running premarket high/low for the day. Evaluated in the EXTENDED-ticker context
-// (below) so premarket bars are always present, ETH toggle or not. Resets each day
-// on the first premarket bar; holds its value through the regular session.
+// Running premarket high/low for the day, evaluated in the EXTENDED-ticker context at a
+// FIXED resolution. Resets on the first premarket bar; holds through the regular session.
 pmHL() =>
     var float h = na
     var float l = na
@@ -39,33 +41,29 @@ pmHL() =>
     [h, l]
 
 et = ticker.new(syminfo.prefix, syminfo.ticker, session.extended)
-[pmh, pml] = request.security(et, timeframe.period, pmHL(), lookahead = barmerge.lookahead_off)
+[pmh, pml] = request.security(et, pmRes, pmHL(), lookahead = barmerge.lookahead_off)
 
-// Keep the last N days as separate horizontal segments (parallel arrays, in lockstep).
-var line[]  hLines = array.new_line()
-var line[]  lLines = array.new_line()
-var label[] hLabs  = array.new_label()
-var label[] lLabs  = array.new_label()
+// Keep the last N days as range boxes (+ labels) — parallel arrays, in lockstep.
+var box[]   boxes = array.new_box()
+var label[] hLabs = array.new_label()
+var label[] lLabs = array.new_label()
 
 newDay = timeframe.isintraday and ta.change(time("D")) != 0
 
 if newDay and not na(pmh)
-    hl = line.new(bar_index, pmh, bar_index, pmh, color = cHigh, width = wdth, style = lStyle)
-    ll = line.new(bar_index, pml, bar_index, pml, color = cLow,  width = wdth, style = lStyle)
-    hb = label.new(bar_index, pmh, "PMH", style = label.style_label_left, color = color.new(cHigh, 88), textcolor = cHigh, size = size.small)
-    lb = label.new(bar_index, pml, "PML", style = label.style_label_left, color = color.new(cLow, 88), textcolor = cLow, size = size.small)
+    bx = box.new(bar_index, pmh, bar_index, pml, border_color = cBorder, border_width = bWid, border_style = bStyle, bgcolor = cFill)
+    hb = label.new(bar_index, pmh, "PMH", style = label.style_label_left, color = color.new(cHigh, 90), textcolor = cHigh, size = size.small)
+    lb = label.new(bar_index, pml, "PML", style = label.style_label_left, color = color.new(cLow, 90), textcolor = cLow, size = size.small)
     if not gLabels
         label.delete(hb)
         label.delete(lb)
         hb := na
         lb := na
-    array.push(hLines, hl)
-    array.push(lLines, ll)
+    array.push(boxes, bx)
     array.push(hLabs, hb)
     array.push(lLabs, lb)
-    if array.size(hLines) > nDays               // drop the oldest day (all four arrays together)
-        line.delete(array.shift(hLines))
-        line.delete(array.shift(lLines))
+    if array.size(boxes) > nDays                // drop the oldest day (all arrays together)
+        box.delete(array.shift(boxes))
         oh = array.shift(hLabs)
         ol = array.shift(lLabs)
         if not na(oh)
@@ -73,22 +71,18 @@ if newDay and not na(pmh)
         if not na(ol)
             label.delete(ol)
 
-// Each bar: converge the current day's levels to the latest PMH/PML and extend them right.
-if array.size(hLines) > 0 and not na(pmh)
-    ch = array.get(hLines, array.size(hLines) - 1)
-    cl = array.get(lLines, array.size(lLines) - 1)
-    line.set_y1(ch, pmh)
-    line.set_y2(ch, pmh)
-    line.set_x2(ch, bar_index)
-    line.set_y1(cl, pml)
-    line.set_y2(cl, pml)
-    line.set_x2(cl, bar_index)
+// Each bar: converge the current day's box to the latest PMH/PML and extend it right.
+if array.size(boxes) > 0 and not na(pmh)
+    cb = array.get(boxes, array.size(boxes) - 1)
+    box.set_top(cb, pmh)
+    box.set_bottom(cb, pml)
+    box.set_right(cb, bar_index)
     if gLabels and array.size(hLabs) > 0
         lh = array.get(hLabs, array.size(hLabs) - 1)
-        ll2 = array.get(lLabs, array.size(lLabs) - 1)
+        ll = array.get(lLabs, array.size(lLabs) - 1)
         if not na(lh)
             label.set_xy(lh, bar_index, pmh)
             label.set_text(lh, "PMH " + str.tostring(pmh, format.mintick))
-        if not na(ll2)
-            label.set_xy(ll2, bar_index, pml)
-            label.set_text(ll2, "PML " + str.tostring(pml, format.mintick))
+        if not na(ll)
+            label.set_xy(ll, bar_index, pml)
+            label.set_text(ll, "PML " + str.tostring(pml, format.mintick))
