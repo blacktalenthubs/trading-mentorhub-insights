@@ -817,6 +817,41 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register Premium Desk IV snapshot job")
 
+        # Premium Desk scan (Spec S2) — score + rank the leveraged-ETF universe
+        # (IV rank + RSI + MA reclaims → risk tier) and publish the feed to
+        # market_reports[premium_desk] for the S3 UI. Reads the freshest iv_history
+        # row (today's 15:55 snapshot once written, else prior session). Refreshes
+        # through the day; the last pass at 15:57 follows the IV snapshot. NO orders.
+        # Toggle off with PREMIUM_DESK_ENABLED=false.
+        try:
+            _pd_env = os.environ.get("PREMIUM_DESK_ENABLED", "true").strip().lower()
+            if _pd_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronPD
+                from zoneinfo import ZoneInfo as _ZIPD
+                _etpd = _ZIPD("America/New_York")
+
+                def _run_premium_desk():
+                    try:
+                        import datetime as _dt
+                        from analytics.premium_desk_scan import scan as _pd_scan, publish as _pd_pub
+                        rep = _pd_scan()
+                        _pd_pub(rep, _dt.date.today().isoformat())
+                        t = rep.get("tiers", {})
+                        logger.info("Premium Desk scan posted (%d rows: %d low / %d med / %d high)",
+                                    len(rep.get("rows", [])), t.get("low", 0), t.get("med", 0), t.get("high", 0))
+                    except Exception:
+                        logger.exception("Premium Desk scan failed")
+
+                for _pi, (_ph, _pm) in enumerate([(9, 40), (11, 0), (13, 0), (14, 30), (15, 57)]):
+                    scheduler.add_job(
+                        _run_premium_desk,
+                        _CronPD(hour=_ph, minute=_pm, day_of_week="mon-fri", timezone=_etpd),
+                        id=f"premium_desk_scan_{_pi}", replace_existing=True,
+                    )
+                logger.info("Premium Desk scan scheduled (09:40/11:00/13:00/14:30/15:57 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Premium Desk scan job")
+
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
