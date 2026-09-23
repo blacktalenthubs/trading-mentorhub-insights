@@ -872,15 +872,16 @@ async def lifespan(app: FastAPI):
                     try:
                         import datetime as _dt
                         import os as _os
-                        from analytics.weekly_vp_scan import build_report, publish as _wv_pub
+                        from analytics.weekly_vp_scan import run_daily, publish as _wv_pub
                         from analytics.swing_setups_report import _watchlist as _wv_wl
                         _dsn = _os.environ.get("DATABASE_URL")
                         _syms = _wv_wl(_dsn) if _dsn else []
                         if not _syms:
                             logger.warning("weekly-vp scan skipped (no watchlist)")
                             return
-                        rep = build_report(_syms, weeks=_wvp_weeks, tol=0.02)
-                        _wv_pub(rep, _dt.date.today().isoformat())
+                        _date = _dt.date.today().isoformat()
+                        rep = run_daily(_syms, _date, weeks=_wvp_weeks, tol=0.02)   # scans + caches levels
+                        _wv_pub(rep, _date)
                         logger.info("Weekly Value board posted (%d at level / %d fresh)",
                                     rep.get("at", 0), rep.get("fresh", 0))
                     except Exception:
@@ -894,6 +895,36 @@ async def lifespan(app: FastAPI):
                 logger.info("Weekly Value board scheduled (08:35 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register Weekly Value board job")
+
+        # Weekly VP alerts — live Telegram alerts on the cached weekly POC/VWAP/VAL:
+        # support hold / fresh reclaim / loss, once per symbol-level-week (deduped). Reads
+        # the daily levels cache, checks the live price, sends to WEEKLY_VP_ALERT_EMAIL's
+        # chat. Runs every 30m during market hours (after the 08:35 levels cache). Full
+        # watchlist, but most names sit far from weekly value so it stays quiet. Read-only.
+        try:
+            _wva_env = os.environ.get("WEEKLY_VP_ALERTS_ENABLED", "true").strip().lower()
+            if _wva_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronWA
+                from zoneinfo import ZoneInfo as _ZIWA
+                _etwa = _ZIWA("America/New_York")
+
+                def _run_weekly_vp_alerts():
+                    try:
+                        from analytics.weekly_vp_alerts import run as _wva_run
+                        res = _wva_run()
+                        if res.get("sent"):
+                            logger.info("Weekly VP alerts: %d sent (%d events)", res.get("sent", 0), res.get("events", 0))
+                    except Exception:
+                        logger.exception("weekly-vp alerts failed")
+
+                scheduler.add_job(
+                    _run_weekly_vp_alerts,
+                    _CronWA(minute="0,30", hour="10-15", day_of_week="mon-fri", timezone=_etwa),
+                    id="weekly_vp_alerts", replace_existing=True,
+                )
+                logger.info("Weekly VP alerts scheduled (:00/:30, 10:00-15:30 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Weekly VP alerts job")
 
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
