@@ -31,12 +31,20 @@ MIN_HISTORY = 20       # iv_history rows below this → rank not yet trustworthy
 OVERSOLD = 40.0        # RSI zone shared with the support engine
 OVERBOUGHT = 70.0
 MA_TOL = 0.01
+# Entry-timing thresholds for SELLING a cash-secured put. The best entry is a DIP —
+# oversold turning up, or a bounce off a key long-term MA — NOT strength. Selling into a
+# high-RSI rip means selling near the top: a pullback assigns you high. So high RSI is a
+# RISK, not a plus.
+EXTENDED_RSI = 65.0     # at/over this = extended, near the top → the worst CSP entry
+LOW_RSI_ROOM = 52.0     # at/under (with intact structure) = room to run, still a fair entry
+RECOVER_LOOK = 7        # bars to look back for a recent oversold low we're turning up from
 # Suggested short-put distance OTM by tier — safer tier sits closer, riskier further out.
 OTM_BY_TIER = {"low": 0.03, "med": 0.05, "high": 0.08}
 DTE = 30
 
-# Composite weights — premium is why we're here, structure is safety, RSI is timing.
-W_IV, W_TREND, W_RSI = 0.40, 0.35, 0.25
+# Composite weights — premium is why we're here; ENTRY QUALITY (dip vs extended) is the
+# thing we most got wrong before, so it dominates; trend context is the backdrop.
+W_IV, W_ENTRY, W_CONTEXT = 0.30, 0.50, 0.20
 
 TRADING_DAYS_SQRT = 252 ** 0.5  # annual IV → 1-day expected move: IV / √252
 
@@ -79,47 +87,62 @@ class PremiumCandidate:
     earnings_warn: bool = False        # earnings falls inside the option's DTE window
 
 
-def _trend_score(price, s20, s50, s200, r20, r50, above20, above50, above200) -> float:
-    v = 50.0
-    v += 20 if above200 else -28
-    if above50 and r50:
-        v += 12
-    elif not above50:
-        v -= 8
-    if above20 and r20:
-        v += 8
-    elif not above20:
-        v -= 8
-    return max(0.0, min(100.0, v))
+def _recovering(rsi, zone: float = OVERSOLD, look: int = RECOVER_LOOK) -> bool:
+    """Turning up off a recent oversold low — the AVGO case. A bar in the last `look`
+    dipped under `zone`, RSI is now higher than that low (turning up) and not yet stretched.
+    Broader than a strict 1-bar reversal, which misses a bottom put in a few bars ago."""
+    if rsi is None or len(rsi) < 3:
+        return False
+    recent = rsi.iloc[-look:] if len(rsi) >= look else rsi
+    lo = float(recent.min())
+    cur = float(rsi.iloc[-1])
+    return lo < zone and cur > lo and cur < 58.0
 
 
-def _rsi_score(rd, rw, rev_d, rev_w) -> float:
+def _entry_score(rd, rev_d, rev_w, recovering, bounce_key) -> float:
+    """Quality of the moment to SELL a put. Dip/bounce = high; extension = low."""
     v = 50.0
-    # Daily timing — a reversal off oversold is the best moment to sell a put into a bottom.
-    if rev_d:
-        v += 22
-    if OVERSOLD <= rd <= 60:
-        v += 8
-    if rd > OVERBOUGHT:
-        v -= 18          # overbought → a pullback is exactly the put-seller's risk
-    if rd < 30 and not rev_d:
-        v -= 15          # deep and still falling → knife
-    # Weekly regime.
+    if rev_d or recovering:
+        v += 24          # bouncing off / turning up from a low — the prime entry
     if rev_w:
-        v += 10
-    if rw < 30 and not rev_w:
+        v += 8
+    if bounce_key:
+        v += 20          # tagged a key long-term (50/200) MA and held
+    if rd < OVERSOLD:
+        v += 6           # sitting in the oversold zone, coiled
+    elif rd <= LOW_RSI_ROOM:
+        v += 3           # room to run
+    if rd >= 60:
+        v -= 10          # getting warm
+    if rd >= EXTENDED_RSI:
+        v -= 26          # extended — selling a put here is selling near the top
+    if rd >= OVERBOUGHT + 2:
         v -= 12
-    if rw > OVERBOUGHT:
-        v -= 6
     return max(0.0, min(100.0, v))
 
 
-def _tier(above200, above50, r50, rd, rw, rev_d) -> str:
-    # HIGH — structure is broken or price is a falling knife: premium is rich for a bad reason.
-    if not above200 or (rw < 30 and not rev_d) or (rd < 30 and not rev_d):
-        return "high"
-    # LOW — above a rising-enough structure, RSI not stretched, weekly not oversold.
-    if above200 and above50 and r50 and rd <= OVERBOUGHT and rw >= OVERSOLD:
+def _context_score(above200, above50) -> float:
+    """Trend backdrop — a dip inside an uptrend (above the 200) is a far better place to be
+    assigned than a dip inside a downtrend. Note: we do NOT reward being extended above the
+    fast MAs; that's timing, handled by the entry score."""
+    v = 50.0
+    v += 18 if above200 else -24
+    v += 6 if above50 else -4
+    return max(0.0, min(100.0, v))
+
+
+def _tier(above200, extended, turning, bounce_key) -> str:
+    """Risk of the CSP ENTRY (not trend strength).
+      HIGH  extended (RSI near the top → selling into a rip) OR a falling knife
+            (below the 200 with nothing turning up).
+      LOW   a real dip entry — turning up off oversold, or a 50/200 bounce.
+      MED   the neutral middle: intact structure, RSI mid-range, no bounce."""
+    good_entry = turning or bounce_key
+    if extended:
+        return "high"                       # near the top — the worst place to sell a put
+    if not above200 and not good_entry:
+        return "high"                       # below the 200 and not turning up → knife
+    if good_entry:
         return "low"
     return "med"
 
@@ -144,12 +167,16 @@ def score_candidate(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str,
     above50 = s50 is not None and c > s50
     above200 = s200 is not None and c > s200
 
-    # A key MA reclaimed / bounced RIGHT NOW (open-above wick-hold) — timing bonus.
-    reclaim = ""
-    if (r20 and _bounce(o, l, c, s20, MA_TOL)) or (r50 and _bounce(o, l, c, s50, MA_TOL)):
-        reclaim = "20/50 MA"
-    elif _bounce(o, l, c, s200, MA_TOL):
-        reclaim = "200 SMA"
+    # Entry timing — the thing that most drives the tier.
+    recovering = _recovering(rsi_d)                        # turning up off a recent oversold low
+    bounce50 = _bounce(o, l, c, s50, MA_TOL)
+    bounce200 = _bounce(o, l, c, s200, MA_TOL)
+    bounce_key = bounce50 or bounce200                     # a KEY long-term MA bounce (50/200)
+    turning = rev_d or rev_w or recovering
+    extended = rd >= EXTENDED_RSI                          # RSI near the top → don't sell here
+
+    # A key MA bounced RIGHT NOW (open-above wick-hold) — for the rationale label.
+    reclaim = "200 SMA" if bounce200 else ("50 MA" if bounce50 else "")
 
     # IV factor.
     if iv is None:
@@ -159,41 +186,38 @@ def score_candidate(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str,
         iv_val, iv_rank, iv_pct, iv_n = iv["iv"], iv["rank"], iv["percentile"], iv["n"]
         warming = iv_n < MIN_HISTORY
 
-    trend = _trend_score(c, s20, s50, s200, r20, r50, above20, above50, above200)
-    rsi_s = _rsi_score(rd, rw, rev_d, rev_w)
-    # While warming, the rank is meaningless → lean on structure + timing (neutral IV compo).
+    entry = _entry_score(rd, rev_d, rev_w, recovering, bounce_key)
+    context = _context_score(above200, above50)
+    # While warming, the rank is meaningless → neutral premium term.
     iv_compo = 50.0 if warming else iv_rank
-    score = round(W_IV * iv_compo + W_TREND * trend + W_RSI * rsi_s, 1)
+    score = round(W_IV * iv_compo + W_ENTRY * entry + W_CONTEXT * context, 1)
 
-    tier = _tier(above200, above50, r50, rd, rw, rev_d)
+    tier = _tier(above200, extended, turning, bounce_key)
     qualifies = warming or iv_rank >= QUALIFY_IVR
     otm = OTM_BY_TIER[tier]
     strike = round(c * (1 - otm), 2)
 
-    # Human rationale — what the desk shows for "why this, why now".
+    # Human rationale — lead with WHY THIS IS (or isn't) a good moment to sell a put.
     rat: list[str] = []
-    if warming:
-        rat.append(f"IV history warming (n={iv_n})")
-    else:
-        rich = "rich" if iv_rank >= QUALIFY_IVR else "thin"
-        rat.append(f"IV rank {iv_rank:.0f} · {rich} (IV {iv_val:.0f}%, n={iv_n})")
-    struct = "above" if above200 else "below"
-    parts = []
-    if above20:
-        parts.append("20")
-    if above50:
-        parts.append("50")
-    if parts and above200:
-        rat.append(f"above rising {'/'.join(parts)} & 200 SMA" if (r20 or r50) else f"above {'/'.join(parts)} & 200 SMA")
-    else:
-        rat.append(f"{struct} 200 SMA")
-    if reclaim:
-        rat.append(f"reclaiming {reclaim} now")
-    if rev_d:
-        rat.append(f"daily RSI reversal from {rd:.0f}")
+    if extended:
+        rat.append(f"extended — daily RSI {rd:.0f}, near the top")
+    elif rev_d or recovering:
+        rat.append(f"turning up off oversold (RSI {rd:.0f})")
+    elif bounce_key:
+        rat.append(f"bounce off {reclaim}")
+    elif rd < OVERSOLD:
+        rat.append(f"oversold — daily RSI {rd:.0f} (watch for the turn)")
     else:
         rat.append(f"daily RSI {rd:.0f}")
-    rat.append(f"weekly RSI {rw:.0f}" + (" (oversold)" if rw < OVERSOLD else ""))
+    rat.append(f"{'above' if above200 else 'below'} 200 SMA" + (", uptrend intact" if above200 else " (weaker structure)"))
+    if rev_w:
+        rat.append(f"weekly RSI turning up from {rw:.0f}")
+    elif rw < OVERSOLD:
+        rat.append(f"weekly RSI {rw:.0f} (oversold)")
+    if warming:
+        rat.append(f"IV warming (n={iv_n})")
+    else:
+        rat.append(f"IV rank {iv_rank:.0f} · {'rich' if iv_rank >= QUALIFY_IVR else 'thin'}")
 
     # Next-session planning (all off-hours-stable — computed off the close).
     exp_move_pct = round(iv_val / TRADING_DAYS_SQRT, 2) if iv_val > 0 else 0.0   # 1-day σ from IV
