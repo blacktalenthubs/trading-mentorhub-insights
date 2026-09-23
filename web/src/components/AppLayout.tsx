@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   Shield,
   Wallet,
+  CircleDollarSign,
   type LucideIcon,
 } from "lucide-react";
 
@@ -58,6 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/today",       label: "Today",       icon: Home },
   { to: "/trading",     label: "Trading",     icon: Crosshair },
   { to: "/trade-ideas", label: "Trade Ideas", icon: Target },
+  { to: "/premium-desk", label: "Premium Desk", icon: CircleDollarSign },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/research",    label: "Research",    icon: Layers },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
@@ -74,6 +76,7 @@ const MOBILE_PRIMARY: NavItem[] = [
   { to: "/premarket",   label: "Premkt", icon: Activity },
 ];
 const MORE_ITEMS: NavItem[] = [
+  { to: "/premium-desk", label: "Premium Desk", icon: CircleDollarSign },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/research",    label: "Research",    icon: Layers },
   // Performance is a post-close retrospective — rarely opened during market hours → fine in More.

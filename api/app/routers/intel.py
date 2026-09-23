@@ -672,6 +672,21 @@ async def market_report_latest(
     }
 
 
+@router.get("/premium-desk/latest")
+async def premium_desk_latest(
+    date: str | None = None,
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """Premium Desk feed (S3) — the ranked leveraged-ETF premium-selling candidates
+    published by analytics/premium_desk_scan.py to market_reports(kind='premium_desk').
+    Latest session by default, or a given ?date=YYYY-MM-DD. Fails soft (None if absent)."""
+    return {
+        "premium_desk": await _latest_report(db, "premium_desk", date),
+        "session_date": date,
+    }
+
+
 @router.get("/market-report/dates")
 async def market_report_dates(
     db: AsyncSession = Depends(get_db_dep),
