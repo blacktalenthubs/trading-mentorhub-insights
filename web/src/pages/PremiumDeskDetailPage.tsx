@@ -13,7 +13,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import {
-  usePremiumDesk, usePremiumChain,
+  usePremiumDesk, usePremiumChain, useLogPremiumTrade,
   type PremiumDeskReport, type PremiumDeskRow, type PremiumChainRow,
 } from "../api/hooks";
 
@@ -66,6 +66,20 @@ export default function PremiumDeskDetailPage() {
   }, [live, strike, cand]);
 
   const [capital, setCapital] = useState(10000);
+  const logTrade = useLogPremiumTrade();
+
+  const takeAndLog = () => {
+    if (!chosen || !calc || calc.contracts === 0) return;
+    logTrade.mutate(
+      {
+        symbol: symU, theme: cand?.theme ?? null, tier: cand?.tier ?? null,
+        strike: chosen.strike, expiration: chain?.expiration ?? null, dte,
+        contracts: calc.contracts, credit_per_contract: calc.creditPer,
+        collateral: calc.collateral,
+      },
+      { onSuccess: () => nav("/premium-desk/positions") },
+    );
+  };
 
   const calc = useMemo(() => {
     if (!chosen) return null;
@@ -216,10 +230,10 @@ export default function PremiumDeskDetailPage() {
               className="flex-1 rounded-xl border border-border-subtle py-3 text-[13.5px] font-semibold text-text-secondary transition-colors hover:border-accent"
             >View chart</button>
             <button
-              disabled
-              title="Take & Log lands in S5"
-              className="flex-1 cursor-not-allowed rounded-xl bg-accent/40 py-3 text-[13.5px] font-semibold text-white"
-            >Take &amp; Log →</button>
+              onClick={takeAndLog}
+              disabled={calc.contracts === 0 || logTrade.isPending}
+              className="flex-1 rounded-xl bg-accent py-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-accent/40"
+            >{logTrade.isPending ? "Logging…" : "Take & Log →"}</button>
           </div>
           <p className="mt-6 border-t border-border-subtle pt-3 text-[10.5px] leading-relaxed text-text-faint">
             Educational, not financial advice. Numbers are for sizing a cash-secured put; the live chain moves — confirm bid/ask, delta and collateral in your broker before selling. Read-only: nothing here places an order.

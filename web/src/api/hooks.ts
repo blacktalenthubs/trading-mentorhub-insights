@@ -172,6 +172,54 @@ export function usePremiumChain(sym: string | undefined) {
   });
 }
 
+// S5 — take & log + standalone premium P&L.
+export interface PremiumTrade {
+  id: string; symbol: string; theme: string | null; tier: string | null; side: string;
+  strike: number; expiration: string | null; dte: number | null; contracts: number;
+  credit_per_contract: number; total_credit: number; collateral: number | null;
+  status: string; close_price: number | null; realized_pnl: number | null;
+  opened_at: string | null; closed_at: string | null; notes: string | null;
+}
+export interface PremiumPositions {
+  open: PremiumTrade[]; closed: PremiumTrade[];
+  summary: { open_count: number; closed_count: number; realized_pnl: number;
+    credit_at_risk: number; win_rate: number | null };
+}
+export interface PremiumLogPayload {
+  symbol: string; theme?: string | null; tier?: string | null; strike: number;
+  expiration?: string | null; dte?: number | null; contracts: number;
+  credit_per_contract: number; collateral?: number | null; notes?: string | null;
+}
+export function usePremiumPositions() {
+  return useQuery({
+    queryKey: ["premium-positions"],
+    queryFn: () => api.get<PremiumPositions>("/intel/premium-desk/positions"),
+    staleTime: 30_000,
+  });
+}
+export function useLogPremiumTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PremiumLogPayload) => api.post("/intel/premium-desk/log", body),
+    onSuccess: () => {
+      toast.success("Logged to your Premium P&L");
+      qc.invalidateQueries({ queryKey: ["premium-positions"] });
+    },
+    onError: () => toast.error("Couldn't log the trade"),
+  });
+}
+export function useClosePremiumTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { id: string; close_price: number }) => api.post("/intel/premium-desk/close", body),
+    onSuccess: () => {
+      toast.success("Position closed");
+      qc.invalidateQueries({ queryKey: ["premium-positions"] });
+    },
+    onError: () => toast.error("Couldn't close the position"),
+  });
+}
+
 export function useReportDates() {
   return useQuery({
     queryKey: ["market-report-dates"],
