@@ -92,30 +92,42 @@ def check(sym: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> dic
     if prof is None:
         return None
     close = float(w["Close"].iloc[-1])
+    week_open = float(w["Open"].iloc[-1])          # this week's open (current weekly bar)
     vwap = rolling_vwap(w, bars_back=weeks) or 0.0
-    return classify(sym, close, prof.poc, prof.val, vwap, prof.peak_ratio, tol)
+    return classify(sym, close, prof.poc, prof.val, vwap, prof.peak_ratio, tol, week_open)
 
 
 def classify(sym: str, close: float, poc: float, val: float, vwap: float,
-             peak_ratio: float, tol: float = DEFAULT_TOL) -> dict:
+             peak_ratio: float, tol: float = DEFAULT_TOL, week_open: float | None = None) -> dict:
     """Pure: where does `close` sit vs the weekly POC / VWAP / VAL? (unit-testable).
 
     Three value levels only (VAH excluded by design): POC (most-traded price), the
-    anchored VWAP (the window's volume-weighted average), and VAL (value-area low)."""
+    anchored VWAP (the window's volume-weighted average), and VAL (value-area low).
+
+    `week_open` = this week's open. A level the week OPENED ABOVE is acting as support
+    (tradeable, stop under it — the reclaim/hold rule); opened below = testing from below."""
     def d(level: float) -> float:
         return (close - level) / close * 100 if close else 0.0   # signed % (close above = +)
     dp, dw, dv = d(poc), d(vwap), d(val)
     at_poc = abs(dp) <= tol * 100
     at_vwap = abs(dw) <= tol * 100
     at_val = abs(dv) <= tol * 100
-    # Which named level is closest (for sorting / the "at" tag).
     nearest, nd = min((("POC", dp), ("VWAP", dw), ("VAL", dv)), key=lambda x: abs(x[1]))
+    wo = week_open if week_open is not None else close
+    # Opened above the level → the level is support beneath the open.
+    oa = {"POC": wo >= poc, "VWAP": wo >= vwap, "VAL": wo >= val}
+    at_level = nearest if abs(nd) <= tol * 100 else ""
+    # HELD = at a level AND this week opened above THAT level (support hold, not a reclaim
+    # from below). `opened_above` reports it for whichever level the name is at.
+    opened_above = oa.get(at_level, False)
+    held = bool(at_level) and opened_above
     return {
-        "sym": sym, "close": round(close, 2),
+        "sym": sym, "close": round(close, 2), "week_open": round(wo, 2),
         "poc": round(poc, 2), "vwap": round(vwap, 2), "val": round(val, 2),
         "d_poc": round(dp, 2), "d_vwap": round(dw, 2), "d_val": round(dv, 2),
         "at_poc": at_poc, "at_vwap": at_vwap, "at_val": at_val,
-        "at": (nearest if abs(nd) <= tol * 100 else ""),
+        "oa_poc": oa["POC"], "oa_vwap": oa["VWAP"], "oa_val": oa["VAL"],
+        "at": at_level, "opened_above": opened_above, "held": held,
         "nearest": nearest, "nearest_d": round(nd, 2),
         "ambiguous": peak_ratio >= AMBIG, "peak_ratio": round(peak_ratio, 2),
     }
@@ -130,22 +142,31 @@ def scan(symbols, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> list[
                 rows.append(r)
         except Exception:
             pass
-    # At a level first, then by how close to the nearest level.
-    rows.sort(key=lambda r: (0 if r["at"] else 1, abs(r["nearest_d"])))
+    # Holding a level as support first (at + opened above), then at-level, then nearest.
+    rows.sort(key=lambda r: (0 if r["held"] else 1, 0 if r["at"] else 1, abs(r["nearest_d"])))
     return rows
 
 
-def _print(rows, weeks, tol, at_only):
+def _print(rows, weeks, tol, at_only, held_only=False):
+    held = [r for r in rows if r["held"]]
     hits = [r for r in rows if r["at"]]
     print(f"\n=== WEEKLY VP · {weeks}w window · tol ±{tol*100:.1f}% · Robinhood === "
-          f"{len(hits)} at POC/VWAP/VAL · {len(rows)} scanned  (window is visible-range — tune per name)\n")
-    print(f"  {'SYM':<7}{'CLOSE':>10}{'POC':>10}{'VWAP':>10}{'VAL':>10}   {'ΔPOC':>7}{'ΔVWAP':>7}{'ΔVAL':>7}  AT")
+          f"{len(held)} holding support · {len(hits)} at level · {len(rows)} scanned\n")
+    print(f"  {'SYM':<7}{'CLOSE':>10}{'WK OPEN':>10}{'POC':>10}{'VWAP':>10}{'VAL':>10}   "
+          f"{'ΔPOC':>7}{'ΔVWAP':>7}{'ΔVAL':>7}  SIGNAL")
     for r in rows:
+        if held_only and not r["held"]:
+            continue
         if at_only and not r["at"]:
             continue
-        tag = ("🎯 " + r["at"]) if r["at"] else ""
+        if r["held"]:
+            tag = f"🛡 holding {r['at']} (opened above)"
+        elif r["at"]:
+            tag = f"🎯 at {r['at']} (opened below — testing)"
+        else:
+            tag = ""
         amb = " ⚠tied" if r["ambiguous"] else ""
-        print(f"  {r['sym']:<7}{r['close']:>10.2f}{r['poc']:>10.2f}{r['vwap']:>10.2f}{r['val']:>10.2f}   "
+        print(f"  {r['sym']:<7}{r['close']:>10.2f}{r['week_open']:>10.2f}{r['poc']:>10.2f}{r['vwap']:>10.2f}{r['val']:>10.2f}   "
               f"{r['d_poc']:>6.2f}%{r['d_vwap']:>6.2f}%{r['d_val']:>6.2f}%  {tag}{amb}")
 
 
@@ -155,7 +176,8 @@ def main():  # pragma: no cover
     ap.add_argument("--watchlist", action="store_true", help="scan the master watchlist")
     ap.add_argument("--weeks", type=int, default=DEFAULT_WEEKS, help="weekly bars in the profile window")
     ap.add_argument("--tol", type=float, default=DEFAULT_TOL, help='"at level" tolerance (fraction, e.g. 0.01)')
-    ap.add_argument("--at-only", action="store_true", help="print only names at POC/VAL")
+    ap.add_argument("--at-only", action="store_true", help="print only names at a level")
+    ap.add_argument("--held", action="store_true", help="print only names HOLDING a level as support (at it + opened above this week)")
     args = ap.parse_args()
     if args.watchlist:
         from analytics.swing_setups_report import _watchlist
@@ -163,7 +185,7 @@ def main():  # pragma: no cover
     else:
         symbols = [s.upper() for s in args.symbols] or ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "QQQ", "SPY"]
     rows = scan(symbols, args.weeks, args.tol)
-    _print(rows, args.weeks, args.tol, args.at_only)
+    _print(rows, args.weeks, args.tol, args.at_only, args.held)
 
 
 if __name__ == "__main__":
