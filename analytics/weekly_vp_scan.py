@@ -104,6 +104,14 @@ def _current(sym: str) -> dict | None:  # pragma: no cover - network
         week_open = float((week[0] if week else d[-1])["open_price"])    # first bar this week
     except Exception:
         return None
+    # Completed daily closes (exclude today's in-progress bar) — for the fresh-reclaim check.
+    completed = [b for b in d if b.get("begins_at", "")[:10] < today.isoformat()]
+    closes = []
+    for b in completed:
+        try:
+            closes.append(float(b["close_price"]))
+        except Exception:
+            pass
     price = 0.0
     try:
         lp = rh.stocks.get_latest_price(sym) or []
@@ -112,7 +120,7 @@ def _current(sym: str) -> dict | None:  # pragma: no cover - network
         price = 0.0
     if price <= 0:
         price = float(d[-1]["close_price"])                             # fallback: last daily close
-    return {"price": round(price, 2), "week_open": round(week_open, 2)}
+    return {"price": round(price, 2), "week_open": round(week_open, 2), "closes": closes}
 
 
 def check(sym: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> dict | None:  # pragma: no cover - network
@@ -122,11 +130,19 @@ def check(sym: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> dic
     prof = compute_profile(w, bars_back=weeks)
     if prof is None:
         return None
-    cur = _current(sym)                     # THIS week's open + the live price
+    cur = _current(sym)                     # THIS week's open + live price + daily closes
     if cur is None:
         return None
     vwap = rolling_vwap(w, bars_back=weeks) or 0.0
-    return classify(sym, cur["price"], prof.poc, prof.val, vwap, prof.peak_ratio, tol, cur["week_open"])
+    row = classify(sym, cur["price"], prof.poc, prof.val, vwap, prof.peak_ratio, tol, cur["week_open"])
+    # FRESH reclaim: the prior completed day is the FIRST close above the level the name is
+    # at (the day before it was at/below) — a just-happened weekly-value reclaim, not a stale one.
+    row["fresh"] = False
+    if row["at"]:
+        lvl = {"POC": prof.poc, "VWAP": vwap, "VAL": prof.val}[row["at"]]
+        cl = cur.get("closes", [])
+        row["fresh"] = len(cl) >= 2 and cl[-1] > lvl and cl[-2] <= lvl
+    return row
 
 
 def classify(sym: str, close: float, poc: float, val: float, vwap: float,
@@ -154,7 +170,7 @@ def classify(sym: str, close: float, poc: float, val: float, vwap: float,
     opened_above = oa.get(at_level, False)
     held = bool(at_level) and opened_above
     return {
-        "sym": sym, "close": round(close, 2), "week_open": round(wo, 2),
+        "sym": sym, "price": round(close, 2), "week_open": round(wo, 2),
         "poc": round(poc, 2), "vwap": round(vwap, 2), "val": round(val, 2),
         "d_poc": round(dp, 2), "d_vwap": round(dw, 2), "d_val": round(dv, 2),
         "at_poc": at_poc, "at_vwap": at_vwap, "at_val": at_val,
@@ -174,9 +190,38 @@ def scan(symbols, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> list[
                 rows.append(r)
         except Exception:
             pass
-    # Holding a level as support first (at + opened above), then at-level, then nearest.
-    rows.sort(key=lambda r: (0 if r["held"] else 1, 0 if r["at"] else 1, abs(r["nearest_d"])))
+    # FRESH reclaim first, then holding-as-support, then at-level, then nearest.
+    rows.sort(key=lambda r: (0 if r.get("fresh") else 1, 0 if r["held"] else 1,
+                             0 if r["at"] else 1, abs(r["nearest_d"])))
     return rows
+
+
+# --- Today-tab daily job: publish the top-10 at-level names to market_reports ---------
+def build_report(symbols, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL, top: int = 10) -> dict:  # pragma: no cover - network
+    """Scan → the report the Today 'Weekly Value' board renders: the top-N names AT a weekly
+    level, FRESH reclaims (prior day's first close above the level) first, then holders."""
+    rows = scan(symbols, weeks, tol)
+    at = [r for r in rows if r["at"]]
+    return {"rows": at[:top], "scanned": len(rows), "at": len(at),
+            "held": sum(1 for r in at if r["held"]), "fresh": sum(1 for r in at if r.get("fresh")),
+            "weeks": weeks, "tol": tol}
+
+
+def publish(rep: dict, session_date: str) -> None:  # pragma: no cover - DB
+    import json
+    import os
+    import psycopg2
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], connect_timeout=15)
+    cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS market_reports (
+        kind TEXT NOT NULL, session_date TEXT NOT NULL, body TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(), PRIMARY KEY (kind, session_date))""")
+    cur.execute(
+        "INSERT INTO market_reports (kind, session_date, body) VALUES ('weekly_vp', %s, %s) "
+        "ON CONFLICT (kind, session_date) DO UPDATE SET body = EXCLUDED.body, created_at = NOW()",
+        (session_date, json.dumps(rep)),
+    )
+    conn.commit(); cur.close(); conn.close()
 
 
 def _print(rows, weeks, tol, at_only, held_only=False):
@@ -191,14 +236,15 @@ def _print(rows, weeks, tol, at_only, held_only=False):
             continue
         if at_only and not r["at"]:
             continue
+        fresh = "🌟 NEW · " if r.get("fresh") else ""
         if r["held"]:
-            tag = f"🛡 holding {r['at']} (opened above)"
+            tag = f"{fresh}🛡 holding {r['at']} (opened above)"
         elif r["at"]:
-            tag = f"🎯 at {r['at']} (opened below — testing)"
+            tag = f"{fresh}🎯 at {r['at']} (opened below — testing)"
         else:
             tag = ""
         amb = " ⚠tied" if r["ambiguous"] else ""
-        print(f"  {r['sym']:<7}{r['close']:>10.2f}{r['week_open']:>10.2f}{r['poc']:>10.2f}{r['vwap']:>10.2f}{r['val']:>10.2f}   "
+        print(f"  {r['sym']:<7}{r['price']:>10.2f}{r['week_open']:>10.2f}{r['poc']:>10.2f}{r['vwap']:>10.2f}{r['val']:>10.2f}   "
               f"{r['d_poc']:>6.2f}%{r['d_vwap']:>6.2f}%{r['d_val']:>6.2f}%  {tag}{amb}")
 
 
@@ -210,6 +256,7 @@ def main():  # pragma: no cover
     ap.add_argument("--tol", type=float, default=DEFAULT_TOL, help='"at level" tolerance (fraction, e.g. 0.01)')
     ap.add_argument("--at-only", action="store_true", help="print only names at a level")
     ap.add_argument("--held", action="store_true", help="print only names HOLDING a level as support (at it + opened above this week)")
+    ap.add_argument("--publish", action="store_true", help="publish the at-level names to market_reports[weekly_vp] (Today board)")
     args = ap.parse_args()
     if args.watchlist:
         from analytics.swing_setups_report import _watchlist
@@ -218,6 +265,14 @@ def main():  # pragma: no cover
         symbols = [s.upper() for s in args.symbols] or ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "QQQ", "SPY"]
     rows = scan(symbols, args.weeks, args.tol)
     _print(rows, args.weeks, args.tol, args.at_only, args.held)
+    if args.publish:
+        import datetime as _dt
+        at = [r for r in rows if r["at"]]
+        rep = {"rows": at[:10], "scanned": len(rows), "at": len(at),
+               "held": sum(1 for r in at if r["held"]), "fresh": sum(1 for r in at if r.get("fresh")),
+               "weeks": args.weeks, "tol": args.tol}
+        publish(rep, _dt.date.today().isoformat())
+        print(f"published: weekly_vp {_dt.date.today().isoformat()} ({rep['at']} at · {rep['fresh']} fresh)", file=sys.stderr)
 
 
 if __name__ == "__main__":

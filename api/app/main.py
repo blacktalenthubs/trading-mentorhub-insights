@@ -855,6 +855,46 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register Premium Desk scan job")
 
+        # Weekly Value board (Today tab) — daily job. Names AT their WEEKLY volume-profile
+        # POC/VWAP/VAL (Robinhood data, matches the chart), top 10, FRESH reclaims first
+        # (prior day's first close above the level). Runs once pre-market so it's ready for
+        # the day. Behind WEEKLY_VP_ENABLED. Needs DATABASE_URL (watchlist + publish) +
+        # a Robinhood session (SESSION_B64 on Railway). Read-only.
+        try:
+            _wvp_env = os.environ.get("WEEKLY_VP_ENABLED", "true").strip().lower()
+            if _wvp_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronWV
+                from zoneinfo import ZoneInfo as _ZIWV
+                _etwv = _ZIWV("America/New_York")
+                _wvp_weeks = int(os.environ.get("WEEKLY_VP_WEEKS", "156"))
+
+                def _run_weekly_vp():
+                    try:
+                        import datetime as _dt
+                        import os as _os
+                        from analytics.weekly_vp_scan import build_report, publish as _wv_pub
+                        from analytics.swing_setups_report import _watchlist as _wv_wl
+                        _dsn = _os.environ.get("DATABASE_URL")
+                        _syms = _wv_wl(_dsn) if _dsn else []
+                        if not _syms:
+                            logger.warning("weekly-vp scan skipped (no watchlist)")
+                            return
+                        rep = build_report(_syms, weeks=_wvp_weeks, tol=0.02)
+                        _wv_pub(rep, _dt.date.today().isoformat())
+                        logger.info("Weekly Value board posted (%d at level / %d fresh)",
+                                    rep.get("at", 0), rep.get("fresh", 0))
+                    except Exception:
+                        logger.exception("weekly-vp scan failed")
+
+                scheduler.add_job(
+                    _run_weekly_vp,
+                    _CronWV(hour=8, minute=35, day_of_week="mon-fri", timezone=_etwv),
+                    id="weekly_vp_scan", replace_existing=True,
+                )
+                logger.info("Weekly Value board scheduled (08:35 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Weekly Value board job")
+
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
