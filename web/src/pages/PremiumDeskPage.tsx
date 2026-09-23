@@ -46,6 +46,7 @@ const estCredit = (r: PremiumDeskRow) =>
 export default function PremiumDeskPage() {
   const nav = useNavigate();
   const goChart = (s: string) => nav(`/trading?symbol=${encodeURIComponent(s)}`);
+  const goDetail = (s: string) => nav(`/premium-desk/${encodeURIComponent(s)}`);
   const { data, isLoading } = usePremiumDesk();
 
   const rep = useMemo<PremiumDeskReport | null>(() => {
@@ -167,7 +168,7 @@ export default function PremiumDeskPage() {
                   {!isClosed && (
                     <div className="space-y-2.5">
                       {items.map((r) => (
-                        <Card key={r.sym} r={r} open={openCards.has(r.sym)} onToggle={() => toggleCard(r.sym)} onChart={goChart} />
+                        <Card key={r.sym} r={r} open={openCards.has(r.sym)} onToggle={() => toggleCard(r.sym)} onChart={goChart} onDetail={goDetail} />
                       ))}
                     </div>
                   )}
@@ -186,8 +187,8 @@ export default function PremiumDeskPage() {
   );
 }
 
-function Card({ r, open, onToggle, onChart }: {
-  r: PremiumDeskRow; open: boolean; onToggle: () => void; onChart: (s: string) => void;
+function Card({ r, open, onToggle, onChart, onDetail }: {
+  r: PremiumDeskRow; open: boolean; onToggle: () => void; onChart: (s: string) => void; onDetail: (s: string) => void;
 }) {
   const t = TIER[r.tier];
   const otmPct = Math.round((1 - r.strike / r.price) * 100);
@@ -259,9 +260,8 @@ function Card({ r, open, onToggle, onChart }: {
               View chart
             </button>
             <button
-              disabled
-              className="flex-1 cursor-not-allowed rounded-xl bg-accent/40 py-2.5 text-[13px] font-semibold text-white"
-              title="Trade detail lands in S4"
+              onClick={() => onDetail(r.sym)}
+              className="flex-1 rounded-xl bg-accent py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover"
             >
               Set up trade →
             </button>

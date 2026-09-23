@@ -687,6 +687,22 @@ async def premium_desk_latest(
     }
 
 
+@router.get("/premium-desk/chain")
+async def premium_desk_chain(
+    sym: str = Query(..., min_length=1, max_length=10),
+    user: User = Depends(get_current_user),
+):
+    """Live ~30-DTE put chain for the S4 trade-detail view (bid/ask/mark/delta/IV per
+    strike), so the detail can compute real credit, collateral and exit math. READ-ONLY —
+    never places an order. Fails soft: {available: false} when the broker is unavailable,
+    and the UI falls back to the illustrative estimate."""
+    from analytics.premium_chain import fetch_put_chain
+    try:
+        return await _run_sync(fetch_put_chain, sym.upper())
+    except Exception:
+        return {"available": False, "reason": "fetch failed", "rows": []}
+
+
 @router.get("/market-report/dates")
 async def market_report_dates(
     db: AsyncSession = Depends(get_db_dep),
