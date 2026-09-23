@@ -786,6 +786,37 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register Robinhood daily import job")
 
+        # Premium Desk — daily IV snapshot (Spec S1). Records each leveraged-ETF's
+        # ATM ~30-DTE implied vol at a CONSISTENT time so the 1-year IV-rank range
+        # accumulates. Clock-sensitive: the rank is only as good as the history, so
+        # this must run every weekday from now. 15:55 ET — chains are liquid and
+        # settled, before the close skews the last prints. READ-ONLY (no orders).
+        # Toggle off with PREMIUM_IV_SNAPSHOT_ENABLED=false.
+        try:
+            _iv_env = os.environ.get("PREMIUM_IV_SNAPSHOT_ENABLED", "true").strip().lower()
+            if _iv_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronIV
+                from zoneinfo import ZoneInfo as _ZIIV
+                _etiv = _ZIIV("America/New_York")
+
+                def _run_iv_snapshot():
+                    try:
+                        from analytics.iv_snapshot import run as _iv_run
+                        rep = _iv_run(publish=True)
+                        logger.info("IV snapshot: %d/%d captured for %s",
+                                    rep.get("count", 0), len(rep.get("rows", [])) or 0, rep.get("date"))
+                    except Exception:
+                        logger.exception("IV snapshot job failed")
+
+                scheduler.add_job(
+                    _run_iv_snapshot,
+                    _CronIV(hour=15, minute=55, day_of_week="mon-fri", timezone=_etiv),
+                    id="premium_iv_snapshot", replace_existing=True,
+                )
+                logger.info("Premium Desk IV snapshot scheduled (15:55 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Premium Desk IV snapshot job")
+
         # AI Day Trade Scanner (Spec 27) — specialized entry detection
         # Also runs exit management scan (Spec 34 Phase 3) for open positions
         # Split cadence: SPY on SPY_FAST_SCAN_MIN (default 5), others on
