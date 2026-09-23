@@ -85,8 +85,12 @@ export default function PremiumDeskPage() {
             Selling premium on mega-cap leveraged-ETF options, ranked by risk. Educational — verify the live chain before selling.
           </p>
         </div>
-        {asOf && <span className="whitespace-nowrap font-mono text-[10.5px] text-text-faint">{asOf}</span>}
+        <button
+          onClick={() => nav("/premium-desk/positions")}
+          className="whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1.5 text-[12px] font-semibold text-text-secondary transition-colors hover:border-accent"
+        >P&amp;L →</button>
       </div>
+      {asOf && <div className="mt-1 font-mono text-[10.5px] text-text-faint">scan {asOf}</div>}
 
       {isLoading && <div className="mt-8 text-center text-[13px] text-text-faint">Loading the desk…</div>}
       {!isLoading && !rep && (

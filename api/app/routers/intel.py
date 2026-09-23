@@ -703,6 +703,132 @@ async def premium_desk_chain(
         return {"available": False, "reason": "fetch failed", "rows": []}
 
 
+# --- Premium Desk S5: take & log + standalone P&L -----------------------------
+# The user places the trade in their own broker; this records it for a SEPARATE
+# premium-selling P&L (not broker-integrated). Portable DDL (TEXT timestamps, no
+# NOW() default) so it works on Postgres and SQLite; self-creating like the scans.
+from sqlalchemy import text as _sqltext  # noqa: E402
+
+_PREMIUM_TRADES_DDL = """
+CREATE TABLE IF NOT EXISTS premium_trades (
+  id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, symbol TEXT NOT NULL,
+  theme TEXT, tier TEXT, side TEXT, strike REAL NOT NULL, expiration TEXT, dte INTEGER,
+  contracts INTEGER NOT NULL, credit_per_contract REAL NOT NULL, total_credit REAL NOT NULL,
+  collateral REAL, status TEXT, close_price REAL, realized_pnl REAL,
+  opened_at TEXT, closed_at TEXT, notes TEXT
+)
+"""
+_PREMIUM_COLS = ["id", "user_id", "symbol", "theme", "tier", "side", "strike", "expiration",
+                 "dte", "contracts", "credit_per_contract", "total_credit", "collateral",
+                 "status", "close_price", "realized_pnl", "opened_at", "closed_at", "notes"]
+
+
+async def _ensure_premium_trades(db: AsyncSession) -> None:
+    await db.execute(_sqltext(_PREMIUM_TRADES_DDL))
+
+
+def _premium_row(r) -> dict:
+    return {c: v for c, v in zip(_PREMIUM_COLS, r)}
+
+
+class PremiumLogRequest(BaseModel):
+    symbol: str
+    theme: str | None = None
+    tier: str | None = None
+    strike: float
+    expiration: str | None = None
+    dte: int | None = None
+    contracts: int
+    credit_per_contract: float   # $ per contract (mark × 100)
+    collateral: float | None = None
+    notes: str | None = None
+
+
+class PremiumCloseRequest(BaseModel):
+    id: str
+    close_price: float = 0.0     # per-share buyback debit; 0 = expired worthless
+
+
+@router.post("/premium-desk/log")
+async def premium_log(
+    body: PremiumLogRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Log a premium-selling trade the user placed in their broker (separate P&L)."""
+    import uuid
+    import datetime as _dt
+    if body.contracts <= 0:
+        raise HTTPException(status_code=400, detail="contracts must be > 0")
+    await _ensure_premium_trades(db)
+    tid = uuid.uuid4().hex
+    total_credit = round(body.credit_per_contract * body.contracts, 2)
+    now = _dt.datetime.utcnow().isoformat()
+    await db.execute(_sqltext(
+        "INSERT INTO premium_trades (id, user_id, symbol, theme, tier, side, strike, expiration, "
+        "dte, contracts, credit_per_contract, total_credit, collateral, status, opened_at, notes) "
+        "VALUES (:id,:uid,:sym,:theme,:tier,'put',:strike,:exp,:dte,:contracts,:cpc,:tc,:coll,'open',:oa,:notes)"
+    ), {"id": tid, "uid": user.id, "sym": body.symbol.upper(), "theme": body.theme, "tier": body.tier,
+        "strike": body.strike, "exp": body.expiration, "dte": body.dte, "contracts": body.contracts,
+        "cpc": body.credit_per_contract, "tc": total_credit, "coll": body.collateral,
+        "oa": now, "notes": body.notes})
+    await db.commit()
+    return {"id": tid, "status": "open", "total_credit": total_credit}
+
+
+@router.get("/premium-desk/positions")
+async def premium_positions(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Open + closed premium trades for the user, with the standalone P&L summary."""
+    await _ensure_premium_trades(db)
+    rows = (await db.execute(_sqltext(
+        f"SELECT {', '.join(_PREMIUM_COLS)} FROM premium_trades WHERE user_id = :uid "
+        "ORDER BY opened_at DESC"
+    ), {"uid": user.id})).fetchall()
+    trades = [_premium_row(r) for r in rows]
+    open_t = [t for t in trades if t["status"] == "open"]
+    closed_t = [t for t in trades if t["status"] == "closed"]
+    realized = round(sum((t["realized_pnl"] or 0) for t in closed_t), 2)
+    credit_open = round(sum((t["total_credit"] or 0) for t in open_t), 2)
+    wins = sum(1 for t in closed_t if (t["realized_pnl"] or 0) > 0)
+    return {
+        "open": open_t, "closed": closed_t,
+        "summary": {
+            "open_count": len(open_t), "closed_count": len(closed_t),
+            "realized_pnl": realized, "credit_at_risk": credit_open,
+            "win_rate": round(wins / len(closed_t) * 100, 1) if closed_t else None,
+        },
+    }
+
+
+@router.post("/premium-desk/close")
+async def premium_close(
+    body: PremiumCloseRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
+):
+    """Close a logged trade. realized = credit collected − buyback cost (0 = expired worthless)."""
+    import datetime as _dt
+    await _ensure_premium_trades(db)
+    row = (await db.execute(_sqltext(
+        f"SELECT {', '.join(_PREMIUM_COLS)} FROM premium_trades WHERE id = :id AND user_id = :uid"
+    ), {"id": body.id, "uid": user.id})).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    t = _premium_row(row)
+    cost = round(body.close_price * 100 * t["contracts"], 2)
+    realized = round((t["total_credit"] or 0) - cost, 2)
+    await db.execute(_sqltext(
+        "UPDATE premium_trades SET status='closed', close_price=:cp, realized_pnl=:rp, closed_at=:ca "
+        "WHERE id=:id AND user_id=:uid"
+    ), {"cp": body.close_price, "rp": realized, "ca": _dt.datetime.utcnow().isoformat(),
+        "id": body.id, "uid": user.id})
+    await db.commit()
+    return {"id": body.id, "status": "closed", "realized_pnl": realized}
+
+
 @router.get("/market-report/dates")
 async def market_report_dates(
     db: AsyncSession = Depends(get_db_dep),
