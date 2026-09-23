@@ -1,12 +1,14 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// PREMARKET RANGE (PMH / PML) — draws each day's premarket high–low as a RECTANGLE
-// and keeps the last N days. Works with the chart's EXTENDED HOURS toggle OFF (the
-// range is pulled from the extended-session feed via request.security). The range is
-// computed at a FIXED fine resolution (default 1-min), so PMH/PML are identical on
-// every chart timeframe. Intraday only. US premarket defaults to 04:00–09:30 ET.
+// PREMARKET RANGE + PRIOR DAY — per day draws the premarket high–low as a RECTANGLE
+// (PMH/PML) plus the PRIOR DAY high/low as horizontal levels (PDH/PDL). Keeps the
+// last N days. Works with the chart's EXTENDED HOURS toggle OFF (premarket pulled
+// from the extended-session feed via request.security). The premarket range is
+// computed at a FIXED fine resolution (default 1-min), so it's identical on every
+// chart timeframe. Intraday only. US premarket defaults to 04:00–09:30 ET; PDH/PDL
+// are the prior REGULAR-session day. Non-repainting.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Premarket Range · PMH/PML", "PMH·PML", overlay = true, max_boxes_count = 500, max_labels_count = 500)
+indicator("Premarket Range + Prior Day", "PMH·PML·PDH·PDL", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
 // ── Session ──
 pmSession = input.session("0400-0930", "Premarket session", group = "Session")
@@ -15,19 +17,26 @@ pmRes     = input.string("1", "Premarket calc resolution (min)", options = ["1",
 
 // ── Display ──
 nDays   = input.int(4, "Days to display", minval = 1, maxval = 30, group = "Display")
-gLabels = input.bool(true, "Show PMH / PML labels", group = "Display")
+gLabels = input.bool(true, "Show labels", group = "Display")
+gPD     = input.bool(true, "Show prior-day PDH / PDL", group = "Display")
 
-// ── Style ──
-cFill   = input.color(color.new(#2962ff, 88), "Range fill",   group = "Style")
-cBorder = input.color(color.new(#787b86, 40), "Border color", group = "Style")
-bWid    = input.int(1, "Border width", minval = 0, maxval = 4, group = "Style")
-styleIn = input.string("dashed", "Border style", options = ["solid", "dashed", "dotted"], group = "Style")
+// ── Premarket box style ──
+cFill   = input.color(color.new(#2962ff, 88), "Range fill",   group = "Premarket")
+cBorder = input.color(color.new(#787b86, 40), "Border color", group = "Premarket")
+bWid    = input.int(1, "Border width", minval = 0, maxval = 4, group = "Premarket")
+styleIn = input.string("dashed", "Border style", options = ["solid", "dashed", "dotted"], group = "Premarket")
 bStyle  = styleIn == "solid" ? line.style_solid : styleIn == "dotted" ? line.style_dotted : line.style_dashed
-cHigh   = input.color(#26a69a, "PMH label", group = "Style")
-cLow    = input.color(#ef5350, "PML label", group = "Style")
+cHigh   = input.color(#26a69a, "PMH label", group = "Premarket")
+cLow    = input.color(#ef5350, "PML label", group = "Premarket")
 
-// Running premarket high/low for the day, evaluated in the EXTENDED-ticker context at a
-// FIXED resolution. Resets on the first premarket bar; holds through the regular session.
+// ── Prior-day style ──
+cPDH    = input.color(#f7931a, "PDH color", group = "Prior day")
+cPDL    = input.color(#8e44ad, "PDL color", group = "Prior day")
+pdWid   = input.int(1, "PDH/PDL width", minval = 1, maxval = 4, group = "Prior day")
+pdStIn  = input.string("solid", "PDH/PDL style", options = ["solid", "dashed", "dotted"], group = "Prior day")
+pdStyle = pdStIn == "dashed" ? line.style_dashed : pdStIn == "dotted" ? line.style_dotted : line.style_solid
+
+// Premarket high/low — extended feed, fixed resolution (so it's timeframe-independent).
 pmHL() =>
     var float h = na
     var float l = na
@@ -43,46 +52,91 @@ pmHL() =>
 et = ticker.new(syminfo.prefix, syminfo.ticker, session.extended)
 [pmh, pml] = request.security(et, pmRes, pmHL(), lookahead = barmerge.lookahead_off)
 
-// Keep the last N days as range boxes (+ labels) — parallel arrays, in lockstep.
-var box[]   boxes = array.new_box()
-var label[] hLabs = array.new_label()
-var label[] lLabs = array.new_label()
+// Prior REGULAR-session day high/low (non-repainting: [1] + lookahead_on).
+rt = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdh, pdl] = request.security(rt, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+delLine(line x) =>
+    if not na(x)
+        line.delete(x)
+delLabel(label x) =>
+    if not na(x)
+        label.delete(x)
+
+// Last N days, all in lockstep: box + PMH/PML labels + PDH/PDL lines + their labels.
+var box[]   boxes   = array.new_box()
+var label[] hLabs   = array.new_label()
+var label[] lLabs   = array.new_label()
+var line[]  pdhLn   = array.new_line()
+var line[]  pdlLn   = array.new_line()
+var label[] pdhLb   = array.new_label()
+var label[] pdlLb   = array.new_label()
 
 newDay = timeframe.isintraday and ta.change(time("D")) != 0
 
 if newDay and not na(pmh)
     bx = box.new(bar_index, pmh, bar_index, pml, border_color = cBorder, border_width = bWid, border_style = bStyle, bgcolor = cFill)
-    hb = label.new(bar_index, pmh, "PMH", style = label.style_label_left, color = color.new(cHigh, 90), textcolor = cHigh, size = size.small)
-    lb = label.new(bar_index, pml, "PML", style = label.style_label_left, color = color.new(cLow, 90), textcolor = cLow, size = size.small)
-    if not gLabels
-        label.delete(hb)
-        label.delete(lb)
-        hb := na
-        lb := na
+    label hb = na
+    label lb = na
+    if gLabels
+        hb := label.new(bar_index, pmh, "PMH", style = label.style_label_left, color = color.new(cHigh, 90), textcolor = cHigh, size = size.small)
+        lb := label.new(bar_index, pml, "PML", style = label.style_label_left, color = color.new(cLow, 90), textcolor = cLow, size = size.small)
+    // prior day levels
+    line  ph  = na
+    line  pl  = na
+    label phb = na
+    label plb = na
+    if gPD and not na(pdh)
+        ph := line.new(bar_index, pdh, bar_index, pdh, color = cPDH, width = pdWid, style = pdStyle)
+        pl := line.new(bar_index, pdl, bar_index, pdl, color = cPDL, width = pdWid, style = pdStyle)
+        if gLabels
+            phb := label.new(bar_index, pdh, "PDH", style = label.style_label_left, color = color.new(cPDH, 90), textcolor = cPDH, size = size.small)
+            plb := label.new(bar_index, pdl, "PDL", style = label.style_label_left, color = color.new(cPDL, 90), textcolor = cPDL, size = size.small)
     array.push(boxes, bx)
     array.push(hLabs, hb)
     array.push(lLabs, lb)
-    if array.size(boxes) > nDays                // drop the oldest day (all arrays together)
+    array.push(pdhLn, ph)
+    array.push(pdlLn, pl)
+    array.push(pdhLb, phb)
+    array.push(pdlLb, plb)
+    if array.size(boxes) > nDays               // drop the oldest day (every array together)
         box.delete(array.shift(boxes))
-        oh = array.shift(hLabs)
-        ol = array.shift(lLabs)
-        if not na(oh)
-            label.delete(oh)
-        if not na(ol)
-            label.delete(ol)
+        delLabel(array.shift(hLabs))
+        delLabel(array.shift(lLabs))
+        delLine(array.shift(pdhLn))
+        delLine(array.shift(pdlLn))
+        delLabel(array.shift(pdhLb))
+        delLabel(array.shift(pdlLb))
 
-// Each bar: converge the current day's box to the latest PMH/PML and extend it right.
+// Each bar: converge + extend the current day's box, PDH/PDL, and labels to the right.
 if array.size(boxes) > 0 and not na(pmh)
-    cb = array.get(boxes, array.size(boxes) - 1)
+    _i = array.size(boxes) - 1
+    cb = array.get(boxes, _i)
     box.set_top(cb, pmh)
     box.set_bottom(cb, pml)
     box.set_right(cb, bar_index)
-    if gLabels and array.size(hLabs) > 0
-        lh = array.get(hLabs, array.size(hLabs) - 1)
-        ll = array.get(lLabs, array.size(lLabs) - 1)
-        if not na(lh)
-            label.set_xy(lh, bar_index, pmh)
-            label.set_text(lh, "PMH " + str.tostring(pmh, format.mintick))
-        if not na(ll)
-            label.set_xy(ll, bar_index, pml)
-            label.set_text(ll, "PML " + str.tostring(pml, format.mintick))
+    if gLabels
+        _lh = array.get(hLabs, _i)
+        _ll = array.get(lLabs, _i)
+        if not na(_lh)
+            label.set_xy(_lh, bar_index, pmh)
+            label.set_text(_lh, "PMH " + str.tostring(pmh, format.mintick))
+        if not na(_ll)
+            label.set_xy(_ll, bar_index, pml)
+            label.set_text(_ll, "PML " + str.tostring(pml, format.mintick))
+    if gPD and array.size(pdhLn) > 0
+        _ph = array.get(pdhLn, _i)
+        _pl = array.get(pdlLn, _i)
+        if not na(_ph)
+            line.set_x2(_ph, bar_index)
+        if not na(_pl)
+            line.set_x2(_pl, bar_index)
+        if gLabels
+            _phb = array.get(pdhLb, _i)
+            _plb = array.get(pdlLb, _i)
+            if not na(_phb)
+                label.set_xy(_phb, bar_index, pdh)
+                label.set_text(_phb, "PDH " + str.tostring(pdh, format.mintick))
+            if not na(_plb)
+                label.set_xy(_plb, bar_index, pdl)
+                label.set_text(_plb, "PDL " + str.tostring(pdl, format.mintick))
