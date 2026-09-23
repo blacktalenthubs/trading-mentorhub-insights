@@ -1,0 +1,71 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PREMARKET HIGH / LOW — marks the premarket session's high (PMH) and low (PML)
+// for each day and extends them across the regular session. Intraday timeframes
+// only (a premarket window has to exist). US equities premarket defaults to
+// 04:00–09:30 America/New_York; change the session/timezone inputs for other markets.
+// Non-repainting: PMH/PML lock in at the regular-session open, then just extend.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Premarket High / Low", "PMH·PML", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── Session ──
+pmSession = input.session("0400-0930", "Premarket session",              group = "Session")
+rthSess   = input.session("0930-1600", "Regular session (levels extend across this)", group = "Session")
+tz        = input.string("America/New_York", "Timezone",                 group = "Session")
+
+// ── Display ──
+gExtend  = input.bool(true, "Extend the levels through the regular session", group = "Display")
+gLabels  = input.bool(true, "Show PMH / PML labels",                         group = "Display")
+gHistory = input.bool(true, "Keep prior days' levels on the chart",          group = "Display")
+
+// ── Style ──
+cHigh   = input.color(#26a69a, "PMH color",  group = "Style")
+cLow    = input.color(#ef5350, "PML color",  group = "Style")
+wdth    = input.int(1, "Line width", minval = 1, maxval = 5, group = "Style")
+styleIn = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = "Style")
+lStyle  = styleIn == "dashed" ? line.style_dashed : styleIn == "dotted" ? line.style_dotted : line.style_solid
+
+// True only on intraday bars that fall inside the given session (na off-session).
+isPM  = timeframe.isintraday and not na(time(timeframe.period, pmSession, tz))
+isRTH = timeframe.isintraday and not na(time(timeframe.period, rthSess, tz))
+
+var float pmh   = na   // running premarket high for the day
+var float pml   = na   // running premarket low
+var int   pmBar = na   // bar the premarket started (line anchor)
+var line  hLn = na
+var line  lLn = na
+var label hLb = na
+var label lLb = na
+
+// Accumulate the premarket range as it forms.
+pmFirst = isPM and not isPM[1]           // first premarket bar of a new day → reset
+if pmFirst
+    pmh   := high
+    pml   := low
+    pmBar := bar_index
+else if isPM
+    pmh := math.max(pmh, high)
+    pml := math.min(pml, low)
+
+// At the regular-session open, lock the day's PMH/PML in and draw them.
+rthOpen = isRTH and not isRTH[1]
+if rthOpen and not na(pmh)
+    if not gHistory and not na(hLn)      // single-day mode: clear the prior day's marks
+        line.delete(hLn)
+        line.delete(lLn)
+        if not na(hLb)
+            label.delete(hLb)
+            label.delete(lLb)
+    hLn := line.new(pmBar, pmh, bar_index, pmh, color = cHigh, width = wdth, style = lStyle)
+    lLn := line.new(pmBar, pml, bar_index, pml, color = cLow,  width = wdth, style = lStyle)
+    if gLabels
+        hLb := label.new(bar_index, pmh, "PMH " + str.tostring(pmh, format.mintick), style = label.style_label_left, color = color.new(cHigh, 88), textcolor = cHigh, size = size.small)
+        lLb := label.new(bar_index, pml, "PML " + str.tostring(pml, format.mintick), style = label.style_label_left, color = color.new(cLow, 88), textcolor = cLow, size = size.small)
+
+// Extend the levels + carry the labels forward through the regular session.
+if gExtend and isRTH and not na(hLn)
+    line.set_x2(hLn, bar_index)
+    line.set_x2(lLn, bar_index)
+    if gLabels and not na(hLb)
+        label.set_x(hLb, bar_index)
+        label.set_x(lLb, bar_index)
