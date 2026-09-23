@@ -37,6 +37,50 @@ def _weekly(sym):  # pragma: no cover - network
     return None if df is None or df.empty else df.dropna()
 
 
+def _earnings_days(underlying: str) -> int | None:  # pragma: no cover - network
+    """Days to the underlying's next earnings (None if unknown). Best-effort — the
+    #1 premium-selling landmine: never be short a put through an earnings event.
+    Finnhub when a key is set, else the yfinance calendar (already our price source)."""
+    import datetime as _d
+    import os as _os
+    today = _d.date.today()
+
+    # Finnhub path — only when the key exists (avoids per-call "disabled" log spam).
+    if _os.environ.get("FINNHUB_API_KEY"):
+        try:
+            from analytics.earnings_fetcher import fetch_upcoming_earnings
+            up = fetch_upcoming_earnings(underlying)
+            if up and up.next_earnings_date:
+                d = (up.next_earnings_date - today).days
+                if d >= 0:
+                    return d
+        except Exception:
+            pass
+
+    # yfinance fallback — needs no key.
+    try:
+        import yfinance as yf
+        cal = yf.Ticker(underlying).calendar
+        dates = []
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date")
+            dates = ed if isinstance(ed, list) else ([ed] if ed else [])
+        elif cal is not None and hasattr(cal, "loc"):  # legacy DataFrame form
+            try:
+                dates = [cal.loc["Earnings Date"].iloc[0]]
+            except Exception:
+                dates = []
+        for e in dates:
+            ed = e.date() if hasattr(e, "date") else e
+            if isinstance(ed, _d.date):
+                d = (ed - today).days
+                if d >= 0:
+                    return d
+    except Exception:
+        pass
+    return None
+
+
 def scan(etfs=None) -> dict:  # pragma: no cover - network
     from analytics.iv_snapshot import iv_rank
     insts = [premium_universe.get(e) for e in etfs] if etfs else premium_universe.UNIVERSE
@@ -50,6 +94,10 @@ def scan(etfs=None) -> dict:  # pragma: no cover - network
                 iv = None  # no DB / no history yet → scored as warming
             c = score_candidate(_daily(inst.etf), _weekly(inst.etf), inst.etf, iv, theme=inst.theme)
             if c:
+                # Earnings on the UNDERLYING (the ETF has none); warn if it lands in the DTE window.
+                ed = _earnings_days(inst.underlying)
+                c.earnings_days = ed
+                c.earnings_warn = ed is not None and ed <= c.dte
                 cands.append(c)
         except Exception:
             pass
@@ -68,6 +116,11 @@ def _row(c) -> dict:
         "iv_warming": c.iv_warming, "rsi_d": c.rsi_d, "rsi_w": c.rsi_w,
         "above_200": c.above_200, "above_50": c.above_50, "above_20": c.above_20,
         "reclaim": c.reclaim, "rationale": c.rationale,
+        "exp_move_pct": c.exp_move_pct, "exp_move_usd": c.exp_move_usd,
+        "strike_cushion_pct": c.strike_cushion_pct,
+        "sma20": c.sma20, "sma50": c.sma50, "sma200": c.sma200,
+        "floor_dist_pct": c.floor_dist_pct,
+        "earnings_days": c.earnings_days, "earnings_warn": c.earnings_warn,
     }
 
 

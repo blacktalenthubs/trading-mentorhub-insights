@@ -136,6 +136,10 @@ export interface PremiumDeskRow {
   rsi_d: number; rsi_w: number;
   above_200: boolean; above_50: boolean; above_20: boolean;
   reclaim: string; rationale: string[];
+  // next-session planning (off-hours-stable)
+  exp_move_pct: number; exp_move_usd: number; strike_cushion_pct: number;
+  sma20: number; sma50: number; sma200: number; floor_dist_pct: number;
+  earnings_days: number | null; earnings_warn: boolean;
 }
 export interface PremiumDeskReport {
   rows: PremiumDeskRow[];
