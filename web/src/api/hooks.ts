@@ -113,6 +113,7 @@ export interface MarketReportsResponse {
   putsell_signals: MarketReport | null;
   support: MarketReport | null;
   premarket_signals: MarketReport | null;
+  weekly_vp: MarketReport | null;
 }
 export function useMarketReports(date?: string) {
   return useQuery({

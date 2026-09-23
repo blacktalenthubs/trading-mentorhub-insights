@@ -305,6 +305,52 @@ function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => vo
     </div>
   );
 }
+// Weekly Value: names AT their weekly volume-profile POC/VWAP/VAL (Robinhood data —
+// matches the chart). A name whose CURRENT WEEK opened above the level is holding it as
+// support (🛡, tradeable, stop under it); one that opened below is testing from under (🎯).
+// 🌟 = FRESH — the prior day was the first close above the level. Top 10, fresh first.
+interface WvpRow {
+  sym: string; price: number; week_open: number; poc: number; vwap: number; val: number;
+  d_poc: number; d_vwap: number; d_val: number; at: string; held: boolean;
+  opened_above: boolean; fresh?: boolean; ambiguous?: boolean;
+}
+function WeeklyValue({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: WvpRow[]; scanned?: number; at?: number; held?: number; fresh?: number; weeks?: number } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  if (rows.length === 0)
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No names at their weekly value area in the last scan.</div>;
+  const levelVal = (r: WvpRow) => (r.at === "POC" ? r.poc : r.at === "VWAP" ? r.vwap : r.val);
+  const away = (r: WvpRow) => (r.at === "POC" ? r.d_poc : r.at === "VWAP" ? r.d_vwap : r.d_val);
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10.5px] text-text-faint">
+        {parsed?.held ?? 0} holding support · {parsed?.fresh ?? 0} fresh reclaim{(parsed?.fresh ?? 0) === 1 ? "" : "s"} · {parsed?.at ?? rows.length} at their weekly POC/VWAP/VAL · {parsed?.weeks ?? 156}w profile · opened-above = support beneath you
+      </div>
+      {rows.map((r, i) => {
+        const holdColor = r.held ? "border-bullish-text/30 bg-bullish-text/5" : "border-warning-text/30 bg-warning-text/5";
+        return (
+          <div key={r.sym + i} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${holdColor}`}>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+              <button onClick={() => onChart(r.sym)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.sym}</button>
+              {r.fresh && <span className="rounded bg-accent/20 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent">🌟 NEW</span>}
+              <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold ${r.held ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>
+                {r.held ? `holding ${r.at}` : `testing ${r.at}`}
+              </span>
+              {r.ambiguous && <span title="Two near-tied volume nodes — verify the level on your chart." className="rounded bg-warning-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-warning-text">⚠ verify</span>}
+            </div>
+            <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
+              <span title="this week's open">o {r.week_open.toFixed(2)}</span>
+              <span className="text-text-secondary">${r.price.toFixed(2)}</span>
+              <span className={r.held ? "font-semibold text-bullish-text" : "font-semibold text-warning-text"}>{r.at} {levelVal(r).toFixed(2)} · {away(r) >= 0 ? "+" : ""}{away(r).toFixed(1)}%</span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="text-[10px] text-text-faint">Weekly volume profile from Robinhood (matches TradingView). Educational, not financial advice — verify on your chart.</div>
+    </div>
+  );
+}
 function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
   let sigs: PmSignal[] = [];
   try { sigs = (body ? (JSON.parse(body).signals as PmSignal[]) : []) ?? []; } catch { sigs = []; }
@@ -461,6 +507,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sw = data?.swing_setups ?? null;
   const gap = data?.gap_setups ?? null;
   const sup = data?.support ?? null;
+  const wvp = data?.weekly_vp ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -515,6 +562,11 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-support", group: "Buy the dip", time: "INTRADAY", title: "At Support · Oversold", present: !!sup,
       wait: "Run analytics/support_scan.py — rising 20/50 & 200 SMA, VWAP/POC/VAL, RSI reclaims, with the strike.",
       render: () => <AtSupport body={sup?.body ?? ""} onChart={onChart} /> },
+    // ── WEEKLY VALUE — names at their WEEKLY volume-profile POC/VWAP/VAL (Robinhood data,
+    //    matches the chart). Top 10, fresh reclaims first (prior day's first close above). ──
+    { id: "sec-weekly-vp", group: "Buy the dip", time: "PREMKT", title: "Weekly Value", present: !!wvp,
+      wait: "The weekly-value scan runs premarket (analytics/weekly_vp_scan.py).",
+      render: () => <WeeklyValue body={wvp?.body ?? ""} onChart={onChart} /> },
     // ── MOMENTUM — the swing finder's breakout/structure buckets only (the oversold ones
     //    moved to the support board) + premarket gaps. ──
     { id: "sec-swing", group: "Momentum", time: "10:30·15:00", title: "Momentum / Swing", present: !!sw,
