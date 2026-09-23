@@ -15,6 +15,7 @@ import PremiumTradePanel from "../components/PremiumTradePanel";
 
 type Tier = "low" | "med" | "high";
 type Filter = "qual" | "watch" | "all";
+type InstrFilter = "all" | "direct" | "lev";
 
 const TIER = {
   low: { label: "Low risk", desc: "A real dip — the entry you wait for", badge: "bg-bullish-text/15 text-bullish-text", accent: "text-bullish-text", stripe: "shadow-[inset_3px_0_0_var(--color-bullish-text)]" },
@@ -34,9 +35,13 @@ export default function PremiumDeskPage() {
   }, [data]);
 
   const [filter, setFilter] = useState<Filter>("qual");
+  const [instr, setInstr] = useState<InstrFilter>("all");
   const [selected, setSelected] = useState<string | null>(null);
 
-  const rows = rep?.rows ?? [];
+  const allRows = rep?.rows ?? [];
+  // Direct (leverage 1× — the stock/ETF itself, e.g. a GOOGL put) vs Leveraged (2×/3×).
+  const rows = instr === "direct" ? allRows.filter((r) => r.leverage <= 1)
+    : instr === "lev" ? allRows.filter((r) => r.leverage > 1) : allRows;
   const qual = rows.filter((r) => r.qualifies);
   const watch = rows.filter((r) => !r.qualifies);
   const warming = rows.some((r) => r.iv_warming);
@@ -86,6 +91,13 @@ export default function PremiumDeskPage() {
                   className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold ${filter === f ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>
                   {label}<span className={`font-mono text-[10px] ${filter === f ? "text-accent" : "text-text-faint"}`}>{n}</span>
                 </button>
+              ))}
+            </div>
+            {/* Direct (the stock/ETF itself — e.g. a GOOGL put) vs Leveraged (2×/3×) */}
+            <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+              {([["all", "All"], ["direct", "Direct"], ["lev", "Leveraged"]] as const).map(([f, label]) => (
+                <button key={f} onClick={() => setInstr(f)} aria-pressed={instr === f}
+                  className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${instr === f ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
               ))}
             </div>
             {warming && <span className="ml-auto hidden items-center gap-1.5 rounded-lg border border-warning-text/30 bg-warning-subtle px-2.5 py-1 text-[11px] text-warning-text md:flex">🌱 IV warming — tiers ride real entry signals; IV rank sharpens as history fills</span>}
@@ -155,7 +167,13 @@ function TierGroup({ tier, items, selected, onOpen }: {
         return (
           <tr key={r.sym} onClick={() => onOpen(r.sym)}
             className={`cursor-pointer border-b border-border-subtle ${sel ? `bg-accent-subtle ${TIER[tier].stripe}` : "hover:bg-surface-1"}`}>
-            <td className="px-3 py-2.5"><div className="font-mono text-[13px] font-semibold text-text-primary">{r.sym}</div><div className="text-[11px] text-text-muted">{r.theme}</div></td>
+            <td className="px-3 py-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[13px] font-semibold text-text-primary">{r.sym}</span>
+                {r.leverage > 1 && <span className="rounded bg-purple-muted/40 px-1 py-0.5 font-mono text-[9px] font-semibold text-purple-text">{r.leverage}×</span>}
+              </div>
+              <div className="text-[11px] text-text-muted">{r.theme}</div>
+            </td>
             <td className="px-3 py-2.5"><span className="block max-w-[240px] text-[12px] text-text-secondary">{r.rationale?.[0] ?? ""}</span></td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className={rsiCls}>{r.rsi_d}</span><span className="text-text-faint">/{r.rsi_w}</span></td>
             <td className="px-3 py-2.5 text-right font-mono text-[11px] text-text-faint">{r.iv_warming ? "warming" : r.iv_rank}</td>

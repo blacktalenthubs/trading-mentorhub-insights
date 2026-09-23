@@ -130,6 +130,7 @@ export function useMarketReports(date?: string) {
 // --- Premium Desk (S3) — ranked leveraged-ETF premium-selling candidates ---
 export interface PremiumDeskRow {
   sym: string; theme: string; price: number; score: number;
+  leverage: number; kind: string;   // leverage 1 = direct stock/ETF; 2/3 = leveraged
   tier: "low" | "med" | "high"; qualifies: boolean; side: string;
   strike: number; dte: number;
   iv: number; iv_rank: number; iv_pct: number; iv_n: number; iv_warming: boolean;

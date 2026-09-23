@@ -83,7 +83,8 @@ def _earnings_days(underlying: str) -> int | None:  # pragma: no cover - network
 
 def scan(etfs=None) -> dict:  # pragma: no cover - network
     from analytics.iv_snapshot import iv_rank
-    insts = [premium_universe.get(e) for e in etfs] if etfs else premium_universe.UNIVERSE
+    umap = premium_universe.load_map()          # live (DB-or-default) universe metadata
+    insts = [umap.get(e.upper()) for e in etfs] if etfs else list(umap.values())
     insts = [i for i in insts if i is not None]
     cands = []
     for inst in insts:
@@ -102,14 +103,16 @@ def scan(etfs=None) -> dict:  # pragma: no cover - network
         except Exception:
             pass
     ranked = rank(cands)
-    rows = [_row(c) for c in ranked]
+    rows = [_row(c, umap) for c in ranked]
     return {"rows": rows, "scanned": len(insts),
             "tiers": {t: sum(1 for c in ranked if c.tier == t) for t in ("low", "med", "high")}}
 
 
-def _row(c) -> dict:
+def _row(c, umap=None) -> dict:
+    inst = (umap or {}).get(c.symbol) or premium_universe.get(c.symbol)
     return {
         "sym": c.symbol, "theme": c.theme, "price": c.price, "score": c.score,
+        "leverage": inst.leverage if inst else 1.0, "kind": inst.kind if inst else "stock",
         "tier": c.tier, "qualifies": c.qualifies, "side": c.side,
         "strike": c.strike, "dte": c.dte,
         "iv": c.iv, "iv_rank": c.iv_rank, "iv_pct": c.iv_pct, "iv_n": c.iv_n,
