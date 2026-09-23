@@ -84,17 +84,49 @@ def _weekly(sym: str):  # pragma: no cover - network
     return None if df.empty else df
 
 
+def _current(sym: str) -> dict | None:  # pragma: no cover - network
+    """THIS week's open + the live price. Robinhood's WEEKLY feed omits the current,
+    in-progress week (its last weekly bar is last Friday's completed week), so the current
+    week's open comes from the first DAILY bar of the week that contains today, and the
+    current price from the live quote (not the stale last weekly close)."""
+    import datetime as _dt
+    rh = _ensure_rh()
+    try:
+        d = rh.stocks.get_stock_historicals(sym, interval="day", span="month", bounds="regular") or []
+    except Exception:
+        return None
+    if not d:
+        return None
+    today = _dt.date.today()
+    monday = (today - _dt.timedelta(days=today.weekday())).isoformat()   # Monday of this week
+    week = [b for b in d if (b.get("begins_at", "")[:10] >= monday)]
+    try:
+        week_open = float((week[0] if week else d[-1])["open_price"])    # first bar this week
+    except Exception:
+        return None
+    price = 0.0
+    try:
+        lp = rh.stocks.get_latest_price(sym) or []
+        price = float(lp[0]) if lp and lp[0] else 0.0
+    except Exception:
+        price = 0.0
+    if price <= 0:
+        price = float(d[-1]["close_price"])                             # fallback: last daily close
+    return {"price": round(price, 2), "week_open": round(week_open, 2)}
+
+
 def check(sym: str, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> dict | None:  # pragma: no cover - network
-    w = _weekly(sym)
+    w = _weekly(sym)                        # completed weekly bars → the volume profile
     if w is None or len(w) < 8:
         return None
     prof = compute_profile(w, bars_back=weeks)
     if prof is None:
         return None
-    close = float(w["Close"].iloc[-1])
-    week_open = float(w["Open"].iloc[-1])          # this week's open (current weekly bar)
+    cur = _current(sym)                     # THIS week's open + the live price
+    if cur is None:
+        return None
     vwap = rolling_vwap(w, bars_back=weeks) or 0.0
-    return classify(sym, close, prof.poc, prof.val, vwap, prof.peak_ratio, tol, week_open)
+    return classify(sym, cur["price"], prof.poc, prof.val, vwap, prof.peak_ratio, tol, cur["week_open"])
 
 
 def classify(sym: str, close: float, poc: float, val: float, vwap: float,
@@ -152,7 +184,7 @@ def _print(rows, weeks, tol, at_only, held_only=False):
     hits = [r for r in rows if r["at"]]
     print(f"\n=== WEEKLY VP · {weeks}w window · tol ±{tol*100:.1f}% · Robinhood === "
           f"{len(held)} holding support · {len(hits)} at level · {len(rows)} scanned\n")
-    print(f"  {'SYM':<7}{'CLOSE':>10}{'WK OPEN':>10}{'POC':>10}{'VWAP':>10}{'VAL':>10}   "
+    print(f"  {'SYM':<7}{'PRICE':>10}{'WK OPEN':>10}{'POC':>10}{'VWAP':>10}{'VAL':>10}   "
           f"{'ΔPOC':>7}{'ΔVWAP':>7}{'ΔVAL':>7}  SIGNAL")
     for r in rows:
         if held_only and not r["held"]:
