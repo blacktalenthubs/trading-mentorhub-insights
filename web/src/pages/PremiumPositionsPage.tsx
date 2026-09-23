@@ -21,7 +21,7 @@ export default function PremiumPositionsPage() {
   const pnlColor = (s?.realized_pnl ?? 0) >= 0 ? "text-bullish-text" : "text-bearish-text";
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-5 pb-24">
+    <div className="mx-auto h-full max-w-3xl overflow-y-auto px-4 py-5 pb-24">
       <div className="flex items-center justify-between">
         <button onClick={() => nav("/premium-desk")} className="text-[12.5px] text-text-muted hover:text-accent">← Premium Desk</button>
       </div>
