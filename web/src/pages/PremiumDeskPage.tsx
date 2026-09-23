@@ -43,6 +43,19 @@ const TIER_ORDER: Tier[] = ["low", "med", "high"];
 const estCredit = (r: PremiumDeskRow) =>
   Math.round(r.strike * 100 * (r.iv / 100) * Math.sqrt(r.dte / 365) * 0.4);
 
+// US market status from the viewer's clock, in ET. Off-hours the desk shows the last
+// close — that IS the next session's starting map, so we frame it that way.
+function marketStatus(): { label: string; open: boolean } {
+  const now = new Date();
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay(); // 0 Sun … 6 Sat
+  const mins = et.getHours() * 60 + et.getMinutes();
+  if (day === 0 || day === 6) return { label: "Weekend · last close", open: false };
+  if (mins >= 570 && mins < 960) return { label: "Market open", open: true };       // 9:30–16:00
+  if (mins >= 240 && mins < 570) return { label: "Pre-market · last close", open: false }; // 4:00–9:30
+  return { label: "Market closed · last close", open: false };
+}
+
 export default function PremiumDeskPage() {
   const nav = useNavigate();
   const goChart = (s: string) => nav(`/trading?symbol=${encodeURIComponent(s)}`);
@@ -59,6 +72,7 @@ export default function PremiumDeskPage() {
   const [openCards, setOpenCards] = useState<Set<string>>(new Set());
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
 
+  const mkt = marketStatus();
   const rows = rep?.rows ?? [];
   const qual = rows.filter((r) => r.qualifies);
   const watch = rows.filter((r) => !r.qualifies);
@@ -90,12 +104,23 @@ export default function PremiumDeskPage() {
           className="whitespace-nowrap rounded-lg border border-border-subtle px-2.5 py-1.5 text-[12px] font-semibold text-text-secondary transition-colors hover:border-accent"
         >P&amp;L →</button>
       </div>
-      {asOf && <div className="mt-1 font-mono text-[10.5px] text-text-faint">scan {asOf}</div>}
+      <div className="mt-1.5 flex items-center gap-2">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+          mkt.open ? "bg-bullish-text/15 text-bullish-text" : "bg-surface-3 text-text-muted"
+        }`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${mkt.open ? "bg-bullish-text" : "bg-text-faint"}`} />
+          {mkt.label}
+        </span>
+        {asOf && <span className="font-mono text-[10.5px] text-text-faint">scan {asOf}</span>}
+      </div>
 
       {isLoading && <div className="mt-8 text-center text-[13px] text-text-faint">Loading the desk…</div>}
       {!isLoading && !rep && (
-        <div className="mt-6 rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[13px] text-text-faint">
-          No scan yet today. The desk refreshes through market hours.
+        <div className="mt-6 rounded-xl border border-border-subtle bg-surface-1 p-6 text-center">
+          <div className="text-[13px] font-semibold text-text-secondary">The desk is warming up.</div>
+          <div className="mx-auto mt-1.5 max-w-sm text-[12px] leading-snug text-text-faint">
+            The first ranked scan publishes at the next market session, then stays available around the clock so you can plan the following day off the close.
+          </div>
         </div>
       )}
 
@@ -247,6 +272,24 @@ function Card({ r, open, onToggle, onChart, onDetail }: {
         </div>
         <div className="px-4 pb-3 text-[11.5px] leading-snug text-text-muted">{r.rationale.join(" · ")}</div>
       </button>
+
+      {/* Next-session planning — the value off-hours; prices don't move after close. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border-subtle px-4 py-2 font-mono text-[10.5px] text-text-muted">
+        {r.exp_move_pct > 0 && (
+          <span title="Expected 1-day move implied by ATM IV">±{r.exp_move_pct}% <span className="text-text-faint">(${r.exp_move_usd}) exp. move</span></span>
+        )}
+        {r.sma200 > 0 && (
+          <span title="Distance from spot down to the 200-day SMA — the floor under the strike">
+            200-floor ${r.sma200} <span className={r.floor_dist_pct >= 0 ? "text-text-faint" : "text-bearish-text"}>({r.floor_dist_pct >= 0 ? "+" : ""}{r.floor_dist_pct}%)</span>
+          </span>
+        )}
+        {r.earnings_days != null && (
+          <span className={`ml-auto rounded px-1.5 py-0.5 ${r.earnings_warn ? "bg-warning-text/15 text-warning-text" : "text-text-faint"}`}
+            title={r.earnings_warn ? "Earnings falls inside the option's expiry window — gap + IV-crush risk" : "Days to the underlying's next earnings"}>
+            {r.earnings_warn ? "⚠ " : ""}earnings {r.earnings_days}d
+          </span>
+        )}
+      </div>
 
       {/* Expand — S4 preview */}
       {open && (

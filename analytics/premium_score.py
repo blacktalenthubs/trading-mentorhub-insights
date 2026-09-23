@@ -38,6 +38,8 @@ DTE = 30
 # Composite weights — premium is why we're here, structure is safety, RSI is timing.
 W_IV, W_TREND, W_RSI = 0.40, 0.35, 0.25
 
+TRADING_DAYS_SQRT = 252 ** 0.5  # annual IV → 1-day expected move: IV / √252
+
 
 @dataclass
 class PremiumCandidate:
@@ -65,6 +67,16 @@ class PremiumCandidate:
     strike: float = 0.0          # suggested short-put strike (tier-scaled OTM)
     dte: int = DTE
     rationale: list[str] = field(default_factory=list)
+    # next-session planning (valuable off-hours; prices don't move after close)
+    exp_move_pct: float = 0.0    # expected 1-day move from ATM IV (±%)
+    exp_move_usd: float = 0.0    # that move in $
+    strike_cushion_pct: float = 0.0   # how far the suggested strike sits below spot
+    sma20: float = 0.0
+    sma50: float = 0.0
+    sma200: float = 0.0          # the institutional floor
+    floor_dist_pct: float = 0.0  # distance from spot down to the 200 SMA (the real floor)
+    earnings_days: int | None = None   # sessions to next earnings (None = unknown)
+    earnings_warn: bool = False        # earnings falls inside the option's DTE window
 
 
 def _trend_score(price, s20, s50, s200, r20, r50, above20, above50, above200) -> float:
@@ -183,6 +195,12 @@ def score_candidate(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str,
         rat.append(f"daily RSI {rd:.0f}")
     rat.append(f"weekly RSI {rw:.0f}" + (" (oversold)" if rw < OVERSOLD else ""))
 
+    # Next-session planning (all off-hours-stable — computed off the close).
+    exp_move_pct = round(iv_val / TRADING_DAYS_SQRT, 2) if iv_val > 0 else 0.0   # 1-day σ from IV
+    exp_move_usd = round(c * exp_move_pct / 100, 2)
+    cushion = round((c - strike) / c * 100, 1) if c > 0 else 0.0
+    floor_dist = round((c - s200) / c * 100, 1) if (s200 and c > 0) else 0.0
+
     return PremiumCandidate(
         symbol=symbol, theme=theme, price=round(c, 2),
         iv=round(iv_val, 2), iv_rank=round(iv_rank, 1), iv_pct=round(iv_pct, 1),
@@ -190,6 +208,9 @@ def score_candidate(daily: pd.DataFrame, weekly: pd.DataFrame, symbol: str,
         above_200=above200, above_50=above50, above_20=above20, reclaim=reclaim,
         score=score, tier=tier, qualifies=qualifies, side="put",
         strike=strike, dte=DTE, rationale=rat,
+        exp_move_pct=exp_move_pct, exp_move_usd=exp_move_usd, strike_cushion_pct=cushion,
+        sma20=round(s20, 2) if s20 else 0.0, sma50=round(s50, 2) if s50 else 0.0,
+        sma200=round(s200, 2) if s200 else 0.0, floor_dist_pct=floor_dist,
     )
 
 

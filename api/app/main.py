@@ -842,13 +842,16 @@ async def lifespan(app: FastAPI):
                     except Exception:
                         logger.exception("Premium Desk scan failed")
 
-                for _pi, (_ph, _pm) in enumerate([(9, 40), (11, 0), (13, 0), (14, 30), (15, 57)]):
+                # Intraday refreshes + an EOD pass (16:15) so the desk is populated all
+                # evening for next-day planning — prices don't move after close, so the
+                # last scan IS tomorrow's starting map.
+                for _pi, (_ph, _pm) in enumerate([(9, 40), (11, 0), (13, 0), (14, 30), (15, 57), (16, 15)]):
                     scheduler.add_job(
                         _run_premium_desk,
                         _CronPD(hour=_ph, minute=_pm, day_of_week="mon-fri", timezone=_etpd),
                         id=f"premium_desk_scan_{_pi}", replace_existing=True,
                     )
-                logger.info("Premium Desk scan scheduled (09:40/11:00/13:00/14:30/15:57 ET, mon-fri)")
+                logger.info("Premium Desk scan scheduled (09:40/11:00/13:00/14:30/15:57/16:15 ET, mon-fri)")
         except Exception:
             logger.exception("Failed to register Premium Desk scan job")
 

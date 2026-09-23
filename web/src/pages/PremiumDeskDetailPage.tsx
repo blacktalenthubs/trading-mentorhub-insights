@@ -121,6 +121,16 @@ export default function PremiumDeskDetailPage() {
         </span>
       </div>
 
+      {/* Earnings landmine — never be short a put through an earnings event. */}
+      {cand?.earnings_warn && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-bearish-text/40 bg-bearish-subtle p-3">
+          <span className="text-[15px] leading-tight">⚠️</span>
+          <p className="text-[12px] leading-snug text-text-secondary">
+            <b className="text-bearish-text">Earnings in {cand.earnings_days} days</b> — inside this ~{dte}d expiry. Selling a put through earnings adds gap &amp; IV-crush risk. Consider a shorter expiry that closes before the report, or skip it.
+          </p>
+        </div>
+      )}
+
       {!chosen && !chainLoading && (
         <div className="mt-6 rounded-xl border border-border-subtle bg-surface-1 p-6 text-center text-[13px] text-text-faint">
           No candidate or live chain for {symU}. Open it from the feed.
