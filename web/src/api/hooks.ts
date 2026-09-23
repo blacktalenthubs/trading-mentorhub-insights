@@ -153,6 +153,25 @@ export function usePremiumDesk(date?: string) {
   });
 }
 
+// S4 — live ~30-DTE put chain for one symbol (trade detail). Fails soft to {available:false}.
+export interface PremiumChainRow {
+  strike: number; bid: number; ask: number; mark: number;
+  delta: number; iv: number; theta: number; oi: number; volume: number;
+}
+export interface PremiumChain {
+  available: boolean; reason?: string;
+  underlying_price?: number; expiration?: string; dte?: number;
+  rows: PremiumChainRow[];
+}
+export function usePremiumChain(sym: string | undefined) {
+  return useQuery({
+    queryKey: ["premium-chain", sym],
+    enabled: !!sym,
+    queryFn: () => api.get<PremiumChain>(`/intel/premium-desk/chain?sym=${encodeURIComponent(sym!)}`),
+    staleTime: 60_000,
+  });
+}
+
 export function useReportDates() {
   return useQuery({
     queryKey: ["market-report-dates"],
