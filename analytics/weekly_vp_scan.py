@@ -182,9 +182,16 @@ def classify(sym: str, close: float, poc: float, val: float, vwap: float,
     }
 
 
+# Known-bad tickers on the data feed (renamed / delisted → stale prices) — skip so they
+# don't generate false levels or alerts. FISV renamed to FI; Robinhood returns old ~$47 data.
+_SKIP = {"FISV"}
+
+
 def scan(symbols, weeks: int = DEFAULT_WEEKS, tol: float = DEFAULT_TOL) -> list[dict]:  # pragma: no cover - network
     rows = []
     for s in symbols:
+        if s.upper() in _SKIP:
+            continue
         try:
             r = check(s, weeks, tol)
             if r:
