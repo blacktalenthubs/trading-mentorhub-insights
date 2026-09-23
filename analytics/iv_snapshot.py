@@ -186,7 +186,7 @@ def iv_rank(symbol: str, window: int = RANK_WINDOW) -> dict | None:  # pragma: n
 
 def run(etfs: list[str] | None = None, publish: bool = False) -> dict:  # pragma: no cover - network
     from brokers.robinhood import RobinhoodClient
-    etfs = etfs or premium_universe.etfs()
+    etfs = etfs or [i.etf for i in premium_universe.load_instruments()]
     today = _dt.date.today()
     date = today.isoformat()
     client = RobinhoodClient()
