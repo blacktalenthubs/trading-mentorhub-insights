@@ -454,9 +454,24 @@ VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META",
                                  "SPY", "QQQ", "MSFT", "HOOD", "BTC-USD", "ETH-USD"}
 SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
-# Hourly volume-profile support alerts (POC reclaim / VAL reclaim / VWAP support), computed
-# on 1h bars — same isolated names (too noisy universe-wide).
-HOURLY_VP_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
+# Hourly volume-profile alerts (POC / VAL / VWAP / VAH), computed on 1h bars. On TRIAL over a
+# wider 50-name universe (2026-09-24, trader directive: "run this on 50 stocks, solid mega + AI")
+# so the new "Volume" signal feed accumulates days of data. DECOUPLED from the focus gate on
+# purpose — widening focus would also flood the 1h-SMA / weekly-monthly level alerts, which the
+# trader keeps isolated. SPY/QQQ/SMH are kept in the set so the VAH-reject short (SHORT_UNIVERSE)
+# still has symbols to fire on. Override with env HOURLY_VP_SYMBOLS_CSV (comma-separated).
+_HOURLY_VP_DEFAULT: set[str] = {
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "AVGO", "ORCL", "NFLX",
+    "AMD", "ADBE", "CRM", "CSCO", "QCOM", "TXN", "INTC", "IBM", "NOW", "INTU",
+    "MU", "SNDK", "WDC", "LRCX", "AMAT", "KLAC", "ASML", "ARM", "SMCI", "DELL",
+    "ANET", "MRVL", "TSM", "PLTR", "SNOW", "CRWV", "VRT", "PANW", "CRWD", "NET",
+    "DDOG", "MDB", "APP", "COHR", "CEG", "VST", "HOOD", "SPY", "QQQ", "SMH",
+}
+_hourly_vp_csv = _get_secret("HOURLY_VP_SYMBOLS_CSV", "").strip()
+HOURLY_VP_SYMBOLS: set[str] = (
+    {s.strip().upper() for s in _hourly_vp_csv.split(",") if s.strip()}
+    if _hourly_vp_csv else _HOURLY_VP_DEFAULT
+)
 
 # VWAP Reclaim: morning reversal pattern — session low in first hour, reclaims VWAP
 VWAP_RECLAIM_MORNING_BARS = 12          # low must be in first 60 min (12 × 5-min bars)
