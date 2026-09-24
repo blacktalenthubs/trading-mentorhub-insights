@@ -695,8 +695,11 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 if _sma1h_ok and "ma200_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
-                                # ── 1H volume-profile support (isolated names) — POC / VAL / VWAP holds ──
-                                if symbol.upper() in _focus_symbols():
+                                # ── 1H volume-profile (POC / VAL / VWAP / VAH) — on TRIAL over a wider
+                                # 50-name mega/AI universe (_HOURLY_VP_SYMBOLS), decoupled from the focus
+                                # gate so the "Volume" feed builds days of data without flooding the
+                                # focus-gated 1h-SMA / level alerts. Env HOURLY_VP_SYMBOLS_CSV overrides. ──
+                                if symbol.upper() in _HOURLY_VP_SYMBOLS:
                                     try:
                                         from analytics.volume_profile_signals import compute_profile as _cp, rolling_vwap as _rv
                                         _vp = _cp(_h1)
