@@ -9,8 +9,9 @@
 //   ▲ 20E   (green)  — TREND TRADE entry: rising-20-EMA pullback + reclaim.
 //   ✕ 5E    (red)    — TREND TRADE exit: first close below the 5 EMA.
 //
-// MAs plot as CURVES by default. Turn on "Flatten MAs → daily levels" to draw them
-// as flat horizontal lines at their DAILY values — identical on any chart timeframe.
+// MAs are CURVES. Turn on "Lock MAs to DAILY" and they're computed from the daily
+// timeframe (settled) — same values on any chart TF, still a curve, not a flat line.
+// Each MA gets an end-of-line tag naming it.
 // Structural levels (PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL): each toggleable, gated
 // by nearest-N above/below price and/or a proximity % of price. Role-coloured.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,8 +19,9 @@ indicator("Momentum — RSI/EMA + Levels", "Momentum", overlay = true, max_label
 
 // ── Moving averages ──
 grpMA   = "Moving averages"
-show_ma = input.bool(true, "Plot 5 / 8 / 20 EMA", group = grpMA)
-flatten = input.bool(false, "Flatten MAs → DAILY flat levels (same on any timeframe)", group = grpMA)
+show_ma   = input.bool(true, "Plot 5 / 8 / 20 EMA", group = grpMA)
+lockDaily = input.bool(false, "Lock MAs to the DAILY timeframe — same on any chart TF (still a curve)", group = grpMA)
+show_tags = input.bool(true, "Tag each MA at its right end", group = grpMA)
 show_sma50  = input.bool(true,  "50 SMA",  inline = "s",  group = grpMA)
 show_sma200 = input.bool(true,  "200 SMA", inline = "s",  group = grpMA)
 col_sma50   = input.color(#2962FF, "",     inline = "s",  group = grpMA)
@@ -64,14 +66,23 @@ s50  = ta.sma(close, 50)
 s200 = ta.sma(close, 200)
 e50  = ta.ema(close, 50)
 e200 = ta.ema(close, 200)
-// Daily MA values (for the flatten mode) — identical regardless of chart timeframe.
-e5D   = request.security(syminfo.tickerid, "D", ta.ema(close, 5),   lookahead = barmerge.lookahead_off)
-e8D   = request.security(syminfo.tickerid, "D", ta.ema(close, 8),   lookahead = barmerge.lookahead_off)
-e20D  = request.security(syminfo.tickerid, "D", ta.ema(close, 20),  lookahead = barmerge.lookahead_off)
-s50D  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),  lookahead = barmerge.lookahead_off)
-s200D = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
-e50D  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),  lookahead = barmerge.lookahead_off)
-e200D = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead = barmerge.lookahead_off)
+// Daily (settled, [1]+lookahead_on = non-repainting) MA values, for the lock-to-daily mode.
+e5D   = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1],   lookahead = barmerge.lookahead_on)
+e8D   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+e20D  = request.security(syminfo.tickerid, "D", ta.ema(close, 20)[1],  lookahead = barmerge.lookahead_on)
+s50D  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+s200D = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+e50D  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+e200D = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+// Effective plotted values — chart-TF curve, or the daily curve when locked. (The
+// momentum SIGNALS below still use the chart-TF MAs; this only changes what's drawn.)
+e5v   = lockDaily ? e5D   : e5
+e8v   = lockDaily ? e8D   : e8
+e20v  = lockDaily ? e20D  : e20
+s50v  = lockDaily ? s50D  : s50
+s200v = lockDaily ? s200D : s200
+e50v  = lockDaily ? e50D  : e50
+e200v = lockDaily ? e200D : e200
 // Prior day / week / month / quarter H-L — the structural-level book.
 pdh = request.security(syminfo.tickerid, "D",  high[1], lookahead = barmerge.lookahead_on)
 pdl = request.security(syminfo.tickerid, "D",  low[1],  lookahead = barmerge.lookahead_on)
@@ -87,41 +98,29 @@ cross      = ta.crossover(e5, e20)
 in_zone    = (r >= os_floor) and (r <= os_ceil)
 os_recover = in_zone and not in_zone[1]
 
-// ── MA rendering: curves (default) OR flat daily levels (flatten) ──
-curve = show_ma and not flatten
-plot(curve ? e5  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
-plot(curve ? e8  : na, "EMA 8",  color = color.new(#9C27B0, 0),      linewidth = 2)
-plot(curve ? e20 : na, "EMA 20", color = color.new(color.green, 0),  linewidth = 2)
-plot(show_sma50  and not flatten ? s50  : na, "SMA 50",  color = col_sma50,  linewidth = 2)
-plot(show_sma200 and not flatten ? s200 : na, "SMA 200", color = col_sma200, linewidth = 2)
-plot(show_ema50  and not flatten ? e50  : na, "EMA 50",  color = col_ema50,  linewidth = 2)
-plot(show_ema200 and not flatten ? e200 : na, "EMA 200", color = col_ema200, linewidth = 2)
+// ── MA rendering — curves (chart-TF, or the daily curve when locked) ──
+plot(show_ma ? e5v  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
+plot(show_ma ? e8v  : na, "EMA 8",  color = color.new(#9C27B0, 0),      linewidth = 2)
+plot(show_ma ? e20v : na, "EMA 20", color = color.new(color.green, 0),  linewidth = 2)
+plot(show_sma50  ? s50v  : na, "SMA 50",  color = col_sma50,  linewidth = 2)
+plot(show_sma200 ? s200v : na, "SMA 200", color = col_sma200, linewidth = 2)
+plot(show_ema50  ? e50v  : na, "EMA 50",  color = col_ema50,  linewidth = 2)
+plot(show_ema200 ? e200v : na, "EMA 200", color = col_ema200, linewidth = 2)
 
-var line[]  _maLn = array.new_line()
-var label[] _maLb = array.new_label()
-drawMA(float v, string nm, color col) =>
-    if not na(v)
-        array.push(_maLn, line.new(bar_index - 60, v, bar_index, v, color = col, width = 2, extend = extend.right))
-        array.push(_maLb, label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(col, 82), textcolor = col, size = size.tiny))
-if flatten and barstate.islast
-    for _l in _maLn
-        line.delete(_l)
-    for _b in _maLb
-        label.delete(_b)
-    array.clear(_maLn)
-    array.clear(_maLb)
-    if show_ma
-        drawMA(e5D,  "5E",  color.yellow)
-        drawMA(e8D,  "8E",  #9C27B0)
-        drawMA(e20D, "20E", color.green)
-    if show_sma50
-        drawMA(s50D,  "50",  col_sma50)
-    if show_sma200
-        drawMA(s200D, "200", col_sma200)
-    if show_ema50
-        drawMA(e50D,  "50E",  col_ema50)
-    if show_ema200
-        drawMA(e200D, "200E", col_ema200)
+// End-of-line tag naming each MA at its right end (one per MA, refreshed on last bar).
+matag(float v, string txt, color c, bool show) =>
+    var label lb = na
+    if barstate.islast
+        label.delete(lb)
+        if show and show_tags and not na(v)
+            lb := label.new(bar_index + 3, v, txt + (lockDaily ? " ᴰ" : ""), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(c, 0), textcolor = color.white, size = size.tiny)
+matag(e5v,   "5E",   color.yellow, show_ma)
+matag(e8v,   "8E",   #9C27B0,      show_ma)
+matag(e20v,  "20E",  color.green,  show_ma)
+matag(s50v,  "50S",  col_sma50,    show_sma50)
+matag(s200v, "200S", col_sma200,   show_sma200)
+matag(e50v,  "50E",  col_ema50,    show_ema50)
+matag(e200v, "200E", col_ema200,   show_ema200)
 
 // ── Momentum markers ──
 plotshape(rsi70,      title = "RSI70", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), text = "RSI70", size = size.small)
