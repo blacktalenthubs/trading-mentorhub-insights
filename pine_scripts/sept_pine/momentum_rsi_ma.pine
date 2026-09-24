@@ -1,0 +1,213 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// Momentum — RSI 70 + 5/20 EMA cross + oversold recovery + trend-trade + levels.
+// VISUAL ONLY (no alert() calls — alerts fire from levels-day-vwap).
+// ─────────────────────────────────────────────────────────────────────────────
+//   ▲ RSI70 (orange) — RSI(14) crosses ABOVE 70 (parabolic ignition).
+//   ▲ 5/20  (lime)   — 5 EMA crosses ABOVE the 20 EMA (Steve Burns).
+//   ▲ OS    (aqua)   — RSI first closes in the oversold buy zone.
+//   ▲ 20E   (green)  — TREND TRADE entry: rising-20-EMA pullback + reclaim.
+//   ✕ 5E    (red)    — TREND TRADE exit: first close below the 5 EMA.
+//
+// MAs plot as CURVES by default. Turn on "Flatten MAs → daily levels" to draw them
+// as flat horizontal lines at their DAILY values — identical on any chart timeframe.
+// Structural levels (PDH/PDL · PWH/PWL · PMH/PML · PQH/PQL): each toggleable, gated
+// by nearest-N above/below price and/or a proximity % of price. Role-coloured.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Momentum — RSI/EMA + Levels", "Momentum", overlay = true, max_labels_count = 200, max_lines_count = 200)
+
+// ── Moving averages ──
+grpMA   = "Moving averages"
+show_ma = input.bool(true, "Plot 5 / 8 / 20 EMA", group = grpMA)
+flatten = input.bool(false, "Flatten MAs → DAILY flat levels (same on any timeframe)", group = grpMA)
+show_sma50  = input.bool(true,  "50 SMA",  inline = "s",  group = grpMA)
+show_sma200 = input.bool(true,  "200 SMA", inline = "s",  group = grpMA)
+col_sma50   = input.color(#2962FF, "",     inline = "s",  group = grpMA)
+col_sma200  = input.color(#787B86, "",     inline = "s",  group = grpMA)
+show_ema50  = input.bool(false, "50 EMA",  inline = "e",  group = grpMA)
+show_ema200 = input.bool(true,  "200 EMA", inline = "e",  group = grpMA)
+col_ema50   = input.color(#FB8C00, "",     inline = "e",  group = grpMA)
+col_ema200  = input.color(#000000, "",     inline = "e",  group = grpMA)
+
+// ── Momentum ──
+grpM     = "Momentum"
+os_floor = input.float(30.0, "Oversold zone FLOOR", minval = 20.0, maxval = 35.0, step = 1.0, group = grpM)
+os_ceil  = input.float(35.0, "Oversold zone CEILING", minval = 30.0, maxval = 45.0, step = 1.0, group = grpM)
+
+// ── Trend trade ──
+grpT        = "Trend trade"
+show_trend  = input.bool(true,  "20-EMA pullback entry + 5-EMA trail exit", group = grpT)
+touch_band  = input.float(0.4,  "20-EMA touch band (%)", minval = 0.0, step = 0.1, group = grpT)
+show_tt_lbl = input.bool(false, "Show entry/stop detail label", group = grpT)
+
+// ── Structural levels ──
+grpL       = "Structural levels"
+en_levels  = input.bool(true, "Draw structural levels", group = grpL)
+lvl_pd     = input.bool(true,  "PDH / PDL", inline = "l1", group = grpL)
+lvl_pw     = input.bool(true,  "PWH / PWL", inline = "l1", group = grpL)
+lvl_pm     = input.bool(true,  "PMH / PML", inline = "l2", group = grpL)
+lvl_pq     = input.bool(false, "PQH / PQL", inline = "l2", group = grpL)
+lvl_up     = input.int(2, "Nearest ABOVE", minval = 0, maxval = 8, inline = "ln", group = grpL)
+lvl_dn     = input.int(2, "BELOW",         minval = 0, maxval = 8, inline = "ln", group = grpL)
+lvl_prox   = input.float(0.0, "Proximity gate — only within % of price (0 = off)", minval = 0.0, step = 0.25, group = grpL)
+lvl_col_dn = input.color(#26A69A, "Support (price above level)",    group = grpL)
+lvl_col_up = input.color(#EF5350, "Resistance (price below level)", group = grpL)
+lvl_w      = input.int(1, "Line width", minval = 1, maxval = 4, group = grpL)
+lvl_ext    = input.bool(true, "Extend levels to the right edge", group = grpL)
+
+// ── Calcs ──
+r    = ta.rsi(close, 14)
+e5   = ta.ema(close, 5)
+e8   = ta.ema(close, 8)
+e20  = ta.ema(close, 20)
+s50  = ta.sma(close, 50)
+s200 = ta.sma(close, 200)
+e50  = ta.ema(close, 50)
+e200 = ta.ema(close, 200)
+// Daily MA values (for the flatten mode) — identical regardless of chart timeframe.
+e5D   = request.security(syminfo.tickerid, "D", ta.ema(close, 5),   lookahead = barmerge.lookahead_off)
+e8D   = request.security(syminfo.tickerid, "D", ta.ema(close, 8),   lookahead = barmerge.lookahead_off)
+e20D  = request.security(syminfo.tickerid, "D", ta.ema(close, 20),  lookahead = barmerge.lookahead_off)
+s50D  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),  lookahead = barmerge.lookahead_off)
+s200D = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
+e50D  = request.security(syminfo.tickerid, "D", ta.ema(close, 50),  lookahead = barmerge.lookahead_off)
+e200D = request.security(syminfo.tickerid, "D", ta.ema(close, 200), lookahead = barmerge.lookahead_off)
+// Prior day / week / month / quarter H-L — the structural-level book.
+pdh = request.security(syminfo.tickerid, "D",  high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D",  low[1],  lookahead = barmerge.lookahead_on)
+pwh = request.security(syminfo.tickerid, "W",  high[1], lookahead = barmerge.lookahead_on)
+pwl = request.security(syminfo.tickerid, "W",  low[1],  lookahead = barmerge.lookahead_on)
+pmh = request.security(syminfo.tickerid, "M",  high[1], lookahead = barmerge.lookahead_on)
+pml = request.security(syminfo.tickerid, "M",  low[1],  lookahead = barmerge.lookahead_on)
+pqh = request.security(syminfo.tickerid, "3M", high[1], lookahead = barmerge.lookahead_on)
+pql = request.security(syminfo.tickerid, "3M", low[1],  lookahead = barmerge.lookahead_on)
+
+rsi70      = ta.crossover(r, 70.0)
+cross      = ta.crossover(e5, e20)
+in_zone    = (r >= os_floor) and (r <= os_ceil)
+os_recover = in_zone and not in_zone[1]
+
+// ── MA rendering: curves (default) OR flat daily levels (flatten) ──
+curve = show_ma and not flatten
+plot(curve ? e5  : na, "EMA 5",  color = color.new(color.yellow, 0), linewidth = 2)
+plot(curve ? e8  : na, "EMA 8",  color = color.new(#9C27B0, 0),      linewidth = 2)
+plot(curve ? e20 : na, "EMA 20", color = color.new(color.green, 0),  linewidth = 2)
+plot(show_sma50  and not flatten ? s50  : na, "SMA 50",  color = col_sma50,  linewidth = 2)
+plot(show_sma200 and not flatten ? s200 : na, "SMA 200", color = col_sma200, linewidth = 2)
+plot(show_ema50  and not flatten ? e50  : na, "EMA 50",  color = col_ema50,  linewidth = 2)
+plot(show_ema200 and not flatten ? e200 : na, "EMA 200", color = col_ema200, linewidth = 2)
+
+var line[]  _maLn = array.new_line()
+var label[] _maLb = array.new_label()
+drawMA(float v, string nm, color col) =>
+    if not na(v)
+        array.push(_maLn, line.new(bar_index - 60, v, bar_index, v, color = col, width = 2, extend = extend.right))
+        array.push(_maLb, label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), style = label.style_label_left, color = color.new(col, 82), textcolor = col, size = size.tiny))
+if flatten and barstate.islast
+    for _l in _maLn
+        line.delete(_l)
+    for _b in _maLb
+        label.delete(_b)
+    array.clear(_maLn)
+    array.clear(_maLb)
+    if show_ma
+        drawMA(e5D,  "5E",  color.yellow)
+        drawMA(e8D,  "8E",  #9C27B0)
+        drawMA(e20D, "20E", color.green)
+    if show_sma50
+        drawMA(s50D,  "50",  col_sma50)
+    if show_sma200
+        drawMA(s200D, "200", col_sma200)
+    if show_ema50
+        drawMA(e50D,  "50E",  col_ema50)
+    if show_ema200
+        drawMA(e200D, "200E", col_ema200)
+
+// ── Momentum markers ──
+plotshape(rsi70,      title = "RSI70", style = shape.triangleup, location = location.belowbar, color = color.new(color.orange, 0), text = "RSI70", size = size.small)
+plotshape(cross,      title = "5x20",  style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0),   text = "5/20",  size = size.small)
+plotshape(os_recover, title = "OS",    style = shape.triangleup, location = location.belowbar, color = color.new(color.aqua, 0),   text = "OS",    size = size.small)
+
+// ── Trend trade: enter the 20 EMA, trail the 5 EMA ──
+e20_rising = not na(e20[1]) and e20 > e20[1]
+tt_touch   = low <= e20 * (1.0 + touch_band / 100.0)
+tt_reclaim = close > e20 and close > open
+tt_entry   = e20_rising and tt_touch and tt_reclaim
+var bool  tt_in   = false
+var float tt_stop = na
+tt_enter = not tt_in and tt_entry
+tt_exit  = tt_in and not na(close[1]) and close < e5
+if tt_enter
+    tt_in := true
+    tt_stop := low
+if tt_exit
+    tt_in := false
+plotshape(show_trend and tt_enter, title = "20E entry", style = shape.triangleup, location = location.belowbar, color = color.new(#16A34A, 0), text = "20E", size = size.small)
+plotshape(show_trend and tt_exit,  title = "5E exit",   style = shape.xcross,     location = location.abovebar, color = color.new(#EF4444, 0), text = "5E",  size = size.small)
+if show_trend and show_tt_lbl and tt_enter
+    label.new(bar_index, low, "20E " + str.tostring(close, format.mintick) + " · stop " + str.tostring(low, format.mintick), style = label.style_label_up, color = color.new(#16A34A, 20), textcolor = color.white, size = size.tiny)
+
+// ── Structural levels — toggleable, nearest-N + proximity gate, role-coloured ──
+within_prox(float v) =>
+    lvl_prox <= 0.0 or math.abs((close - v) / close * 100.0) <= lvl_prox
+
+var line[]  _lvlLn = array.new_line()
+var label[] _lvlLb = array.new_label()
+draw_level(float v, string nm) =>
+    sup  = close > v
+    col  = sup ? lvl_col_dn : lvl_col_up
+    dist = (close - v) / close * 100.0
+    array.push(_lvlLn, line.new(bar_index - 80, v, bar_index, v, color = col, width = lvl_w, style = line.style_dotted, extend = lvl_ext ? extend.right : extend.none))
+    array.push(_lvlLb, label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick) + "  " + (sup ? "▲" : "▼") + str.tostring(math.abs(dist), "#.0") + "%", style = label.style_label_left, color = col, textcolor = color.white, size = size.tiny))
+
+if en_levels and barstate.islast
+    for _l in _lvlLn
+        line.delete(_l)
+    for _b in _lvlLb
+        label.delete(_b)
+    array.clear(_lvlLn)
+    array.clear(_lvlLb)
+    // PDH / PDL — exempt from the nearest-N count (always shown when enabled), still prox-gated.
+    if lvl_pd and not na(pdh) and within_prox(pdh)
+        draw_level(pdh, "PDH")
+    if lvl_pd and not na(pdl) and within_prox(pdl)
+        draw_level(pdl, "PDL")
+    // PW / PM / PQ compete for the nearest N above and N below price (lockstep arrays).
+    _cv = array.new<float>()
+    _cn = array.new<string>()
+    if lvl_pw and not na(pwh)
+        array.push(_cv, pwh)
+        array.push(_cn, "PWH")
+    if lvl_pw and not na(pwl)
+        array.push(_cv, pwl)
+        array.push(_cn, "PWL")
+    if lvl_pm and not na(pmh)
+        array.push(_cv, pmh)
+        array.push(_cn, "PMH")
+    if lvl_pm and not na(pml)
+        array.push(_cv, pml)
+        array.push(_cn, "PML")
+    if lvl_pq and not na(pqh)
+        array.push(_cv, pqh)
+        array.push(_cn, "PQH")
+    if lvl_pq and not na(pql)
+        array.push(_cv, pql)
+        array.push(_cn, "PQL")
+    _ab = array.new<float>()
+    _bl = array.new<float>()
+    if array.size(_cv) > 0
+        for _i = 0 to array.size(_cv) - 1
+            _v = array.get(_cv, _i)
+            if _v > close
+                array.push(_ab, _v)
+            else if _v < close
+                array.push(_bl, _v)
+    array.sort(_ab, order.ascending)
+    array.sort(_bl, order.descending)
+    _brkHi = lvl_up <= 0 or array.size(_ab) == 0 ? (lvl_up <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(lvl_up, array.size(_ab)) - 1)
+    _brkLo = lvl_dn <= 0 or array.size(_bl) == 0 ? (lvl_dn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(lvl_dn, array.size(_bl)) - 1)
+    if array.size(_cv) > 0
+        for _j = 0 to array.size(_cv) - 1
+            _w = array.get(_cv, _j)
+            if _w <= _brkHi and _w >= _brkLo and within_prox(_w)
+                draw_level(_w, array.get(_cn, _j))
