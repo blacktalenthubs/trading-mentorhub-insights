@@ -27,6 +27,7 @@ conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (×
 label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
 
 grp_ma = "MA lines + tags"
+show_ma_tags = input.bool(false, "Show MA end-of-line tags (off = clean; lines still show)", group = grp_ma)
 sel_ema8   = input.bool(true, "EMA 8",   group = grp_ma)
 sel_ema21  = input.bool(true, "EMA 21",  group = grp_ma)
 sel_ema50  = input.bool(true, "EMA 50",  group = grp_ma)
@@ -126,7 +127,7 @@ matag(float v, string txt, color c, bool show) =>
     var label lb = na
     if barstate.islast
         label.delete(lb)
-        if show and show_lines and not na(v)
+        if show and show_lines and show_ma_tags and not na(v)
             lb := label.new(bar_index + 3, v, txt, xloc = xloc.bar_index, style = label.style_label_left, color = color.new(c, 0), textcolor = color.white, size = size.small)
 matag(ema8,   "EMA 8",   #9C27B0,     sel_ema8)
 matag(ema21,  "EMA 21",  color.green, sel_ema21)
@@ -304,14 +305,16 @@ plot(show_lines and sel_ema5 ? ema5 : na, "EMA 5 (D)", color = col_ema5, linewid
 matag(ema5, "EMA 5", col_ema5, sel_ema5)
 
 // ── 5 / 20 EMA crossover (chart-TF momentum signal) ──
-show_cross = input.bool(true, "Show 5/20 EMA crossover markers", group = grp_add)
+// 20 and 21 are effectively the same MA — use 21 everywhere (matches the daily EMA 21).
+show_cross = input.bool(true, "Show 5/21 EMA crossover markers", group = grp_add)
+show_cross_line = input.bool(false, "Plot the chart 21 EMA", group = grp_add)
 e5c  = ta.ema(close, 5)
-e20c = ta.ema(close, 20)
-x_up = ta.crossover(e5c, e20c)
-x_dn = ta.crossunder(e5c, e20c)
-plot(show_cross ? e20c : na, "EMA 20 (chart)", color = color.new(color.green, 40), linewidth = 1)
-plotshape(show_cross and x_up, title = "5/20 up", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup,   text = "5/20", size = size.tiny)
-plotshape(show_cross and x_dn, title = "5/20 dn", location = location.abovebar, color = color.new(color.red, 0),  style = shape.triangledown, text = "5/20", size = size.tiny)
+e21c = ta.ema(close, 21)
+x_up = ta.crossover(e5c, e21c)
+x_dn = ta.crossunder(e5c, e21c)
+plot(show_cross and show_cross_line ? e21c : na, "EMA 21 (chart)", color = color.new(color.green, 40), linewidth = 1)
+plotshape(show_cross and x_up, title = "5/21 up", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup,   text = "5/21", size = size.tiny)
+plotshape(show_cross and x_dn, title = "5/21 dn", location = location.abovebar, color = color.new(color.red, 0),  style = shape.triangledown, text = "5/21", size = size.tiny)
 
 // ── Daily / Weekly / Monthly levels — weekly + monthly proximity-gated ──
 grp_lv  = "Levels (D/W/M)"
@@ -319,6 +322,7 @@ lv_d    = input.bool(true, "Daily PDH/PDL (always shown)", group = grp_lv)
 lv_w    = input.bool(true, "Weekly PWH/PWL", group = grp_lv)
 lv_m    = input.bool(true, "Monthly PMH/PML", group = grp_lv)
 wm_prox = input.float(3.0, "Weekly/Monthly proximity gate (% of price)", minval = 0.1, step = 0.25, group = grp_lv)
+lv_labels = input.bool(true, "Show level tags", group = grp_lv)
 lv_wid  = input.int(1, "Level width", minval = 1, maxval = 4, group = grp_lv)
 col_sup = input.color(#26A69A, "Support (price above level)",    group = grp_lv)
 col_res = input.color(#EF5350, "Resistance (price below level)", group = grp_lv)
@@ -336,7 +340,10 @@ draw_lv(float v, string nm) =>
     sup = close > v
     col = sup ? col_sup : col_res
     array.push(_lvL, line.new(bar_index - 60, v, bar_index, v, color = col, width = lv_wid, style = line.style_dashed, extend = extend.right))
-    array.push(_lvB, label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = size.tiny))
+    label _lb = na
+    if lv_labels
+        _lb := label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = size.tiny)
+    array.push(_lvB, _lb)
 if barstate.islast
     for _l in _lvL
         line.delete(_l)
@@ -377,6 +384,7 @@ plot(show_avwap ? avwap : na, "Anchored VWAP", color = col_avwap, linewidth = 2)
 // ── Volume profile: POC / VAH / VAL over a lookback ──
 grp_vp  = "Volume profile"
 show_vp = input.bool(true, "Show POC / VAH / VAL", group = grp_vp)
+vp_labels = input.bool(true, "Show POC/VAH/VAL tags", group = grp_vp)
 vp_bars = input.int(150, "Lookback bars", minval = 20, group = grp_vp)
 vp_rows = input.int(24, "Rows", minval = 10, maxval = 100, group = grp_vp)
 vp_va   = input.float(70, "Value area %", minval = 50, maxval = 95, group = grp_vp) / 100.0
@@ -440,8 +448,9 @@ if barstate.islast
     label.delete(_valLb)
     if show_vp and not na(_poc)
         _pocLn := line.new(bar_index - vp_bars, _poc, bar_index, _poc, color = col_poc, width = 2, extend = extend.right)
-        _pocLb := label.new(bar_index, _poc, "POC " + str.tostring(_poc, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_poc, textcolor = color.white, size = size.tiny)
         _vahLn := line.new(bar_index - vp_bars, _vah, bar_index, _vah, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
-        _vahLb := label.new(bar_index, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
         _valLn := line.new(bar_index - vp_bars, _val, bar_index, _val, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
-        _valLb := label.new(bar_index, _val, "VAL " + str.tostring(_val, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
+        if vp_labels
+            _pocLb := label.new(bar_index, _poc, "POC " + str.tostring(_poc, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_poc, textcolor = color.white, size = size.tiny)
+            _vahLb := label.new(bar_index, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
+            _valLb := label.new(bar_index, _val, "VAL " + str.tostring(_val, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
