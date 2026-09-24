@@ -149,6 +149,14 @@ export function formatSetup(alertType?: string): string {
     pdh_retest_hold: "PDH retest / hold",
     multi_day_double_bottom: "Double bottom",
     pdh_rejection: "PDH liquidity grab",
+    // Hourly volume-profile family (the "Volume" feed) — 1h value-area levels
+    // (POC / VAL / VAH) + anchored VWAP. Named for the level + the action.
+    hourly_poc_reclaim: "1h POC reclaim",
+    hourly_val_reclaim: "1h VAL reclaim",
+    hourly_vwap_support: "1h VWAP support",
+    hourly_vah_breakout: "1h VAH breakout",
+    hourly_vah_reject: "1h VAH rejection",
+    hourly_vah_support: "1h VAH support",
   };
   return swing(NAMES[t] ?? t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()));
 }
@@ -289,6 +297,13 @@ export function setupBlurb(alertType?: string): string {
     pdh_retest_hold: "Broke above yesterday's high, pulled back to retest it and held — PDH flipped to support. The re-entry if you missed the breakout.",
     multi_day_double_bottom: "A daily swing-low zone already tested twice is being retested intraday — buyers defended this price before.",
     pdh_rejection: "Liquidity grab at yesterday's high: wicked THROUGH it — taking the stops resting above — then closed back below. The push was made and lost. Index + ETH only.",
+    // Hourly volume profile — value area from the last ~150 one-hour bars.
+    hourly_poc_reclaim: "Wicked to the 1-hour volume Point of Control (the highest-traded price) and closed back above — the level held as support.",
+    hourly_val_reclaim: "Wicked to the 1-hour Value Area Low and closed back above — the value-area floor held as support.",
+    hourly_vwap_support: "Tagged the 1-hour anchored VWAP and closed back above — the volume-weighted mean held as support.",
+    hourly_vah_breakout: "Closed up through the 1-hour Value Area High — acceptance above value, continuation.",
+    hourly_vah_reject: "Pushed above the 1-hour Value Area High and closed back below — resistance held. Index + ETH only.",
+    hourly_vah_support: "Value Area High flipped to support after a breakout — retested and held.",
   };
   return BLURB[t] ?? "";
 }
@@ -345,10 +360,19 @@ export function isScannerEntry(alertType?: string): boolean {
   return SCANNER_ENTRY_TYPES.has(t) || SCANNER_LADDER_RE.test(t) || SCANNER_SWING_RE.test(t);
 }
 
-/** True for alerts that belong in the Signals feed — AI scans, TV signals and the
- *  scanner's own long entries. No WAITs. */
+/** Volume-profile signals — the "Volume" feed. Value-area levels (POC / VAL / VAH)
+ *  + anchored VWAP, computed per timeframe (hourly today; daily/weekly can follow
+ *  under the same naming). A dedicated feed so it can be evaluated over days on wider
+ *  data, separate from the day/swing books. Keep in sync with intraday_rules.RuleType. */
+const VOLUME_PROFILE_RE = /^(hourly|daily|weekly)_(poc|val|vah|vwap)_/;
+export function isVolumeSignal(alertType?: string): boolean {
+  return VOLUME_PROFILE_RE.test(alertType ?? "");
+}
+
+/** True for alerts that belong in the Signals feed — AI scans, TV signals, the
+ *  scanner's own long entries, and volume-profile signals. No WAITs. */
 export function isFeedSignal(alertType?: string): boolean {
   const t = alertType ?? "";
   if (t === "ai_scan_wait") return false;
-  return t.startsWith("ai_") || t.startsWith("tv_") || isScannerEntry(t);
+  return t.startsWith("ai_") || t.startsWith("tv_") || isScannerEntry(t) || isVolumeSignal(t);
 }
