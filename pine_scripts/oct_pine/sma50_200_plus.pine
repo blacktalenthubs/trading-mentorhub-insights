@@ -16,7 +16,7 @@ indicator("sma50-200 +", overlay = true, max_labels_count = 500, max_lines_count
 fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
 show_lines       = input.bool   (true,         "Show daily MA lines")
 show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
-show_marker_tags = input.bool   (true,         "Show MA numbers on bounce/reject arrows (e.g. '8E 21E') — uncheck to keep just the arrow")
+show_marker_tags = input.bool   (false,        "Show MA numbers on bounce/reject arrows (e.g. '8E 21E') — off by default (noisy)")
 mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
 tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
 r_t1             = input.float  (4.0,          "T1 R multiple (intraday=4, swing=2)", minval = 1.0, maxval = 10.0, step = 0.5)
@@ -296,6 +296,12 @@ if fire_alerts and fire_pullback and uptrend_pass
 // VISUAL ADD-ONS (Oct 2026) — display only, no alerts. Everything above unchanged.
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Line display (applies to D/W/M levels + POC/VAH/VAL) ──
+grp_ln       = "Line display"
+extend_right = input.bool(false, "Extend level / POC-VAL-VAH lines to the right edge (off = short segment)", group = grp_ln)
+line_len     = input.int(50, "Line length (bars back)", minval = 5, maxval = 500, group = grp_ln)
+_lnExt = extend_right ? extend.right : extend.none
+
 // ── EMA 5 (daily, settled) ──
 grp_add  = "Add-ons"
 sel_ema5 = input.bool(true, "EMA 5 (daily)", group = grp_add)
@@ -339,7 +345,7 @@ var label[] _lvB = array.new_label()
 draw_lv(float v, string nm) =>
     sup = close > v
     col = sup ? col_sup : col_res
-    array.push(_lvL, line.new(bar_index - 60, v, bar_index, v, color = col, width = lv_wid, style = line.style_dashed, extend = extend.right))
+    array.push(_lvL, line.new(bar_index - line_len, v, bar_index, v, color = col, width = lv_wid, style = line.style_dashed, extend = _lnExt))
     label _lb = na
     if lv_labels
         _lb := label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = size.tiny)
@@ -447,9 +453,9 @@ if barstate.islast
     label.delete(_vahLb)
     label.delete(_valLb)
     if show_vp and not na(_poc)
-        _pocLn := line.new(bar_index - vp_bars, _poc, bar_index, _poc, color = col_poc, width = 2, extend = extend.right)
-        _vahLn := line.new(bar_index - vp_bars, _vah, bar_index, _vah, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
-        _valLn := line.new(bar_index - vp_bars, _val, bar_index, _val, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
+        _pocLn := line.new(bar_index - line_len, _poc, bar_index, _poc, color = col_poc, width = 2, extend = _lnExt)
+        _vahLn := line.new(bar_index - line_len, _vah, bar_index, _vah, color = col_va, width = 1, style = line.style_dotted, extend = _lnExt)
+        _valLn := line.new(bar_index - line_len, _val, bar_index, _val, color = col_va, width = 1, style = line.style_dotted, extend = _lnExt)
         if vp_labels
             _pocLb := label.new(bar_index, _poc, "POC " + str.tostring(_poc, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_poc, textcolor = color.white, size = size.tiny)
             _vahLb := label.new(bar_index, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
