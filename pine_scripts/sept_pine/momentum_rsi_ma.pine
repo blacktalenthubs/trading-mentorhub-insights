@@ -210,3 +210,21 @@ if en_levels and barstate.islast
             _w = array.get(_cv, _j)
             if _w <= _brkHi and _w >= _brkLo and within_prox(_w)
                 draw_level(_w, array.get(_cn, _j))
+
+// ── HUD — RSI / ATR (small corner table) ──
+grpHUD   = "HUD"
+show_hud = input.bool(true, "Show RSI / ATR HUD", group = grpHUD)
+hud_pos  = input.string("Top right", "Position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = grpHUD)
+atr14 = ta.atr(14)
+var table hud = na
+if barstate.islast
+    table.delete(hud)
+    if show_hud
+        _pos = hud_pos == "Top left" ? position.top_left : hud_pos == "Bottom right" ? position.bottom_right : hud_pos == "Bottom left" ? position.bottom_left : position.top_right
+        hud := table.new(_pos, 2, 2, bgcolor = color.new(color.black, 25), frame_color = color.new(color.gray, 40), frame_width = 1, border_color = color.new(color.gray, 70), border_width = 1)
+        _rc   = r >= 70 ? #ef5350 : r <= 35 ? #26a69a : color.silver
+        _atrp = close > 0 ? atr14 / close * 100 : na
+        table.cell(hud, 0, 0, "RSI", text_color = color.silver, text_size = size.small)
+        table.cell(hud, 1, 0, str.tostring(r, "#.0"), text_color = _rc, text_size = size.small)
+        table.cell(hud, 0, 1, "ATR", text_color = color.silver, text_size = size.small)
+        table.cell(hud, 1, 1, str.tostring(atr14, format.mintick) + " · " + str.tostring(_atrp, "#.0") + "%", text_color = color.silver, text_size = size.small)
