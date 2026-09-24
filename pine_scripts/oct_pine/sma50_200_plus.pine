@@ -1,0 +1,447 @@
+// @version=5
+//
+// Daily MA Bounce v3 — Phase 5f (2026-05-04)  ·  + Oct visual add-ons
+//
+// The v3 alert logic below is UNCHANGED. Appended at the bottom is a visual
+// add-ons section (EMA 5 · 5/20 cross · D/W/M levels · anchored VWAP · POC/VAL/VAH)
+// — display only, no new alert() calls.
+//
+// Pine fires on every qualifying bar close — backend handles dedup.
+// Spam protection: Pine alert.freq_once_per_bar_close + backend identity dedup.
+// S0 position-relative model: MA is SUPPORT above price, RESISTANCE below.
+//
+indicator("sma50-200 +", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// Inputs ---------------------------------------------------------------------
+fire_alerts      = input.bool   (true,         "Fire bounce/rejection alerts to webhook")
+show_lines       = input.bool   (true,         "Show daily MA lines")
+show_markers     = input.bool   (true,         "Show BOUNCE/REJECT markers")
+show_marker_tags = input.bool   (true,         "Show MA numbers on bounce/reject arrows (e.g. '8E 21E') — uncheck to keep just the arrow")
+mode             = input.string ("intraday",   "Setup mode", options = ["intraday", "swing"])
+tolerance_atr    = input.float  (0.3,          "MA tolerance band (× chart ATR14, swing mode)", minval = 0.05, maxval = 2.0, step = 0.05)
+r_t1             = input.float  (4.0,          "T1 R multiple (intraday=4, swing=2)", minval = 1.0, maxval = 10.0, step = 0.5)
+r_t2             = input.float  (6.0,          "T2 R multiple (intraday=6, swing=3)", minval = 1.0, maxval = 15.0, step = 0.5)
+vol_avg_lookback = input.int    (20,           "Volume average lookback (bars)", minval = 5, maxval = 60)
+cvd_lookback     = input.int    (10,           "CVD divergence lookback (bars)", minval = 3, maxval = 30)
+conf_tol_atr     = input.float  (0.5,          "PDH/PDL confluence tolerance (× chart ATR14)", minval = 0.1, maxval = 2.0, step = 0.1)
+label_size_in    = input.string ("tiny",       "Marker label size", options = ["tiny", "small", "normal", "large"])
+
+grp_ma = "MA lines + tags"
+sel_ema8   = input.bool(true, "EMA 8",   group = grp_ma)
+sel_ema21  = input.bool(true, "EMA 21",  group = grp_ma)
+sel_ema50  = input.bool(true, "EMA 50",  group = grp_ma)
+sel_ema100 = input.bool(true, "EMA 100", group = grp_ma)
+sel_ema200 = input.bool(true, "EMA 200", group = grp_ma)
+sel_sma50  = input.bool(true, "SMA 50",  group = grp_ma)
+sel_sma100 = input.bool(true, "SMA 100", group = grp_ma)
+sel_sma200 = input.bool(true, "SMA 200", group = grp_ma)
+
+fire_pullback_alerts   = input.bool (true, "Fire uptrend pullback continuation alerts", group = "Pullback continuation")
+pullback_lookback      = input.int  (3,    "Pullback lookback (bars before the resume bar)", minval = 2, maxval = 8, group = "Pullback continuation")
+pullback_min_down      = input.int  (2,    "Min down-close bars within lookback", minval = 1, maxval = 6, group = "Pullback continuation")
+pullback_require_ema50 = input.bool (false, "Stricter uptrend: also require price above EMA50", group = "Pullback continuation")
+
+pullback_v2_enable       = input.bool  (true,  "v2: require VWAP test (low ≤ VWAP, close > VWAP)", group = "Pullback continuation")
+pullback_v2_slope_min    = input.float (0.05, "v2: minimum VWAP slope (%) over slope_lookback bars", minval = -0.5, maxval = 1.0, step = 0.01, group = "Pullback continuation")
+pullback_v2_vol_min      = input.float (1.2,  "v2: minimum volume_ratio on resume bar", minval = 0.5, maxval = 3.0, step = 0.1, group = "Pullback continuation")
+pullback_v2_headroom_pct = input.float (1.5, "v2: minimum % headroom to PDH (kills overhead-resistance trades)", minval = 0.5, maxval = 5.0, step = 0.1, group = "Pullback continuation")
+vwap_slope_lookback      = input.int   (20,   "VWAP slope lookback (bars) for slope % calc", minval = 5, maxval = 60, group = "Pullback continuation")
+
+fire_proximity_alerts = input.bool  (false, "Fire MA proximity NOTICE alerts (bar holds near MA without touching)", group = "Proximity NOTICE")
+proximity_pct         = input.float (0.3,  "Proximity threshold (% of MA price)", minval = 0.05, maxval = 2.0, step = 0.05, group = "Proximity NOTICE")
+
+label_size = label_size_in == "tiny" ? size.tiny : label_size_in == "small" ? size.small : label_size_in == "large" ? size.large : size.normal
+is_intraday_mode = mode == "intraday"
+
+// Daily MAs (yesterday's settled value via [1] offset) -----------------------
+ema8   = request.security(syminfo.tickerid, "D", ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(syminfo.tickerid, "D", ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(syminfo.tickerid, "D", ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(syminfo.tickerid, "D", ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(syminfo.tickerid, "D", ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+atr_d_raw = request.security(syminfo.tickerid, "D", ta.atr(14)[1], lookahead = barmerge.lookahead_on)
+atr_d     = nz(atr_d_raw, close * 0.005)
+atr_chart = nz(ta.atr(14)[1], close * 0.005)
+
+pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+pdl = request.security(syminfo.tickerid, "D", low[1],  lookahead = barmerge.lookahead_on)
+
+vwap_v = ta.vwap(hlc3)
+tol = atr_chart * tolerance_atr
+
+// MTD anchored VWAP ----------------------------------------------------------
+var float mtd_pv = 0.0
+var float mtd_vv = 0.0
+if month != nz(month[1], month)
+    mtd_pv := nz(hlc3 * volume, 0.0)
+    mtd_vv := nz(volume, 0.0)
+else
+    mtd_pv := mtd_pv + nz(hlc3 * volume, 0.0)
+    mtd_vv := mtd_vv + nz(volume, 0.0)
+mtd_avwap = mtd_vv > 0 ? mtd_pv / mtd_vv : na
+
+uptrend_pass = close > nz(ema8, 1e9) and close > nz(ema21, 1e9) and close > nz(ema50, 1e9) and close > nz(sma50, 1e9) and close > nz(ema100, 1e9) and close > nz(sma100, 1e9) and close > nz(ema200, 1e9) and close > nz(sma200, 1e9)
+overhead_mas_str = (close < nz(ema8, -1e9) ? "EMA 8," : "") + (close < nz(ema21, -1e9) ? "EMA 21," : "") + (close < nz(ema50, -1e9) ? "EMA 50," : "") + (close < nz(sma50, -1e9) ? "SMA 50," : "") + (close < nz(ema100, -1e9) ? "EMA 100," : "") + (close < nz(sma100, -1e9) ? "SMA 100," : "") + (close < nz(ema200, -1e9) ? "EMA 200," : "") + (close < nz(sma200, -1e9) ? "SMA 200," : "")
+
+nearby_parts = array.new<string>()
+if not na(ema8)
+    array.push(nearby_parts, "ema8|" + str.tostring(ema8, "#.##") + "|EMA 8")
+if not na(ema21)
+    array.push(nearby_parts, "ema21|" + str.tostring(ema21, "#.##") + "|EMA 21")
+if not na(ema50)
+    array.push(nearby_parts, "ema50|" + str.tostring(ema50, "#.##") + "|EMA 50")
+if not na(sma50)
+    array.push(nearby_parts, "sma50|" + str.tostring(sma50, "#.##") + "|SMA 50")
+if not na(ema100)
+    array.push(nearby_parts, "ema100|" + str.tostring(ema100, "#.##") + "|EMA 100")
+if not na(sma100)
+    array.push(nearby_parts, "sma100|" + str.tostring(sma100, "#.##") + "|SMA 100")
+if not na(ema200)
+    array.push(nearby_parts, "ema200|" + str.tostring(ema200, "#.##") + "|EMA 200")
+if not na(sma200)
+    array.push(nearby_parts, "sma200|" + str.tostring(sma200, "#.##") + "|SMA 200")
+if not na(pdh)
+    array.push(nearby_parts, "pdh|" + str.tostring(pdh, "#.##") + "|PDH")
+if not na(pdl)
+    array.push(nearby_parts, "pdl|" + str.tostring(pdl, "#.##") + "|PDL")
+if not na(mtd_avwap)
+    array.push(nearby_parts, "mtd_avwap|" + str.tostring(mtd_avwap, "#.##") + "|MTD AVWAP")
+nearby_levels_csv = array.join(nearby_parts, ",")
+
+// Plot daily MAs -------------------------------------------------------------
+plot(show_lines and sel_ema8   ? ema8   : na, "EMA 8 (D)",   color = color.new(#9C27B0,      0), linewidth = 2)
+plot(show_lines and sel_ema21  ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green,  0), linewidth = 3)
+plot(show_lines and sel_ema50  ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3)
+plot(show_lines and sel_ema100 ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3)
+plot(show_lines and sel_ema200 ? ema200 : na, "EMA 200 (D)", color = color.new(color.black,  0), linewidth = 3)
+plot(show_lines and sel_sma50  ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines and sel_sma100 ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,      0), linewidth = 3, style = plot.style_circles)
+plot(show_lines and sel_sma200 ? sma200 : na, "SMA 200 (D)", color = color.new(color.black,  0), linewidth = 3, style = plot.style_circles)
+
+matag(float v, string txt, color c, bool show) =>
+    var label lb = na
+    if barstate.islast
+        label.delete(lb)
+        if show and show_lines and not na(v)
+            lb := label.new(bar_index + 3, v, txt, xloc = xloc.bar_index, style = label.style_label_left, color = color.new(c, 0), textcolor = color.white, size = size.small)
+matag(ema8,   "EMA 8",   #9C27B0,     sel_ema8)
+matag(ema21,  "EMA 21",  color.green, sel_ema21)
+matag(ema50,  "EMA 50",  #1565C0,     sel_ema50)
+matag(ema100, "EMA 100", #F57F17,     sel_ema100)
+matag(ema200, "EMA 200", color.black, sel_ema200)
+matag(sma50,  "SMA 50",  #1565C0,     sel_sma50)
+matag(sma100, "SMA 100", #F57F17,     sel_sma100)
+matag(sma200, "SMA 200", color.black, sel_sma200)
+
+// Detection helpers ----------------------------------------------------------
+strict_long(float ma) =>
+    not na(ma) and low <= ma and close > ma and close > open
+strict_short(float ma) =>
+    not na(ma) and high >= ma and close < ma and close < open
+band_long(float ma) =>
+    not na(ma) and low <= ma + tol and low >= ma - tol * 2 and close > ma and close > open
+band_short(float ma) =>
+    not na(ma) and high >= ma - tol and high <= ma + tol * 2 and close < ma and close < open
+proximity_long(float ma, float pct) =>
+    not na(ma) and ma > 0 and low > ma and (low - ma) / ma * 100.0 <= pct and close > open
+proximity_short(float ma, float pct) =>
+    not na(ma) and ma > 0 and high < ma and (ma - high) / ma * 100.0 <= pct and close < open
+
+fire_e8   = is_intraday_mode ? strict_long(ema8)   : band_long(ema8)
+fire_e21  = is_intraday_mode ? strict_long(ema21)  : band_long(ema21)
+fire_e50  = is_intraday_mode ? strict_long(ema50)  : band_long(ema50)
+fire_e100 = is_intraday_mode ? strict_long(ema100) : band_long(ema100)
+fire_e200 = is_intraday_mode ? strict_long(ema200) : band_long(ema200)
+fire_s50  = is_intraday_mode ? strict_long(sma50)  : band_long(sma50)
+fire_s100 = is_intraday_mode ? strict_long(sma100) : band_long(sma100)
+fire_s200 = is_intraday_mode ? strict_long(sma200) : band_long(sma200)
+
+s_fire_e8   = is_intraday_mode ? strict_short(ema8)   : band_short(ema8)
+s_fire_e21  = is_intraday_mode ? strict_short(ema21)  : band_short(ema21)
+s_fire_e50  = is_intraday_mode ? strict_short(ema50)  : band_short(ema50)
+s_fire_e100 = is_intraday_mode ? strict_short(ema100) : band_short(ema100)
+s_fire_e200 = is_intraday_mode ? strict_short(ema200) : band_short(ema200)
+s_fire_s50  = is_intraday_mode ? strict_short(sma50)  : band_short(sma50)
+s_fire_s100 = is_intraday_mode ? strict_short(sma100) : band_short(sma100)
+s_fire_s200 = is_intraday_mode ? strict_short(sma200) : band_short(sma200)
+
+any_long  = fire_e8   or fire_e21   or fire_e50   or fire_e100   or fire_e200   or fire_s50   or fire_s100   or fire_s200
+any_short = s_fire_e8 or s_fire_e21 or s_fire_e50 or s_fire_e100 or s_fire_e200 or s_fire_s50 or s_fire_s100 or s_fire_s200
+
+long_tag  = (fire_e8   ? "8E "  : "") + (fire_e21   ? "21E " : "") + (fire_e50   ? "50E " : "") + (fire_e100   ? "100E " : "") + (fire_e200   ? "200E " : "") + (fire_s50   ? "50S " : "") + (fire_s100   ? "100S " : "") + (fire_s200   ? "200S " : "")
+short_tag = (s_fire_e8 ? "8E "  : "") + (s_fire_e21 ? "21E " : "") + (s_fire_e50 ? "50E " : "") + (s_fire_e100 ? "100E " : "") + (s_fire_e200 ? "200E " : "") + (s_fire_s50 ? "50S " : "") + (s_fire_s100 ? "100S " : "") + (s_fire_s200 ? "200S " : "")
+
+// Markers --------------------------------------------------------------------
+plotshape(show_markers and any_long,  title = "Bounce LONG",  location = location.belowbar, color = color.new(color.green, 0), style = shape.triangleup,   size = size.tiny)
+plotshape(show_markers and any_short, title = "Reject SHORT",  location = location.abovebar, color = color.new(color.red, 0),   style = shape.triangledown, size = size.tiny)
+
+if show_markers and show_marker_tags and any_long
+    label.new(bar_index, low, long_tag, style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white, size = label_size, yloc = yloc.belowbar)
+if show_markers and show_marker_tags and any_short
+    label.new(bar_index, high, short_tag, style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white, size = label_size, yloc = yloc.abovebar)
+
+// MA value to anchor swing-mode stop -----------------------------------------
+float bounced_ma_long = na
+if fire_e8
+    bounced_ma_long := ema8
+else if fire_e21
+    bounced_ma_long := ema21
+else if fire_e50
+    bounced_ma_long := ema50
+else if fire_e100
+    bounced_ma_long := ema100
+else if fire_e200
+    bounced_ma_long := ema200
+else if fire_s50
+    bounced_ma_long := sma50
+else if fire_s100
+    bounced_ma_long := sma100
+else if fire_s200
+    bounced_ma_long := sma200
+
+// Volume + CVD ---------------------------------------------------------------
+vol_avg = ta.sma(volume, vol_avg_lookback)
+volume_ratio = vol_avg > 0 ? volume / vol_avg : na
+session_vwap = ta.vwap(close)
+vwap_past = session_vwap[vwap_slope_lookback]
+vwap_slope_pct = not na(vwap_past) and vwap_past > 0 ? (session_vwap - vwap_past) / vwap_past * 100 : na
+above_vwap = not na(session_vwap) and close > session_vwap
+
+bar_range = high - low
+buy_vol  = bar_range > 0 ? ((close - low) / bar_range) * volume : volume * 0.5
+sell_vol = bar_range > 0 ? ((high - close) / bar_range) * volume : volume * 0.5
+delta_v  = buy_vol - sell_vol
+cvd      = ta.cum(delta_v)
+cvd_past   = cvd[cvd_lookback]
+price_past = close[cvd_lookback]
+cvd_slope_n   = not na(cvd_past)   ? cvd - cvd_past     : na
+price_slope_n = not na(price_past) ? close - price_past : na
+bearish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n > 0 and cvd_slope_n <= 0
+bullish_div = not na(cvd_slope_n) and not na(price_slope_n) and price_slope_n < 0 and cvd_slope_n >= 0
+
+conf_buffer = atr_chart * conf_tol_atr
+near_pdl = not na(pdl) and math.abs(low  - pdl) <= conf_buffer
+near_pdh = not na(pdh) and math.abs(high - pdh) <= conf_buffer
+
+// Payload builder ------------------------------------------------------------
+build_v3_payload(rule, direction, ma_tag, entry_p, stop_p, t1_p, t2_p, at_pdl_v, at_pdh_v) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","high":"' + str.tostring(high, format.mintick) + '","low":"' + str.tostring(low, format.mintick) + '","volume":"' + str.tostring(volume) + '","entry":"' + str.tostring(entry_p, format.mintick) + '","stop":"' + str.tostring(stop_p, format.mintick) + '","target_1":"' + str.tostring(t1_p, format.mintick) + '","target_2":"' + str.tostring(t2_p, format.mintick) + '","rule":"' + rule + '","direction":"' + direction + '","ma_tag":"' + str.replace_all(ma_tag, " ", "") + '","pdh":"' + str.tostring(pdh, format.mintick) + '","pdl":"' + str.tostring(pdl, format.mintick) + '","at_pdl":"' + (at_pdl_v ? "true" : "false") + '","at_pdh":"' + (at_pdh_v ? "true" : "false") + '","volume_ratio":"' + str.tostring(volume_ratio, "#.##") + '","cvd_delta":"' + str.tostring(cvd_slope_n, "#.##") + '","cvd_diverging":"' + ((direction == "BUY" ? bearish_div : bullish_div) ? "true" : "false") + '","fired_at":"' + str.tostring(timenow) + '","uptrend_pass":"' + (uptrend_pass ? "true" : "false") + '","overhead_mas":"' + overhead_mas_str + '","nearby_levels":"' + nearby_levels_csv + '","mtd_avwap":"' + (na(mtd_avwap) ? "" : str.tostring(mtd_avwap, "#.##")) + '","vwap":"' + (na(session_vwap) ? "" : str.tostring(session_vwap, "#.##")) + '","vwap_slope_pct":"' + (na(vwap_slope_pct) ? "" : str.tostring(vwap_slope_pct, "#.##")) + '","above_vwap":"' + (above_vwap ? "true" : "false") + '"}'
+
+ma_targets_above(float p) =>
+    arr = array.new<float>()
+    if not na(ema8)   and ema8   > p
+        array.push(arr, ema8)
+    if not na(ema21)  and ema21  > p
+        array.push(arr, ema21)
+    if not na(ema50)  and ema50  > p
+        array.push(arr, ema50)
+    if not na(ema100) and ema100 > p
+        array.push(arr, ema100)
+    if not na(ema200) and ema200 > p
+        array.push(arr, ema200)
+    if not na(sma50)  and sma50  > p
+        array.push(arr, sma50)
+    if not na(sma100) and sma100 > p
+        array.push(arr, sma100)
+    if not na(sma200) and sma200 > p
+        array.push(arr, sma200)
+    array.sort(arr, order.ascending)
+    arr
+
+// Fire alerts ----------------------------------------------------------------
+if fire_alerts and any_long and uptrend_pass
+    e = close
+    s = is_intraday_mode ? (low - atr_chart * 0.3) : ((not na(bounced_ma_long) ? bounced_ma_long : low) - atr_chart * 0.3)
+    rsk = e - s
+    ups = ma_targets_above(e)
+    n_up = array.size(ups)
+    t1_long = n_up >= 1 ? array.get(ups, 0) : e + rsk * r_t1
+    t2_long = n_up >= 2 ? array.get(ups, 1) : e + rsk * r_t2
+    msg_long = build_v3_payload("ma_bounce_long_v3", "BUY", long_tag, e, s, t1_long, t2_long, near_pdl, false)
+    alert(msg_long, alert.freq_once_per_bar_close)
+
+// Uptrend pullback continuation ----------------------------------------------
+pb_uptrend = not na(ema8) and not na(ema21) and close > ema8 and ema8 > ema21 and (not pullback_require_ema50 or (not na(ema50) and close > ema50))
+pb_down_count = 0
+for pb_i = 1 to pullback_lookback
+    if close[pb_i] < close[pb_i + 1]
+        pb_down_count := pb_down_count + 1
+pb_pulled_back = pb_down_count >= pullback_min_down
+pb_resume = close > open and not na(high[1]) and close > high[1]
+pb_v2_vwap_test = (not na(session_vwap)) and low <= session_vwap and close > session_vwap
+pb_v2_slope_ok = (not na(vwap_slope_pct)) and vwap_slope_pct >= pullback_v2_slope_min
+pb_v2_vol_ok = (not na(volume_ratio)) and volume_ratio >= pullback_v2_vol_min
+pb_v2_headroom_ok = na(pdh) or (close > 0 and (pdh - close) / close * 100 >= pullback_v2_headroom_pct)
+pb_v2_gates = (not pullback_v2_enable) or (pb_v2_vwap_test and pb_v2_slope_ok and pb_v2_vol_ok and pb_v2_headroom_ok)
+fire_pullback = fire_pullback_alerts and pb_uptrend and pb_pulled_back and pb_resume and pb_v2_gates
+pb_low = ta.lowest(low, pullback_lookback + 1)
+plotshape(show_markers and fire_pullback, title = "Pullback LONG", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup, size = size.small)
+if fire_alerts and fire_pullback and uptrend_pass
+    e = close
+    s = pb_low - atr_chart * 0.3
+    rsk = e - s
+    ups_pb = ma_targets_above(e)
+    n_up_pb = array.size(ups_pb)
+    t1_pb = n_up_pb >= 1 ? array.get(ups_pb, 0) : e + rsk * r_t1
+    t2_pb = n_up_pb >= 2 ? array.get(ups_pb, 1) : e + rsk * r_t2
+    msg_pb = build_v3_payload("pullback_long", "BUY", "", e, s, t1_pb, t2_pb, near_pdl, false)
+    alert(msg_pb, alert.freq_once_per_bar_close)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// VISUAL ADD-ONS (Oct 2026) — display only, no alerts. Everything above unchanged.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── EMA 5 (daily, settled) ──
+grp_add  = "Add-ons"
+sel_ema5 = input.bool(true, "EMA 5 (daily)", group = grp_add)
+col_ema5 = input.color(color.new(#FFEB3B, 0), "EMA 5 colour", group = grp_add)
+ema5 = request.security(syminfo.tickerid, "D", ta.ema(close, 5)[1], lookahead = barmerge.lookahead_on)
+plot(show_lines and sel_ema5 ? ema5 : na, "EMA 5 (D)", color = col_ema5, linewidth = 2)
+matag(ema5, "EMA 5", col_ema5, sel_ema5)
+
+// ── 5 / 20 EMA crossover (chart-TF momentum signal) ──
+show_cross = input.bool(true, "Show 5/20 EMA crossover markers", group = grp_add)
+e5c  = ta.ema(close, 5)
+e20c = ta.ema(close, 20)
+x_up = ta.crossover(e5c, e20c)
+x_dn = ta.crossunder(e5c, e20c)
+plot(show_cross ? e20c : na, "EMA 20 (chart)", color = color.new(color.green, 40), linewidth = 1)
+plotshape(show_cross and x_up, title = "5/20 up", location = location.belowbar, color = color.new(color.lime, 0), style = shape.triangleup,   text = "5/20", size = size.tiny)
+plotshape(show_cross and x_dn, title = "5/20 dn", location = location.abovebar, color = color.new(color.red, 0),  style = shape.triangledown, text = "5/20", size = size.tiny)
+
+// ── Daily / Weekly / Monthly levels — weekly + monthly proximity-gated ──
+grp_lv  = "Levels (D/W/M)"
+lv_d    = input.bool(true, "Daily PDH/PDL (always shown)", group = grp_lv)
+lv_w    = input.bool(true, "Weekly PWH/PWL", group = grp_lv)
+lv_m    = input.bool(true, "Monthly PMH/PML", group = grp_lv)
+wm_prox = input.float(3.0, "Weekly/Monthly proximity gate (% of price)", minval = 0.1, step = 0.25, group = grp_lv)
+lv_wid  = input.int(1, "Level width", minval = 1, maxval = 4, group = grp_lv)
+col_sup = input.color(#26A69A, "Support (price above level)",    group = grp_lv)
+col_res = input.color(#EF5350, "Resistance (price below level)", group = grp_lv)
+pwh    = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+pwl    = request.security(syminfo.tickerid, "W", low[1],  lookahead = barmerge.lookahead_on)
+pmh_lv = request.security(syminfo.tickerid, "M", high[1], lookahead = barmerge.lookahead_on)
+pml_lv = request.security(syminfo.tickerid, "M", low[1],  lookahead = barmerge.lookahead_on)
+
+prox_ok(float v) =>
+    close > 0 and math.abs((close - v) / close * 100.0) <= wm_prox
+
+var line[]  _lvL = array.new_line()
+var label[] _lvB = array.new_label()
+draw_lv(float v, string nm) =>
+    sup = close > v
+    col = sup ? col_sup : col_res
+    array.push(_lvL, line.new(bar_index - 60, v, bar_index, v, color = col, width = lv_wid, style = line.style_dashed, extend = extend.right))
+    array.push(_lvB, label.new(bar_index, v, nm + " " + str.tostring(v, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col, textcolor = color.white, size = size.tiny))
+if barstate.islast
+    for _l in _lvL
+        line.delete(_l)
+    for _b in _lvB
+        label.delete(_b)
+    array.clear(_lvL)
+    array.clear(_lvB)
+    if lv_d and not na(pdh)
+        draw_lv(pdh, "PDH")
+    if lv_d and not na(pdl)
+        draw_lv(pdl, "PDL")
+    if lv_w and not na(pwh) and prox_ok(pwh)
+        draw_lv(pwh, "PWH")
+    if lv_w and not na(pwl) and prox_ok(pwl)
+        draw_lv(pwl, "PWL")
+    if lv_m and not na(pmh_lv) and prox_ok(pmh_lv)
+        draw_lv(pmh_lv, "PMH")
+    if lv_m and not na(pml_lv) and prox_ok(pml_lv)
+        draw_lv(pml_lv, "PML")
+
+// ── Anchored VWAP (volume-weighted) ──
+grp_vw       = "Anchored VWAP"
+show_avwap   = input.bool(true, "Show anchored VWAP", group = grp_vw)
+avwap_anchor = input.string("Session", "Anchor", options = ["Session", "Week", "Month"], group = grp_vw)
+col_avwap    = input.color(#00BCD4, "VWAP colour", group = grp_vw)
+_newAnchor = avwap_anchor == "Week" ? weekofyear != nz(weekofyear[1], weekofyear) : avwap_anchor == "Month" ? month != nz(month[1], month) : ta.change(time("D")) != 0
+var float _avpv = 0.0
+var float _avvv = 0.0
+if _newAnchor
+    _avpv := nz(hlc3 * volume, 0.0)
+    _avvv := nz(volume, 0.0)
+else
+    _avpv := _avpv + nz(hlc3 * volume, 0.0)
+    _avvv := _avvv + nz(volume, 0.0)
+avwap = _avvv > 0 ? _avpv / _avvv : na
+plot(show_avwap ? avwap : na, "Anchored VWAP", color = col_avwap, linewidth = 2)
+
+// ── Volume profile: POC / VAH / VAL over a lookback ──
+grp_vp  = "Volume profile"
+show_vp = input.bool(true, "Show POC / VAH / VAL", group = grp_vp)
+vp_bars = input.int(150, "Lookback bars", minval = 20, group = grp_vp)
+vp_rows = input.int(24, "Rows", minval = 10, maxval = 100, group = grp_vp)
+vp_va   = input.float(70, "Value area %", minval = 50, maxval = 95, group = grp_vp) / 100.0
+col_poc = input.color(#E040FB, "POC", group = grp_vp)
+col_va  = input.color(color.new(#787B86, 0), "VAH / VAL", group = grp_vp)
+var float _poc = na
+var float _vah = na
+var float _val = na
+if show_vp and barstate.islast and bar_index >= vp_bars
+    _lo = ta.lowest(low, vp_bars)
+    _hi = ta.highest(high, vp_bars)
+    _rng = _hi - _lo
+    if _rng > 0
+        _bin = _rng / vp_rows
+        _volp = array.new_float(vp_rows, 0.0)
+        _sv = 0.0
+        for _i = 0 to vp_bars - 1
+            _loi = math.max(0, math.min(vp_rows - 1, int((low[_i] - _lo) / _bin)))
+            _hii = math.max(0, math.min(vp_rows - 1, int((high[_i] - _lo) / _bin)))
+            _span = _hii - _loi + 1
+            _per = nz(volume[_i], 0.0) / _span
+            for _j = _loi to _hii
+                array.set(_volp, _j, array.get(_volp, _j) + _per)
+            _sv += nz(volume[_i], 0.0)
+        _pi = 0
+        _mx = 0.0
+        for _j = 0 to vp_rows - 1
+            _v = array.get(_volp, _j)
+            if _v > _mx
+                _mx := _v
+                _pi := _j
+        _poc := _lo + (_pi + 0.5) * _bin
+        _target = _sv * vp_va
+        _acc = array.get(_volp, _pi)
+        _liq = _pi
+        _hiq = _pi
+        while _acc < _target and (_liq > 0 or _hiq < vp_rows - 1)
+            _bel = _liq > 0 ? array.get(_volp, _liq - 1) : -1.0
+            _abv = _hiq < vp_rows - 1 ? array.get(_volp, _hiq + 1) : -1.0
+            if _abv >= _bel
+                _hiq += 1
+                _acc += math.max(_abv, 0.0)
+            else
+                _liq -= 1
+                _acc += math.max(_bel, 0.0)
+        _vah := _lo + (_hiq + 1) * _bin
+        _val := _lo + _liq * _bin
+
+var line  _pocLn = na
+var line  _vahLn = na
+var line  _valLn = na
+var label _pocLb = na
+var label _vahLb = na
+var label _valLb = na
+if barstate.islast
+    line.delete(_pocLn)
+    line.delete(_vahLn)
+    line.delete(_valLn)
+    label.delete(_pocLb)
+    label.delete(_vahLb)
+    label.delete(_valLb)
+    if show_vp and not na(_poc)
+        _pocLn := line.new(bar_index - vp_bars, _poc, bar_index, _poc, color = col_poc, width = 2, extend = extend.right)
+        _pocLb := label.new(bar_index, _poc, "POC " + str.tostring(_poc, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_poc, textcolor = color.white, size = size.tiny)
+        _vahLn := line.new(bar_index - vp_bars, _vah, bar_index, _vah, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
+        _vahLb := label.new(bar_index, _vah, "VAH " + str.tostring(_vah, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
+        _valLn := line.new(bar_index - vp_bars, _val, bar_index, _val, color = col_va, width = 1, style = line.style_dotted, extend = extend.right)
+        _valLb := label.new(bar_index, _val, "VAL " + str.tostring(_val, format.mintick), xloc = xloc.bar_index, style = label.style_label_left, color = col_va, textcolor = color.white, size = size.tiny)
