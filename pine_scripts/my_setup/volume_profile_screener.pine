@@ -1,0 +1,105 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// VOLUME PROFILE · SCREENER — a screener-FRIENDLY volume profile. The TradingView
+// Pine Screener can only read PLOTTED series (not boxes/lines), so this computes the
+// profile (POC / VAH / VAL) + anchored VWAP over a lookback and PLOTS the values you
+// screen on: signed distance to each level (%), "at level" 0/1 flags, and the nearest
+// level. Add it to the Pine Screener over a watchlist and filter/sort those columns —
+// e.g. "Nearest % < 1" (at any value level) or "At POC = 1".
+//
+// Profile mirrors volume_profile.pine (bars×rows, 70% value area). Heavy calc runs
+// only on the last bar (all the screener reads), so it's light across a big watchlist.
+// Pane indicator (distances plot around 0); raw levels live in the Data Window.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Volume Profile · Screener", "VP·Scan", overlay = false)
+
+barsBack = input.int(150, "Lookback bars",  minval = 20, group = "Profile")
+cols     = input.int(35,  "Rows",           minval = 10, maxval = 120, group = "Profile")
+vaPct    = input.float(70, "Value area %",  minval = 50, maxval = 95, group = "Profile") / 100.0
+tolPct   = input.float(1.0, "‘At level’ tolerance %", minval = 0.1, group = "Screen") / 100.0
+
+var float poc = na
+var float vah = na
+var float val = na
+var float vw  = na
+
+// Build the volume-by-price profile once, on the last bar (all the screener needs).
+if barstate.islast and bar_index >= barsBack
+    lo = ta.lowest(low, barsBack)
+    hi = ta.highest(high, barsBack)
+    rng = hi - lo
+    if rng > 0
+        bin = rng / cols
+        vol = array.new_float(cols, 0.0)
+        sv = 0.0        // total volume (value-area target)
+        pv = 0.0        // Σ hlc3·vol (for anchored VWAP)
+        for i = 0 to barsBack - 1
+            bl = low[i]
+            bh = high[i]
+            bv = nz(volume[i], 0.0)
+            loi = math.max(0, math.min(cols - 1, int((bl - lo) / bin)))
+            hii = math.max(0, math.min(cols - 1, int((bh - lo) / bin)))
+            span = hii - loi + 1
+            per = bv / span
+            for j = loi to hii
+                array.set(vol, j, array.get(vol, j) + per)
+            sv += bv
+            pv += ((bh + bl + close[i]) / 3.0) * bv
+        // POC = fullest bin
+        pocIdx = 0
+        maxV = 0.0
+        for j = 0 to cols - 1
+            v = array.get(vol, j)
+            if v > maxV
+                maxV := v
+                pocIdx := j
+        poc := lo + (pocIdx + 0.5) * bin
+        // Value area: expand out from the POC (grabbing the fuller neighbour) to vaPct.
+        target = sv * vaPct
+        acc = array.get(vol, pocIdx)
+        loIdx = pocIdx
+        hiIdx = pocIdx
+        while acc < target and (loIdx > 0 or hiIdx < cols - 1)
+            below = loIdx > 0 ? array.get(vol, loIdx - 1) : -1.0
+            above = hiIdx < cols - 1 ? array.get(vol, hiIdx + 1) : -1.0
+            if above >= below
+                hiIdx += 1
+                acc += math.max(above, 0.0)
+            else
+                loIdx -= 1
+                acc += math.max(below, 0.0)
+        vah := lo + (hiIdx + 1) * bin
+        val := lo + loIdx * bin
+        vw  := sv > 0 ? pv / sv : na
+
+// ── Screener metrics ── (signed %: positive = price ABOVE the level)
+c     = close
+dPOC  = na(poc) ? na : (c - poc)  / c * 100
+dVAL  = na(val) ? na : (c - val)  / c * 100
+dVWAP = na(vw)  ? na : (c - vw)   / c * 100
+dVAH  = na(vah) ? na : (c - vah)  / c * 100
+tolP  = tolPct * 100
+
+atPOC  = not na(dPOC)  and math.abs(dPOC)  <= tolP ? 1 : 0
+atVAL  = not na(dVAL)  and math.abs(dVAL)  <= tolP ? 1 : 0
+atVWAP = not na(dVWAP) and math.abs(dVWAP) <= tolP ? 1 : 0
+
+nearest = na(dPOC) ? na : math.min(math.abs(dPOC), math.min(math.abs(dVAL), math.abs(dVWAP)))
+
+// ── Plots = the Pine Screener columns ──
+plot(dPOC,   "Dist POC %",  color = color.new(#ef5350, 0))
+plot(dVAL,   "Dist VAL %",  color = color.new(#26a69a, 0))
+plot(dVWAP,  "Dist VWAP %", color = color.new(#2962ff, 0))
+plot(dVAH,   "Dist VAH %",  color = color.new(#f7931a, 0))
+plot(nearest,"Nearest %",   color = color.new(#787b86, 0))
+hline(0,      "level", color = color.new(#787b86, 70))
+hline(tolP,   "±tol",  color = color.new(#787b86, 85))
+hline(-tolP,  "",      color = color.new(#787b86, 85))
+// flags + raw levels — Data Window only (screener still reads them; keeps the pane clean)
+plot(atPOC,  "At POC",  display = display.data_window)
+plot(atVAL,  "At VAL",  display = display.data_window)
+plot(atVWAP, "At VWAP", display = display.data_window)
+plot(poc,    "POC",  display = display.data_window)
+plot(val,    "VAL",  display = display.data_window)
+plot(vah,    "VAH",  display = display.data_window)
+plot(vw,     "VWAP", display = display.data_window)
