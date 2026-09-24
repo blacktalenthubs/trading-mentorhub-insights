@@ -140,3 +140,37 @@ if array.size(boxes) > 0 and not na(pmh)
             if not na(_plb)
                 label.set_xy(_plb, bar_index, pdl)
                 label.set_text(_plb, "PDL " + str.tostring(pdl, format.mintick))
+
+// ── ALERTS · premarket-level break / reclaim ─────────────────────────────────
+// Scan a whole list: add this indicator, create a WATCHLIST alert on it with the
+// condition "Any alert() function call" — it fires per symbol for these events.
+// Delivery is TradingView's (app / email / webhook → your server → Telegram).
+gAlerts  = input.bool(true, "Enable break / reclaim alerts", group = "Alerts")
+aSession = input.session("0930-1600", "Alert only during this session", group = "Alerts")
+inASess  = not na(time(timeframe.period, aSession, tz))
+
+pmhBreak   = gAlerts and inASess and not na(pmh) and ta.crossover(close, pmh)    // broke above premarket high
+pmhLoss    = gAlerts and inASess and not na(pmh) and ta.crossunder(close, pmh)   // fell back below the high
+pmlReclaim = gAlerts and inASess and not na(pml) and ta.crossover(close, pml)    // reclaimed above premarket low
+pmlBreak   = gAlerts and inASess and not na(pml) and ta.crossunder(close, pml)   // broke below premarket low
+
+if pmhBreak
+    alert(syminfo.ticker + " · PMH BREAK — above premarket high " + str.tostring(pmh, format.mintick) + " (" + str.tostring(close, format.mintick) + ")", alert.freq_once_per_bar)
+if pmlBreak
+    alert(syminfo.ticker + " · PML BREAK — below premarket low " + str.tostring(pml, format.mintick) + " (" + str.tostring(close, format.mintick) + ")", alert.freq_once_per_bar)
+if pmlReclaim
+    alert(syminfo.ticker + " · PML RECLAIM — back above premarket low " + str.tostring(pml, format.mintick), alert.freq_once_per_bar)
+if pmhLoss
+    alert(syminfo.ticker + " · PMH LOST — back below premarket high " + str.tostring(pmh, format.mintick), alert.freq_once_per_bar)
+
+// Chart markers at the trigger bar.
+plotshape(pmhBreak,   "PMH break",   style = shape.triangleup,   location = location.belowbar, color = #26a69a, size = size.tiny)
+plotshape(pmlBreak,   "PML break",   style = shape.triangledown, location = location.abovebar, color = #ef5350, size = size.tiny)
+plotshape(pmlReclaim, "PML reclaim", style = shape.circle,       location = location.belowbar, color = #26a69a, size = size.tiny)
+plotshape(pmhLoss,    "PMH lost",    style = shape.circle,       location = location.abovebar, color = #ef5350, size = size.tiny)
+
+// Named conditions for the classic alert dialog, too.
+alertcondition(pmhBreak,   "PMH break",   "Price broke above the premarket high")
+alertcondition(pmlBreak,   "PML break",   "Price broke below the premarket low")
+alertcondition(pmlReclaim, "PML reclaim", "Price reclaimed the premarket low")
+alertcondition(pmhLoss,    "PMH lost",    "Price fell back below the premarket high")
