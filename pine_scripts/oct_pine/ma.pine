@@ -1,0 +1,102 @@
+//@version=5
+// =============================================================================
+// MA · EMA (Daily) + VWAP — the moving-average half of the two-pine kit.
+// =============================================================================
+// Just the moving-average lines — no bounce / reject / proximity / PDL·PDH / pullback
+// signals, no webhook alerts, no payload (all stripped 2026-09-24). Pairs with the
+// "All Levels" pine. This one draws:
+//   • Daily EMA 5 / 8 / 21 / 50 / 100 / 200 and SMA 50 / 100 / 200 (locked to the daily
+//     timeframe via request.security, so they stay the same daily curves on any chart TF).
+//   • 5 / 21 EMA cross arrows (green up = 5 crosses above 21, red down = 5 below 21).
+//   • Rolling VWAP over the last N bars — same AVWAP as volume_profile.pine.
+// Each MA is its own uncheckable toggle (Inputs tab), which hides BOTH the line and its
+// end tag. NON-REPAINTING: settled [1] + lookahead_on for the daily MAs.
+// =============================================================================
+indicator("MA · EMA (Daily) + VWAP", "MA·EMA", overlay = true, max_labels_count = 500)
+
+// ── Global ─────────────────────────────────────────────────────────────────
+show_lines   = input.bool(true, "Show daily MA lines")
+show_ma_tags = input.bool(true, "Show MA name tags at the right end of each line")
+
+// ── Per-MA toggles — each hides BOTH the line AND its end tag. Use THESE (Inputs
+//    tab), not the Style-tab line checkboxes (the script can't read those). ─────
+grp_ma = "MA lines + tags"
+sel_ema5   = input.bool(true, "EMA 5",   group = grp_ma)
+sel_ema8   = input.bool(true, "EMA 8",   group = grp_ma)
+sel_ema21  = input.bool(true, "EMA 21",  group = grp_ma)
+sel_ema50  = input.bool(true, "EMA 50",  group = grp_ma)
+sel_ema100 = input.bool(true, "EMA 100", group = grp_ma)
+sel_ema200 = input.bool(true, "EMA 200", group = grp_ma)
+sel_sma50  = input.bool(true, "SMA 50",  group = grp_ma)
+sel_sma100 = input.bool(true, "SMA 100", group = grp_ma)
+sel_sma200 = input.bool(true, "SMA 200", group = grp_ma)
+
+// ── 5 / 21 EMA cross ─────────────────────────────────────────────────────────
+grp_x   = "5 / 21 EMA cross"
+show_x  = input.bool(true, "Show 5/21 cross arrows", group = grp_x)
+x_tags  = input.bool(true, "Label the arrows (5/21 ▲ / ▼)", group = grp_x)
+
+// ── VWAP (rolling AVWAP, same as volume_profile.pine) ────────────────────────
+grp_vw  = "VWAP"
+show_vw = input.bool(true, "Show rolling VWAP", group = grp_vw)
+vwBars  = input.int(150, "VWAP lookback bars", minval = 10, maxval = 5000, group = grp_vw)
+vwCol   = input.color(color.blue, "VWAP colour", group = grp_vw)
+vwWidth = input.int(2, "VWAP width", minval = 1, maxval = 8, group = grp_vw)
+
+// ── Daily MAs (yesterday's settled value via [1], non-repainting) ────────────
+f_dma(simple int len) => request.security(syminfo.tickerid, "D", ta.ema(close, len)[1], lookahead = barmerge.lookahead_on)
+ema5   = f_dma(5)
+ema8   = f_dma(8)
+ema21  = f_dma(21)
+ema50  = f_dma(50)
+ema100 = f_dma(100)
+ema200 = f_dma(200)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+
+// ── Plot MAs ─────────────────────────────────────────────────────────────────
+plot(show_lines and sel_ema5   ? ema5   : na, "EMA 5 (D)",   color = color.new(#00BCD4,     0), linewidth = 2)
+plot(show_lines and sel_ema8   ? ema8   : na, "EMA 8 (D)",   color = color.new(#9C27B0,     0), linewidth = 2)
+plot(show_lines and sel_ema21  ? ema21  : na, "EMA 21 (D)",  color = color.new(color.green, 0), linewidth = 3)
+plot(show_lines and sel_ema50  ? ema50  : na, "EMA 50 (D)",  color = color.new(#1565C0,     0), linewidth = 3)
+plot(show_lines and sel_ema100 ? ema100 : na, "EMA 100 (D)", color = color.new(#F57F17,     0), linewidth = 3)
+plot(show_lines and sel_ema200 ? ema200 : na, "EMA 200 (D)", color = color.new(color.black, 0), linewidth = 3)
+plot(show_lines and sel_sma50  ? sma50  : na, "SMA 50 (D)",  color = color.new(#1565C0,     0), linewidth = 3, style = plot.style_circles)
+plot(show_lines and sel_sma100 ? sma100 : na, "SMA 100 (D)", color = color.new(#F57F17,     0), linewidth = 3, style = plot.style_circles)
+plot(show_lines and sel_sma200 ? sma200 : na, "SMA 200 (D)", color = color.new(color.black, 0), linewidth = 3, style = plot.style_circles)
+
+// ── End-of-line tags — one per MA, on the last bar, following the per-MA toggle ─
+matag(float v, string txt, color c, bool show) =>
+    var label lb = na
+    if barstate.islast
+        label.delete(lb)
+        if show and show_lines and show_ma_tags and not na(v)
+            lb := label.new(bar_index + 3, v, txt, xloc = xloc.bar_index, style = label.style_label_left, color = color.new(c, 0), textcolor = color.white, size = size.small)
+matag(ema5,   "EMA 5",   #00BCD4,     sel_ema5)
+matag(ema8,   "EMA 8",   #9C27B0,     sel_ema8)
+matag(ema21,  "EMA 21",  color.green, sel_ema21)
+matag(ema50,  "EMA 50",  #1565C0,     sel_ema50)
+matag(ema100, "EMA 100", #F57F17,     sel_ema100)
+matag(ema200, "EMA 200", color.black, sel_ema200)
+matag(sma50,  "SMA 50",  #1565C0,     sel_sma50)
+matag(sma100, "SMA 100", #F57F17,     sel_sma100)
+matag(sma200, "SMA 200", color.black, sel_sma200)
+
+// ── 5 / 21 EMA cross arrows (on the daily-locked EMAs → a daily momentum turn) ─
+x_up = not na(ema5) and not na(ema21) and ta.crossover(ema5, ema21)
+x_dn = not na(ema5) and not na(ema21) and ta.crossunder(ema5, ema21)
+plotshape(show_x and x_up, title = "5/21 cross up",   location = location.belowbar, color = color.new(color.green, 0), style = shape.triangleup,   size = size.small)
+plotshape(show_x and x_dn, title = "5/21 cross down", location = location.abovebar, color = color.new(color.red,   0), style = shape.triangledown, size = size.small)
+if show_x and x_tags and x_up
+    label.new(bar_index, low,  "5/21 ▲", style = label.style_label_up,   color = color.new(color.green, 0), textcolor = color.white, size = size.tiny, yloc = yloc.belowbar)
+if show_x and x_tags and x_dn
+    label.new(bar_index, high, "5/21 ▼", style = label.style_label_down, color = color.new(color.red,   0), textcolor = color.white, size = size.tiny, yloc = yloc.abovebar)
+alertcondition(x_up, "5/21 EMA cross up",   "5 EMA crossed ABOVE the 21 EMA")
+alertcondition(x_dn, "5/21 EMA cross down", "5 EMA crossed BELOW the 21 EMA")
+
+// ── Rolling VWAP — identical to volume_profile.pine's AVWAP over the window ────
+_hlc  = (high + low + close) / 3.0
+_svol = math.sum(volume, vwBars)
+avwap = _svol > 0 ? math.sum(_hlc * volume, vwBars) / _svol : na
+plot(show_vw ? avwap : na, "VWAP", color = color.new(vwCol, 0), linewidth = vwWidth)
