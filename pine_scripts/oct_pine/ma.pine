@@ -10,7 +10,10 @@
 //   • 5 / 20 EMA cross arrows (green up = 5 crosses above 20, red down = 5 below 20).
 //   • Rolling VWAP over the last N bars — same AVWAP as volume_profile.pine.
 // Each MA is its own uncheckable toggle (Inputs tab), which hides BOTH the line and its
-// end tag. NON-REPAINTING: settled [1] + lookahead_on for the daily MAs.
+// end tag. The daily MAs use lookahead_off (no future leak): closed daily bars are final,
+// and the CURRENT forming daily bar updates live — so a 5/20 cross that happens TODAY shows
+// today (confirms at the daily close). Earlier this used a settled [1] value, which lagged a
+// full day and hid same-day crosses.
 // =============================================================================
 indicator("MA · EMA (Daily) + VWAP", "MA·EMA", overlay = true, max_labels_count = 500)
 
@@ -50,17 +53,18 @@ rsiLen   = input.int(14, "RSI length", minval = 2, maxval = 50, group = grp_h)
 hudPosIn = input.string("top_right", "HUD position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = grp_h)
 hudSzIn  = input.string("normal", "HUD text size", options = ["tiny", "small", "normal", "large"], group = grp_h)
 
-// ── Daily MAs (yesterday's settled value via [1], non-repainting) ────────────
-f_dma(simple int len) => request.security(syminfo.tickerid, "D", ta.ema(close, len)[1], lookahead = barmerge.lookahead_on)
+// ── Daily MAs — current daily value (lookahead_off: no future leak; the forming day
+//    updates live, so today's 5/20 cross fires today rather than a day late). ──────
+f_dma(simple int len) => request.security(syminfo.tickerid, "D", ta.ema(close, len), lookahead = barmerge.lookahead_off)
 ema5   = f_dma(5)
 ema8   = f_dma(8)
 ema20  = f_dma(20)
 ema50  = f_dma(50)
 ema100 = f_dma(100)
 ema200 = f_dma(200)
-sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
-sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
-sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+sma50  = request.security(syminfo.tickerid, "D", ta.sma(close, 50),  lookahead = barmerge.lookahead_off)
+sma100 = request.security(syminfo.tickerid, "D", ta.sma(close, 100), lookahead = barmerge.lookahead_off)
+sma200 = request.security(syminfo.tickerid, "D", ta.sma(close, 200), lookahead = barmerge.lookahead_off)
 
 // ── Plot MAs ─────────────────────────────────────────────────────────────────
 plot(show_lines and sel_ema5   ? ema5   : na, "EMA 5 (D)",   color = color.new(#00BCD4,     0), linewidth = 2)
