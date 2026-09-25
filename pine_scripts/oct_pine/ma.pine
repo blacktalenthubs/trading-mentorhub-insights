@@ -43,6 +43,13 @@ vwBars  = input.int(150, "VWAP lookback bars", minval = 10, maxval = 5000, group
 vwCol   = input.color(color.blue, "VWAP colour", group = grp_vw)
 vwWidth = input.int(2, "VWAP width", minval = 1, maxval = 8, group = grp_vw)
 
+// ── HUD (entry / exit dashboard) ─────────────────────────────────────────────
+grp_h   = "HUD (entry / exit)"
+show_hud = input.bool(true, "Show entry/exit HUD", group = grp_h)
+rsiLen   = input.int(14, "RSI length", minval = 2, maxval = 50, group = grp_h)
+hudPosIn = input.string("top_right", "HUD position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = grp_h)
+hudSzIn  = input.string("normal", "HUD text size", options = ["tiny", "small", "normal", "large"], group = grp_h)
+
 // ── Daily MAs (yesterday's settled value via [1], non-repainting) ────────────
 f_dma(simple int len) => request.security(syminfo.tickerid, "D", ta.ema(close, len)[1], lookahead = barmerge.lookahead_on)
 ema5   = f_dma(5)
@@ -100,3 +107,62 @@ _hlc  = (high + low + close) / 3.0
 _svol = math.sum(volume, vwBars)
 avwap = _svol > 0 ? math.sum(_hlc * volume, vwBars) / _svol : na
 plot(show_vw ? avwap : na, "VWAP", color = color.new(vwCol, 0), linewidth = vwWidth)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// HUD — a compact entry/exit dashboard: RSI + the three reads I check before a
+// trade — trend bias (are the EMAs stacked with me?), VWAP location (near = entry
+// zone, extended = trim), and ATR (how much room / where the stop goes).
+// ═════════════════════════════════════════════════════════════════════════════
+_hudPos = hudPosIn == "top_left" ? position.top_left : hudPosIn == "bottom_right" ? position.bottom_right : hudPosIn == "bottom_left" ? position.bottom_left : hudPosIn == "middle_right" ? position.middle_right : position.top_right
+_hudSz  = hudSzIn == "tiny" ? size.tiny : hudSzIn == "small" ? size.small : hudSzIn == "large" ? size.large : size.normal
+
+// Palette
+_cBg   = color.new(#0E1116, 8)      // panel background
+_cHdr  = color.new(#1D4ED8, 0)      // header band
+_cLbl  = color.new(#1B2430, 0)      // label-column cells
+_cTxt  = color.new(#E5E7EB, 0)      // primary text
+_cMut  = color.new(#9CA3AF, 0)      // muted text
+_cGrn  = color.new(#22C55E, 0)
+_cRed  = color.new(#EF4444, 0)
+_cAmb  = color.new(#F59E0B, 0)
+_cBlu  = color.new(#38BDF8, 0)
+
+// ── RSI (chart TF) — momentum + overbought/oversold ──────────────────────────
+_rsi = ta.rsi(close, rsiLen)
+_rsiTxt = na(_rsi) ? "—" : str.tostring(_rsi, "#.#") + (_rsi >= 70 ? "  OVERBOUGHT" : _rsi <= 30 ? "  OVERSOLD" : _rsi >= 50 ? "  bullish" : "  bearish")
+_rsiCol = na(_rsi) ? _cMut : _rsi >= 70 ? _cRed : _rsi <= 30 ? _cGrn : _rsi >= 50 ? _cGrn : _cAmb
+
+// ── Trend bias — price vs the daily EMA stack (entry direction gate) ──────────
+_above = (close > nz(ema5, close) ? 1 : 0) + (close > nz(ema20, close) ? 1 : 0) + (close > nz(ema50, close) ? 1 : 0) + (close > nz(ema200, close) ? 1 : 0)
+_biasTxt = _above == 4 ? "LONG  ▲  (4/4 above)" : _above == 0 ? "SHORT  ▼  (0/4 above)" : "MIXED  ·  " + str.tostring(_above) + "/4 above"
+_biasCol = _above == 4 ? _cGrn : _above == 0 ? _cRed : _cAmb
+
+// ── VWAP location — % from the rolling VWAP (near = entry, extended = trim) ───
+_vwDist = not na(avwap) and avwap > 0 ? (close - avwap) / avwap * 100.0 : na
+_vwTxt = na(_vwDist) ? "—" : (_vwDist >= 0 ? "+" : "") + str.tostring(_vwDist, "#.##") + "%  " + (math.abs(_vwDist) <= 0.3 ? "AT VWAP" : _vwDist > 0 ? "above" : "below")
+_vwCol = na(_vwDist) ? _cMut : math.abs(_vwDist) <= 0.3 ? _cBlu : _vwDist > 0 ? _cGrn : _cRed
+
+// ── ATR (chart TF) — volatility for stop / target sizing ─────────────────────
+_atr = ta.atr(14)
+_atrPct = not na(_atr) and close > 0 ? _atr / close * 100.0 : na
+_atrTxt = na(_atr) ? "—" : str.tostring(_atr, format.mintick) + "  (" + str.tostring(_atrPct, "#.#") + "%)  · 1.5×=" + str.tostring(_atr * 1.5, format.mintick)
+
+var table hud = table.new(_hudPos, 2, 6, bgcolor = _cBg, frame_color = color.new(#334155, 0), frame_width = 1, border_color = color.new(#334155, 40), border_width = 1)
+if show_hud and barstate.islast
+    // Header — symbol + timeframe.
+    table.cell(hud, 0, 0, "ENTRY / EXIT", text_color = color.white, bgcolor = _cHdr, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 0, syminfo.ticker + " · " + timeframe.period, text_color = color.new(#DBEAFE, 0), bgcolor = _cHdr, text_size = _hudSz, text_halign = text.align_right)
+    // Rows.
+    table.cell(hud, 0, 1, "RSI " + str.tostring(rsiLen), text_color = _cMut, bgcolor = _cLbl, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 1, _rsiTxt, text_color = _rsiCol, text_size = _hudSz, text_halign = text.align_right)
+    table.cell(hud, 0, 2, "Trend", text_color = _cMut, bgcolor = _cLbl, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 2, _biasTxt, text_color = _biasCol, text_size = _hudSz, text_halign = text.align_right)
+    table.cell(hud, 0, 3, "VWAP", text_color = _cMut, bgcolor = _cLbl, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 3, _vwTxt, text_color = _vwCol, text_size = _hudSz, text_halign = text.align_right)
+    table.cell(hud, 0, 4, "ATR 14", text_color = _cMut, bgcolor = _cLbl, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 4, _atrTxt, text_color = _cTxt, text_size = _hudSz, text_halign = text.align_right)
+    // Momentum footer — the 5/20 state.
+    _xState = not na(ema5) and not na(ema20) ? (ema5 > ema20 ? "5 ▸ above 20  (bull)" : "5 ▸ below 20  (bear)") : "—"
+    _xCol = not na(ema5) and not na(ema20) ? (ema5 > ema20 ? _cGrn : _cRed) : _cMut
+    table.cell(hud, 0, 5, "5 / 20", text_color = _cMut, bgcolor = _cLbl, text_size = _hudSz, text_halign = text.align_left)
+    table.cell(hud, 1, 5, _xState, text_color = _xCol, text_size = _hudSz, text_halign = text.align_right)
