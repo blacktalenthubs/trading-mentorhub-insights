@@ -8,7 +8,8 @@
 // = support; red = above = resistance).
 //
 // GATING (the whole point — keep the chart clean):
-//   • Daily + Weekly  → ALWAYS drawn (the rails you use every session).
+//   • Daily + Weekly  → drawn every session UNLESS beyond the global max-distance cap
+//     (so a fast mover's far weekly low can't sit 20%+ away cluttering the chart).
 //   • Monthly + Quarterly → drawn ONLY when price is WITHIN the proximity % (else hidden —
 //     a far-away quarterly level is noise). This is the "gate monthly and quarterly by proximity".
 //   • Value area (POC/VAH/VAL) → always drawn (toggle off if you don't want it).
@@ -21,11 +22,12 @@ indicator("All Levels · HL + Value Area", "All Lv", overlay = true, max_lines_c
 
 // ── WHICH LEVELS ─────────────────────────────────────────────────────────────
 gW   = "Levels — which"
-enD  = input.bool(true,  "Daily  H/L  — always drawn",        group = gW)
-enWk = input.bool(true,  "Weekly H/L  — always drawn",        group = gW)
+enD  = input.bool(true,  "Daily  H/L  — always (within max distance)", group = gW)
+enWk = input.bool(true,  "Weekly H/L  — always (within max distance)", group = gW)
 enM  = input.bool(true,  "Monthly H/L — proximity-gated",     group = gW)
 enQ  = input.bool(true,  "Quarterly H/L — proximity-gated",   group = gW)
 proxPct = input.float(3.0, "Monthly / Quarterly proximity gate (%)", group = gW, minval = 0.1, maxval = 25, step = 0.25) / 100.0
+maxDistPct = input.float(12.0, "Hide ANY level more than % from price (0 = off)", group = gW, minval = 0.0, maxval = 60, step = 1.0)
 
 // ── VOLUME PROFILE (POC / VAH / VAL) ─────────────────────────────────────────
 gVP    = "Value area (volume profile)"
@@ -159,6 +161,10 @@ f_queue(float v, string nm, bool vp) =>
         array.push(_qc, vp ? 0.0 : na)
 
 f_near(float v) => not na(v) and v > 0 and math.abs(close - v) / close <= proxPct
+// Global distance cap — drops ANY level (incl. the always-drawn Daily/Weekly) more than
+// maxDistPct% from price, so a far level (e.g. a momentum name's weekly low 20%+ away) can't
+// clutter the chart. 0 = off. Applies on top of the tighter Monthly/Quarterly proximity gate.
+f_within(float v) => maxDistPct <= 0.0 or (not na(v) and v > 0 and math.abs(close - v) / close * 100.0 <= maxDistPct)
 
 if barstate.islast
     for _l in _ln
@@ -172,13 +178,18 @@ if barstate.islast
     array.clear(_qn)
     array.clear(_qc)
 
-    // Daily + Weekly — always. Monthly + Quarterly — only within the proximity gate.
+    // Daily + Weekly — drawn unless beyond the global max-distance cap. Monthly + Quarterly
+    // — only within the tighter proximity gate (also inside the cap by construction).
     if enD
-        f_queue(lPdh, "PDH", false)
-        f_queue(lPdl, "PDL", false)
+        if f_within(lPdh)
+            f_queue(lPdh, "PDH", false)
+        if f_within(lPdl)
+            f_queue(lPdl, "PDL", false)
     if enWk
-        f_queue(lPwh, "PWH", false)
-        f_queue(lPwl, "PWL", false)
+        if f_within(lPwh)
+            f_queue(lPwh, "PWH", false)
+        if f_within(lPwl)
+            f_queue(lPwl, "PWL", false)
     if enM
         if f_near(lPmh)
             f_queue(lPmh, "PMH", false)
