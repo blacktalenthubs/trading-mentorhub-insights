@@ -1,0 +1,253 @@
+//@version=5
+// =============================================================================
+// ALL LEVELS · HLC + VALUE AREA — one pine for every structural level you trade off.
+// =============================================================================
+// Prior-period HIGH / LOW / CLOSE for Daily · Weekly · Monthly · Quarterly, plus the
+// volume-profile VALUE AREA (POC / VAH / VAL). Each drawn as a flat horizontal line whose
+// TAG spells the name + the price, role-coloured by where price sits NOW (green = the level
+// is below price = support; red = above = resistance).
+//
+// GATING (the whole point — keep the chart clean):
+//   • Daily + Weekly  → ALWAYS drawn (the rails you use every session).
+//   • Monthly + Quarterly → drawn ONLY when price is WITHIN the proximity % (else hidden —
+//     a far-away quarterly level is noise). This is the "gate monthly and quarterly by proximity".
+//   • Value area (POC/VAH/VAL) → always drawn (toggle off if you don't want it).
+// Near-equal levels MERGE into one line naming both, so stacked H/L/C don't clutter.
+//
+// NON-REPAINTING: prior-period values via settled [1] + lookahead_on on the RTH ticker.
+// Pair with the separate "MA / EMA" pine — these two are the whole kit.
+// =============================================================================
+indicator("All Levels · HLC + Value Area", "All Lv", overlay = true, max_lines_count = 60, max_labels_count = 200)
+
+// ── WHICH LEVELS ─────────────────────────────────────────────────────────────
+gW   = "Levels — which"
+enD  = input.bool(true,  "Daily  H/L/C  — always drawn",              group = gW)
+enWk = input.bool(true,  "Weekly H/L/C  — always drawn",              group = gW)
+enM  = input.bool(true,  "Monthly H/L/C — proximity-gated",           group = gW)
+enQ  = input.bool(true,  "Quarterly H/L/C — proximity-gated",         group = gW)
+enC  = input.bool(true,  "Include the prior CLOSE line (all periods)", group = gW)
+proxPct = input.float(3.0, "Monthly / Quarterly proximity gate (%)", group = gW, minval = 0.1, maxval = 25, step = 0.25) / 100.0
+
+// ── VOLUME PROFILE (POC / VAH / VAL) ─────────────────────────────────────────
+gVP    = "Value area (volume profile)"
+enVP   = input.bool(true, "Show POC / VAH / VAL", group = gVP)
+vpBars = input.int(150, "Lookback bars", minval = 20, maxval = 1000, group = gVP)
+vpRows = input.int(35,  "Rows (bins)",   minval = 10, maxval = 120,  group = gVP)
+vpVa   = input.float(70, "Value area %", minval = 50, maxval = 95,   group = gVP) / 100.0
+
+// ── STYLE ────────────────────────────────────────────────────────────────────
+gS        = "Style"
+supCol    = input.color(#26A69A, "Support colour (level below price)",    group = gS)
+resCol    = input.color(#EF5350, "Resistance colour (level above price)", group = gS)
+vpCol     = input.color(#EAB308, "Value-area colour (POC/VAH/VAL)",       group = gS)
+vpRole    = input.bool(false, "Colour value area by role instead", group = gS)
+wLine     = input.int(2,  "Line width", group = gS, minval = 1, maxval = 5)
+lineLen   = input.int(80, "Line length (bars back)", group = gS, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart", group = gS)
+lineStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gS)
+closeDot  = input.bool(true, "Draw CLOSE lines dotted (H/L stay solid)", group = gS)
+showTags  = input.bool(true, "Show level tags", group = gS)
+tagSize   = input.string("tiny", "Tag size", options = ["tiny", "small", "normal"], group = gS)
+showPx    = input.bool(true, "Show the price on tags", group = gS)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gS, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when levels within ± %", group = gS, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "Fan step (bars per collision)", group = gS, minval = 1, maxval = 40)
+mergePct  = input.float(0.20, "Merge levels within (%) into one line", group = gS, minval = 0.0, maxval = 2, step = 0.05) / 100.0
+
+_tagSz   = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+_lnStyle = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+
+// ── PRIOR-PERIOD VALUES — settled [1] + lookahead_on, RTH ticker (non-repainting) ─
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+f_lvl(string tf, float expr) => request.security(rthTid, tf, expr, lookahead = barmerge.lookahead_on)
+lPdh = f_lvl("D",  high[1])
+lPdl = f_lvl("D",  low[1])
+lPdc = f_lvl("D",  close[1])
+lPwh = f_lvl("W",  high[1])
+lPwl = f_lvl("W",  low[1])
+lPwc = f_lvl("W",  close[1])
+lPmh = f_lvl("M",  high[1])
+lPml = f_lvl("M",  low[1])
+lPmc = f_lvl("M",  close[1])
+lPqh = f_lvl("3M", high[1])
+lPql = f_lvl("3M", low[1])
+lPqc = f_lvl("3M", close[1])
+
+// ── VOLUME PROFILE — POC / VAH / VAL over the last vpBars bars (computed on the last bar).
+// EXACT logic from volume_profile.pine ("Volume Profile · Pro") — the values the user validates
+// on their charts — so VAH/VAL match. Distribute each bar's volume across the rows its range
+// spans, then grow the value area out from the POC taking the heavier neighbour until vaPct%. ─
+f_profile() =>
+    float poc = na
+    float vah = na
+    float val = na
+    _n = math.min(vpBars, bar_index)
+    if _n >= 2
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / vpRows
+            vol = array.new_float(vpRows, 0.0)
+            for _b = 0 to _n - 1
+                _loI = int(math.floor((low[_b]  - _lo) / _bs))
+                _hiI = int(math.floor((high[_b] - _lo) / _bs))
+                _loI := math.max(0, math.min(vpRows - 1, _loI))
+                _hiI := math.max(0, math.min(vpRows - 1, _hiI))
+                _span = _hiI - _loI + 1
+                _per  = nz(volume[_b], 0.0) / _span
+                for _k = _loI to _hiI
+                    array.set(vol, _k, array.get(vol, _k) + _per)
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to vpRows - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+            // Value area: grow out from the POC, taking the heavier neighbour, until vaPct% of total.
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vpVa
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upV = -1.0
+                    _dnV = -1.0
+                    if _up < vpRows - 1
+                        _upV := array.get(vol, _up + 1)
+                    if _dn > 0
+                        _dnV := array.get(vol, _dn - 1)
+                    if _upV < 0 and _dnV < 0
+                        _go := false
+                    else if _upV >= _dnV
+                        _up    := _up + 1
+                        _vaVol := _vaVol + _upV
+                    else
+                        _dn    := _dn - 1
+                        _vaVol := _vaVol + _dnV
+            poc := _lo + (_poc + 0.5) * _bs
+            vah := _lo + (_up + 1) * _bs
+            val := _lo + _dn * _bs
+    [poc, vah, val]
+[vpPoc, vpVah, vpVal] = f_profile()
+
+// ── COLLECTION + DRAWING (queue → merge → flat lines with fanned tags) ────────
+var line[]   _ln     = array.new_line()
+var label[]  _lb     = array.new_label()
+var float[]  _drawnY = array.new_float()
+var float[]  _qv     = array.new_float()   // value
+var string[] _qn     = array.new_string()  // name
+var float[]  _qc     = array.new_float()   // colour flag (Pine can't store a color in an array): 0 = VP colour, na = role colour
+var bool[]   _qd     = array.new_bool()    // dotted? (close lines)
+
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+
+// queue one level: value, name, isClose (dotted), useVpColour
+f_queue(float v, string nm, bool isClose, bool vp) =>
+    if not na(v) and v > 0
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qc, vp ? 0.0 : na)
+        array.push(_qd, isClose)
+
+f_near(float v) => not na(v) and v > 0 and math.abs(close - v) / close <= proxPct
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_drawnY)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qc)
+    array.clear(_qd)
+
+    // Daily + Weekly — always. Monthly + Quarterly — only within the proximity gate.
+    if enD
+        f_queue(lPdh, "PDH", false, false)
+        f_queue(lPdl, "PDL", false, false)
+        if enC
+            f_queue(lPdc, "PDC", true, false)
+    if enWk
+        f_queue(lPwh, "PWH", false, false)
+        f_queue(lPwl, "PWL", false, false)
+        if enC
+            f_queue(lPwc, "PWC", true, false)
+    if enM
+        if f_near(lPmh)
+            f_queue(lPmh, "PMH", false, false)
+        if f_near(lPml)
+            f_queue(lPml, "PML", false, false)
+        if enC and f_near(lPmc)
+            f_queue(lPmc, "PMC", true, false)
+    if enQ
+        if f_near(lPqh)
+            f_queue(lPqh, "PQH", false, false)
+        if f_near(lPql)
+            f_queue(lPql, "PQL", false, false)
+        if enC and f_near(lPqc)
+            f_queue(lPqc, "PQC", true, false)
+    // Value area — POC / VAH / VAL (always, own colour unless "colour by role").
+    if enVP
+        f_queue(vpPoc, "POC", false, true)
+        f_queue(vpVah, "VAH", false, true)
+        f_queue(vpVal, "VAL", false, true)
+
+    // ── ONE MERGE PASS — near-equal levels collapse into one line naming all of them ──
+    _qN = array.size(_qv)
+    if _qN > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qN
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qvp  = not na(array.get(_qc, _qs))     // any VP member → VP colour wins
+            _qdot = array.get(_qd, _qs)              // any close member → dotted
+            _qcnt = 1
+            _qnear  = _qhi
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qN
+                _qk  = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if mergePct > 0 and _qv2 <= _qhi * (1.0 + mergePct)
+                    _qhi := _qv2
+                    _qnm := _qnm + " · " + array.get(_qn, _qk)
+                    _qvp := _qvp or not na(array.get(_qc, _qk))
+                    _qdot := _qdot or array.get(_qd, _qk)
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qcol = (_qvp and not vpRole) ? vpCol : (_qsup ? supCol : resCol)
+            _qst  = (_qdot and closeDot) ? line.style_dotted : _lnStyle
+            _qx   = f_xoff(_qnear)
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _qst, extend = extendAll ? extend.both : extend.none))
+            if showTags
+                _txt = (_qsup ? "▲ " : "▼ ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPx ? "  " + str.tostring(_qnear, format.mintick) : "")
+                array.push(_lb, label.new(bar_index + _qx, _qnear, _txt, style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
+            _qi := _qj
