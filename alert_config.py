@@ -705,13 +705,15 @@ ENABLED_RULES: set[str] = {
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-21 — 50 removed) ──────
     "ma20_support_1h",
     "ma200_support_1h",
-    # ── Hourly volume-profile (isolated names only) — POC/VAL/VWAP support + VAH (2026-09-21) ─
-    "hourly_poc_reclaim",
-    "hourly_val_reclaim",
-    "hourly_vwap_support",
-    "hourly_vah_breakout",   # long — broke up through the 1h value-area high
-    "hourly_vah_reject",     # short — rejected at the 1h value-area high
-    "hourly_vah_support",    # long — VAH holding as support after a breakout
+    # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
+    # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
+    # Re-enable by uncommenting; monitor.py still computes them, this gate just drops delivery.
+    # "hourly_poc_reclaim",
+    # "hourly_val_reclaim",
+    # "hourly_vwap_support",
+    # "hourly_vah_breakout",   # long — broke up through the 1h value-area high
+    # "hourly_vah_reject",     # short — rejected at the 1h value-area high
+    # "hourly_vah_support",    # long — VAH holding as support after a breakout
     # ── 4H MA support bounces (day-trade): 20 (rising) + 50 + 200 ────────────────
     "ma20_support_4h",
     "ma50_support_4h",
