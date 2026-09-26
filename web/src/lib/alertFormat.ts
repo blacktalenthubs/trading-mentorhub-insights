@@ -21,6 +21,12 @@ export function isSwingAlert(alertType?: string): boolean {
 export function formatSetup(alertType?: string): string {
   const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (!t) return "Signal";
+  // Breakout scanner — breakout_<pattern> → "TBA breakout", "Ascending Triangle breakout", …
+  if (t.startsWith("breakout_")) {
+    const BO: Record<string, string> = { cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Ascending Triangle", bull_flag: "Bull Flag", horizontal_tba: "TBA", trendline_break: "Trendline" };
+    const p = t.slice("breakout_".length);
+    return `${BO[p] ?? p} breakout`;
+  }
   const swing = (name: string) => (isSwingAlert(alertType) ? `SWING · ${name}` : name);
   // Scanner MA ladder, both directions — ma_reclaim_50 -> "50 SMA Reclaim",
   // ema_rejection_21 -> "21 EMA Rejection". Mirrors _pretty_setup() in
@@ -369,10 +375,17 @@ export function isVolumeSignal(alertType?: string): boolean {
   return VOLUME_PROFILE_RE.test(alertType ?? "");
 }
 
-/** True for alerts that belong in the Signals feed — AI scans, TV signals, the
- *  scanner's own long entries, and volume-profile signals. No WAITs. */
+/** Breakout scanner signals — the "Breakout" feed. Momentum pattern breaks (cup&handle,
+ *  flat base, ascending triangle, bull flag, Zanger TBA + trendline), fired when price crosses
+ *  the trigger. alert_type = breakout_<pattern>. Kept separate from Day/Swing/Volume. */
+export function isBreakoutSignal(alertType?: string): boolean {
+  return (alertType ?? "").startsWith("breakout_");
+}
+
+/** True for alerts that belong in the Signals feed — AI scans, TV signals, the scanner's own
+ *  long entries, volume-profile signals, and breakout signals. No WAITs. */
 export function isFeedSignal(alertType?: string): boolean {
   const t = alertType ?? "";
   if (t === "ai_scan_wait") return false;
-  return t.startsWith("ai_") || t.startsWith("tv_") || isScannerEntry(t) || isVolumeSignal(t);
+  return t.startsWith("ai_") || t.startsWith("tv_") || isScannerEntry(t) || isVolumeSignal(t) || isBreakoutSignal(t);
 }

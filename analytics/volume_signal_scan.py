@@ -34,6 +34,9 @@ KIND_LABEL = {
 }
 
 
+_KEEP_KINDS = {k.strip() for k in os.environ.get("VOLUME_SIGNAL_KINDS", "val_bounce,vah_breakout").split(",") if k.strip()}
+
+
 def _daily(sym):  # pragma: no cover - network
     from analytics.market_data import fetch_ohlc
     df = fetch_ohlc(sym, period="14mo", interval="1d")
@@ -45,6 +48,11 @@ def check(sym: str, df) -> list[dict]:
         return []
     rows = []
     for s in detect_signals(df, sym, short_ok=sym in SHORT_UNIVERSE):
+        # EDGE signals only (2026-09-26, trader): keep VAH breakout (acceptance above value) and
+        # VAL bounce (the discount edge). Drop POC + VWAP — those are fair-value/mean levels where
+        # price chops. Override with VOLUME_SIGNAL_KINDS (comma-separated) if you want them back.
+        if s.kind not in _KEEP_KINDS:
+            continue
         stop = round(s.level * (0.985 if s.direction == "long" else 1.015), 2)
         risk = abs(s.price - stop)
         rows.append({

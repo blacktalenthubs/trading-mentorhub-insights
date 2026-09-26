@@ -921,6 +921,34 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register Breakout scan job")
 
+        # Live breakout ALERTS — fires when a pattern's price crosses its TBA during the session
+        # (daily chart). Standalone job (not the protected monitor); sends Telegram + records a
+        # Breakout-feed alert for user 3. Intraday cadence. BREAKOUT_ALERTS_ENABLED.
+        try:
+            _ba_env = os.environ.get("BREAKOUT_ALERTS_ENABLED", "true").strip().lower()
+            if _ba_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronBA
+                from zoneinfo import ZoneInfo as _ZIBA
+                _etba = _ZIBA("America/New_York")
+
+                def _run_breakout_alerts():
+                    try:
+                        from analytics.breakout_alerts import run as _ba_run
+                        rep = _ba_run()
+                        if rep.get("fired"):
+                            logger.info("Breakout alerts fired: %d", rep["fired"])
+                    except Exception:
+                        logger.exception("Breakout alerts failed")
+
+                scheduler.add_job(
+                    _run_breakout_alerts,
+                    _CronBA(minute="0,30", hour="10-15", day_of_week="mon-fri", timezone=_etba),
+                    id="breakout_alerts", replace_existing=True,
+                )
+                logger.info("Breakout alerts scheduled (:00/:30, 10:00-15:30 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Breakout alerts job")
+
         # Weekly Value board (Today tab) — daily job. Names AT their WEEKLY volume-profile
         # POC/VWAP/VAL (Robinhood data, matches the chart), top 10, FRESH reclaims first
         # (prior day's first close above the level). Runs once pre-market so it's ready for

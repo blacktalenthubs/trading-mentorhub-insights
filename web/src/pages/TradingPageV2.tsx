@@ -42,7 +42,7 @@ import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
-import { formatSetup, isFeedSignal, isVolumeSignal, setupBlurb } from "../lib/alertFormat";
+import { formatSetup, isFeedSignal, isVolumeSignal, isBreakoutSignal, setupBlurb } from "../lib/alertFormat";
 import { DisclaimerFooter } from "../components/DisclaimerModal";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
@@ -485,7 +485,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing" | "volume">("day");
+  const [view, setView] = useState<"day" | "swing" | "volume" | "breakout">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -570,13 +570,15 @@ function SignalFeedTab({
   // (POC / VAL / VAH) + anchored VWAP, split out of Day/Swing so they can be
   // evaluated over days on wider data without diluting the trade feeds.
   const volumeAlerts = feedAllRaw.filter((a) => isVolumeSignal(a.alert_type));
+  const breakoutAlerts = feedAllRaw.filter((a) => isBreakoutSignal(a.alert_type));
+  const _special = (t?: string) => isVolumeSignal(t) || isBreakoutSignal(t);   // kept out of Day/Swing
   const dayAlerts = feedAllRaw.filter(
-    (a) => !isVolumeSignal(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") === "day_trade",
+    (a) => !_special(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") === "day_trade",
   );
   const swingAlerts = feedAllRaw.filter(
-    (a) => !isVolumeSignal(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
+    (a) => !_special(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
   );
-  const feedAlerts = view === "day" ? dayAlerts : view === "volume" ? volumeAlerts : swingAlerts;
+  const feedAlerts = view === "day" ? dayAlerts : view === "volume" ? volumeAlerts : view === "breakout" ? breakoutAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -692,7 +694,7 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"], ["volume", "Volume"]] as const).map(([id, label], i) => (
+          {([["day", "Day"], ["swing", "Swing"], ["volume", "Volume"], ["breakout", "Breakout"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
@@ -700,12 +702,14 @@ function SignalFeedTab({
                 ? "Day trades — you must SELL the same day at some point (out by the close). 4H reactions (reclaim / rejection / break, 15m-confirmed) + gap-and-go."
                 : id === "volume"
                   ? "Volume profile — value-area levels (POC / VAL / VAH) + anchored VWAP. 1h value area held/reclaimed/broken. On trial over wider data."
-                  : "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."}
+                  : id === "breakout"
+                    ? "Momentum breakouts — price crossed a pattern trigger (TBA) on the daily chart: cup&handle, flat base, ascending triangle, bull flag, TBA/horizontal, trendline break. Fires during the session."
+                    : "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
               {label}{" "}
               <span className="opacity-70 font-normal">
-                {id === "day" ? dayAlerts.length : id === "volume" ? volumeAlerts.length : swingAlerts.length}
+                {id === "day" ? dayAlerts.length : id === "volume" ? volumeAlerts.length : id === "breakout" ? breakoutAlerts.length : swingAlerts.length}
               </span>
             </button>
           ))}
@@ -747,7 +751,9 @@ function SignalFeedTab({
           ? "Day trade — sell it the same session at some point (out by the close)."
           : view === "swing"
             ? "Swing — hold multiple days, as long as the thesis stays good."
-            : "Volume profile — where price is trading vs the 1h value area (POC / VAL / VAH) and anchored VWAP. On trial."}
+            : view === "breakout"
+              ? "Breakout — price crossed a pattern trigger (TBA) on the daily chart. Entry = the trigger, stop = the pattern low. Fires during the session."
+              : "Volume profile — where price is trading vs the 1h value area (POC / VAL / VAH) and anchored VWAP. On trial."}
       </div>
 
       {/* Focus-mode banner — makes an active Focus filter UNMISTAKABLE (it's a sticky,
@@ -942,7 +948,7 @@ function SignalFeedTab({
               : focusOnly && !hasFocus
                 ? "No Focus symbols yet — star symbols in your watchlist to build a Focus list"
                 : focusOnly
-                  ? `No ${view === "day" ? "day-trade" : view === "volume" ? "volume" : "swing"} signals for your Focus symbols this session`
+                  ? `No ${view === "day" ? "day-trade" : view === "volume" ? "volume" : view === "breakout" ? "breakout" : "swing"} signals for your Focus symbols this session`
                   : `No alerts this session`}
           </p>
         </div>
