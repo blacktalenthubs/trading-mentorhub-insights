@@ -362,39 +362,82 @@ const BREAKOUT_LABEL: Record<string, string> = {
   cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Asc. Triangle",
   bull_flag: "Bull Flag", horizontal_tba: "TBA breakout", trendline_break: "Trendline break",
 };
+type BoSort = "default" | "score" | "pct" | "risk" | "sym" | "rvol";
 function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  const [sortKey, setSortKey] = useState<BoSort>("default");
+  const [dir, setDir] = useState<"asc" | "desc">("desc");
   let parsed: { rows?: BreakoutRow[]; empty?: boolean } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const rows = parsed?.rows ?? [];
   if (rows.length === 0)
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No qualified breakout setups today.</div>;
   const nBreak = rows.filter((r) => r.stage === "breakout").length;
+  const clickSort = (k: BoSort) => {
+    if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setDir(k === "sym" || k === "pct" ? "asc" : "desc"); }   // pct: closest-to-trigger first
+  };
+  const sorted = [...rows].sort((a, b) => {
+    if (sortKey === "default")   // breakouts first, then by score
+      return ({ breakout: 0, forming: 1 }[a.stage] ?? 9) - ({ breakout: 0, forming: 1 }[b.stage] ?? 9) || b.score - a.score;
+    let c = 0;
+    if (sortKey === "score") c = a.score - b.score;
+    else if (sortKey === "pct") c = Math.abs(a.pct_to_buy ?? 999) - Math.abs(b.pct_to_buy ?? 999);
+    else if (sortKey === "risk") c = (a.risk_pct ?? 999) - (b.risk_pct ?? 999);
+    else if (sortKey === "rvol") c = a.rvol - b.rvol;
+    else if (sortKey === "sym") c = a.ticker.localeCompare(b.ticker);
+    return dir === "asc" ? c : -c;
+  });
+  const arrow = (k: BoSort) => (sortKey === k ? (dir === "asc" ? "▲" : "▼") : "↕");
+  const Th = ({ label, k, align = "right" }: { label: string; k?: BoSort; align?: "left" | "right" }) => (
+    <th className={`border-b border-border-subtle px-2 py-1.5 text-[9.5px] font-semibold uppercase tracking-wide text-text-faint ${align === "right" ? "text-right" : "text-left"} whitespace-nowrap`}>
+      {k ? <button onClick={() => clickSort(k)} className={`inline-flex items-center gap-0.5 uppercase hover:text-text-secondary ${sortKey === k ? "text-text-primary" : ""}`}>{label}<span className="text-[8px]">{arrow(k)}</span></button> : label}
+    </th>
+  );
   return (
-    <div className="space-y-2.5">
-      <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Educational — verify on your chart.</div>
-      {rows.map((r, i) => {
-        const brk = r.stage === "breakout";
-        return (
-          <div key={r.ticker + r.pattern + i} className={`rounded-lg border px-3 py-2 ${brk ? "border-bullish-text/30 bg-bullish-text/5" : "border-warning-text/25 bg-warning-text/5"}`}>
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <button onClick={() => onChart(r.ticker)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
-                <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[9.5px] font-semibold text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</span>
-                <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? `▲ breakout ${r.rvol}x` : "forming"}</span>
-                {!r.volume_ok && brk && <span title="Broke the level but volume was light — borderline." className="rounded bg-warning-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-warning-text">⚠ light vol</span>}
-              </div>
-              <span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-accent">{r.score}</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums text-text-muted">
-              <span>TBA <b className="text-text-secondary">${r.buy_point.toFixed(2)}</b>{r.pct_to_buy != null && <span className="text-text-faint"> ({r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%)</span>}</span>
-              <span>stop <span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span></span>
-              {r.risk_pct != null && <span>risk {r.risk_pct}%</span>}
-              <span className="text-text-faint">${r.last_close.toFixed(2)}</span>
-            </div>
-            <div className="mt-0.5 text-[10.5px] text-text-faint">{r.reason}</div>
-          </div>
-        );
-      })}
+    <div className="space-y-2">
+      <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Click a symbol for the chart. Educational — verify before acting.</div>
+      <div className="overflow-x-auto rounded-xl border border-border-subtle">
+        <table className="w-full border-collapse">
+          <thead><tr className="bg-surface-1">
+            <Th label="Symbol" k="sym" align="left" />
+            <Th label="Pattern" align="left" />
+            <Th label="Why now" align="left" />
+            <Th label="TBA" k="pct" />
+            <Th label="Stop / risk" k="risk" />
+            <Th label="RVOL" k="rvol" />
+            <Th label="Score" k="score" />
+          </tr></thead>
+          <tbody>
+            {sorted.map((r, i) => {
+              const brk = r.stage === "breakout";
+              return (
+                <tr key={r.ticker + r.pattern + i} className={`border-b border-border-subtle last:border-0 ${brk ? "bg-bullish-text/[0.04]" : "hover:bg-surface-1"}`}>
+                  <td className="px-2 py-2 align-top">
+                    <button onClick={() => onChart(r.ticker)} className="font-mono text-[12.5px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
+                    <div className="mt-0.5">
+                      <span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? "▲ breakout" : "forming"}</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 align-top text-[11px] text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</td>
+                  <td className="px-2 py-2 align-top text-[10.5px] text-text-faint"><span className="block max-w-[280px]">{r.reason}</span></td>
+                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap">
+                    <span className="font-semibold text-text-secondary">${r.buy_point.toFixed(2)}</span>
+                    {r.pct_to_buy != null && <span className="text-text-faint"> {r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%</span>}
+                  </td>
+                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap">
+                    <span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span>
+                    {r.risk_pct != null && <span className="text-text-faint"> {r.risk_pct}%</span>}
+                  </td>
+                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums">
+                    <span className={r.volume_ok ? "text-bullish-text" : "text-text-muted"}>{r.rvol}x</span>
+                  </td>
+                  <td className="px-2 py-2 align-top text-right"><span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">{r.score}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
