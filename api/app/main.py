@@ -906,7 +906,9 @@ async def lifespan(app: FastAPI):
                         from patterns.screener import scan as _bo_scan
                         from patterns.writer import publish as _bo_pub
                         syms = _watchlist(os.environ["DATABASE_URL"])
-                        rep = _bo_scan(syms, earnings_filter=True)
+                        # earnings_filter OFF (2026-09-26, trader): trade INTO earnings weeks;
+                        # not holding through the announcement is an exit rule, not a scanner gate.
+                        rep = _bo_scan(syms, earnings_filter=False)
                         _bo_pub(rep, _dt.date.today().isoformat())
                         logger.info("Breakout scan posted (%d setups over %d names)", len(rep["rows"]), rep["scanned"])
                     except Exception:
