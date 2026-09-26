@@ -688,6 +688,21 @@ async def premium_desk_latest(
     }
 
 
+@router.get("/leap-desk/latest")
+async def leap_desk_latest(
+    date: str | None = None,
+    db: AsyncSession = Depends(get_db_dep),
+    user: User = Depends(get_current_user),
+):
+    """LEAP Desk feed — deep-oversold entries on strong companies (+ index ETFs) for
+    long-dated calls, published by analytics/leap_scan.py to market_reports(kind='leap_desk').
+    Latest session by default, or a given ?date=YYYY-MM-DD. Fails soft (None if absent)."""
+    return {
+        "leap_desk": await _latest_report(db, "leap_desk", date),
+        "session_date": date,
+    }
+
+
 @router.get("/premium-desk/chain")
 async def premium_desk_chain(
     sym: str = Query(..., min_length=1, max_length=10),

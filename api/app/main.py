@@ -855,6 +855,39 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register Premium Desk scan job")
 
+        # LEAP Desk scan — hunt deep-oversold entries on strong companies (+ index ETFs) for
+        # long-dated calls. Quality-gated, RSI trigger scales with quality (elite ~35, else ≤30).
+        # Publishes market_reports(kind='leap_desk') for the LEAP tab. Same cadence as the Premium
+        # Desk so the list is ready pre-open and refreshes intraday. Toggle: LEAP_DESK_ENABLED.
+        try:
+            _leap_env = os.environ.get("LEAP_DESK_ENABLED", "true").strip().lower()
+            if _leap_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronLD
+                from zoneinfo import ZoneInfo as _ZILD
+                _etld = _ZILD("America/New_York")
+
+                def _run_leap_desk():
+                    try:
+                        import datetime as _dt
+                        from analytics.leap_scan import scan as _ld_scan, publish as _ld_pub
+                        rep = _ld_scan()
+                        _ld_pub(rep, _dt.date.today().isoformat())
+                        t = rep.get("tiers", {})
+                        logger.info("LEAP Desk scan posted (%d rows: %d prime / %d strong / %d watch)",
+                                    len(rep.get("rows", [])), t.get("prime", 0), t.get("strong", 0), t.get("watch", 0))
+                    except Exception:
+                        logger.exception("LEAP Desk scan failed")
+
+                for _li, (_lh, _lm) in enumerate([(9, 40), (11, 0), (13, 0), (14, 30), (15, 57), (16, 15)]):
+                    scheduler.add_job(
+                        _run_leap_desk,
+                        _CronLD(hour=_lh, minute=_lm, day_of_week="mon-fri", timezone=_etld),
+                        id=f"leap_desk_scan_{_li}", replace_existing=True,
+                    )
+                logger.info("LEAP Desk scan scheduled (09:40/11:00/13:00/14:30/15:57/16:15 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register LEAP Desk scan job")
+
         # Weekly Value board (Today tab) — daily job. Names AT their WEEKLY volume-profile
         # POC/VWAP/VAL (Robinhood data, matches the chart), top 10, FRESH reclaims first
         # (prior day's first close above the level). Runs once pre-market so it's ready for

@@ -10,9 +10,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { usePremiumDesk, type PremiumDeskReport, type PremiumDeskRow } from "../api/hooks";
+import { usePremiumDesk, useLeapDesk, type PremiumDeskReport, type PremiumDeskRow, type LeapDeskReport, type LeapDeskRow } from "../api/hooks";
 import PremiumTradePanel from "../components/PremiumTradePanel";
 
+type Desk = "premium" | "leap";
 type Tier = "low" | "med" | "high";
 type Filter = "qual" | "watch" | "all";
 type InstrFilter = "all" | "direct" | "lev";
@@ -26,6 +27,7 @@ const TIER_ORDER: Tier[] = ["low", "med", "high"];
 
 export default function PremiumDeskPage() {
   const nav = useNavigate();
+  const [desk, setDesk] = useState<Desk>("premium");
   const { data, isLoading } = usePremiumDesk();
 
   const rep = useMemo<PremiumDeskReport | null>(() => {
@@ -68,14 +70,23 @@ export default function PremiumDeskPage() {
         <div className="flex items-start gap-4">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 text-[19px] font-extrabold tracking-tight text-text-primary">
-              <span className="h-2 w-2 rounded-full bg-accent" />Premium Desk
+              <span className="h-2 w-2 rounded-full bg-accent" />{desk === "leap" ? "LEAP Desk" : "Premium Desk"}
             </h1>
-            <p className="mt-0.5 max-w-2xl text-[12px] text-text-muted">Selling premium on mega-cap leveraged-ETF options, ranked by entry quality. Educational — verify the live chain before selling.</p>
-            {asOf && <p className="mt-0.5 font-mono text-[10.5px] text-text-faint">as of {asOf}</p>}
+            <p className="mt-0.5 max-w-2xl text-[12px] text-text-muted">{desk === "leap"
+              ? "Deep-oversold entries on strong companies (+ index ETFs) for long-dated ITM calls. The rare, generational shot — quality-gated. Educational; verify the live chain before buying."
+              : "Selling premium on mega-cap leveraged-ETF options, ranked by entry quality. Educational — verify the live chain before selling."}</p>
+            {desk === "premium" && asOf && <p className="mt-0.5 font-mono text-[10.5px] text-text-faint">as of {asOf}</p>}
           </div>
-          <button onClick={() => nav("/premium-desk/positions")} className="ml-auto shrink-0 rounded-lg border border-border-default bg-surface-1 px-3 py-2 text-[12px] font-semibold text-text-secondary hover:border-accent hover:text-text-primary">Positions &amp; P&amp;L →</button>
+          {/* Desk switch — Premium (sell puts) | LEAP (buy long-dated calls) */}
+          <div className="ml-auto flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+            {([["premium", "Premium"], ["leap", "LEAP"]] as const).map(([d, label]) => (
+              <button key={d} onClick={() => setDesk(d)} aria-pressed={desk === d}
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${desk === d ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
+            ))}
+          </div>
+          {desk === "premium" && <button onClick={() => nav("/premium-desk/positions")} className="shrink-0 rounded-lg border border-border-default bg-surface-1 px-3 py-2 text-[12px] font-semibold text-text-secondary hover:border-accent hover:text-text-primary">Positions &amp; P&amp;L →</button>}
         </div>
-        {rep && (
+        {desk === "premium" && rep && (
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex gap-2">
               {TIER_ORDER.map((t) => (
@@ -105,8 +116,10 @@ export default function PremiumDeskPage() {
         )}
       </header>
 
-      {isLoading && <div className="grid flex-1 place-items-center text-[13px] text-text-faint">Loading the desk…</div>}
-      {!isLoading && !rep && (
+      {desk === "leap" && <LeapDeskView />}
+
+      {desk === "premium" && isLoading && <div className="grid flex-1 place-items-center text-[13px] text-text-faint">Loading the desk…</div>}
+      {desk === "premium" && !isLoading && !rep && (
         <div className="grid flex-1 place-items-center px-6 text-center">
           <div>
             <div className="text-[14px] font-semibold text-text-secondary">The desk is warming up.</div>
@@ -115,7 +128,7 @@ export default function PremiumDeskPage() {
         </div>
       )}
 
-      {rep && (
+      {desk === "premium" && rep && (
         <div className="flex min-h-0 flex-1">
           {/* List */}
           <div className="min-w-0 flex-1 overflow-y-auto">
@@ -181,6 +194,139 @@ function TierGroup({ tier, items, selected, onOpen }: {
             <td className="px-3 py-2.5 text-right font-mono text-[12px]">{r.earnings_days == null ? <span className="text-text-faint">—</span> : <span className={r.earnings_warn ? "text-bearish-text" : "text-text-muted"}>{r.earnings_warn ? "⚠ " : ""}{r.earnings_days}d</span>}</td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px] font-semibold text-text-primary">${r.strike.toFixed(2)}</td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px] text-text-secondary">{r.score.toFixed(1)}</td>
+          </tr>
+        );
+      })}
+    </>
+  );
+}
+
+// ── LEAP Desk view — buying long-dated ITM calls on deep-oversold strong names ──
+type LeapTier = "prime" | "strong" | "watch";
+const LEAP_TIER = {
+  prime: { label: "Prime", desc: "Generational — weekly oversold at the 200-day", badge: "bg-bullish-text/15 text-bullish-text", accent: "text-bullish-text", stripe: "shadow-[inset_3px_0_0_var(--color-bullish-text)]" },
+  strong: { label: "Strong", desc: "A qualified oversold entry on a strong name", badge: "bg-accent/15 text-accent", accent: "text-accent", stripe: "shadow-[inset_3px_0_0_var(--color-accent)]" },
+  watch: { label: "Watch", desc: "Approaching the entry zone — not there yet", badge: "bg-warning-text/15 text-warning-text", accent: "text-warning-text", stripe: "shadow-[inset_3px_0_0_var(--color-warning-text)]" },
+} as const;
+const LEAP_ORDER: LeapTier[] = ["prime", "strong", "watch"];
+// Fundamentals letter grade (A best → D weakest that still passed the gate).
+const GRADE_CLS: Record<string, string> = {
+  A: "bg-bullish-text/15 text-bullish-text",
+  B: "bg-accent/15 text-accent",
+  C: "bg-warning-text/15 text-warning-text",
+  D: "bg-bearish-text/15 text-bearish-text",
+};
+
+function LeapDeskView() {
+  const { data, isLoading } = useLeapDesk();
+  const rep = useMemo<LeapDeskReport | null>(() => {
+    const body = data?.leap_desk?.body;
+    if (!body) return null;
+    try { return JSON.parse(body) as LeapDeskReport; } catch { return null; }
+  }, [data]);
+  const [filter, setFilter] = useState<Filter>("qual");
+  const [kind, setKind] = useState<"all" | "index" | "stock">("all");
+  const asOf = data?.leap_desk?.session_date;
+
+  const allRows = rep?.rows ?? [];
+  const rows = kind === "all" ? allRows : allRows.filter((r) => r.kind === kind);
+  const qual = rows.filter((r) => r.qualifies);
+  const watch = rows.filter((r) => !r.qualifies);
+  const shown = filter === "qual" ? qual : filter === "watch" ? watch : rows;
+  const sorted = [...shown].sort((a, b) => LEAP_ORDER.indexOf(a.tier) - LEAP_ORDER.indexOf(b.tier) || b.quality_score - a.quality_score);
+
+  if (isLoading) return <div className="grid flex-1 place-items-center text-[13px] text-text-faint">Loading the LEAP desk…</div>;
+  if (!rep) return (
+    <div className="grid flex-1 place-items-center px-6 text-center">
+      <div>
+        <div className="text-[14px] font-semibold text-text-secondary">No LEAP setups on the board.</div>
+        <div className="mx-auto mt-1.5 max-w-sm text-[12px] text-text-faint">That's the point — these are the 2–3 generational entries a year. The desk stays quiet until a strong name is deeply oversold.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border-subtle px-4 py-2.5 lg:px-6">
+        <div className="flex gap-2">
+          {LEAP_ORDER.map((t) => (
+            <div key={t} className="flex items-baseline gap-1.5 rounded-lg border border-border-subtle bg-surface-1 px-3 py-1.5">
+              <b className={`text-[15px] font-extrabold ${LEAP_TIER[t].accent}`}>{qual.filter((r) => r.tier === t).length}</b>
+              <span className="text-[9.5px] font-semibold uppercase tracking-wide text-text-faint">{LEAP_TIER[t].label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+          {([["qual", "Qualifying", qual.length], ["watch", "Watch", watch.length], ["all", "All", rows.length]] as const).map(([f, label, n]) => (
+            <button key={f} onClick={() => setFilter(f)} aria-pressed={filter === f}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold ${filter === f ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>
+              {label}<span className={`font-mono text-[10px] ${filter === f ? "text-accent" : "text-text-faint"}`}>{n}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+          {([["all", "All"], ["index", "Index"], ["stock", "Stocks"]] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setKind(k)} aria-pressed={kind === k}
+              className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${kind === k ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
+          ))}
+        </div>
+        {asOf && <span className="ml-auto font-mono text-[10.5px] text-text-faint">as of {asOf}</span>}
+      </div>
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="sticky top-0 z-10 bg-surface-0">
+              {["Symbol", "Entry — why now", "RSI d/w", "vs 200d", "Grade", "IV", "Buy ~ITM call"].map((h, i) => (
+                <th key={h} className={`border-b border-border-subtle px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-text-faint ${i >= 2 ? "text-right" : "text-left"} whitespace-nowrap`}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-text-faint">Nothing in this bucket right now.</td></tr>}
+            {LEAP_ORDER.map((tier) => {
+              const items = sorted.filter((r) => r.tier === tier);
+              if (!items.length) return null;
+              return <LeapTierGroup key={tier} tier={tier} items={items} />;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function LeapTierGroup({ tier, items }: { tier: LeapTier; items: LeapDeskRow[] }) {
+  return (
+    <>
+      <tr>
+        <td colSpan={7} className="border-b border-border-subtle bg-surface-1 px-3 py-1.5">
+          <span className={`mr-2 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${LEAP_TIER[tier].badge}`}>{LEAP_TIER[tier].label}</span>
+          <span className="text-[11px] text-text-faint">{LEAP_TIER[tier].desc}</span>
+        </td>
+      </tr>
+      {items.map((r) => {
+        const rsiCls = r.rsi_d == null ? "text-text-faint" : r.rsi_d < 40 ? "text-bullish-text" : r.rsi_d >= 65 ? "text-bearish-text" : "text-text-primary";
+        const distCls = r.dist_200_pct == null ? "text-text-faint" : r.dist_200_pct <= 1 ? "text-bullish-text" : "text-text-muted";
+        return (
+          <tr key={r.sym} className="border-b border-border-subtle hover:bg-surface-1">
+            <td className="px-3 py-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[13px] font-semibold text-text-primary">{r.sym}</span>
+                {r.kind === "index" && <span className="rounded bg-purple-muted/40 px-1 py-0.5 font-mono text-[9px] font-semibold text-purple-text">IDX</span>}
+              </div>
+              <div className="text-[11px] capitalize text-text-muted">{r.quality_warming ? "quality warming" : r.quality_tier}</div>
+            </td>
+            <td className="px-3 py-2.5"><span className="block max-w-[260px] text-[12px] text-text-secondary">{r.rationale?.[0] ?? ""}</span></td>
+            <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className={rsiCls}>{r.rsi_d ?? "—"}</span><span className="text-text-faint">/{r.rsi_w ?? "—"}</span></td>
+            <td className={`px-3 py-2.5 text-right font-mono text-[12px] ${distCls}`}>{r.dist_200_pct == null ? "—" : `${r.dist_200_pct > 0 ? "+" : ""}${r.dist_200_pct}%`}</td>
+            <td className="px-3 py-2.5 text-right">{r.quality_warming ? <span className="font-mono text-[11px] text-text-faint">warming</span> : (
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GRADE_CLS[r.grade] ?? "bg-surface-2 text-text-muted"}`}>{r.grade}</span>
+                <span className="font-mono text-[12px] text-text-secondary">{r.quality_score}</span>
+              </span>
+            )}</td>
+            <td className="px-3 py-2.5 text-right font-mono text-[11px]">{r.iv_warming || r.iv_rank == null ? <span className="text-text-faint">—</span> : <span className={r.iv_note.startsWith("cheap") ? "text-bullish-text" : r.iv_note.startsWith("rich") ? "text-bearish-text" : "text-text-muted"}>{r.iv_rank}{r.iv_note ? ` ${r.iv_note}` : ""}</span>}</td>
+            <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className="font-semibold text-text-primary">${r.strike.toFixed(2)}</span> <span className="text-text-faint">{r.expiry.slice(0, 7)}</span></td>
           </tr>
         );
       })}
