@@ -351,6 +351,7 @@ function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void 
                 <button onClick={() => onChart(r.sym)} title={`Open ${r.sym} chart`}
                   className="font-mono text-[13px] font-semibold text-text-primary underline decoration-transparent underline-offset-2 hover:text-accent hover:decoration-accent">{r.sym}</button>
                 {r.kind === "index" && <span className="rounded bg-purple-muted/40 px-1 py-0.5 font-mono text-[9px] font-semibold text-purple-text">IDX</span>}
+                {r.breadth && <span title="Breadth washout — this index is oversold vs cap-weight SPY (the average stock got flushed)" className="rounded bg-bullish-text/15 px-1 py-0.5 text-[9px] font-semibold text-bullish-text">BREADTH</span>}
               </div>
               <div className="text-[11px] capitalize text-text-muted">{r.quality_warming ? "quality warming" : r.quality_tier}</div>
             </td>
