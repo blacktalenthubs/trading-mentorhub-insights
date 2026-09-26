@@ -52,3 +52,4 @@ pyotp>=2.9.0
 # Gated by GOOGLE_CLIENT_ID env var; import is lazy in the endpoint so
 # missing this dep would only surface when the endpoint is hit.
 google-auth>=2.30.0
+scipy>=1.10.0
