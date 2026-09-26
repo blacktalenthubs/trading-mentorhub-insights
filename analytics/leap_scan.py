@@ -30,6 +30,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analytics import leap_universe  # noqa: E402
 
+# Breadth proxies — indexes whose weakness vs cap-weight SPY signals a BROAD-market washout
+# (the average stock is being sold, not just the index optics). An equal-weight / mid / small
+# index oversold WHILE SPY holds up is the real "breadth divergence" tell.
+BREADTH_VS_SPY = {"RSP": "equal-weight S&P", "MDY": "mid-caps", "IWM": "small-caps"}
+BREADTH_GAP = 5.0        # index RSI must be this many points below SPY's to flag divergence
+
 MC_FLOOR = 10e9          # $10B — big enough for deep, liquid LEAP chains
 RSI_BASE_D = 30.0        # daily oversold gate for a merely-strong name
 RSI_BASE_W = 35.0        # weekly oversold gate (the generational signal)
@@ -138,7 +144,7 @@ def _quality(fund, is_idx):
     return score, bonus, tier, passes, False, reasons
 
 
-def score_leap(sym, daily, weekly, fund, iv, is_idx):
+def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
     if daily is None or weekly is None or len(daily) < 30 or len(weekly) < 10:
         return None
     dc = daily["Close"].astype(float)
@@ -181,6 +187,12 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx):
     elif not math.isnan(dist_200) and dist_200 <= 4.0:
         rat.append(f"{dist_200:.1f}% above the 200-day")
     rat += q_reasons
+    # Breadth divergence — a breadth index (RSP/MDY/IWM) oversold vs cap-weight SPY. The real
+    # tell: the average stock got flushed while the mega-caps masked it. Leads the rationale.
+    breadth = (is_idx and sym in BREADTH_VS_SPY and spy_rsi_d is not None
+               and not math.isnan(rsi_d) and rsi_d < 50.0 and rsi_d <= spy_rsi_d - BREADTH_GAP)
+    if breadth:
+        rat.insert(0, f"breadth washout — {BREADTH_VS_SPY[sym]} oversold (RSI {rsi_d:.0f}) vs cap-weight SPY {spy_rsi_d:.0f}")
     if tier == "watch" and not rat:
         rat.append("approaching the entry zone")
 
@@ -210,7 +222,7 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx):
         "consensus": (fund or {}).get("consensus"),
         "iv_rank": ivr, "iv_warming": iv_warming, "iv_note": iv_note,
         "strike": strike, "dte": LEAP_DTE, "expiry": expiry,
-        "rationale": rat,
+        "breadth": breadth, "rationale": rat,
     }
 
 
@@ -227,6 +239,14 @@ def scan(symbols=None):  # pragma: no cover - network
     from analytics.iv_snapshot import iv_rank
     syms = [s.upper() for s in (symbols or leap_universe.UNIVERSE)]
     funds = _read_fundamentals(syms)
+    # Cap-weight SPY RSI — the breadth benchmark the equal-weight/broad indexes are judged against.
+    spy_rsi_d = None
+    try:
+        _sd = _daily("SPY")
+        if _sd is not None and len(_sd) > 20:
+            spy_rsi_d = _rsi_last(_sd["Close"])
+    except Exception:
+        pass
     rows = []
     for sym in syms:
         try:
@@ -234,7 +254,7 @@ def scan(symbols=None):  # pragma: no cover - network
                 iv = iv_rank(sym)
             except Exception:
                 iv = None
-            c = score_leap(sym, _daily(sym), _weekly(sym), funds.get(sym), iv, leap_universe.is_index(sym))
+            c = score_leap(sym, _daily(sym), _weekly(sym), funds.get(sym), iv, leap_universe.is_index(sym), spy_rsi_d)
             if c:
                 rows.append(c)
         except Exception:

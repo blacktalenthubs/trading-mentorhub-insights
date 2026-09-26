@@ -44,6 +44,17 @@ def test_elite_rsi_gate_reaches_35():
     assert tier == "elite" and bonus == 5
 
 
+def test_breadth_divergence_flagged():
+    # RSP oversold (RSI ~38) while cap-weight SPY holds up (RSI ~50) → breadth flag + note.
+    d = _bars(230, 210, 260, "D"); w = _bars(240, 210, 60, "W")
+    r = L.score_leap("RSP", d, w, None, None, True, spy_rsi_d=50.0)
+    assert r is not None and r["breadth"] is True
+    assert any("breadth washout" in s for s in r["rationale"])
+    # No SPY reference → no breadth claim.
+    r2 = L.score_leap("RSP", d, w, None, None, True, spy_rsi_d=None)
+    assert r2["breadth"] is False
+
+
 def test_universe_has_indexes_and_stocks():
     assert U.is_index("SPY") and not U.is_index("AAPL")
     assert "ABNB" in U.UNIVERSE and "QQQ" in U.UNIVERSE
