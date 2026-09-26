@@ -55,17 +55,33 @@ def _row(sym, df, hit, cfg):
     stop = hit["suggested_stop"]
     score = compose_score(hit["_parts"], df, cfg)
     dist_200 = (last_close - float(last["sma200"])) / float(last["sma200"]) * 100.0 if last["sma200"] else None
+    pct_to_buy = (bp - last_close) / last_close * 100.0 if last_close else 0.0
+    # Entry = where you'd actually get in: at the trigger for a forming setup, at market for a
+    # confirmed breakout. Risk is measured FROM that entry to the stop — the real number to size on.
+    entry = last_close if hit["stage"] == "breakout" else bp
+    entry_risk = (entry - stop) / entry * 100.0 if entry else None
+    near = hit["stage"] == "breakout" or pct_to_buy <= cfg.max_pct_to_trigger
+    tight = entry_risk is not None and entry_risk <= cfg.max_setup_risk_pct
+    actionable = bool(near and tight)
+    if actionable:
+        why = "actionable now"
+    elif not near:
+        why = f"watch — {pct_to_buy:.1f}% below the trigger"
+    else:
+        why = f"watch — wide {entry_risk:.0f}% stop"
     note = (f"breakout on {hit['rvol']}x volume" if hit["stage"] == "breakout"
-            else (f"{(bp - last_close) / last_close * 100:.1f}% to trigger" if bp > last_close else "at the trigger"))
+            else (f"{pct_to_buy:.1f}% to trigger" if bp > last_close else "at the trigger"))
     return {
         "ticker": sym,
         "pattern": hit["pattern"],
         "stage": hit["stage"],
         "buy_point": bp,
         "last_close": round(last_close, 2),
-        "pct_to_buy": round((bp - last_close) / last_close * 100.0, 2) if last_close else None,
+        "pct_to_buy": round(pct_to_buy, 2) if last_close else None,
         "suggested_stop": stop,
-        "risk_pct": round((last_close - stop) / last_close * 100.0, 2) if last_close else None,
+        "risk_pct": round(entry_risk, 2) if entry_risk is not None else None,   # risk from the entry (trigger/market)
+        "actionable": actionable,
+        "entry_status": why,
         "rvol": hit["rvol"],
         "volume_ok": hit["volume_ok"],
         "base_depth_pct": hit["base_depth_pct"],

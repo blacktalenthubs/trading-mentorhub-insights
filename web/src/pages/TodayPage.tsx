@@ -357,6 +357,7 @@ interface BreakoutRow {
   pct_to_buy: number | null; suggested_stop: number; risk_pct: number | null; rvol: number;
   volume_ok: boolean; base_depth_pct: number; base_length_days: number; rsi14: number | null;
   dist_from_200sma_pct: number | null; score: number; reason: string;
+  actionable?: boolean; entry_status?: string;
 }
 const BREAKOUT_LABEL: Record<string, string> = {
   cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Asc. Triangle",
@@ -369,19 +370,21 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
   const [sortKey, setSortKey] = useState<BoSort>("default");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
   const [group, setGroup] = useState<BoGroup>("pattern");
+  const [actionableOnly, setActionableOnly] = useState(false);
   let parsed: { rows?: BreakoutRow[]; empty?: boolean } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
-  const rows = parsed?.rows ?? [];
-  if (rows.length === 0)
+  const allRows = parsed?.rows ?? [];
+  if (allRows.length === 0)
     return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No qualified breakout setups today.</div>;
-  const nBreak = rows.filter((r) => r.stage === "breakout").length;
+  const nAction = allRows.filter((r) => r.actionable).length;
+  const rows = actionableOnly ? allRows.filter((r) => r.actionable) : allRows;
   const clickSort = (k: BoSort) => {
     if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setDir(k === "sym" || k === "pct" ? "asc" : "desc"); }   // pct: closest-to-trigger first
   };
   const sortRows = (list: BreakoutRow[]) => [...list].sort((a, b) => {
-    if (sortKey === "default")   // breakouts first, then by score
-      return ({ breakout: 0, forming: 1 }[a.stage] ?? 9) - ({ breakout: 0, forming: 1 }[b.stage] ?? 9) || b.score - a.score;
+    if (sortKey === "default")   // actionable first, then breakouts, then by score
+      return (Number(!!b.actionable) - Number(!!a.actionable)) || (({ breakout: 0, forming: 1 }[a.stage] ?? 9) - ({ breakout: 0, forming: 1 }[b.stage] ?? 9)) || b.score - a.score;
     let c = 0;
     if (sortKey === "score") c = a.score - b.score;
     else if (sortKey === "pct") c = Math.abs(a.pct_to_buy ?? 999) - Math.abs(b.pct_to_buy ?? 999);
@@ -405,10 +408,15 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
   const renderRow = (r: BreakoutRow, i: number) => {
     const brk = r.stage === "breakout";
     return (
-      <tr key={r.ticker + r.pattern + i} className={`border-b border-border-subtle ${brk ? "bg-bullish-text/[0.04]" : "hover:bg-surface-1"}`}>
+      <tr key={r.ticker + r.pattern + i} className={`border-b border-border-subtle ${r.actionable ? "bg-bullish-text/[0.04]" : "opacity-80 hover:bg-surface-1"}`}>
         <td className="px-2 py-2 align-top">
           <button onClick={() => onChart(r.ticker)} className="font-mono text-[12.5px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
-          <div className="mt-0.5"><span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? "▲ breakout" : "forming"}</span></div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1">
+            <span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-surface-2 text-text-muted"}`}>{brk ? "▲ breakout" : "forming"}</span>
+            {r.actionable
+              ? <span className="rounded bg-bullish-text/15 px-1 py-0.5 text-[9px] font-semibold text-bullish-text">✓ ready</span>
+              : <span title={r.entry_status} className="rounded bg-warning-text/15 px-1 py-0.5 text-[9px] font-semibold text-warning-text">watch</span>}
+          </div>
         </td>
         {group !== "pattern" && <td className="px-2 py-2 align-top text-[11px] text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</td>}
         <td className="px-2 py-2 align-top text-[10.5px] text-text-faint"><span className="block max-w-[280px]">{r.reason}</span></td>
@@ -423,8 +431,10 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Click a symbol for the chart.</div>
-        <div className="ml-auto flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+        <div className="text-[10.5px] text-text-faint"><b className="text-bullish-text">{nAction} actionable</b> · {allRows.length - nAction} watch · TBA = buy trigger, max stop = invalidation. Click a symbol for the chart.</div>
+        <button onClick={() => setActionableOnly((v) => !v)} aria-pressed={actionableOnly}
+          className={`ml-auto rounded-lg border px-2.5 py-1 text-[11px] font-semibold ${actionableOnly ? "border-bullish-text/40 bg-bullish-text/10 text-bullish-text" : "border-border-subtle bg-surface-1 text-text-muted hover:text-text-secondary"}`}>✓ Actionable only</button>
+        <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
           {([["pattern", "By pattern"], ["stage", "By stage"], ["flat", "Flat"]] as const).map(([g, label]) => (
             <button key={g} onClick={() => setGroup(g)} aria-pressed={group === g}
               className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${group === g ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
