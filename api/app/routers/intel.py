@@ -738,6 +738,121 @@ async def leap_desk_chain(
         return {"available": False, "reason": "fetch failed", "rows": []}
 
 
+# --- On-demand job runners ----------------------------------------------------
+# Run any scheduled scan NOW instead of waiting for its cron. Each runner mirrors exactly
+# what its scheduled job does in main.py. Admin only. Jobs run in a daemon thread (they're
+# network-heavy and sync) with a per-job lock so a double-click can't double-run; the UI polls
+# the report's created_at to see the refresh land.
+import os as _os_jobs  # noqa: E402
+import threading as _threading  # noqa: E402
+import datetime as _dt_jobs  # noqa: E402
+import logging as _logging_jobs  # noqa: E402
+
+_jlog = _logging_jobs.getLogger("intel.jobs")
+_JOB_STATE: dict = {}
+_JOB_LOCK = _threading.Lock()
+
+
+def _today_iso():
+    return _dt_jobs.date.today().isoformat()
+
+
+def _job_breakout():
+    from analytics.swing_setups_report import _watchlist
+    from patterns.screener import scan
+    from patterns.writer import publish
+    syms = _watchlist(_os_jobs.environ["DATABASE_URL"])
+    publish(scan(syms, earnings_filter=True), _today_iso())
+
+
+def _job_premium():
+    from analytics.premium_desk_scan import scan, publish
+    publish(scan(), _today_iso())
+
+
+def _job_leap():
+    from analytics.leap_scan import scan, publish
+    publish(scan(), _today_iso())
+
+
+def _job_support():
+    from analytics.support_scan import scan, publish
+    from analytics.swing_setups_report import _watchlist
+    syms = _watchlist(_os_jobs.environ["DATABASE_URL"])
+    publish(scan(syms), _today_iso())
+
+
+def _job_weekly_vp():
+    from analytics.weekly_vp_scan import run_daily, publish
+    from analytics.swing_setups_report import _watchlist
+    syms = _watchlist(_os_jobs.environ["DATABASE_URL"])
+    weeks = int(_os_jobs.environ.get("WEEKLY_VP_WEEKS", "156"))
+    date = _today_iso()
+    publish(run_daily(syms, date, weeks=weeks, tol=0.02), date)
+
+
+_JOBS = {
+    "breakout_setups": {"label": "Breakouts", "kind": "breakout_setups", "run": _job_breakout},
+    "premium_desk": {"label": "Premium Desk", "kind": "premium_desk", "run": _job_premium},
+    "leap_desk": {"label": "LEAP Desk", "kind": "leap_desk", "run": _job_leap},
+    "support": {"label": "At Support / Oversold", "kind": "support", "run": _job_support},
+    "weekly_vp": {"label": "Weekly Value", "kind": "weekly_vp", "run": _job_weekly_vp},
+}
+
+
+def _launch_job(name: str):
+    def _target():
+        try:
+            _JOBS[name]["run"]()
+            with _JOB_LOCK:
+                _JOB_STATE[name].update(running=False, finished_at=_dt_jobs.datetime.utcnow().isoformat() + "Z", ok=True, error=None)
+            _jlog.info("on-demand job %s finished", name)
+        except Exception as exc:
+            _jlog.exception("on-demand job %s failed", name)
+            with _JOB_LOCK:
+                _JOB_STATE[name].update(running=False, finished_at=_dt_jobs.datetime.utcnow().isoformat() + "Z", ok=False, error=type(exc).__name__)
+    _threading.Thread(target=_target, daemon=True, name=f"job-{name}").start()
+
+
+@router.post("/jobs/{name}/run")
+async def run_job(name: str, user: User = Depends(get_current_user)):
+    """Trigger a scan NOW (admin only). Returns immediately; the job runs in the background and
+    the report refreshes when it lands. A job already running is not double-started."""
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    if name not in _JOBS:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    with _JOB_LOCK:
+        st = _JOB_STATE.get(name)
+        if st and st.get("running"):
+            return {"started": False, "already_running": True, "name": name}
+        _JOB_STATE[name] = {"running": True, "started_at": _dt_jobs.datetime.utcnow().isoformat() + "Z",
+                            "finished_at": None, "ok": None, "error": None}
+    _launch_job(name)
+    return {"started": True, "name": name}
+
+
+@router.get("/jobs")
+async def list_jobs(db: AsyncSession = Depends(get_db_dep), user: User = Depends(get_current_user)):
+    """Runnable jobs with their last-run time and current running state (admin only)."""
+    from app.dependencies import is_admin_user
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin only")
+    out = []
+    for name, job in _JOBS.items():
+        rep = await _latest_report(db, job["kind"], None)
+        st = _JOB_STATE.get(name, {})
+        out.append({
+            "name": name, "label": job["label"], "kind": job["kind"],
+            "last_run": rep["created_at"] if rep else None,
+            "session_date": rep["session_date"] if rep else None,
+            "running": bool(st.get("running")), "ok": st.get("ok"), "error": st.get("error"),
+            "started_at": st.get("started_at"), "finished_at": st.get("finished_at"),
+        })
+    return {"jobs": out}
+
+
 # --- Premium Desk S5: take & log + standalone P&L -----------------------------
 # The user places the trade in their own broker; this records it for a SEPARATE
 # premium-selling P&L (not broker-integrated). Portable DDL (TEXT timestamps, no
