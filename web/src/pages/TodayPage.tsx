@@ -7,7 +7,7 @@
  *  Its own scroll root (AppLayout <main> is overflow-hidden — see
  *  feedback_page_scroll_container).
  */
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown, Star } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useToggleWatchlistFocus, useWatchlist, useJobs } from "../api/hooks";
@@ -363,9 +363,12 @@ const BREAKOUT_LABEL: Record<string, string> = {
   bull_flag: "Bull Flag", horizontal_tba: "TBA breakout", trendline_break: "Trendline break",
 };
 type BoSort = "default" | "score" | "pct" | "risk" | "sym" | "rvol";
+type BoGroup = "pattern" | "stage" | "flat";
+const BREAKOUT_PATTERN_ORDER = ["cup_handle", "flat_base", "ascending_triangle", "bull_flag", "horizontal_tba", "trendline_break"];
 function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => void }) {
   const [sortKey, setSortKey] = useState<BoSort>("default");
   const [dir, setDir] = useState<"asc" | "desc">("desc");
+  const [group, setGroup] = useState<BoGroup>("pattern");
   let parsed: { rows?: BreakoutRow[]; empty?: boolean } | null = null;
   try { parsed = JSON.parse(body); } catch { parsed = null; }
   const rows = parsed?.rows ?? [];
@@ -376,7 +379,7 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
     if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortKey(k); setDir(k === "sym" || k === "pct" ? "asc" : "desc"); }   // pct: closest-to-trigger first
   };
-  const sorted = [...rows].sort((a, b) => {
+  const sortRows = (list: BreakoutRow[]) => [...list].sort((a, b) => {
     if (sortKey === "default")   // breakouts first, then by score
       return ({ breakout: 0, forming: 1 }[a.stage] ?? 9) - ({ breakout: 0, forming: 1 }[b.stage] ?? 9) || b.score - a.score;
     let c = 0;
@@ -393,14 +396,46 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
       {k ? <button onClick={() => clickSort(k)} className={`inline-flex items-center gap-0.5 uppercase hover:text-text-secondary ${sortKey === k ? "text-text-primary" : ""}`}>{label}<span className="text-[8px]">{arrow(k)}</span></button> : label}
     </th>
   );
+  const groups: { key: string; label: string; rows: BreakoutRow[] }[] =
+    group === "pattern"
+      ? BREAKOUT_PATTERN_ORDER.map((p) => ({ key: p, label: BREAKOUT_LABEL[p] ?? p, rows: rows.filter((r) => r.pattern === p) })).filter((g) => g.rows.length)
+      : group === "stage"
+        ? [{ key: "breakout", label: "Breaking out", rows: rows.filter((r) => r.stage === "breakout") }, { key: "forming", label: "Forming", rows: rows.filter((r) => r.stage === "forming") }].filter((g) => g.rows.length)
+        : [{ key: "flat", label: "", rows }];
+  const renderRow = (r: BreakoutRow, i: number) => {
+    const brk = r.stage === "breakout";
+    return (
+      <tr key={r.ticker + r.pattern + i} className={`border-b border-border-subtle ${brk ? "bg-bullish-text/[0.04]" : "hover:bg-surface-1"}`}>
+        <td className="px-2 py-2 align-top">
+          <button onClick={() => onChart(r.ticker)} className="font-mono text-[12.5px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
+          <div className="mt-0.5"><span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? "▲ breakout" : "forming"}</span></div>
+        </td>
+        {group !== "pattern" && <td className="px-2 py-2 align-top text-[11px] text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</td>}
+        <td className="px-2 py-2 align-top text-[10.5px] text-text-faint"><span className="block max-w-[280px]">{r.reason}</span></td>
+        <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap"><span className="font-semibold text-text-secondary">${r.buy_point.toFixed(2)}</span>{r.pct_to_buy != null && <span className="text-text-faint"> {r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%</span>}</td>
+        <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap"><span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span>{r.risk_pct != null && <span className="text-text-faint"> {r.risk_pct}%</span>}</td>
+        <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums"><span className={r.volume_ok ? "text-bullish-text" : "text-text-muted"}>{r.rvol}x</span></td>
+        <td className="px-2 py-2 align-top text-right"><span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">{r.score}</span></td>
+      </tr>
+    );
+  };
+  const cols = group === "pattern" ? 6 : 7;
   return (
     <div className="space-y-2">
-      <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Click a symbol for the chart. Educational — verify before acting.</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Click a symbol for the chart.</div>
+        <div className="ml-auto flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+          {([["pattern", "By pattern"], ["stage", "By stage"], ["flat", "Flat"]] as const).map(([g, label]) => (
+            <button key={g} onClick={() => setGroup(g)} aria-pressed={group === g}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${group === g ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
+          ))}
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-xl border border-border-subtle">
         <table className="w-full border-collapse">
           <thead><tr className="bg-surface-1">
             <Th label="Symbol" k="sym" align="left" />
-            <Th label="Pattern" align="left" />
+            {group !== "pattern" && <Th label="Pattern" align="left" />}
             <Th label="Why now" align="left" />
             <Th label="TBA" k="pct" />
             <Th label="Stop / risk" k="risk" />
@@ -408,33 +443,12 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
             <Th label="Score" k="score" />
           </tr></thead>
           <tbody>
-            {sorted.map((r, i) => {
-              const brk = r.stage === "breakout";
-              return (
-                <tr key={r.ticker + r.pattern + i} className={`border-b border-border-subtle last:border-0 ${brk ? "bg-bullish-text/[0.04]" : "hover:bg-surface-1"}`}>
-                  <td className="px-2 py-2 align-top">
-                    <button onClick={() => onChart(r.ticker)} className="font-mono text-[12.5px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
-                    <div className="mt-0.5">
-                      <span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? "▲ breakout" : "forming"}</span>
-                    </div>
-                  </td>
-                  <td className="px-2 py-2 align-top text-[11px] text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</td>
-                  <td className="px-2 py-2 align-top text-[10.5px] text-text-faint"><span className="block max-w-[280px]">{r.reason}</span></td>
-                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap">
-                    <span className="font-semibold text-text-secondary">${r.buy_point.toFixed(2)}</span>
-                    {r.pct_to_buy != null && <span className="text-text-faint"> {r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%</span>}
-                  </td>
-                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap">
-                    <span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span>
-                    {r.risk_pct != null && <span className="text-text-faint"> {r.risk_pct}%</span>}
-                  </td>
-                  <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums">
-                    <span className={r.volume_ok ? "text-bullish-text" : "text-text-muted"}>{r.rvol}x</span>
-                  </td>
-                  <td className="px-2 py-2 align-top text-right"><span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">{r.score}</span></td>
-                </tr>
-              );
-            })}
+            {groups.map((g) => (
+              <Fragment key={g.key}>
+                {g.label && <tr><td colSpan={cols} className="border-b border-border-subtle bg-surface-2/60 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-text-secondary">{g.label} <span className="font-mono text-text-faint">({g.rows.length})</span></td></tr>}
+                {sortRows(g.rows).map(renderRow)}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </div>
