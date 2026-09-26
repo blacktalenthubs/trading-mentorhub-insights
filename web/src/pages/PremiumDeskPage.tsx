@@ -217,8 +217,18 @@ const GRADE_CLS: Record<string, string> = {
   D: "bg-bearish-text/15 text-bearish-text",
 };
 
+function fmtCap(v: number | null): string {
+  if (v == null) return "—";
+  if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(0)}B`;
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
+  return `$${v.toFixed(0)}`;
+}
+
 function LeapDeskView() {
+  const nav = useNavigate();
   const { data, isLoading } = useLeapDesk();
+  const openChart = (sym: string) => nav(`/trading?symbol=${encodeURIComponent(sym)}`);
   const rep = useMemo<LeapDeskReport | null>(() => {
     const body = data?.leap_desk?.body;
     if (!body) return null;
@@ -286,7 +296,7 @@ function LeapDeskView() {
             {LEAP_ORDER.map((tier) => {
               const items = sorted.filter((r) => r.tier === tier);
               if (!items.length) return null;
-              return <LeapTierGroup key={tier} tier={tier} items={items} />;
+              return <LeapTierGroup key={tier} tier={tier} items={items} onChart={openChart} />;
             })}
           </tbody>
         </table>
@@ -295,7 +305,7 @@ function LeapDeskView() {
   );
 }
 
-function LeapTierGroup({ tier, items }: { tier: LeapTier; items: LeapDeskRow[] }) {
+function LeapTierGroup({ tier, items, onChart }: { tier: LeapTier; items: LeapDeskRow[]; onChart: (s: string) => void }) {
   return (
     <>
       <tr>
@@ -311,7 +321,8 @@ function LeapTierGroup({ tier, items }: { tier: LeapTier; items: LeapDeskRow[] }
           <tr key={r.sym} className="border-b border-border-subtle hover:bg-surface-1">
             <td className="px-3 py-2.5">
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[13px] font-semibold text-text-primary">{r.sym}</span>
+                <button onClick={() => onChart(r.sym)} title={`Open ${r.sym} chart`}
+                  className="font-mono text-[13px] font-semibold text-text-primary underline decoration-transparent underline-offset-2 hover:text-accent hover:decoration-accent">{r.sym}</button>
                 {r.kind === "index" && <span className="rounded bg-purple-muted/40 px-1 py-0.5 font-mono text-[9px] font-semibold text-purple-text">IDX</span>}
               </div>
               <div className="text-[11px] capitalize text-text-muted">{r.quality_warming ? "quality warming" : r.quality_tier}</div>
@@ -319,12 +330,29 @@ function LeapTierGroup({ tier, items }: { tier: LeapTier; items: LeapDeskRow[] }
             <td className="px-3 py-2.5"><span className="block max-w-[260px] text-[12px] text-text-secondary">{r.rationale?.[0] ?? ""}</span></td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className={rsiCls}>{r.rsi_d ?? "—"}</span><span className="text-text-faint">/{r.rsi_w ?? "—"}</span></td>
             <td className={`px-3 py-2.5 text-right font-mono text-[12px] ${distCls}`}>{r.dist_200_pct == null ? "—" : `${r.dist_200_pct > 0 ? "+" : ""}${r.dist_200_pct}%`}</td>
-            <td className="px-3 py-2.5 text-right">{r.quality_warming ? <span className="font-mono text-[11px] text-text-faint">warming</span> : (
-              <span className="inline-flex items-center gap-1.5">
-                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GRADE_CLS[r.grade] ?? "bg-surface-2 text-text-muted"}`}>{r.grade}</span>
-                <span className="font-mono text-[12px] text-text-secondary">{r.quality_score}</span>
+            <td className="px-3 py-2.5 text-right">
+              <span className="group relative inline-flex cursor-default items-center gap-1.5">
+                {r.quality_warming
+                  ? <span className="font-mono text-[11px] text-text-faint">warming</span>
+                  : <><span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${GRADE_CLS[r.grade] ?? "bg-surface-2 text-text-muted"}`}>{r.grade}</span><span className="font-mono text-[12px] text-text-secondary">{r.quality_score}</span></>}
+                {/* Fundamentals hover card */}
+                <span className="pointer-events-none absolute right-0 top-full z-30 mt-1 hidden w-56 rounded-lg border border-border-default bg-surface-0 p-2.5 text-left shadow-xl group-hover:block">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-text-faint">{r.sym} · fundamentals</span>
+                  {r.quality_warming ? (
+                    <span className="block text-[11px] text-text-muted">Not yet loaded — the nightly refresh hasn't graded this name.</span>
+                  ) : (
+                    <span className="grid grid-cols-2 gap-x-3 gap-y-1 font-mono text-[11px]">
+                      <span className="text-text-faint">Market cap</span><span className="text-right text-text-secondary">{fmtCap(r.market_cap)}</span>
+                      <span className="text-text-faint">Rev growth</span><span className="text-right text-text-secondary">{r.rev_growth == null ? "—" : `${r.rev_growth > 0 ? "+" : ""}${r.rev_growth}%`}</span>
+                      <span className="text-text-faint">Net margin</span><span className="text-right text-text-secondary">{r.net_margin == null ? "—" : `${r.net_margin}%`}</span>
+                      <span className="text-text-faint">Gross margin</span><span className="text-right text-text-secondary">{r.gross_margin == null ? "—" : `${r.gross_margin}%`}</span>
+                      <span className="text-text-faint">EPS growth</span><span className="text-right text-text-secondary">{r.eps_growth == null ? "—" : `${r.eps_growth > 0 ? "+" : ""}${r.eps_growth}%`}</span>
+                      <span className="text-text-faint">Analysts</span><span className="text-right capitalize text-text-secondary">{r.consensus ?? "—"}</span>
+                    </span>
+                  )}
+                </span>
               </span>
-            )}</td>
+            </td>
             <td className="px-3 py-2.5 text-right font-mono text-[11px]">{r.iv_warming || r.iv_rank == null ? <span className="text-text-faint">—</span> : <span className={r.iv_note.startsWith("cheap") ? "text-bullish-text" : r.iv_note.startsWith("rich") ? "text-bearish-text" : "text-text-muted"}>{r.iv_rank}{r.iv_note ? ` ${r.iv_note}` : ""}</span>}</td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className="font-semibold text-text-primary">${r.strike.toFixed(2)}</span> <span className="text-text-faint">{r.expiry.slice(0, 7)}</span></td>
           </tr>
