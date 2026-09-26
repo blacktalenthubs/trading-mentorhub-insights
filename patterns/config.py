@@ -30,6 +30,10 @@ class PatternConfig:
     breakout_rvol: float = 1.8                  # rvol on the breakout bar
     breakout_close_upper_frac: float = 0.5      # close in the upper 50% of the bar range
 
+    # ── Actionability (shared) — used to LABEL "actionable now" vs "watch", not to drop ──
+    max_pct_to_trigger: float = 6.0             # actionable only if price is within this % below the trigger
+    max_setup_risk_pct: float = 8.0             # actionable only if entry→stop risk ≤ this % (tight, not loose)
+
     # ── Cup and handle ───────────────────────────────────────────────────────
     ch_search_bars: int = 200
     ch_rim_side_bars: int = 20                  # a rim = local high, max of 20 bars each side
