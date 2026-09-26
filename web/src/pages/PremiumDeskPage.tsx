@@ -293,7 +293,7 @@ function LeapDeskView() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="sticky top-0 z-10 bg-surface-0">
-              {([["Symbol", "sym", "left"], ["Entry — why now", null, "left"], ["RSI d/w", "rsi_d", "right"], ["vs 200d", "dist", "right"], ["Grade", "grade", "right"], ["IV", null, "right"], ["Buy ~ITM call", null, "right"]] as const).map(([label, key, align]) => (
+              {([["Symbol", "sym", "left"], ["Entry — why now", null, "left"], ["RSI d/w", "rsi_d", "right"], ["vs 200d", "dist", "right"], ["Grade", "grade", "right"], ["IV", null, "right"], ["Call: ITM · target", null, "right"]] as const).map(([label, key, align]) => (
                 <th key={label} className={`border-b border-border-subtle px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-text-faint ${align === "right" ? "text-right" : "text-left"} whitespace-nowrap`}>
                   {key ? (
                     <button onClick={() => clickSort(key)} className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-text-secondary ${sortKey === key ? "text-text-primary" : ""}`}>
@@ -382,7 +382,13 @@ function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void 
               </span>
             </td>
             <td className="px-3 py-2.5 text-right font-mono text-[11px]">{r.iv_warming || r.iv_rank == null ? <span className="text-text-faint">—</span> : <span className={r.iv_note.startsWith("cheap") ? "text-bullish-text" : r.iv_note.startsWith("rich") ? "text-bearish-text" : "text-text-muted"}>{r.iv_rank}{r.iv_note ? ` ${r.iv_note}` : ""}</span>}</td>
-            <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className="font-semibold text-text-primary">${r.strike.toFixed(2)}</span> <span className="text-text-faint">{r.expiry.slice(0, 7)}</span></td>
+            <td className="px-3 py-2.5 text-right font-mono text-[12px] whitespace-nowrap"
+                title={`ITM ~0.8Δ (stock replacement) vs a target call at the 50-day${r.sma50 ? ` ($${r.sma50.toFixed(2)})` : ""} — more leverage, more risk. ~18mo expiry (${r.expiry}).`}>
+              <span className="text-text-muted">${r.strike_itm.toFixed(0)}</span>
+              <span className="text-text-faint"> · </span>
+              <span className="font-semibold text-accent">${r.strike_target.toFixed(0)}</span>
+              <span className="ml-1 text-[9px] text-text-faint">→50d</span>
+            </td>
           </tr>
   );
 }
