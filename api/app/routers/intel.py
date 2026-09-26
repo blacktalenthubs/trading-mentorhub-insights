@@ -719,6 +719,24 @@ async def premium_desk_chain(
         return {"available": False, "reason": "fetch failed", "rows": []}
 
 
+@router.get("/leap-desk/chain")
+async def leap_desk_chain(
+    sym: str = Query(..., min_length=1, max_length=10),
+    target: float | None = Query(None),
+    user: User = Depends(get_current_user),
+):
+    """Live ~18-month CALL chain for a LEAP candidate — real strikes with bid/ask/mark/delta/
+    IV/volume/open-interest, plus a recommendation: the liquid strike nearest ~0.80 delta (ITM
+    stock replacement) and the liquid strike nearest `target` (the overhead-resistance target).
+    READ-ONLY — never places an order. Fails soft: {available:false} → UI keeps the heuristic
+    strikes."""
+    from analytics.leap_chain import fetch_leap_chain
+    try:
+        return await _run_sync(fetch_leap_chain, sym.upper(), target)
+    except Exception:
+        return {"available": False, "reason": "fetch failed", "rows": []}
+
+
 # --- Premium Desk S5: take & log + standalone P&L -----------------------------
 # The user places the trade in their own broker; this records it for a SEPARATE
 # premium-selling P&L (not broker-integrated). Portable DDL (TEXT timestamps, no
