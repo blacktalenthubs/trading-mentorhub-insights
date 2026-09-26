@@ -305,6 +305,79 @@ function AtSupport({ body, onChart }: { body: string; onChart: (s: string) => vo
     </div>
   );
 }
+// Breakout Patterns — the nightly pattern scanner (patterns/screener.py): cup-and-handle,
+// flat base, ascending triangle, bull flag. BREAKOUT rows (confirmed on volume) first, then
+// FORMING, each by score. `volume_ok`/`rvol` are shown on every row so a borderline breakout
+// is visible; risk% is (close − stop)/close so a position can be sized straight from here.
+// An `empty` body means the scan ran and found nothing — never yesterday's rows.
+interface BpRow {
+  ticker: string; pattern: string; stage: "forming" | "breakout"; buy_point: number; last_close: number;
+  pct_to_buy: number | null; suggested_stop: number; risk_pct: number | null; rvol: number; volume_ok: boolean;
+  base_depth_pct: number; base_length_days: number; rsi14: number | null; dist_from_200sma_pct: number | null;
+  score: number; reason: string; scanned_at: string; days_to_earnings?: number | null;
+}
+interface BpBody {
+  rows?: BpRow[]; scanned?: number; candidates?: number; funnel?: Record<string, number>;
+  empty?: boolean; message?: string; breakouts?: number; forming?: number; scanned_at?: string;
+}
+const BP_LABEL: Record<string, string> = {
+  cup_handle: "Cup & handle", flat_base: "Flat base", ascending_triangle: "Asc. triangle", bull_flag: "Bull flag",
+};
+function BreakoutPatterns({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: BpBody | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  const at = parsed?.scanned_at ? new Date(parsed.scanned_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+  if (!parsed || parsed.empty || rows.length === 0)
+    return (
+      <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">
+        {parsed?.message || "No qualified setups today"}
+        {parsed?.scanned != null && <div className="mt-1 text-[10.5px]">scanned {parsed.scanned} · {parsed.candidates ?? 0} passed the trend filter{at ? ` · ${at}` : ""}</div>}
+      </div>
+    );
+  const fmt = (v: number | null | undefined, d = 1) => (v == null ? "—" : v.toFixed(d));
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10.5px] text-text-faint">
+        {parsed.breakouts ?? 0} breakout · {parsed.forming ?? 0} forming · scanned {parsed.scanned ?? "—"} · {parsed.candidates ?? 0} passed the trend filter{at ? ` · ${at}` : ""} · risk% = close→stop
+      </div>
+      {rows.map((r) => {
+        const bo = r.stage === "breakout";
+        return (
+          <div
+            key={`${r.ticker}-${r.pattern}`}
+            title={r.reason}
+            className={`rounded-lg border px-3 py-2 ${bo ? "border-bullish-text/30 bg-bullish-text/5" : "border-border-subtle bg-surface-1"}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <button onClick={() => onChart(r.ticker)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
+                <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold ${bo ? "bg-bullish-text/15 text-bullish-text" : "bg-surface-3 text-text-muted"}`}>
+                  {bo ? "BREAKOUT" : "FORMING"}
+                </span>
+                <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-semibold text-accent">{BP_LABEL[r.pattern] ?? r.pattern}</span>
+                <span className="font-mono text-[10px] text-text-faint">score {r.score.toFixed(0)}</span>
+                {r.days_to_earnings != null && r.days_to_earnings >= 0 && r.days_to_earnings <= 10 && (
+                  <span className="rounded bg-warning-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-warning-text">ER in {r.days_to_earnings}d</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 whitespace-nowrap font-mono text-[11px] tabular-nums text-text-muted">
+                <span className="text-text-secondary">${r.last_close.toFixed(2)}</span>
+                <span>buy <b className="text-text-primary">{r.buy_point.toFixed(2)}</b> ({r.pct_to_buy != null && r.pct_to_buy >= 0 ? "+" : ""}{fmt(r.pct_to_buy)}%)</span>
+                <span>stop <b className="text-bearish-text">{r.suggested_stop.toFixed(2)}</b> · risk {fmt(r.risk_pct)}%</span>
+                <span className={r.volume_ok ? "text-bullish-text" : "text-text-faint"}>rvol {r.rvol.toFixed(2)} {r.volume_ok ? "✓" : "✗"}</span>
+              </div>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[10.5px] text-text-faint">
+              <span className="text-text-muted">{r.reason}</span>
+              <span>RSI {fmt(r.rsi14, 0)} · {fmt(r.dist_from_200sma_pct)}% over 200 SMA · {r.base_length_days}d · {fmt(r.base_depth_pct)}% deep</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 // Weekly Value: names AT their weekly volume-profile POC/VWAP/VAL (Robinhood data —
 // matches the chart). A name whose CURRENT WEEK opened above the level is holding it as
 // support (🛡, tradeable, stop under it); one that opened below is testing from under (🎯).
@@ -509,6 +582,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sup = data?.support ?? null;
   const wvp = data?.weekly_vp ?? null;
   const ps = data?.premarket_signals ?? null;
+  const bp = data?.breakout_patterns ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
   const [activeSec, setActiveSec] = useState<string>(() => sessionStorage.getItem("today.active") ?? "sec-focus");
@@ -575,6 +649,11 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-gap", group: "Momentum", time: "PREMKT", title: "Gap setups", present: !!gap,
       wait: "The gap scan runs premarket (analytics/gap_scanner.py).",
       render: () => <GapSetups body={gap?.body ?? ""} onChart={onChart} /> },
+    // ── BREAKOUT PATTERNS — cup-and-handle / flat base / ascending triangle / bull flag,
+    //    scanned nightly off the close for the next session (patterns/screener.py). ──
+    { id: "sec-patterns", group: "Momentum", time: "16:22", title: "Breakout Patterns", present: !!bp,
+      wait: "The breakout pattern scan runs after the close (python -m patterns.screener --universe --publish).",
+      render: () => <BreakoutPatterns body={bp?.body ?? ""} onChart={onChart} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);

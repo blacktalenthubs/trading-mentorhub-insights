@@ -723,6 +723,51 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register daily-structural scan job")
 
+        # Breakout pattern scanner (patterns/screener.py) — cup-and-handle, flat base,
+        # ascending triangle, bull flag over the master watchlist, off the daily close.
+        # Publishes kind=breakout_patterns to market_reports (the Today "Breakout
+        # Patterns" section) for the NEXT session. Empty result still publishes an
+        # "empty" marker so the tab never shows yesterday's rows. On-demand path:
+        # `python -m patterns.screener AAPL NVDA --publish`. Gated by
+        # BREAKOUT_PATTERNS_ENABLED (default on); BREAKOUT_PATTERNS_EARNINGS_FILTER=true
+        # drops names reporting within 10 days.
+        try:
+            from apscheduler.triggers.cron import CronTrigger as _CronBP
+            from zoneinfo import ZoneInfo as _ZIBP
+            _etbp = _ZIBP("America/New_York")
+            _bp_env = _os.environ.get("BREAKOUT_PATTERNS_ENABLED", "true").strip().lower()
+            if _bp_env not in ("false", "0", "no", "off"):
+                def _run_breakout_patterns():
+                    try:
+                        import sys as _sys_bp
+                        from pathlib import Path as _Path_bp
+                        _root_bp = str(_Path_bp(__file__).resolve().parents[2])
+                        if _root_bp not in _sys_bp.path:   # repo root → `patterns`, `analytics`, `db`
+                            _sys_bp.path.insert(0, _root_bp)
+                        from patterns.screener import load_universe as _bp_universe, run_scan as _bp_scan
+                        from patterns.today_writer import write_today as _bp_write
+                        _syms, _label = _bp_universe(_os.environ.get("DATABASE_URL"))
+                        if not _syms:
+                            logger.warning("breakout pattern scan skipped (empty universe)")
+                            return
+                        _ef = _os.environ.get("BREAKOUT_PATTERNS_EARNINGS_FILTER", "false").strip().lower() in ("true", "1", "yes", "on")
+                        _res = _bp_scan(_syms, earnings_filter=_ef)
+                        _body = _res.body(universe=_label)
+                        _bp_write(_body, _res.session_date)
+                        logger.info("Breakout pattern scan published (%d breakout, %d forming, scanned %d, passed %d)",
+                                    _body["breakouts"], _body["forming"], _res.scanned, _res.funnel.get("passed", 0))
+                    except Exception:
+                        logger.exception("breakout pattern scan failed")
+
+                scheduler.add_job(_run_breakout_patterns,
+                                  _CronBP(hour=16, minute=22, day_of_week="mon-fri", timezone=_etbp),
+                                  id="breakout_patterns_close", replace_existing=True, misfire_grace_time=600)
+                logger.info("Breakout pattern scan scheduled (16:22 ET, mon-fri)")
+            else:
+                logger.info("Breakout pattern scan disabled (BREAKOUT_PATTERNS_ENABLED=%s)", _bp_env)
+        except Exception:
+            logger.exception("Failed to register breakout pattern scan job")
+
         # Morning Focus push (server-side, NO session token) — the local morning-leaders
         # agent persists today's report (kind=morning_focus); this detects it and blasts an
         # APNs teaser to all users pre-open. Runs twice so a slightly-late agent is caught;

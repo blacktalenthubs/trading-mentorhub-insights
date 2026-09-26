@@ -112,6 +112,28 @@ def fetch_ohlc(
         return pd.DataFrame()
 
 
+def fetch_daily_history(symbol: str, period: str = "2y") -> pd.DataFrame:
+    """Daily OHLCV with CONSOLIDATED volume — for volume-sensitive daily scanners.
+
+    Same output shape as ``fetch_ohlc`` (Title-case Open/High/Low/Close/Volume,
+    tz-naive DatetimeIndex, empty frame on failure) but yfinance is tried FIRST:
+    Alpaca's free ``iex`` feed reports only the IEX slice of volume (roughly 2-3%
+    of consolidated), which breaks absolute liquidity floors and relative-volume
+    ratios on the breakout bar. ``fetch_ohlc`` remains the fallback so a Yahoo
+    rate-limit degrades to Alpaca bars instead of an empty result.
+    """
+    try:
+        hist = yf.Ticker(symbol).history(period=period, interval="1d", auto_adjust=False)
+        if hist is not None and not hist.empty:
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_convert(None)
+            hist = hist[["Open", "High", "Low", "Close", "Volume"]].copy()
+            return hist.dropna(subset=["Close"])
+    except Exception as e:
+        logger.info("yfinance daily history failed for %s: %s", symbol, str(e)[:80])
+    return fetch_ohlc(symbol, period=period, interval="1d")
+
+
 def _fetch_ohlc_coinbase(symbol: str, period: str, interval: str) -> pd.DataFrame:
     """Fetch OHLCV from Coinbase for crypto symbols."""
     import requests

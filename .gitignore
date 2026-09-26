@@ -33,3 +33,6 @@ __pycache__/
 venv/
 .venv/
 # Force rebuild Wed Mar 25 08:47:49 CDT 2026
+
+# Breakout pattern scanner --chart output (patterns/screener.py)
+reports/pattern_charts/
