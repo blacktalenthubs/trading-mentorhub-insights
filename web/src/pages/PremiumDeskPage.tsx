@@ -236,7 +236,14 @@ function LeapDeskView() {
   }, [data]);
   const [filter, setFilter] = useState<Filter>("qual");
   const [kind, setKind] = useState<"all" | "index" | "stock">("all");
+  const [sortKey, setSortKey] = useState<"tier" | "grade" | "rsi_d" | "dist" | "sym">("tier");
+  const [dir, setDir] = useState<"asc" | "desc">("desc");
   const asOf = data?.leap_desk?.session_date;
+  // Default direction per column: grade best-first, RSI most-oversold-first, distance nearest-first.
+  const clickSort = (k: typeof sortKey) => {
+    if (k === sortKey) setDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(k); setDir(k === "grade" ? "desc" : "asc"); }
+  };
 
   const allRows = rep?.rows ?? [];
   const rows = kind === "all" ? allRows : allRows.filter((r) => r.kind === kind);
@@ -286,18 +293,33 @@ function LeapDeskView() {
         <table className="w-full border-collapse">
           <thead>
             <tr className="sticky top-0 z-10 bg-surface-0">
-              {["Symbol", "Entry — why now", "RSI d/w", "vs 200d", "Grade", "IV", "Buy ~ITM call"].map((h, i) => (
-                <th key={h} className={`border-b border-border-subtle px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-text-faint ${i >= 2 ? "text-right" : "text-left"} whitespace-nowrap`}>{h}</th>
+              {([["Symbol", "sym", "left"], ["Entry — why now", null, "left"], ["RSI d/w", "rsi_d", "right"], ["vs 200d", "dist", "right"], ["Grade", "grade", "right"], ["IV", null, "right"], ["Buy ~ITM call", null, "right"]] as const).map(([label, key, align]) => (
+                <th key={label} className={`border-b border-border-subtle px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-text-faint ${align === "right" ? "text-right" : "text-left"} whitespace-nowrap`}>
+                  {key ? (
+                    <button onClick={() => clickSort(key)} className={`inline-flex items-center gap-1 uppercase tracking-wide hover:text-text-secondary ${sortKey === key ? "text-text-primary" : ""}`}>
+                      {label}<span className="text-[8px]">{sortKey === key ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
+                    </button>
+                  ) : label}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-text-faint">Nothing in this bucket right now.</td></tr>}
-            {LEAP_ORDER.map((tier) => {
-              const items = sorted.filter((r) => r.tier === tier);
-              if (!items.length) return null;
-              return <LeapTierGroup key={tier} tier={tier} items={items} onChart={openChart} />;
-            })}
+            {shown.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-text-faint">Nothing in this bucket right now.</td></tr>}
+            {sortKey === "tier"
+              ? LEAP_ORDER.map((tier) => {
+                  const items = sorted.filter((r) => r.tier === tier);
+                  if (!items.length) return null;
+                  return <LeapTierGroup key={tier} tier={tier} items={items} onChart={openChart} />;
+                })
+              : [...shown].sort((a, b) => {
+                  let c = 0;
+                  if (sortKey === "grade") c = a.quality_score - b.quality_score;
+                  else if (sortKey === "rsi_d") c = (a.rsi_d ?? 999) - (b.rsi_d ?? 999);
+                  else if (sortKey === "dist") c = (a.dist_200_pct ?? 999) - (b.dist_200_pct ?? 999);
+                  else if (sortKey === "sym") c = a.sym.localeCompare(b.sym);
+                  return dir === "asc" ? c : -c;
+                }).map((r) => <LeapRow key={r.sym} r={r} onChart={openChart} />)}
           </tbody>
         </table>
       </div>
@@ -314,11 +336,16 @@ function LeapTierGroup({ tier, items, onChart }: { tier: LeapTier; items: LeapDe
           <span className="text-[11px] text-text-faint">{LEAP_TIER[tier].desc}</span>
         </td>
       </tr>
-      {items.map((r) => {
-        const rsiCls = r.rsi_d == null ? "text-text-faint" : r.rsi_d < 40 ? "text-bullish-text" : r.rsi_d >= 65 ? "text-bearish-text" : "text-text-primary";
-        const distCls = r.dist_200_pct == null ? "text-text-faint" : r.dist_200_pct <= 1 ? "text-bullish-text" : "text-text-muted";
-        return (
-          <tr key={r.sym} className="border-b border-border-subtle hover:bg-surface-1">
+      {items.map((r) => <LeapRow key={r.sym} r={r} onChart={onChart} />)}
+    </>
+  );
+}
+
+function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void }) {
+  const rsiCls = r.rsi_d == null ? "text-text-faint" : r.rsi_d < 40 ? "text-bullish-text" : r.rsi_d >= 65 ? "text-bearish-text" : "text-text-primary";
+  const distCls = r.dist_200_pct == null ? "text-text-faint" : r.dist_200_pct <= 1 ? "text-bullish-text" : "text-text-muted";
+  return (
+          <tr className="border-b border-border-subtle hover:bg-surface-1">
             <td className="px-3 py-2.5">
               <div className="flex items-center gap-1.5">
                 <button onClick={() => onChart(r.sym)} title={`Open ${r.sym} chart`}
@@ -356,8 +383,5 @@ function LeapTierGroup({ tier, items, onChart }: { tier: LeapTier; items: LeapDe
             <td className="px-3 py-2.5 text-right font-mono text-[11px]">{r.iv_warming || r.iv_rank == null ? <span className="text-text-faint">—</span> : <span className={r.iv_note.startsWith("cheap") ? "text-bullish-text" : r.iv_note.startsWith("rich") ? "text-bearish-text" : "text-text-muted"}>{r.iv_rank}{r.iv_note ? ` ${r.iv_note}` : ""}</span>}</td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px]"><span className="font-semibold text-text-primary">${r.strike.toFixed(2)}</span> <span className="text-text-faint">{r.expiry.slice(0, 7)}</span></td>
           </tr>
-        );
-      })}
-    </>
   );
 }
