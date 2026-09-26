@@ -157,3 +157,21 @@ def scan(symbols, cfg: PatternConfig = CONFIG, earnings_filter: bool = False, fe
 
 def _label(pattern):  # for callers/tests
     return _STAGE_LABEL.get(pattern, pattern)
+
+
+def run_detectors(df, cfg: PatternConfig = CONFIG):
+    """Every enabled detector's hit for an already-indicatored df (no scan filtering). Used by
+    the live breakout-alert job, which applies its own intraday cross trigger."""
+    hits = []
+    for name in cfg.patterns_enabled:
+        det = _DETECTORS.get(name)
+        if det is None:
+            continue
+        try:
+            h = det(df, cfg)
+        except Exception:
+            logger.exception("%s detector crashed", name)
+            h = None
+        if h:
+            hits.append(h)
+    return hits
