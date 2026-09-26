@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { usePremiumDesk, useLeapDesk, type PremiumDeskReport, type PremiumDeskRow, type LeapDeskReport, type LeapDeskRow } from "../api/hooks";
+import { usePremiumDesk, useLeapDesk, useLeapChain, type PremiumDeskReport, type PremiumDeskRow, type LeapDeskReport, type LeapDeskRow, type LeapChainRow } from "../api/hooks";
 import PremiumTradePanel from "../components/PremiumTradePanel";
 
 type Desk = "premium" | "leap";
@@ -229,6 +229,8 @@ function LeapDeskView() {
   const nav = useNavigate();
   const { data, isLoading } = useLeapDesk();
   const openChart = (sym: string) => nav(`/trading?symbol=${encodeURIComponent(sym)}`);
+  const [chain, setChain] = useState<{ sym: string; target: number; row: LeapDeskRow } | null>(null);
+  const openChain = (r: LeapDeskRow) => setChain({ sym: r.sym, target: r.strike_target, row: r });
   const rep = useMemo<LeapDeskReport | null>(() => {
     const body = data?.leap_desk?.body;
     if (!body) return null;
@@ -310,7 +312,7 @@ function LeapDeskView() {
               ? LEAP_ORDER.map((tier) => {
                   const items = sorted.filter((r) => r.tier === tier);
                   if (!items.length) return null;
-                  return <LeapTierGroup key={tier} tier={tier} items={items} onChart={openChart} />;
+                  return <LeapTierGroup key={tier} tier={tier} items={items} onChart={openChart} onChain={openChain} />;
                 })
               : [...shown].sort((a, b) => {
                   let c = 0;
@@ -319,15 +321,16 @@ function LeapDeskView() {
                   else if (sortKey === "dist") c = (a.dist_200_pct ?? 999) - (b.dist_200_pct ?? 999);
                   else if (sortKey === "sym") c = a.sym.localeCompare(b.sym);
                   return dir === "asc" ? c : -c;
-                }).map((r) => <LeapRow key={r.sym} r={r} onChart={openChart} />)}
+                }).map((r) => <LeapRow key={r.sym} r={r} onChart={openChart} onChain={openChain} />)}
           </tbody>
         </table>
       </div>
+      {chain && <LeapChainModal row={chain.row} onClose={() => setChain(null)} />}
     </div>
   );
 }
 
-function LeapTierGroup({ tier, items, onChart }: { tier: LeapTier; items: LeapDeskRow[]; onChart: (s: string) => void }) {
+function LeapTierGroup({ tier, items, onChart, onChain }: { tier: LeapTier; items: LeapDeskRow[]; onChart: (s: string) => void; onChain: (r: LeapDeskRow) => void }) {
   return (
     <>
       <tr>
@@ -336,12 +339,12 @@ function LeapTierGroup({ tier, items, onChart }: { tier: LeapTier; items: LeapDe
           <span className="text-[11px] text-text-faint">{LEAP_TIER[tier].desc}</span>
         </td>
       </tr>
-      {items.map((r) => <LeapRow key={r.sym} r={r} onChart={onChart} />)}
+      {items.map((r) => <LeapRow key={r.sym} r={r} onChart={onChart} onChain={onChain} />)}
     </>
   );
 }
 
-function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void }) {
+function LeapRow({ r, onChart, onChain }: { r: LeapDeskRow; onChart: (s: string) => void; onChain: (r: LeapDeskRow) => void }) {
   const rsiCls = r.rsi_d == null ? "text-text-faint" : r.rsi_d < 40 ? "text-bullish-text" : r.rsi_d >= 65 ? "text-bearish-text" : "text-text-primary";
   const distCls = r.dist_200_pct == null ? "text-text-faint" : r.dist_200_pct <= 1 ? "text-bullish-text" : "text-text-muted";
   return (
@@ -388,7 +391,85 @@ function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void 
               <span className="text-text-faint"> · </span>
               <span className="font-semibold text-accent">${r.strike_target.toFixed(0)}</span>
               <span className="ml-1 text-[9px] text-text-faint">→{r.target_basis}</span>
+              <button onClick={() => onChain(r)} title="Live option chain — real strikes by liquidity"
+                className="ml-2 rounded border border-border-default px-1 py-0.5 text-[9px] font-semibold text-text-muted hover:border-accent hover:text-accent">chain</button>
             </td>
           </tr>
+  );
+}
+
+// ── Live LEAP call chain modal — real strikes recommended by liquidity + delta ──
+function LeapChainModal({ row, onClose }: { row: LeapDeskRow; onClose: () => void }) {
+  const { data, isLoading } = useLeapChain(row.sym, row.strike_target);
+  const pick = (p: LeapChainRow | null | undefined, label: string, sub: string) => (
+    <div className="flex-1 rounded-lg border border-border-subtle bg-surface-1 p-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-text-faint">{label}</div>
+      <div className="text-[10px] text-text-faint">{sub}</div>
+      {p ? (
+        <>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="font-mono text-[18px] font-extrabold text-text-primary">${p.strike.toFixed(0)}</span>
+            <span className="font-mono text-[11px] text-text-muted">{p.delta.toFixed(2)}Δ</span>
+            {!p.liquid && <span className="rounded bg-warning-text/15 px-1 py-0.5 text-[9px] font-semibold text-warning-text">thin</span>}
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-text-secondary">~${(p.mark * 100).toFixed(0)}/contract <span className="text-text-faint">(mid {p.mark.toFixed(2)})</span></div>
+          <div className="mt-1 grid grid-cols-2 gap-x-2 font-mono text-[10.5px] text-text-muted">
+            <span>OI {p.open_interest.toLocaleString()}</span><span className="text-right">Vol {p.volume.toLocaleString()}</span>
+            <span>Bid {p.bid.toFixed(2)}</span><span className="text-right">Ask {p.ask.toFixed(2)}</span>
+            {p.spread_pct != null && <span className="col-span-2">Spread {p.spread_pct}%</span>}
+          </div>
+        </>
+      ) : <div className="mt-2 text-[11px] text-text-faint">No liquid strike found.</div>}
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="max-h-[85vh] w-full max-w-xl overflow-hidden rounded-xl border border-border-default bg-surface-0 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
+          <div>
+            <h2 className="font-mono text-[15px] font-extrabold text-text-primary">{row.sym} · LEAP call chain</h2>
+            {data?.available && <p className="text-[11px] text-text-muted">exp {data.expiration} ({data.dte}d) · underlying ${data.underlying_price?.toFixed(2)}</p>}
+          </div>
+          <button onClick={onClose} className="rounded-lg px-2 py-1 text-[13px] text-text-muted hover:bg-surface-2 hover:text-text-primary">✕</button>
+        </header>
+        <div className="max-h-[75vh] overflow-y-auto p-4">
+          {isLoading && <div className="py-8 text-center text-[12.5px] text-text-faint">Pulling the ~18-month chain…</div>}
+          {!isLoading && !data?.available && (
+            <div className="rounded-lg border border-warning-text/30 bg-warning-subtle p-3 text-[12px] text-warning-text">
+              Live chain unavailable{data?.reason ? ` (${data.reason})` : ""} — using the desk's heuristic strikes: ITM <b>${row.strike_itm.toFixed(0)}</b> · target <b>${row.strike_target.toFixed(0)}</b> (→{row.target_basis}). ~18-month expiry.
+            </div>
+          )}
+          {data?.available && (
+            <>
+              <div className="flex gap-3">
+                {pick(data.recommend?.itm, "ITM · stock replacement", "~0.80Δ · tracks the stock, low theta")}
+                {pick(data.recommend?.target, "Target · leverage", `nearest liquid strike to $${row.strike_target.toFixed(0)} (→${row.target_basis})`)}
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead><tr>{["Strike", "Δ", "Mid", "OI", "Vol", "Spread"].map((h, i) => <th key={h} className={`border-b border-border-subtle px-2 py-1.5 text-[9.5px] font-semibold uppercase tracking-wide text-text-faint ${i === 0 ? "text-left" : "text-right"}`}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {data.rows.map((r) => {
+                      const isRec = r.strike === data.recommend?.itm?.strike || r.strike === data.recommend?.target?.strike;
+                      return (
+                        <tr key={r.strike} className={`border-b border-border-subtle ${isRec ? "bg-accent-subtle" : ""} ${r.liquid ? "" : "opacity-50"}`}>
+                          <td className="px-2 py-1.5 text-left font-mono text-[11px] font-semibold text-text-primary">${r.strike.toFixed(0)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-[11px] text-text-muted">{r.delta.toFixed(2)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-[11px] text-text-secondary">{r.mark.toFixed(2)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-[11px] text-text-muted">{r.open_interest.toLocaleString()}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-[11px] text-text-muted">{r.volume.toLocaleString()}</td>
+                          <td className="px-2 py-1.5 text-right font-mono text-[11px] text-text-faint">{r.spread_pct == null ? "—" : `${r.spread_pct}%`}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-[10.5px] text-text-faint">Dimmed rows are illiquid (low open interest / wide spread). Educational — verify the live quote in your broker before buying. No order is placed.</p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

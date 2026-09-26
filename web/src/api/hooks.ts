@@ -177,6 +177,25 @@ export interface LeapDeskReport {
   scanned: number;
   tiers: { prime: number; strong: number; watch: number };
 }
+// Live LEAP call chain + strike recommendation (real strikes, liquidity-filtered).
+export interface LeapChainRow {
+  strike: number; bid: number; ask: number; mark: number; delta: number; iv: number;
+  volume: number; open_interest: number; spread_pct: number | null; liquid: boolean;
+}
+export interface LeapChain {
+  available: boolean; reason?: string; symbol?: string; underlying_price?: number;
+  expiration?: string; dte?: number;
+  recommend?: { itm: LeapChainRow | null; target: LeapChainRow | null };
+  rows: LeapChainRow[];
+}
+export function useLeapChain(sym: string | undefined, target?: number) {
+  return useQuery({
+    queryKey: ["leap-chain", sym, target ?? 0],
+    enabled: !!sym,
+    queryFn: () => api.get<LeapChain>(`/intel/leap-desk/chain?sym=${encodeURIComponent(sym!)}${target ? `&target=${target}` : ""}`),
+    staleTime: 120_000,
+  });
+}
 export function useLeapDesk(date?: string) {
   return useQuery({
     queryKey: ["leap-desk", date || "latest"],
