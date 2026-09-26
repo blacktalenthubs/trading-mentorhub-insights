@@ -48,7 +48,13 @@ show_pdc   = input.bool(true,  "  · PDC — prior-day close",     group = gLv)
 flat_sup_col = input.color(#26A69A, "Support (price above)",    group = "Style", inline = "c")
 flat_res_col = input.color(#EF5350, "Resistance (price below)", group = "Style", inline = "c")
 flat_len     = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Style")
+line_w       = input.int  (2, "Line thickness (merged lines +1)", minval = 1, maxval = 8, group = "Style")
+ma_style_in  = input.string("solid",  "MA line style",    options = ["solid", "dashed", "dotted"], group = "Style", inline = "st")
+lvl_style_in = input.string("dotted", "Level line style", options = ["solid", "dashed", "dotted"], group = "Style", inline = "st")
 merge_pct    = input.float(0.20, "Merge levels within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = "Style", tooltip = "Levels stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 21 · SMA 50 · PWH ·×3'). You still know exactly which levels are there — you just stop reading three labels printed on top of each other. A merged line draws thicker, because that IS the information: three levels at one price is a wall. 0 = draw every level separately.") / 100.0
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+ma_style  = f_style(ma_style_in)
+lvl_style = f_style(lvl_style_in)
 
 // ── %-proximity on the MAs ──────────────────────────────────────────────────────
 // 8 / 21 / 50 EMA ALWAYS draw — they're the working cluster, price lives on them. The
@@ -179,8 +185,9 @@ if show_lines and barstate.islast
                     break
             _qsup = close > _qnear
             _qcol = _qsup ? flat_sup_col : flat_res_col
-            _qw   = _qcnt > 1 ? 3 : 2
-            array.push(_ln, line.new(bar_index - flat_len, _qnear, bar_index + 6, _qnear, color = _qcol, width = _qw, style = _qdot ? line.style_dotted : line.style_solid))
+            _qw   = _qcnt > 1 ? line_w + 1 : line_w        // a merged cluster (a wall) draws one thicker
+            _qsty = _qdot ? lvl_style : ma_style           // pure-structural cluster = level style; any MA in it = MA style
+            array.push(_ln, line.new(bar_index - flat_len, _qnear, bar_index + 6, _qnear, color = _qcol, width = _qw, style = _qsty))
             array.push(_lb, label.new(bar_index + 6, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESIST  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + "  " + str.tostring(_qnear, format.mintick), style = label.style_label_left, color = _qcol, textcolor = color.white, size = size.small))
             _qi := _qj
 
