@@ -358,6 +358,8 @@ interface BreakoutRow {
   volume_ok: boolean; base_depth_pct: number; base_length_days: number; rsi14: number | null;
   dist_from_200sma_pct: number | null; score: number; reason: string;
   actionable?: boolean; entry_status?: string;
+  tight_stop?: number; day_change_pct?: number | null; close_range_pct?: number | null;
+  near_highs?: boolean; big_day?: boolean; sector?: string | null;
 }
 const BREAKOUT_LABEL: Record<string, string> = {
   cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Asc. Triangle",
@@ -416,12 +418,18 @@ function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => vo
             {r.actionable
               ? <span className="rounded bg-bullish-text/15 px-1 py-0.5 text-[9px] font-semibold text-bullish-text">✓ ready</span>
               : <span title={r.entry_status} className="rounded bg-warning-text/15 px-1 py-0.5 text-[9px] font-semibold text-warning-text">watch</span>}
+            {r.big_day && <span title="Big move on the day — Dan's caution: 15%+ breakout days often fail." className="rounded bg-warning-text/15 px-1 py-0.5 text-[9px] font-semibold text-warning-text">🔥 {r.day_change_pct != null ? `+${r.day_change_pct}%` : "big day"}</span>}
+            {r.near_highs && <span title="Closing near the day's highs — Dan's best-working breakouts." className="rounded bg-bullish-text/15 px-1 py-0.5 text-[9px] font-semibold text-bullish-text">▲ near highs</span>}
           </div>
+          {r.sector && <div className="mt-0.5 truncate text-[9.5px] text-text-faint" title={r.sector}>{r.sector}</div>}
         </td>
         {group !== "pattern" && <td className="px-2 py-2 align-top text-[11px] text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</td>}
         <td className="px-2 py-2 align-top text-[10.5px] text-text-faint"><span className="block max-w-[280px]">{r.reason}</span></td>
         <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap"><span className="font-semibold text-text-secondary">${r.buy_point.toFixed(2)}</span>{r.pct_to_buy != null && <span className="text-text-faint"> {r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%</span>}</td>
-        <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap"><span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span>{r.risk_pct != null && <span className="text-text-faint"> {r.risk_pct}%</span>}</td>
+        <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums whitespace-nowrap">
+          <div><span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span>{r.risk_pct != null && <span className="text-text-faint"> {r.risk_pct}%</span>}</div>
+          {r.tight_stop != null && <div className="text-[9.5px] text-text-faint" title="Zanger tight stop — just under the trigger">tight ${r.tight_stop.toFixed(2)}</div>}
+        </td>
         <td className="px-2 py-2 align-top text-right font-mono text-[11px] tabular-nums"><span className={r.volume_ok ? "text-bullish-text" : "text-text-muted"}>{r.rvol}x</span></td>
         <td className="px-2 py-2 align-top text-right"><span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10.5px] font-bold text-accent">{r.score}</span></td>
       </tr>

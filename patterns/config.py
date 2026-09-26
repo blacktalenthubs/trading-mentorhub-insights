@@ -34,6 +34,11 @@ class PatternConfig:
     max_pct_to_trigger: float = 6.0             # actionable only if price is within this % below the trigger
     max_setup_risk_pct: float = 8.0             # actionable only if entry→stop risk ≤ this % (tight, not loose)
 
+    # ── Zanger informational context (NEVER filters — just labels to guide the read) ──────
+    tight_stop_pct: float = 0.06                # a tight "Zanger" stop = this % under the trigger (shown alongside the structural stop)
+    big_day_pct: float = 15.0                   # a breakout-day move ≥ this % is flagged "extended" (his climax-fail caution)
+    near_highs_pct: float = 70.0                # close in the top (100-this)% of the day's range = "near highs" (his best breakouts)
+
     # ── Cup and handle ───────────────────────────────────────────────────────
     ch_search_bars: int = 200
     ch_rim_side_bars: int = 20                  # a rim = local high, max of 20 bars each side

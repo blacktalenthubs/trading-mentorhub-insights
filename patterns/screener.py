@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import logging
+import os
 
 from patterns.config import CONFIG, PatternConfig
 from patterns.detect_utils import PREFILTER_GATES, compose_score, prefilter
@@ -48,12 +49,38 @@ def _earnings_days(sym):  # pragma: no cover - network
         return None
 
 
-def _row(sym, df, hit, cfg):
+def _sectors(syms):  # pragma: no cover - DB
+    """Batch {SYM: sector} from symbol_fundamentals — informational context (Zanger's 'trade
+    strong groups'). One query; empty on any DB issue (sector just shows as unknown)."""
+    out = {}
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return out
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dsn, connect_timeout=10)
+        cur = conn.cursor()
+        cur.execute("SELECT UPPER(symbol), sector FROM symbol_fundamentals WHERE UPPER(symbol) = ANY(%s)",
+                    ([s.upper() for s in syms],))
+        out = {s: sec for s, sec in cur.fetchall() if sec}
+        cur.close(); conn.close()
+    except Exception:
+        pass
+    return out
+
+
+def _row(sym, df, hit, cfg, sector=None):
     last = df.iloc[-1]
     last_close = float(last["Close"])
+    prior_close = float(df["Close"].iloc[-2])
     bp = hit["buy_point"]
     stop = hit["suggested_stop"]
     score = compose_score(hit["_parts"], df, cfg)
+    # ── Zanger informational context (never filters — guides the read) ──
+    day_change = (last_close - prior_close) / prior_close * 100.0 if prior_close else None
+    rng = float(last["High"] - last["Low"])
+    close_range = (last_close - float(last["Low"])) / rng * 100.0 if rng > 0 else None
+    tight_stop = round(bp * (1 - cfg.tight_stop_pct), 2)
     dist_200 = (last_close - float(last["sma200"])) / float(last["sma200"]) * 100.0 if last["sma200"] else None
     pct_to_buy = (bp - last_close) / last_close * 100.0 if last_close else 0.0
     # Entry = where you'd actually get in: at the trigger for a forming setup, at market for a
@@ -90,6 +117,13 @@ def _row(sym, df, hit, cfg):
         "dist_from_200sma_pct": round(dist_200, 1) if dist_200 is not None else None,
         "score": score,
         "reason": ", ".join(hit["reason_bits"] + [note]),
+        # ── informational context (Dan's rules), not filters ──
+        "tight_stop": tight_stop,
+        "day_change_pct": round(day_change, 1) if day_change is not None else None,
+        "close_range_pct": round(close_range, 0) if close_range is not None else None,
+        "near_highs": bool(close_range is not None and close_range >= cfg.near_highs_pct),
+        "big_day": bool(day_change is not None and day_change >= cfg.big_day_pct),
+        "sector": sector,
         "scanned_at": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
     }
 
@@ -99,6 +133,7 @@ def scan(symbols, cfg: PatternConfig = CONFIG, earnings_filter: bool = False, fe
     funnel = {"scanned": 0, "no_data": 0, "too_few_bars": 0, "earnings": 0}
     funnel.update({g: 0 for g in PREFILTER_GATES})
     funnel["passed_prefilter"] = 0
+    sectors = _sectors([s.upper() for s in symbols])   # informational: which group each name is in
     rows = []
     for sym in symbols:
         sym = sym.upper()
@@ -144,7 +179,7 @@ def scan(symbols, cfg: PatternConfig = CONFIG, earnings_filter: bool = False, fe
                     continue
                 if last_close <= hit["suggested_stop"]:
                     continue
-                rows.append(_row(sym, df, hit, cfg))
+                rows.append(_row(sym, df, hit, cfg, sector=sectors.get(sym)))
         except Exception:
             logger.exception("scan failed for %s", sym)
 

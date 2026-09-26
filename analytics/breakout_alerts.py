@@ -60,9 +60,13 @@ def detect(df, cfg=CONFIG) -> list[dict]:
         risk = (bp - stop) / bp * 100.0 if bp else 999
         if risk > cfg.max_setup_risk_pct:            # only tight setups
             continue
+        day_change = (price - prev) / prev * 100.0 if prev else None
         out.append({
             "pattern": hit["pattern"], "buy_point": round(bp, 2), "stop": round(stop, 2),
+            "tight_stop": round(bp * (1 - cfg.tight_stop_pct), 2),
             "price": round(price, 2), "risk_pct": round(risk, 1), "rvol": hit["rvol"],
+            "day_change": round(day_change, 1) if day_change is not None else None,
+            "big_day": bool(day_change is not None and day_change >= cfg.big_day_pct),
             "score": compose_score(hit["_parts"], df, cfg),
             "reason": ", ".join(hit["reason_bits"]),
         })
@@ -116,8 +120,15 @@ def _record_alerts(events, session_date):  # pragma: no cover - DB
 def _format(events) -> str:
     lines = ["<b>📈 Breakout signals</b> (TBA crossed)"]
     for e in events:
+        extra = []
+        if e.get("day_change") is not None:
+            extra.append(f"{'🔥 ' if e.get('big_day') else ''}+{e['day_change']:.1f}% day")
+        if e.get("earnings_days") is not None:
+            extra.append(f"⚠ earnings in {e['earnings_days']}d")
+        tail = ("  ·  " + " · ".join(extra)) if extra else ""
         lines.append(f"• <b>{e['sym']}</b> {_label(e['pattern'])} — buy ${e['buy_point']:.2f} · "
-                     f"stop ${e['stop']:.2f} (risk {e['risk_pct']:.1f}%) · {e['rvol']}x · score {e['score']}")
+                     f"stop ${e['stop']:.2f} (tight ${e['tight_stop']:.2f} · risk {e['risk_pct']:.1f}%) · "
+                     f"{e['rvol']}x · score {e['score']}{tail}")
     return "\n".join(lines)
 
 
@@ -136,6 +147,12 @@ def run(dry: bool = False) -> dict:  # pragma: no cover - network/DB
         except Exception:
             pass
     new = _unsent(events) if events else []
+    for e in new:                                       # earnings context (few fires → affordable)
+        try:
+            from analytics.premium_desk_scan import _earnings_days
+            e["earnings_days"] = _earnings_days(e["sym"])
+        except Exception:
+            e["earnings_days"] = None
     if not dry and new:
         _record_alerts(new, date)
         cid = _chat_id()
