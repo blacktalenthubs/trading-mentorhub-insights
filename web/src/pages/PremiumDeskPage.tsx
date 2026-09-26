@@ -383,11 +383,11 @@ function LeapRow({ r, onChart }: { r: LeapDeskRow; onChart: (s: string) => void 
             </td>
             <td className="px-3 py-2.5 text-right font-mono text-[11px]">{r.iv_warming || r.iv_rank == null ? <span className="text-text-faint">—</span> : <span className={r.iv_note.startsWith("cheap") ? "text-bullish-text" : r.iv_note.startsWith("rich") ? "text-bearish-text" : "text-text-muted"}>{r.iv_rank}{r.iv_note ? ` ${r.iv_note}` : ""}</span>}</td>
             <td className="px-3 py-2.5 text-right font-mono text-[12px] whitespace-nowrap"
-                title={`ITM ~0.8Δ (stock replacement) vs a target call at the 50-day${r.sma50 ? ` ($${r.sma50.toFixed(2)})` : ""} — more leverage, more risk. ~18mo expiry (${r.expiry}).`}>
+                title={`ITM ~0.8Δ (stock replacement, high probability / low theta) vs a TARGET call at the nearest overhead resistance — the ${r.target_basis} — more leverage, more theta/IV risk. ~18mo expiry (${r.expiry}).`}>
               <span className="text-text-muted">${r.strike_itm.toFixed(0)}</span>
               <span className="text-text-faint"> · </span>
               <span className="font-semibold text-accent">${r.strike_target.toFixed(0)}</span>
-              <span className="ml-1 text-[9px] text-text-faint">→50d</span>
+              <span className="ml-1 text-[9px] text-text-faint">→{r.target_basis}</span>
             </td>
           </tr>
   );

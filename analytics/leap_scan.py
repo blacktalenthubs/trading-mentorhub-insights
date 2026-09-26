@@ -204,13 +204,21 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
 
     # Two strike ideas, two risk appetites (both snapped to real listed strikes):
     #   ITM (~0.8Δ)  — stock replacement: high probability, low theta, muted upside.
-    #   TARGET play  — a strike AT the bounce target (the 50-day), the way the trader sizes it
-    #                  (ABNB spot 157, 50-day 168 → the 170 call). More leverage on the specific
-    #                  move, more theta/IV risk. Falls back to ~7% OTM if price is already above
-    #                  the 50-day (target the next leg up instead).
+    #   TARGET play  — a strike AT the nearest OVERHEAD RESISTANCE the bounce aims for (the way the
+    #                  trader sizes it: entered GOOGL at the 200-SMA, targeted 365 = the resistance
+    #                  above the MA cluster). We take the closest of {50/100/200-day SMA, 60-day
+    #                  high} that sits at least 3% above price — so an MA hugging price is skipped
+    #                  (no clear air) and we aim for the next real level up. Fallback ~10% OTM.
+    sma100 = float(dc.rolling(100).mean().iloc[-1]) if len(dc) >= 100 else float("nan")
+    hi60 = float(dc.iloc[-60:].max()) if len(dc) >= 20 else float("nan")
+    _cand = [(v, nm) for v, nm in ((sma50, "50-day"), (sma100, "100-day"), (sma200, "200-day"),
+                                   (hi60, "60-day high")) if not math.isnan(v) and v > price * 1.03]
+    _cand.sort()
     strike_itm = _round_strike(price * LEAP_DELTA_STRIKE)
-    strike_target = (_round_strike(sma50)
-                     if not math.isnan(sma50) and sma50 > price else _round_strike(price * 1.07))
+    if _cand:
+        strike_target, target_basis = _round_strike(_cand[0][0]), _cand[0][1]
+    else:
+        strike_target, target_basis = _round_strike(price * 1.10), "~10% OTM"
     expiry = (_dt.date.today() + _dt.timedelta(days=LEAP_DTE)).isoformat()
 
     return {
@@ -232,7 +240,7 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
         "consensus": (fund or {}).get("consensus"),
         "iv_rank": ivr, "iv_warming": iv_warming, "iv_note": iv_note,
         "strike": strike_itm, "strike_itm": strike_itm, "strike_target": strike_target,
-        "dte": LEAP_DTE, "expiry": expiry,
+        "target_basis": target_basis, "dte": LEAP_DTE, "expiry": expiry,
         "breadth": breadth, "rationale": rat,
     }
 
