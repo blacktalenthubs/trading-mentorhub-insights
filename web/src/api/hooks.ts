@@ -169,7 +169,7 @@ export interface LeapDeskRow {
   market_cap: number | null; rev_growth: number | null; net_margin: number | null;
   gross_margin: number | null; eps_growth: number | null; consensus: string | null;
   iv_rank: number | null; iv_warming: boolean; iv_note: string;
-  strike: number; strike_itm: number; strike_target: number; dte: number; expiry: string;
+  strike: number; strike_itm: number; strike_target: number; target_basis: string; dte: number; expiry: string;
   breadth: boolean; rationale: string[];
 }
 export interface LeapDeskReport {
