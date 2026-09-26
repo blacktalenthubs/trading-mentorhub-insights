@@ -351,6 +351,52 @@ function WeeklyValue({ body, onChart }: { body: string; onChart: (s: string) => 
     </div>
   );
 }
+interface BreakoutRow {
+  ticker: string; pattern: string; stage: string; buy_point: number; last_close: number;
+  pct_to_buy: number | null; suggested_stop: number; risk_pct: number | null; rvol: number;
+  volume_ok: boolean; base_depth_pct: number; base_length_days: number; rsi14: number | null;
+  dist_from_200sma_pct: number | null; score: number; reason: string;
+}
+const BREAKOUT_LABEL: Record<string, string> = {
+  cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Asc. Triangle",
+  bull_flag: "Bull Flag", horizontal_tba: "TBA breakout", trendline_break: "Trendline break",
+};
+function Breakouts({ body, onChart }: { body: string; onChart: (s: string) => void }) {
+  let parsed: { rows?: BreakoutRow[]; empty?: boolean } | null = null;
+  try { parsed = JSON.parse(body); } catch { parsed = null; }
+  const rows = parsed?.rows ?? [];
+  if (rows.length === 0)
+    return <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">No qualified breakout setups today.</div>;
+  const nBreak = rows.filter((r) => r.stage === "breakout").length;
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[10.5px] text-text-faint">{nBreak} breaking out · {rows.length - nBreak} forming · TBA = buy trigger, max stop = invalidation. Educational — verify on your chart.</div>
+      {rows.map((r, i) => {
+        const brk = r.stage === "breakout";
+        return (
+          <div key={r.ticker + r.pattern + i} className={`rounded-lg border px-3 py-2 ${brk ? "border-bullish-text/30 bg-bullish-text/5" : "border-warning-text/25 bg-warning-text/5"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <button onClick={() => onChart(r.ticker)} className="font-mono text-[13px] font-bold text-text-primary hover:text-accent">{r.ticker}</button>
+                <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[9.5px] font-semibold text-text-secondary">{BREAKOUT_LABEL[r.pattern] ?? r.pattern}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold ${brk ? "bg-bullish-text/15 text-bullish-text" : "bg-warning-text/15 text-warning-text"}`}>{brk ? `▲ breakout ${r.rvol}x` : "forming"}</span>
+                {!r.volume_ok && brk && <span title="Broke the level but volume was light — borderline." className="rounded bg-warning-text/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-warning-text">⚠ light vol</span>}
+              </div>
+              <span className="rounded bg-accent/15 px-1.5 py-0.5 font-mono text-[10px] font-bold text-accent">{r.score}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] tabular-nums text-text-muted">
+              <span>TBA <b className="text-text-secondary">${r.buy_point.toFixed(2)}</b>{r.pct_to_buy != null && <span className="text-text-faint"> ({r.pct_to_buy >= 0 ? "+" : ""}{r.pct_to_buy}%)</span>}</span>
+              <span>stop <span className="text-bearish-text">${r.suggested_stop.toFixed(2)}</span></span>
+              {r.risk_pct != null && <span>risk {r.risk_pct}%</span>}
+              <span className="text-text-faint">${r.last_close.toFixed(2)}</span>
+            </div>
+            <div className="mt-0.5 text-[10.5px] text-text-faint">{r.reason}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function PremarketStrip({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
   let sigs: PmSignal[] = [];
   try { sigs = (body ? (JSON.parse(body).signals as PmSignal[]) : []) ?? []; } catch { sigs = []; }
@@ -508,6 +554,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const gap = data?.gap_setups ?? null;
   const sup = data?.support ?? null;
   const wvp = data?.weekly_vp ?? null;
+  const bo = data?.breakout_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -575,6 +622,12 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-gap", group: "Momentum", time: "PREMKT", title: "Gap setups", present: !!gap,
       wait: "The gap scan runs premarket (analytics/gap_scanner.py).",
       render: () => <GapSetups body={gap?.body ?? ""} onChart={onChart} /> },
+    // ── BREAKOUTS — Zanger-style momentum patterns (cup&handle, flat base, ascending
+    //    triangle, bull flag, TBA/horizontal break, descending-trendline break). TBA = buy
+    //    trigger, max stop = invalidation. Nightly batch after the close (patterns/run.py). ──
+    { id: "sec-breakouts", group: "Momentum", time: "EOD", title: "Breakouts", present: !!bo,
+      wait: "The breakout scanner runs nightly after the close (patterns/run.py --universe --publish).",
+      render: () => <Breakouts body={bo?.body ?? ""} onChart={onChart} /> },
   ];
   const jump = (id: string) => {
     setActiveSec(id);

@@ -888,6 +888,39 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register LEAP Desk scan job")
 
+        # Breakout pattern scanner — Zanger-style momentum patterns (cup&handle, flat base,
+        # ascending triangle, bull flag, TBA/horizontal break, descending-trendline break) over
+        # the master watchlist → Today tab. Nightly after the close (prices are set for the next
+        # session's plan). Earnings filter ON (no holding through binary events). BREAKOUT_SCAN_ENABLED.
+        try:
+            _bo_env = os.environ.get("BREAKOUT_SCAN_ENABLED", "true").strip().lower()
+            if _bo_env not in ("false", "0", "no", "off"):
+                from apscheduler.triggers.cron import CronTrigger as _CronBO
+                from zoneinfo import ZoneInfo as _ZIBO
+                _etbo = _ZIBO("America/New_York")
+
+                def _run_breakout_scan():
+                    try:
+                        import datetime as _dt
+                        from analytics.swing_setups_report import _watchlist
+                        from patterns.screener import scan as _bo_scan
+                        from patterns.writer import publish as _bo_pub
+                        syms = _watchlist(os.environ["DATABASE_URL"])
+                        rep = _bo_scan(syms, earnings_filter=True)
+                        _bo_pub(rep, _dt.date.today().isoformat())
+                        logger.info("Breakout scan posted (%d setups over %d names)", len(rep["rows"]), rep["scanned"])
+                    except Exception:
+                        logger.exception("Breakout scan failed")
+
+                scheduler.add_job(
+                    _run_breakout_scan,
+                    _CronBO(hour=16, minute=40, day_of_week="mon-fri", timezone=_etbo),
+                    id="breakout_scan", replace_existing=True,
+                )
+                logger.info("Breakout scan scheduled (16:40 ET, mon-fri)")
+        except Exception:
+            logger.exception("Failed to register Breakout scan job")
+
         # Weekly Value board (Today tab) — daily job. Names AT their WEEKLY volume-profile
         # POC/VWAP/VAL (Robinhood data, matches the chart), top 10, FRESH reclaims first
         # (prior day's first close above the level). Runs once pre-market so it's ready for
