@@ -116,6 +116,26 @@ export interface MarketReportsResponse {
   weekly_vp: MarketReport | null;
   breakout_setups: MarketReport | null;
 }
+// On-demand job runners (admin) — run a scan now instead of waiting for its cron.
+export interface JobStatus {
+  name: string; label: string; kind: string;
+  last_run: string | null; session_date: string | null;
+  running: boolean; ok: boolean | null; error: string | null;
+  started_at: string | null; finished_at: string | null;
+}
+export function useJobs(opts?: { enabled?: boolean; poll?: boolean }) {
+  return useQuery({
+    queryKey: ["jobs"],
+    queryFn: () => api.get<{ jobs: JobStatus[] }>("/intel/jobs"),
+    enabled: opts?.enabled ?? true,
+    refetchInterval: opts?.poll ? 4000 : false,
+  });
+}
+export function useRunJob() {
+  return useMutation({
+    mutationFn: (name: string) => api.post<{ started: boolean; already_running?: boolean; name: string }>(`/intel/jobs/${name}/run`),
+  });
+}
 export function useMarketReports(date?: string) {
   return useQuery({
     queryKey: ["market-report", date || "latest"],

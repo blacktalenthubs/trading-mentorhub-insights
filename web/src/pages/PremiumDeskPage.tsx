@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 
 import { usePremiumDesk, useLeapDesk, useLeapChain, type PremiumDeskReport, type PremiumDeskRow, type LeapDeskReport, type LeapDeskRow, type LeapChainRow } from "../api/hooks";
 import PremiumTradePanel from "../components/PremiumTradePanel";
+import RunJobButton from "../components/RunJobButton";
 
 type Desk = "premium" | "leap";
 type Tier = "low" | "med" | "high";
@@ -84,6 +85,9 @@ export default function PremiumDeskPage() {
                 className={`rounded-md px-3 py-1.5 text-[12px] font-semibold ${desk === d ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
             ))}
           </div>
+          {desk === "premium"
+            ? <RunJobButton job="premium_desk" invalidateKey={["premium-desk"]} className="shrink-0" />
+            : <RunJobButton job="leap_desk" invalidateKey={["leap-desk"]} className="shrink-0" />}
           {desk === "premium" && <button onClick={() => nav("/premium-desk/positions")} className="shrink-0 rounded-lg border border-border-default bg-surface-1 px-3 py-2 text-[12px] font-semibold text-text-secondary hover:border-accent hover:text-text-primary">Positions &amp; P&amp;L →</button>}
         </div>
         {desk === "premium" && rep && (

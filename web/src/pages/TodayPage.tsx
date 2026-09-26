@@ -10,8 +10,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, ChevronDown, Star } from "lucide-react";
-import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useToggleWatchlistFocus, useWatchlist } from "../api/hooks";
+import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useToggleWatchlistFocus, useWatchlist, useJobs } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
+import RunJobButton from "../components/RunJobButton";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
 
@@ -545,6 +546,8 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   // remount collapses every section + resets the session and you'd re-expand every time.
   const [selectedDate, setSelectedDate] = useState(() => sessionStorage.getItem("today.date") ?? "");
   const { data, isLoading } = useMarketReports(selectedDate || undefined);
+  const { data: jobsData } = useJobs();          // admin-gated; undefined for non-admins
+  const canRunJobs = !!jobsData;
   const { data: datesData } = useReportDates();
   const reportDates = datesData?.dates ?? [];
   const fmtDate = (d: string) =>
@@ -606,12 +609,12 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     // ── AT SUPPORT / OVERSOLD — ONE board: rising 20/50 & 200 SMA, VWAP/POC/VAL, RSI
     //    reclaims, each with the put strike. Absorbs the old put-sellers, bottom-watch,
     //    volume-signals and 20-MA sections so a name shows in exactly one place. ──
-    { id: "sec-support", group: "Buy the dip", time: "INTRADAY", title: "At Support · Oversold", present: !!sup,
+    { id: "sec-support", group: "Buy the dip", time: "INTRADAY", title: "At Support · Oversold", present: !!sup, job: "support",
       wait: "Run analytics/support_scan.py — rising 20/50 & 200 SMA, VWAP/POC/VAL, RSI reclaims, with the strike.",
       render: () => <AtSupport body={sup?.body ?? ""} onChart={onChart} /> },
     // ── WEEKLY VALUE — names at their WEEKLY volume-profile POC/VWAP/VAL (Robinhood data,
     //    matches the chart). Top 10, fresh reclaims first (prior day's first close above). ──
-    { id: "sec-weekly-vp", group: "Buy the dip", time: "PREMKT", title: "Weekly Value", present: !!wvp,
+    { id: "sec-weekly-vp", group: "Buy the dip", time: "PREMKT", title: "Weekly Value", present: !!wvp, job: "weekly_vp",
       wait: "The weekly-value scan runs premarket (analytics/weekly_vp_scan.py).",
       render: () => <WeeklyValue body={wvp?.body ?? ""} onChart={onChart} /> },
     // ── MOMENTUM — the swing finder's breakout/structure buckets only (the oversold ones
@@ -625,7 +628,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     // ── BREAKOUTS — Zanger-style momentum patterns (cup&handle, flat base, ascending
     //    triangle, bull flag, TBA/horizontal break, descending-trendline break). TBA = buy
     //    trigger, max stop = invalidation. Nightly batch after the close (patterns/run.py). ──
-    { id: "sec-breakouts", group: "Momentum", time: "EOD", title: "Breakouts", present: !!bo,
+    { id: "sec-breakouts", group: "Momentum", time: "EOD", title: "Breakouts", present: !!bo, job: "breakout_setups",
       wait: "The breakout scanner runs nightly after the close (patterns/run.py --universe --publish).",
       render: () => <Breakouts body={bo?.body ?? ""} onChart={onChart} /> },
   ];
@@ -718,17 +721,20 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
               {/* group label sits INSIDE the section (above the header) so it can't overlap it */}
               {showGroup && <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-accent/80">{s.group}</div>}
               {/* collapsible header — tap to expand/collapse (collapsed = less context) */}
-              <button
-                type="button"
-                onClick={() => toggleSec(s.id)}
-                aria-expanded={open}
-                className="mb-2.5 flex w-full items-center gap-2 text-left"
-              >
-                <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{s.time}</span>
-                <h2 className="text-[13px] font-bold text-text-primary">{s.title}</h2>
-                {s.present ? <span className="text-[10px] text-bullish-text">✓</span> : <span className="text-[10px] text-text-faint">—</span>}
-                <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-text-faint transition-transform ${open ? "rotate-180" : ""}`} />
-              </button>
+              <div className="mb-2.5 flex w-full items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => toggleSec(s.id)}
+                  aria-expanded={open}
+                  className="flex flex-1 items-center gap-2 text-left"
+                >
+                  <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">{s.time}</span>
+                  <h2 className="text-[13px] font-bold text-text-primary">{s.title}</h2>
+                  {s.present ? <span className="text-[10px] text-bullish-text">✓</span> : <span className="text-[10px] text-text-faint">—</span>}
+                  <ChevronDown className={`ml-auto h-4 w-4 shrink-0 text-text-faint transition-transform ${open ? "rotate-180" : ""}`} />
+                </button>
+                {s.job && canRunJobs && <RunJobButton job={s.job} invalidateKey={["market-report"]} label="Run" className="shrink-0" />}
+              </div>
               {open && (s.present ? s.render() : (
                 <div className="rounded-xl border border-border-subtle bg-surface-1 p-5 text-center text-[12px] text-text-faint">{s.wait}</div>
               ))}

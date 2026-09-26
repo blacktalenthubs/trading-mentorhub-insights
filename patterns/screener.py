@@ -117,8 +117,18 @@ def scan(symbols, cfg: PatternConfig = CONFIG, earnings_filter: bool = False, fe
                 except Exception:
                     logger.exception("%s detector crashed on %s", name, sym)
                     hit = None
-                if hit:
-                    rows.append(_row(sym, df, hit, cfg))
+                if not hit:
+                    continue
+                last_close = float(df["Close"].iloc[-1])
+                # Freshness guards (spec: "narrow to a handful; when in doubt, tighten"):
+                #  • a "forming" setup whose price is already above the trigger broke out days ago
+                #    (a chase, not a setup) — drop it. A genuine breakout is stage="breakout".
+                #  • price already below the max stop = the setup is invalidated — drop it.
+                if hit["stage"] == "forming" and last_close > hit["buy_point"] * 1.01:
+                    continue
+                if last_close <= hit["suggested_stop"]:
+                    continue
+                rows.append(_row(sym, df, hit, cfg))
         except Exception:
             logger.exception("scan failed for %s", sym)
 
