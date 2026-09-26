@@ -152,6 +152,7 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
     rsi_d = _rsi_last(dc)
     rsi_w = _rsi_last(weekly["Close"])
     sma200 = float(dc.rolling(200).mean().iloc[-1]) if len(dc) >= 200 else float("nan")
+    sma50 = float(dc.rolling(50).mean().iloc[-1]) if len(dc) >= 50 else float("nan")
     dist_200 = (price - sma200) / sma200 * 100.0 if not math.isnan(sma200) and sma200 > 0 else float("nan")
     at_200 = not math.isnan(dist_200) and dist_200 <= 1.0   # at or below the 200 (within 1%)
 
@@ -201,7 +202,15 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
     iv_warming = iv is None or (iv or {}).get("n", 0) < 20
     iv_note = "" if ivr is None else "cheap LEAP" if ivr <= 30 else "rich — pricey LEAP" if ivr >= 70 else "fair"
 
-    strike = round(price * LEAP_DELTA_STRIKE, 2)
+    # Two strike ideas, two risk appetites (both snapped to real listed strikes):
+    #   ITM (~0.8Δ)  — stock replacement: high probability, low theta, muted upside.
+    #   TARGET play  — a strike AT the bounce target (the 50-day), the way the trader sizes it
+    #                  (ABNB spot 157, 50-day 168 → the 170 call). More leverage on the specific
+    #                  move, more theta/IV risk. Falls back to ~7% OTM if price is already above
+    #                  the 50-day (target the next leg up instead).
+    strike_itm = _round_strike(price * LEAP_DELTA_STRIKE)
+    strike_target = (_round_strike(sma50)
+                     if not math.isnan(sma50) and sma50 > price else _round_strike(price * 1.07))
     expiry = (_dt.date.today() + _dt.timedelta(days=LEAP_DTE)).isoformat()
 
     return {
@@ -210,6 +219,7 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
         "rsi_d": None if math.isnan(rsi_d) else round(rsi_d, 1),
         "rsi_w": None if math.isnan(rsi_w) else round(rsi_w, 1),
         "sma200": None if math.isnan(sma200) else round(sma200, 2),
+        "sma50": None if math.isnan(sma50) else round(sma50, 2),
         "dist_200_pct": None if math.isnan(dist_200) else round(dist_200, 1),
         "at_200": at_200,
         "quality_score": round(q_score, 0), "quality_tier": q_tier, "quality_warming": warming,
@@ -221,9 +231,18 @@ def score_leap(sym, daily, weekly, fund, iv, is_idx, spy_rsi_d=None):
         "eps_growth": (fund or {}).get("eps_growth_pct"),
         "consensus": (fund or {}).get("consensus"),
         "iv_rank": ivr, "iv_warming": iv_warming, "iv_note": iv_note,
-        "strike": strike, "dte": LEAP_DTE, "expiry": expiry,
+        "strike": strike_itm, "strike_itm": strike_itm, "strike_target": strike_target,
+        "dte": LEAP_DTE, "expiry": expiry,
         "breadth": breadth, "rationale": rat,
     }
+
+
+def _round_strike(x):
+    """Snap to a realistic listed-option strike increment ($2.5 / $5 / $10 by price)."""
+    if x <= 0:
+        return round(x, 2)
+    step = 2.5 if x < 25 else 5.0 if x < 200 else 10.0
+    return round(round(x / step) * step, 2)
 
 
 def _grade(score):
