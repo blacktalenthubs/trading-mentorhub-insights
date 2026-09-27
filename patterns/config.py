@@ -22,6 +22,7 @@ class PatternConfig:
     min_close: float = 10.0
     min_avg_vol: float = 500_000.0
     require_above_sma200: bool = True
+    require_above_sma50: bool = True            # also above the 50 — no short-term downtrend bounces
     require_rising_sma200: bool = True          # sma200_slope > 0
     max_pct_below_52w_high: float = 0.25        # close within 25% of the 52w high
     min_pct_above_52w_low: float = 0.30         # close ≥ 30% above the 52w low
