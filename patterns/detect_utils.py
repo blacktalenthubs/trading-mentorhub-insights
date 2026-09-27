@@ -11,7 +11,7 @@ import pandas as pd
 from patterns.config import PatternConfig
 
 # Ordered so the funnel log reads left-to-right; the FIRST failing gate names the drop.
-PREFILTER_GATES = ("price", "liquidity", "above_200", "rising_200", "near_52w_high", "off_52w_low")
+PREFILTER_GATES = ("price", "liquidity", "above_200", "above_50", "rising_200", "near_52w_high", "off_52w_low")
 
 
 def prefilter(df: pd.DataFrame, cfg: PatternConfig) -> str:
@@ -24,6 +24,8 @@ def prefilter(df: pd.DataFrame, cfg: PatternConfig) -> str:
         return "liquidity"
     if cfg.require_above_sma200 and not (r["Close"] > r["sma200"]):
         return "above_200"
+    if cfg.require_above_sma50 and not (r["Close"] > r["sma50"]):
+        return "above_50"
     if cfg.require_rising_sma200 and not (r["sma200_slope"] > 0):
         return "rising_200"
     hi, lo, c = r["hi_52w"], r["lo_52w"], r["Close"]
