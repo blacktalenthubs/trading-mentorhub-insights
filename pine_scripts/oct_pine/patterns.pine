@@ -59,6 +59,12 @@ showHUD  = input.bool(true, "Show HUD", group=g5)
 hudPos   = input.string("Top Right", "HUD position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g5)
 hudSize  = input.string("Large", "HUD text size", options=["Small", "Normal", "Large", "Huge"], group=g5)
 
+gVR = "Volume ratio (Zanger · daily chart only)"
+showVR = input.bool(true, "Show volume ratio in HUD", group=gVR)
+vrLen  = input.int(20, "Average over (days)", minval=5, maxval=50, group=gVR)
+vrLtf  = input.timeframe("5", "Intraday resolution", group=gVR)
+vrPace = input.int(3, "Pace lookback (intraday bars)", minval=1, group=gVR)
+
 gE = "EMAs (8 / 21 / 50)"
 showE8   = input.bool(true,  "8 EMA",   inline="e",  group=gE)
 showE21  = input.bool(true,  "21 EMA",  inline="e",  group=gE)
@@ -506,9 +512,57 @@ if barstate.islast
         resLn := line.new(bar_index - 40, LresL, bar_index + 25, LresL, color=color.new(color.red, 10), width=2, style=line.style_dotted)
         resLb := label.new(bar_index + 25, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=color.new(color.red, 10), textcolor=color.white, size=size.small)
 
+// ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
+// Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
+// finish from how much has traded by this point vs the average day's cumulative volume by the
+// same time. Needs each chart bar to BE a day + intraday sub-bars, so it only computes on a
+// daily chart (shows "Daily only" otherwise; request.security_lower_tf returns empty when its
+// timeframe isn't lower than the chart, so this stays safe on any TF).
+VR_MAXB = 300
+vrIsD = timeframe.isdaily
+vrIv  = request.security_lower_tf(syminfo.tickerid, vrLtf, volume)
+var vrCum   = array.new_float(vrLen * VR_MAXB, 0.0)
+var vrDaySz = array.new_int(vrLen, 0)
+vrSlot = bar_index % vrLen
+vrNn   = math.min(array.size(vrIv), VR_MAXB)
+float vrRun = 0.0
+if vrIsD and vrNn > 0
+    for i = 0 to vrNn - 1
+        vrRun += nz(array.get(vrIv, i))
+        array.set(vrCum, vrSlot * VR_MAXB + i, vrRun)
+if vrIsD
+    array.set(vrDaySz, vrSlot, vrNn)
+
+f_vrAvgCum(k, cur) =>
+    float sum = 0.0
+    int cnt = 0
+    for s = 0 to vrLen - 1
+        sz = array.get(vrDaySz, s)
+        if s != cur and sz > 0
+            idx = math.min(k, sz) - 1
+            if idx >= 0
+                sum += array.get(vrCum, s * VR_MAXB + idx)
+                cnt += 1
+    cnt > 0 ? sum / cnt : na
+f_vrCumToday(k) => k > 0 ? array.get(vrCum, vrSlot * VR_MAXB + k - 1) : na
+
+vrAvgFull = ta.sma(volume[1], vrLen)
+vrDayDone = timenow >= time_close
+vrAvgNow  = f_vrAvgCum(vrNn, vrSlot)
+vrLive    = vrNn > 0 and vrAvgNow > 0 ? f_vrCumToday(vrNn) / vrAvgNow * 100 : na
+vrRatio   = not vrIsD ? na : vrDayDone ? (vrAvgFull > 0 ? volume / vrAvgFull * 100 : na) : vrLive
+vrKp      = vrNn - vrPace
+vrAvgPrev = vrKp > 0 ? f_vrAvgCum(vrKp, vrSlot) : na
+vrRatPrev = vrKp > 0 and vrAvgPrev > 0 ? f_vrCumToday(vrKp) / vrAvgPrev * 100 : na
+vrProj    = not na(vrRatio) ? vrAvgFull * vrRatio / 100 : na
+f_vrCat(r) => na(r) ? "Daily only" : r >= 250 ? "EXTREME" : r >= 150 ? "HIGH" : r >= 85 ? "AVERAGE" : r >= 60 ? "LIGHT" : "DRY-UP"
+f_vrCol(r) => na(r) ? color.gray : r >= 250 ? color.fuchsia : r >= 150 ? color.lime : r >= 85 ? color.gray : r >= 60 ? color.yellow : color.aqua
+vrPaceTxt = not vrIsD ? "-" : vrDayDone ? "closed" : na(vrRatPrev) or na(vrLive) ? "-" : vrLive > vrRatPrev ? "▲ rising" : vrLive < vrRatPrev ? "▼ fading" : "flat"
+vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ? color.red : color.gray
+
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 19, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 22, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -540,3 +594,7 @@ if showHUD and barstate.islast
     rsiTxt = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
     rsiCol = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
     f_row(hud, 18, "RSI 14", rsiTxt, rsiCol)
+    if showVR
+        f_row(hud, 19, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
+        f_row(hud, 20, "Vol pace", vrPaceTxt, vrPaceCol)
+        f_row(hud, 21, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
