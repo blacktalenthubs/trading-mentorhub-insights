@@ -205,15 +205,16 @@ export interface LeapChainRow {
 }
 export interface LeapChain {
   available: boolean; reason?: string; symbol?: string; underlying_price?: number;
-  expiration?: string; dte?: number;
+  expiration?: string; dte?: number; horizon_days?: number;
+  expirations?: { date: string; dte: number }[];
   recommend?: { itm: LeapChainRow | null; target: LeapChainRow | null };
   rows: LeapChainRow[];
 }
-export function useLeapChain(sym: string | undefined, target?: number) {
+export function useLeapChain(sym: string | undefined, target?: number, horizon = 365) {
   return useQuery({
-    queryKey: ["leap-chain", sym, target ?? 0],
+    queryKey: ["leap-chain", sym, target ?? 0, horizon],
     enabled: !!sym,
-    queryFn: () => api.get<LeapChain>(`/intel/leap-desk/chain?sym=${encodeURIComponent(sym!)}${target ? `&target=${target}` : ""}`),
+    queryFn: () => api.get<LeapChain>(`/intel/leap-desk/chain?sym=${encodeURIComponent(sym!)}&horizon=${horizon}${target ? `&target=${target}` : ""}`),
     staleTime: 120_000,
   });
 }

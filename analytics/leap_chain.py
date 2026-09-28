@@ -25,42 +25,45 @@ CACHE_TTL = 120.0
 _CACHE: dict[str, tuple[float, dict]] = {}
 _LOCK = threading.Lock()
 
-LEAP_DTE = 540            # ~18-month target
-MIN_LEAP_DTE = 300       # a real LEAP is ≥ ~10mo out; below this it isn't one
+DEFAULT_HORIZON = 365    # ~12mo ("exact month next year") — the trader's primary LEAP horizon
+MIN_DTE = 90             # skip near-term weeklies; a LEAP is a few months+ out
 MIN_OI = 50              # open interest at/above this = a real market
 MAX_SPREAD_PCT = 20.0    # bid/ask spread as % of mark — wider = illiquid
 ITM_DELTA = 0.80         # stock-replacement target delta
 MONEYNESS = 0.30         # pull strikes within ±30% of price (ITM through OTM target)
 
 
-def _pick_leap_expiration(exps: list[str], today: _dt.date):
-    """The listed expiration closest to ~18mo out, preferring real LEAPs (≥ MIN_LEAP_DTE).
-    Falls back to the longest-dated expiration when nothing reaches the LEAP window."""
-    dated = []
+def _dated(exps: list[str], today: _dt.date):
+    """[(date, dte)] for future expirations at least MIN_DTE out, sorted by dte."""
+    out = []
     for e in exps or []:
         try:
             d = (_dt.date.fromisoformat(e) - today).days
         except Exception:
             continue
-        if d > 0:
-            dated.append((e, d))
+        if d >= MIN_DTE:
+            out.append((e, d))
+    return sorted(out, key=lambda x: x[1])
+
+
+def _pick_leap_expiration(exps: list[str], today: _dt.date, horizon_days: int = DEFAULT_HORIZON):
+    """The listed expiration closest to `horizon_days` (6mo / 12mo / 18mo etc.). Falls back to the
+    longest available when none reach the requested horizon."""
+    dated = _dated(exps, today)
     if not dated:
         return None
-    leaps = [x for x in dated if x[1] >= MIN_LEAP_DTE]
-    if leaps:
-        return min(leaps, key=lambda x: abs(x[1] - LEAP_DTE))
-    return max(dated, key=lambda x: x[1])   # longest available
+    return min(dated, key=lambda x: abs(x[1] - horizon_days))
 
 
-def fetch_leap_chain(symbol: str, target: float | None = None, client=None) -> dict:  # pragma: no cover - network
+def fetch_leap_chain(symbol: str, target: float | None = None, horizon_days: int = DEFAULT_HORIZON, client=None) -> dict:  # pragma: no cover - network
     sym = symbol.upper()
-    key = f"{sym}:{round(target or 0, 2)}"
+    key = f"{sym}:{round(target or 0, 2)}:{horizon_days}"
     now = time.time()
     with _LOCK:
         hit = _CACHE.get(key)
         if hit and now - hit[0] < CACHE_TTL:
             return hit[1]
-    result = _fetch(sym, target, client)
+    result = _fetch(sym, target, horizon_days, client)
     with _LOCK:
         _CACHE[key] = (now, result)
     return result
@@ -76,7 +79,7 @@ def _liquid(r):
     return r["open_interest"] >= MIN_OI and r["ask"] > 0 and (r["spread_pct"] is None or r["spread_pct"] <= MAX_SPREAD_PCT)
 
 
-def _fetch(sym: str, target, client) -> dict:  # pragma: no cover - network
+def _fetch(sym: str, target, horizon_days, client) -> dict:  # pragma: no cover - network
     from brokers.robinhood import RobinhoodClient, RobinhoodError
     from brokers.robinhood_options import fetch_expirations, fetch_option_greeks
 
@@ -85,10 +88,12 @@ def _fetch(sym: str, target, client) -> dict:  # pragma: no cover - network
             client = RobinhoodClient()
             client.login()
         exps = fetch_expirations(sym, client=client)
-        picked = _pick_leap_expiration(exps, _dt.date.today())
+        today = _dt.date.today()
+        picked = _pick_leap_expiration(exps, today, horizon_days)
         if picked is None:
             return {"available": False, "reason": "no LEAP-dated expiration", "rows": []}
         expiration, dte = picked
+        avail = [{"date": e, "dte": d} for e, d in _dated(exps, today)]
         chain = fetch_option_greeks(sym, expiration, option_type="call", moneyness_pct=MONEYNESS, client=client)
     except RobinhoodError as exc:
         logger.warning("leap chain unavailable for %s (%s)", sym, exc)
@@ -130,7 +135,8 @@ def _fetch(sym: str, target, client) -> dict:  # pragma: no cover - network
 
     return {
         "available": True, "symbol": sym, "underlying_price": round(price, 2),
-        "expiration": expiration, "dte": dte,
+        "expiration": expiration, "dte": dte, "horizon_days": horizon_days,
+        "expirations": avail,          # every future expiry (≥ MIN_DTE) so the UI can offer 6M/1Y/18M
         "recommend": {"itm": itm, "target": tgt},
         "rows": rows,
     }

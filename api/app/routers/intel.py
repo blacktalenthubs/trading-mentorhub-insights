@@ -724,6 +724,7 @@ async def premium_desk_chain(
 async def leap_desk_chain(
     sym: str = Query(..., min_length=1, max_length=10),
     target: float | None = Query(None),
+    horizon: int = Query(365, ge=90, le=900),   # target days-to-expiry: 180=~6mo, 365=~1yr, 540=~18mo
     user: User = Depends(get_current_user),
 ):
     """Live ~18-month CALL chain for a LEAP candidate — real strikes with bid/ask/mark/delta/
@@ -733,7 +734,7 @@ async def leap_desk_chain(
     strikes."""
     from analytics.leap_chain import fetch_leap_chain
     try:
-        return await _run_sync(fetch_leap_chain, sym.upper(), target)
+        return await _run_sync(fetch_leap_chain, sym.upper(), target, horizon)
     except Exception:
         return {"available": False, "reason": "fetch failed", "rows": []}
 
