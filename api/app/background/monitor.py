@@ -119,10 +119,12 @@ SCANNER_UNIVERSE: list[str] = [
     # 2026-09-28 (trader): the FIXED signal watchlist — the ONLY names the scanner sends
     # signals on, across ALL types (daily EMA/levels, 4h, 1h). Matches the app's INDEX list.
     # NOTE: SOXL (3x semis) + USO (oil) are ETFs, not underlyings — their MA levels can be
-    # decayed/distorted (leveraged/commodity), included per explicit request. No crypto here.
+    # decayed/distorted (leveraged/commodity), included per explicit request.
     "AMZN", "SOXL", "MSFT", "CRWD", "DIA", "AAPL", "QQQ", "AMD", "MSTR", "SNDK",
     "PLTR", "MRNA", "NOW", "USO", "SPY", "NBIS", "MU", "META", "SMH", "NVDA",
     "CRDO", "GOOGL", "DRAM", "ABNB",
+    # Crypto (internal -USD form → is_crypto + 24/7 crypto data path). Added back 2026-09-28.
+    "BTC-USD", "ETH-USD",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
