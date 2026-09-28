@@ -453,7 +453,11 @@ VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 # to the same short list. Gated at the generation sites (intraday_rules / monitor).
 LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META",
                                  "SPY", "QQQ", "MSFT", "HOOD", "BTC-USD", "ETH-USD"}
-SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
+# Intraday 1h MA support/reject (2026-09-28, trader): index/leader set ONLY.
+# Daily EMA value alerts run BROAD (focus watchlist); intraday *timing* fires only on the
+# liquid leaders the trader actually day-trades. Decoupled from LEVEL_ALERT_SYMBOLS on purpose
+# so weekly/monthly level alerts keep their wider universe.
+SMA1H_SYMBOLS: set[str] = {"SPY", "QQQ", "DIA", "SMH", "DRAM", "NVDA"}
 # Hourly volume-profile alerts (POC / VAL / VWAP / VAH), computed on 1h bars. On TRIAL over a
 # wider 50-name universe (2026-09-24, trader directive: "run this on 50 stocks, solid mega + AI")
 # so the new "Volume" signal feed accumulates days of data. DECOUPLED from the focus gate on
@@ -689,18 +693,16 @@ ENABLED_RULES: set[str] = {
     # Everything else is OFF. See scanner_ma20_support_spec.md.
     # ============================================================================
 
-    # ── Daily MA support: 50 + 200 (the daily 20 SMA is OFF — 2026-09-21, too noisy) ─
-    "ma_reclaim_50",
-    "ma_reclaim_150",
-    "ma_reclaim_200",
-    # ── Daily MA BOUNCE (2026-09-15) — pull back to the SMA and CLOSE ABOVE it.
-    # The reclaim rules above are open-above/hold and almost never fire on daily,
-    # so the actual daily support bounces (HOOD@20, LRCX@200) were computed but
-    # suppressed as "rule_not_enabled". (2026-09-21: the daily 20 SMA — ma_reclaim_20
-    # + ma_bounce_20 — turned OFF as too noisy; 50/150/200 stay on.)
-    "ma_bounce_50",
-    "ma_bounce_150",
-    "ma_bounce_200",
+    # ── Daily EMA VALUE zones (2026-09-28, trader: Scott Redler 8/21/50/100/200) ────
+    # THE CORE SIGNAL. Intraday price pulls back to a DAILY EMA and reclaims/bounces
+    # (values come from prior_day.ema8/21/50/100/200 in intraday_data.py). Runs broad
+    # over the focus watchlist. Replaces the daily SMA 50/150/200 set below (retired):
+    # the trader trades EMAs, not SMAs, and the SMA set had no 8/21 and no EMA at all.
+    "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
+    "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
+    # ── Daily SMA 50/150/200 — RETIRED 2026-09-28 (daily EMA above replaces it). The
+    # daily 20 SMA was already OFF (2026-09-21, too noisy). Kept out to avoid double
+    # daily alerts on the same pullback; re-add ma_bounce_* here to bring SMA back.
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-21 — 50 removed) ──────
     "ma20_support_1h",
@@ -714,13 +716,11 @@ ENABLED_RULES: set[str] = {
     # "hourly_vah_breakout",   # long — broke up through the 1h value-area high
     # "hourly_vah_reject",     # short — rejected at the 1h value-area high
     # "hourly_vah_support",    # long — VAH holding as support after a breakout
-    # ── 4H MA support bounces (day-trade): 20 (rising) + 50 + 200 ────────────────
-    "ma20_support_4h",
-    "ma50_support_4h",
-    "ma200_support_4h",
-    # ── 1H / 4H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ───────────
+    # ── 4H MA support — DROPPED 2026-09-28. Added 09-14 (#1266) but the 200-4h was
+    # un-computable on the original 60d fetch (needs 200 4h bars, had ~120 → always NaN)
+    # so it fired ~never; not worth the deep-fetch dependency. Intraday timing = 1h only.
+    # ── 1H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ────────────────
     "ma20_reject_1h", "ma200_reject_1h",
-    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
