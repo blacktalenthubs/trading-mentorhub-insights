@@ -404,7 +404,8 @@ function LeapRow({ r, onChart, onChain }: { r: LeapDeskRow; onChart: (s: string)
 
 // ── Live LEAP call chain modal — real strikes recommended by liquidity + delta ──
 function LeapChainModal({ row, onClose }: { row: LeapDeskRow; onClose: () => void }) {
-  const { data, isLoading } = useLeapChain(row.sym, row.strike_target);
+  const [horizon, setHorizon] = useState(365);   // ~6mo / ~1yr / ~18mo target expiry
+  const { data, isLoading } = useLeapChain(row.sym, row.strike_target, horizon);
   const pick = (p: LeapChainRow | null | undefined, label: string, sub: string) => (
     <div className="flex-1 rounded-lg border border-border-subtle bg-surface-1 p-3">
       <div className="text-[10px] font-semibold uppercase tracking-wide text-text-faint">{label}</div>
@@ -434,7 +435,15 @@ function LeapChainModal({ row, onClose }: { row: LeapDeskRow; onClose: () => voi
             <h2 className="font-mono text-[15px] font-extrabold text-text-primary">{row.sym} · LEAP call chain</h2>
             {data?.available && <p className="text-[11px] text-text-muted">exp {data.expiration} ({data.dte}d) · underlying ${data.underlying_price?.toFixed(2)}</p>}
           </div>
-          <button onClick={onClose} className="rounded-lg px-2 py-1 text-[13px] text-text-muted hover:bg-surface-2 hover:text-text-primary">✕</button>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-0.5 rounded-lg border border-border-subtle bg-surface-1 p-0.5">
+              {([[180, "~6M"], [365, "~1Y"], [540, "~18M"]] as const).map(([d, label]) => (
+                <button key={d} onClick={() => setHorizon(d)} aria-pressed={horizon === d}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold ${horizon === d ? "bg-surface-3 text-text-primary" : "text-text-muted hover:text-text-secondary"}`}>{label}</button>
+              ))}
+            </div>
+            <button onClick={onClose} className="rounded-lg px-2 py-1 text-[13px] text-text-muted hover:bg-surface-2 hover:text-text-primary">✕</button>
+          </div>
         </header>
         <div className="max-h-[75vh] overflow-y-auto p-4">
           {isLoading && <div className="py-8 text-center text-[12.5px] text-text-faint">Pulling the ~18-month chain…</div>}
