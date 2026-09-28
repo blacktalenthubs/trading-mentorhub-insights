@@ -453,11 +453,11 @@ VWAP_SYMBOLS: set[str] = {"SPY", "NVDA", "BTC-USD", "ETH-USD"}
 # to the same short list. Gated at the generation sites (intraday_rules / monitor).
 LEVEL_ALERT_SYMBOLS: set[str] = {"AAPL", "MU", "SNDK", "NVDA", "GOOGL", "META",
                                  "SPY", "QQQ", "MSFT", "HOOD", "BTC-USD", "ETH-USD"}
-# Intraday 1h MA support/reject (2026-09-28, trader): index/leader set ONLY.
-# Daily EMA value alerts run BROAD (focus watchlist); intraday *timing* fires only on the
-# liquid leaders the trader actually day-trades. Decoupled from LEVEL_ALERT_SYMBOLS on purpose
-# so weekly/monthly level alerts keep their wider universe.
-SMA1H_SYMBOLS: set[str] = {"SPY", "QQQ", "DIA", "SMH", "DRAM", "NVDA"}
+# NOTE (2026-09-28): this is currently a DEAD config. monitor.py imports it but the live 1h
+# gate is `_focus_symbols()` (the FOCUS/star watchlist); 4h is ungated (fires on all polled
+# names). Kept as the focus-level reference list. To actually restrict intraday MA to a fixed
+# leader set, gate on it in monitor.py — not here.
+SMA1H_SYMBOLS: set[str] = LEVEL_ALERT_SYMBOLS
 # Hourly volume-profile alerts (POC / VAL / VWAP / VAH), computed on 1h bars. On TRIAL over a
 # wider 50-name universe (2026-09-24, trader directive: "run this on 50 stocks, solid mega + AI")
 # so the new "Volume" signal feed accumulates days of data. DECOUPLED from the focus gate on
@@ -716,11 +716,16 @@ ENABLED_RULES: set[str] = {
     # "hourly_vah_breakout",   # long — broke up through the 1h value-area high
     # "hourly_vah_reject",     # short — rejected at the 1h value-area high
     # "hourly_vah_support",    # long — VAH holding as support after a breakout
-    # ── 4H MA support — DROPPED 2026-09-28. Added 09-14 (#1266) but the 200-4h was
-    # un-computable on the original 60d fetch (needs 200 4h bars, had ~120 → always NaN)
-    # so it fired ~never; not worth the deep-fetch dependency. Intraday timing = 1h only.
-    # ── 1H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ────────────────
+    # ── 4H MA support (day-trade): 20 (rising) + 50 + 200. KEPT 2026-09-28: the deep
+    # fetch (180d) finally makes the 200-4h computable, and it now fires clean on leaders
+    # (SPY/META/DRAM 4h holds). NOTE: 4h is currently UNGATED by symbol (fires on every
+    # polled name) — to restrict it to a leader set, gate in monitor.py (see SMA1H note).
+    "ma20_support_4h",
+    "ma50_support_4h",
+    "ma200_support_4h",
+    # ── 1H / 4H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ────────────
     "ma20_reject_1h", "ma200_reject_1h",
+    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
