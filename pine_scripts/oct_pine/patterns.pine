@@ -1,5 +1,5 @@
 //@version=5
-indicator("Breakout Pattern HUD", shorttitle="Pattern HUD", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=30)
+indicator("TBA-signals", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=30)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -55,6 +55,7 @@ holdBars = input.int(5, "Keep showing pattern after breakout (bars)", group=g5)
 maxRisk  = input.float(8.0, "Max stop distance below TBA %", group=g5) / 100
 reqTrend = input.bool(false, "Only detect above rising 50 SMA", group=g5)
 showMA   = input.bool(true, "Plot 50 SMA", group=g5)
+showHUD  = input.bool(true, "Show HUD", group=g5)
 hudPos   = input.string("Top Right", "HUD position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g5)
 hudSize  = input.string("Large", "HUD text size", options=["Small", "Normal", "Large", "Huge"], group=g5)
 
@@ -514,7 +515,7 @@ f_row(t, r, key, val, c) =>
     table.cell(t, 0, r, key, text_color=color.silver, text_size=hudTxt, text_halign=text.align_left)
     table.cell(t, 1, r, val, text_color=c, text_size=hudTxt, text_halign=text.align_right)
 
-if barstate.islast
+if showHUD and barstate.islast
     heldTxt = na(LsupL) ? "-" : LheldN > 0 ? "held " + str.tostring(LheldN) + "x / 10d" : "untested"
     planTxt = na(LsupS) ? "-" : "Stop " + str.tostring(LsupS, format.mintick) + (na(LrrV) ? "" : " | R/R " + str.tostring(LrrV, "#.0"))
     tfTag   = lockLevels ? " (" + levelTf + ")" : ""
