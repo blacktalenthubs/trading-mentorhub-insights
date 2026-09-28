@@ -700,9 +700,10 @@ ENABLED_RULES: set[str] = {
     # the trader trades EMAs, not SMAs, and the SMA set had no 8/21 and no EMA at all.
     "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
     "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    # ── Daily SMA 50/150/200 — RETIRED 2026-09-28 (daily EMA above replaces it). The
-    # daily 20 SMA was already OFF (2026-09-21, too noisy). Kept out to avoid double
-    # daily alerts on the same pullback; re-add ma_bounce_* here to bring SMA back.
+    # ── Daily SMA bounce 20/50/200 (2026-09-28, trader): re-added ALONGSIDE the EMA above.
+    # SMA and EMA diverge often enough that the SMA levels are their own signal; dedup +
+    # cooldown handle any same-pullback overlap. (100/150 stay off — trader picked 20/50/200.)
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-21 — 50 removed) ──────
     "ma20_support_1h",
