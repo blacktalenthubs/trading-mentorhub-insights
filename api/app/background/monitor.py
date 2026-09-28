@@ -116,18 +116,13 @@ def poll_all_users(sync_session_factory) -> int:
 # leverage is an execution choice, and a 2x/3x ETF chart has distorted, decayed
 # levels (added 2026-09-11: the underlyings behind the single-stock LETFs).
 SCANNER_UNIVERSE: list[str] = [
-    "SPY", "NBIS", "NVDA", "SMH", "LITE", "QQQ", "SPCX", "AAPL", "DRAM",
-    "META", "GOOGL", "SNDK", "MSFT", "TSLA", "DELL", "CRWD", "CBRS",
-    "BTC-USD", "ETH-USD",
-    # Underlyings behind the leveraged ETFs (scan the stock, trade the LETF).
-    "AMD", "MU", "AVGO", "TSM", "MRVL", "COHR", "AMZN", "ORCL", "PLTR",
-    "APP", "SMCI", "MSTR", "HOOD",
-    # Widened 2026-09-14 (user) — qualified leaders from the Minervini / gap / watchlist
-    # scans that kept qualifying but got no live alert (INTC the trigger). Curated to
-    # keep the poll fast; grows the universe ~32 → ~52.
-    "INTC", "NOW", "COIN", "CRDO", "RKLB", "VRT", "GLW", "NFLX", "SPOT",
-    "DDOG", "PANW", "QCOM", "AMAT", "LRCX", "CEG", "GEV", "TXN", "ABNB",
-    "OKTA", "SITM",
+    # 2026-09-28 (trader): the FIXED signal watchlist — the ONLY names the scanner sends
+    # signals on, across ALL types (daily EMA/levels, 4h, 1h). Matches the app's INDEX list.
+    # NOTE: SOXL (3x semis) + USO (oil) are ETFs, not underlyings — their MA levels can be
+    # decayed/distorted (leveraged/commodity), included per explicit request. No crypto here.
+    "AMZN", "SOXL", "MSFT", "CRWD", "DIA", "AAPL", "QQQ", "AMD", "MSTR", "SNDK",
+    "PLTR", "MRNA", "NOW", "USO", "SPY", "NBIS", "MU", "META", "SMH", "NVDA",
+    "CRDO", "GOOGL", "DRAM", "ABNB",
 ]
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
@@ -684,8 +679,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _h1 = fetch_intraday_crypto(symbol, interval="1h") if _is_crypto else fetch_hourly_bars(symbol, period="180d")
                             _short = symbol.upper() in _SHORT_UNIVERSE
                             if _h1 is not None and not _h1.empty:
-                                # ── 1H support (selected names only, 2026-09-21 — too noisy universe-wide) ──
-                                _sma1h_ok = symbol.upper() in _focus_symbols()
+                                # ── 1H support: fires on ALL polled names. 2026-09-28 (trader):
+                                # the poll universe IS the curated fixed set (SCANNER_UNIVERSE = 24),
+                                # so no separate focus/star gate — every scanned name gets 1h.
+                                _sma1h_ok = True
                                 if _sma1h_ok and "ma20_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 20, AlertType.MA20_SUPPORT_1H, "20 SMA (1h)", require_rising=True)
                                     if _x: signals.append(_x)
