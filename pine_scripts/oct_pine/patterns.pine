@@ -56,6 +56,7 @@ maxRisk  = input.float(8.0, "Max stop distance below TBA %", group=g5) / 100
 reqTrend = input.bool(false, "Only detect above rising 50 SMA", group=g5)
 showMA   = input.bool(true, "Plot 50 SMA", group=g5)
 hudPos   = input.string("Top Right", "HUD position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g5)
+hudSize  = input.string("Large", "HUD text size", options=["Small", "Normal", "Large", "Huge"], group=g5)
 
 gE = "EMAs (8 / 21 / 50)"
 showE8   = input.bool(true,  "8 EMA",   inline="e",  group=gE)
@@ -83,6 +84,7 @@ sma200  = ta.sma(close, 200)
 trendOK = close > sma50 and sma50 > sma50[5]
 avgVol  = ta.sma(volume, volLen)
 rvol    = avgVol > 0 ? volume / avgVol : na
+rsi0    = ta.rsi(close, 14)
 vol5    = ta.sma(volume, 5)
 recLow  = ta.lowest(low, 10)
 recHigh = ta.highest(high, 10)
@@ -447,7 +449,7 @@ brkTxt0  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tos
 brkCol0  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
 patLen0  = active and not na(mStart) ? bar_index - mStart : na
 _ltf = lockLevels ? levelTf : timeframe.period
-[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0], lookahead=barmerge.lookahead_off)
+[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0], lookahead=barmerge.lookahead_off)
 [LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
 
 brk   = crossUp and rvol >= volMult
@@ -505,11 +507,12 @@ if barstate.islast
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 18, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 19, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
+hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
-    table.cell(t, 0, r, key, text_color=color.silver, text_size=size.small, text_halign=text.align_left)
-    table.cell(t, 1, r, val, text_color=c, text_size=size.small, text_halign=text.align_right)
+    table.cell(t, 0, r, key, text_color=color.silver, text_size=hudTxt, text_halign=text.align_left)
+    table.cell(t, 1, r, val, text_color=c, text_size=hudTxt, text_halign=text.align_right)
 
 if barstate.islast
     heldTxt = na(LsupL) ? "-" : LheldN > 0 ? "held " + str.tostring(LheldN) + "x / 10d" : "untested"
@@ -533,3 +536,6 @@ if barstate.islast
     f_row(hud, 15, "5-day volume", LvolT, LvolT == "Drying up" ? color.lime : color.white)
     f_row(hud, 16, "50 SMA trend", LtrOK ? "Above & rising" : "Weak", LtrOK ? color.lime : color.orange)
     f_row(hud, 17, "Pattern length", La and not na(LpatLen) ? str.tostring(LpatLen) + " bars" : "-", color.white)
+    rsiTxt = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
+    rsiCol = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
+    f_row(hud, 18, "RSI 14", rsiTxt, rsiCol)
