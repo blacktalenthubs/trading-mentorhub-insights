@@ -73,6 +73,10 @@ colE100  = input.color(#F57F17,      "100", inline="ec", group=gE)
 colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
 col200S  = input.color(#787B86,      "200S",inline="ec", group=gE)
 
+gLk = "Lock levels to a timeframe"
+lockLevels = input.bool(true, "Lock TBA / stop / support / resistance to a fixed timeframe", group=gLk, tooltip="ON = the pattern levels are computed on the timeframe below and stay put on any chart TF (so a 15m chart still shows the DAILY levels). The current forming HTF bar updates live.")
+levelTf    = input.timeframe("D", "…levels timeframe", group=gLk)
+
 // Trend and volume
 sma50   = ta.sma(close, 50)
 sma200  = ta.sma(close, 200)
@@ -433,6 +437,19 @@ if barstate.islast
 supStop = na(supLvl) ? na : supLvl * (1 - stopBuf)
 rrVal   = not na(supStop) and not na(resLvl) and close > supStop ? (resLvl - close) / (close - supStop) : na
 
+// ── LOCK: recompute the whole engine on levelTf (default daily) so lower-TF charts keep the
+// daily levels. request.security re-evaluates each expression on levelTf; colours + strings pass
+// through. Everything the lines + HUD need is read here as L-prefixed values. ──
+heldN0   = na(supLvl) ? 0 : f_held(supLvl)
+riskPct0 = active and riskRef > 0 ? (riskRef - stopF) / riskRef * 100 : na
+volTxt0  = vol5 < avgVol * 0.8 ? "Drying up" : vol5 > avgVol * 1.2 ? "Heavy" : "Normal"
+brkTxt0  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tostring(inBrkRvol, "#.0") + "x (inner)" : "-"
+brkCol0  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
+patLen0  = active and not na(mStart) ? bar_index - mStart : na
+_ltf = lockLevels ? levelTf : timeframe.period
+[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0], lookahead=barmerge.lookahead_off)
+[LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
+
 brk   = crossUp and rvol >= volMult
 brkIn = crossIn and rvol >= volMult
 plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.lime, size=size.small)
@@ -466,25 +483,25 @@ if barstate.islast
     label.delete(supLb)
     label.delete(recLb)
     label.delete(resLb)
-    if active
-        x1 = na(mStart) ? bar_index - 20 : mStart
-        tbaLn := line.new(x1, mTba, bar_index + 10, mTba, color=color.aqua, width=2)
-        stpLn := line.new(x1, stopF, bar_index + 10, stopF, color=color.new(color.red, 20), width=1, style=line.style_dashed)
-        tbaLb := label.new(bar_index + 10, mTba, "TBA " + str.tostring(mTba, format.mintick), style=label.style_label_left, color=color.aqua, textcolor=color.black, size=size.small)
-        stpLb := label.new(bar_index + 10, stopF, "Stop " + str.tostring(stopF, format.mintick), style=label.style_label_left, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
-    if innerOK
-        xi = na(inFirst) ? bar_index - 20 : inFirst
-        inLn := line.new(xi, inCeil, bar_index + 10, inCeil, color=color.yellow, width=1, style=line.style_dotted)
-        inLb := label.new(bar_index + 10, inCeil, "Inner TBA " + str.tostring(inCeil, format.mintick), style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
-    if showSR and not na(supLvl)
-        supLn := line.new(bar_index - 40, supLvl, bar_index + 25, supLvl, color=color.lime, width=2, style=line.style_dashed)
-        supLb := label.new(bar_index + 25, supLvl, "Support " + str.tostring(supLvl, format.mintick), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small)
-    if showSR and not na(recLow) and (na(supLvl) or math.abs(recLow / supLvl - 1) > 0.005)
-        recLn := line.new(bar_index - 10, recLow, bar_index + 25, recLow, color=color.new(color.lime, 30), width=1, style=line.style_dotted)
-        recLb := label.new(bar_index + 25, recLow, "Recent low " + str.tostring(recLow, format.mintick), style=label.style_label_left, color=color.new(color.lime, 40), textcolor=color.black, size=size.small)
-    if showSR and not na(resLvl)
-        resLn := line.new(bar_index - 40, resLvl, bar_index + 25, resLvl, color=color.new(color.red, 10), width=2, style=line.style_dotted)
-        resLb := label.new(bar_index + 25, resLvl, "Resistance " + str.tostring(resLvl, format.mintick), style=label.style_label_left, color=color.new(color.red, 10), textcolor=color.white, size=size.small)
+    // Locked levels are horizontal, so line x-start is a fixed lookback (daily bar_index can't map to a lower TF).
+    if La
+        x1 = bar_index - 60
+        tbaLn := line.new(x1, Ltba, bar_index + 10, Ltba, color=color.aqua, width=2)
+        stpLn := line.new(x1, Lstop, bar_index + 10, Lstop, color=color.new(color.red, 20), width=1, style=line.style_dashed)
+        tbaLb := label.new(bar_index + 10, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=color.aqua, textcolor=color.black, size=size.small)
+        stpLb := label.new(bar_index + 10, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
+    if LinOK
+        inLn := line.new(bar_index - 60, LinC, bar_index + 10, LinC, color=color.yellow, width=1, style=line.style_dotted)
+        inLb := label.new(bar_index + 10, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
+    if showSR and not na(LsupL)
+        supLn := line.new(bar_index - 40, LsupL, bar_index + 25, LsupL, color=color.lime, width=2, style=line.style_dashed)
+        supLb := label.new(bar_index + 25, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small)
+    if showSR and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
+        recLn := line.new(bar_index - 10, LrecL, bar_index + 25, LrecL, color=color.new(color.lime, 30), width=1, style=line.style_dotted)
+        recLb := label.new(bar_index + 25, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=color.new(color.lime, 40), textcolor=color.black, size=size.small)
+    if showSR and not na(LresL)
+        resLn := line.new(bar_index - 40, LresL, bar_index + 25, LresL, color=color.new(color.red, 10), width=2, style=line.style_dotted)
+        resLb := label.new(bar_index + 25, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=color.new(color.red, 10), textcolor=color.white, size=size.small)
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
@@ -495,28 +512,24 @@ f_row(t, r, key, val, c) =>
     table.cell(t, 1, r, val, text_color=c, text_size=size.small, text_halign=text.align_right)
 
 if barstate.islast
-    heldN   = na(supLvl) ? 0 : f_held(supLvl)
-    heldTxt = na(supLvl) ? "-" : heldN > 0 ? "held " + str.tostring(heldN) + "x / 10d" : "untested"
-    planTxt = na(supStop) ? "-" : "Stop " + str.tostring(supStop, format.mintick) + (na(rrVal) ? "" : " | R/R " + str.tostring(rrVal, "#.0"))
-    riskPct = active and riskRef > 0 ? (riskRef - stopF) / riskRef * 100 : na
-    volTxt  = vol5 < avgVol * 0.8 ? "Drying up" : vol5 > avgVol * 1.2 ? "Heavy" : "Normal"
-    brkTxt  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tostring(inBrkRvol, "#.0") + "x (inner)" : "-"
-    brkCol  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
-    f_row(hud, 0, "PATTERN HUD", syminfo.ticker, color.white)
-    f_row(hud, 1, "Stage", stage, sgCol)
-    f_row(hud, 2, "Playbook", play, sgCol)
-    f_row(hud, 3, "Support", na(supLvl) ? "-" : str.tostring(supLvl, format.mintick) + " (" + supTyp + ")", color.lime)
-    f_row(hud, 4, "Tested", heldTxt, heldN > 0 ? color.lime : color.gray)
-    f_row(hud, 5, "Recent low", str.tostring(recLow, format.mintick), color.lime)
-    f_row(hud, 6, "Resistance", na(resLvl) ? "-" : str.tostring(resLvl, format.mintick) + " (" + resTyp + ")", color.red)
+    heldTxt = na(LsupL) ? "-" : LheldN > 0 ? "held " + str.tostring(LheldN) + "x / 10d" : "untested"
+    planTxt = na(LsupS) ? "-" : "Stop " + str.tostring(LsupS, format.mintick) + (na(LrrV) ? "" : " | R/R " + str.tostring(LrrV, "#.0"))
+    tfTag   = lockLevels ? " (" + levelTf + ")" : ""
+    f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
+    f_row(hud, 1, "Stage", Lstg, LsgC)
+    f_row(hud, 2, "Playbook", Lplay, LsgC)
+    f_row(hud, 3, "Support", na(LsupL) ? "-" : str.tostring(LsupL, format.mintick) + " (" + LsupT + ")", color.lime)
+    f_row(hud, 4, "Tested", heldTxt, LheldN > 0 ? color.lime : color.gray)
+    f_row(hud, 5, "Recent low", str.tostring(LrecL, format.mintick), color.lime)
+    f_row(hud, 6, "Resistance", na(LresL) ? "-" : str.tostring(LresL, format.mintick) + " (" + LresT + ")", color.red)
     f_row(hud, 7, "Support plan", planTxt, color.white)
-    f_row(hud, 8, "Pattern", active ? mPat : "None", active ? color.white : color.gray)
-    f_row(hud, 9, "Status", status, stCol)
-    f_row(hud, 10, "TBA", active ? str.tostring(mTba, format.mintick) : "-", color.aqua)
-    f_row(hud, 11, "Inner TBA", innerOK ? str.tostring(inCeil, format.mintick) : "-", color.yellow)
-    f_row(hud, 12, "Pattern stop", active ? str.tostring(stopF, format.mintick) + " (" + str.tostring(riskPct, "#.0") + "%)" : "-", color.red)
-    f_row(hud, 13, "Breakout day vol", brkTxt, brkCol)
-    f_row(hud, 14, "Volume today", str.tostring(rvol, "#.0") + "x avg", rvol >= volMult ? color.lime : color.white)
-    f_row(hud, 15, "5-day volume", volTxt, volTxt == "Drying up" ? color.lime : color.white)
-    f_row(hud, 16, "50 SMA trend", trendOK ? "Above & rising" : "Weak", trendOK ? color.lime : color.orange)
-    f_row(hud, 17, "Pattern length", active and not na(mStart) ? str.tostring(bar_index - mStart) + " bars" : "-", color.white)
+    f_row(hud, 8, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
+    f_row(hud, 9, "Status", Lstat, LstC)
+    f_row(hud, 10, "TBA", La ? str.tostring(Ltba, format.mintick) : "-", color.aqua)
+    f_row(hud, 11, "Inner TBA", LinOK ? str.tostring(LinC, format.mintick) : "-", color.yellow)
+    f_row(hud, 12, "Pattern stop", La ? str.tostring(Lstop, format.mintick) + " (" + str.tostring(LrPct, "#.0") + "%)" : "-", color.red)
+    f_row(hud, 13, "Breakout day vol", LbrkT, LbrkC)
+    f_row(hud, 14, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
+    f_row(hud, 15, "5-day volume", LvolT, LvolT == "Drying up" ? color.lime : color.white)
+    f_row(hud, 16, "50 SMA trend", LtrOK ? "Above & rising" : "Weak", LtrOK ? color.lime : color.orange)
+    f_row(hud, 17, "Pattern length", La and not na(LpatLen) ? str.tostring(LpatLen) + " bars" : "-", color.white)
