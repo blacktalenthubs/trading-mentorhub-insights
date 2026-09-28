@@ -562,7 +562,7 @@ vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ?
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 22, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 14, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -570,31 +570,24 @@ f_row(t, r, key, val, c) =>
     table.cell(t, 1, r, val, text_color=c, text_size=hudTxt, text_halign=text.align_right)
 
 if showHUD and barstate.islast
+    // Interpretive context ONLY — the prices (support / resistance / recent low / TBA /
+    // inner TBA / pattern stop) are drawn as lines on the chart, so they're not repeated here.
     heldTxt = na(LsupL) ? "-" : LheldN > 0 ? "held " + str.tostring(LheldN) + "x / 10d" : "untested"
-    planTxt = na(LsupS) ? "-" : "Stop " + str.tostring(LsupS, format.mintick) + (na(LrrV) ? "" : " | R/R " + str.tostring(LrrV, "#.0"))
     tfTag   = lockLevels ? " (" + levelTf + ")" : ""
+    rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
+    rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
     f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
     f_row(hud, 1, "Stage", Lstg, LsgC)
     f_row(hud, 2, "Playbook", Lplay, LsgC)
-    f_row(hud, 3, "Support", na(LsupL) ? "-" : str.tostring(LsupL, format.mintick) + " (" + LsupT + ")", color.lime)
-    f_row(hud, 4, "Tested", heldTxt, LheldN > 0 ? color.lime : color.gray)
-    f_row(hud, 5, "Recent low", str.tostring(LrecL, format.mintick), color.lime)
-    f_row(hud, 6, "Resistance", na(LresL) ? "-" : str.tostring(LresL, format.mintick) + " (" + LresT + ")", color.red)
-    f_row(hud, 7, "Support plan", planTxt, color.white)
-    f_row(hud, 8, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
-    f_row(hud, 9, "Status", Lstat, LstC)
-    f_row(hud, 10, "TBA", La ? str.tostring(Ltba, format.mintick) : "-", color.aqua)
-    f_row(hud, 11, "Inner TBA", LinOK ? str.tostring(LinC, format.mintick) : "-", color.yellow)
-    f_row(hud, 12, "Pattern stop", La ? str.tostring(Lstop, format.mintick) + " (" + str.tostring(LrPct, "#.0") + "%)" : "-", color.red)
-    f_row(hud, 13, "Breakout day vol", LbrkT, LbrkC)
-    f_row(hud, 14, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
-    f_row(hud, 15, "5-day volume", LvolT, LvolT == "Drying up" ? color.lime : color.white)
-    f_row(hud, 16, "50 SMA trend", LtrOK ? "Above & rising" : "Weak", LtrOK ? color.lime : color.orange)
-    f_row(hud, 17, "Pattern length", La and not na(LpatLen) ? str.tostring(LpatLen) + " bars" : "-", color.white)
-    rsiTxt = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
-    rsiCol = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
-    f_row(hud, 18, "RSI 14", rsiTxt, rsiCol)
+    f_row(hud, 3, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
+    f_row(hud, 4, "Status", Lstat, LstC)
+    f_row(hud, 5, "Support tested", heldTxt, LheldN > 0 ? color.lime : color.gray)
+    f_row(hud, 6, "Breakout day vol", LbrkT, LbrkC)
+    f_row(hud, 7, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
+    f_row(hud, 8, "5-day volume", LvolT, LvolT == "Drying up" ? color.lime : color.white)
+    f_row(hud, 9, "50 SMA trend", LtrOK ? "Above & rising" : "Weak", LtrOK ? color.lime : color.orange)
+    f_row(hud, 10, "RSI 14", rsiTxt, rsiCol)
     if showVR
-        f_row(hud, 19, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
-        f_row(hud, 20, "Vol pace", vrPaceTxt, vrPaceCol)
-        f_row(hud, 21, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
+        f_row(hud, 11, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
+        f_row(hud, 12, "Vol pace", vrPaceTxt, vrPaceCol)
+        f_row(hud, 13, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
