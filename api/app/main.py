@@ -444,20 +444,33 @@ async def lifespan(app: FastAPI):
 
         if RULE_ENGINE_ENABLED:
             logger.info("Rule engine ENABLED — rule-based alerts will fire alongside AI scan")
-            scheduler.add_job(
-                poll_all_users,
-                "interval",
-                minutes=3,
-                args=[sync_session_factory],
-                id="alert_monitor",
-                replace_existing=True,
-            )
-            # Also run immediately on startup so we don't wait 3 min
-            scheduler.add_job(
-                poll_all_users,
-                args=[sync_session_factory],
-                id="alert_monitor_initial",
-            )
+            # alert_monitor is the money path. Register it in its OWN try/except so a failure
+            # in any sibling job below can never prevent it, and a failure HERE is logged LOUDLY
+            # (not swallowed into the generic outer catch that hid the 2026-09-28 outage). The
+            # heartbeat-wrapped tick + watchdog auto-restart a wedged loop.
+            try:
+                from app.background.monitor import alert_monitor_tick, start_alert_watchdog
+                scheduler.add_job(
+                    alert_monitor_tick,
+                    "interval",
+                    minutes=3,
+                    args=[sync_session_factory],
+                    id="alert_monitor",
+                    replace_existing=True,
+                    max_instances=1,      # never overlap cycles
+                    coalesce=True,        # collapse missed ticks into one
+                    misfire_grace_time=120,
+                )
+                # Also run immediately on startup so we don't wait 3 min
+                scheduler.add_job(
+                    alert_monitor_tick,
+                    args=[sync_session_factory],
+                    id="alert_monitor_initial",
+                )
+                start_alert_watchdog()
+                logger.info("alert_monitor registered (3-min poll) + watchdog armed")
+            except Exception:
+                logger.exception("CRITICAL: failed to register alert_monitor — LIVE ALERTS ARE OFF")
         else:
             logger.warning(
                 "Rule engine DISABLED (RULE_ENGINE_ENABLED=false). "
@@ -2128,7 +2141,31 @@ def create_app() -> FastAPI:
     # --- Health check ---
     @app.get("/healthz")
     async def health():
-        return {"status": "ok"}
+        # Reflects the alert poll loop's liveness. Returns 503 only when a loop that HAS
+        # been running goes stale (> _WATCHDOG_STALE_SEC) — so Railway's health check
+        # restarts a wedged worker. Stays 200 during normal startup (no cycle yet) and
+        # when the rule engine is intentionally off (finished_at stays 0). The in-process
+        # watchdog is the primary self-heal; this is the belt-and-suspenders path.
+        import time as _t
+        try:
+            from app.background.monitor import poll_heartbeat, _WATCHDOG_STALE_SEC
+            hb = poll_heartbeat()
+            fin = float(hb.get("finished_at", 0.0) or 0.0)
+            age = (_t.time() - fin) if fin > 0 else None
+            stale = age is not None and age > _WATCHDOG_STALE_SEC
+            body = {
+                "status": "degraded" if stale else "ok",
+                "alert_loop": {
+                    "last_poll_age_sec": round(age, 1) if age is not None else None,
+                    "cycles": int(hb.get("cycles", 0)),
+                },
+            }
+            if stale:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(body, status_code=503)
+            return body
+        except Exception:
+            return {"status": "ok"}   # never let health reporting itself break the check
 
     # --- Router registration ---
     from app.routers import (

@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
@@ -57,6 +59,67 @@ _last_buy_session: str = ""
 
 # Track SPY inside day notice (one per session)
 _spy_inside_day_notified: bool = False
+
+# ── Alert-loop watchdog (2026-09-28) ─────────────────────────────────────────
+# Railway's health check confirms the HTTP server answers, NOT that the alert_monitor
+# poll loop is still firing. On 2026-09-28 the loop started, ran ONE cycle, then went dark
+# for hours while the deploy stayed "Deployment successful". This heartbeat + watchdog
+# closes that gap: alert_monitor_tick() stamps a heartbeat every cycle; if no cycle
+# completes within _WATCHDOG_STALE_SEC (startup-abort OR a hung/wedged poll), the watchdog
+# force-exits so Railway restarts the container with a fresh scheduler. Blunt but correct —
+# a dark scanner during market hours is worse than a ~30-second restart.
+_HEARTBEAT: Dict[str, float] = {"started_at": 0.0, "finished_at": 0.0, "cycles": 0.0}
+_WATCHDOG_STALE_SEC = 12 * 60       # ~4 missed 3-min cycles → loop is wedged
+_WATCHDOG_STARTUP_GRACE_SEC = 6 * 60  # allow the first poll to happen before alarming
+
+
+def poll_heartbeat() -> Dict[str, float]:
+    """Snapshot of the poll loop's liveness — read by /healthz and the watchdog."""
+    return dict(_HEARTBEAT)
+
+
+def alert_monitor_tick(sync_session_factory) -> int:
+    """Heartbeat-wrapped poll. The scheduler calls THIS (not poll_all_users directly) so a
+    crash in one cycle is logged (not silently swallowed) and the heartbeat always records
+    liveness + last-completed time for the watchdog and /healthz."""
+    _HEARTBEAT["started_at"] = time.time()
+    try:
+        return poll_all_users(sync_session_factory)
+    except Exception:
+        logger.exception("alert_monitor poll cycle crashed")
+        return 0
+    finally:
+        _HEARTBEAT["finished_at"] = time.time()
+        _HEARTBEAT["cycles"] += 1
+
+
+def start_alert_watchdog() -> None:
+    """Daemon thread: force-exit (→ Railway restart) if the poll loop stops completing cycles.
+    Covers both failure modes seen 2026-09-28 — a startup-abort (job never registers) and a
+    mid-session hang (job registered, ran a cycle, then stalled). Idempotent-ish: safe to call
+    once per process at startup."""
+    def _run() -> None:
+        started = time.time()
+        while True:
+            time.sleep(60)
+            now = time.time()
+            fin = _HEARTBEAT["finished_at"]
+            if fin == 0.0:
+                # No poll has ever completed. If we're past the startup grace, the job
+                # never registered/ran (the exact silent startup-abort) → restart.
+                if now - started > _WATCHDOG_STARTUP_GRACE_SEC:
+                    logger.error(
+                        "ALERT WATCHDOG: alert_monitor never completed a poll in %.0fs "
+                        "(startup abort) — force-exiting for a Railway restart", now - started)
+                    os._exit(3)
+            elif now - fin > _WATCHDOG_STALE_SEC:
+                logger.error(
+                    "ALERT WATCHDOG: last poll completed %.0fs ago (> %ds) — poll loop wedged, "
+                    "force-exiting for a Railway restart", now - fin, _WATCHDOG_STALE_SEC)
+                os._exit(3)
+    threading.Thread(target=_run, name="alert-watchdog", daemon=True).start()
+    logger.info("Alert watchdog armed (stale=%ds, startup grace=%ds)",
+                _WATCHDOG_STALE_SEC, _WATCHDOG_STARTUP_GRACE_SEC)
 
 # Per-alert-type cooldown: prevent same alert type from firing rapidly
 _direction_lock: Dict[tuple, "datetime"] = {}  # {(symbol, alert_type): datetime}
