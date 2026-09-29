@@ -444,33 +444,31 @@ async def lifespan(app: FastAPI):
 
         if RULE_ENGINE_ENABLED:
             logger.info("Rule engine ENABLED — rule-based alerts will fire alongside AI scan")
-            # alert_monitor is the money path. Register it in its OWN try/except so a failure
-            # in any sibling job below can never prevent it, and a failure HERE is logged LOUDLY
-            # (not swallowed into the generic outer catch that hid the 2026-09-28 outage). The
-            # heartbeat-wrapped tick + watchdog auto-restart a wedged loop.
+            # alert_monitor is THE money path. Register the 3-min poll ALONE and FIRST, in its
+            # own minimal try — nothing (the immediate first-run add, the watchdog, a sibling job)
+            # may prevent it. 2026-09-29: they were all in one try/except; the watchdog/initial-run
+            # add threw in prod → caught → the poll was skipped and the scanner was dead all day
+            # while the rest of the scheduler ran. Split into independent steps so that can't recur.
             try:
-                from app.background.monitor import alert_monitor_tick, start_alert_watchdog
+                from app.background.monitor import alert_monitor_tick
                 scheduler.add_job(
-                    alert_monitor_tick,
-                    "interval",
-                    minutes=3,
-                    args=[sync_session_factory],
-                    id="alert_monitor",
-                    replace_existing=True,
-                    max_instances=1,      # never overlap cycles
-                    coalesce=True,        # collapse missed ticks into one
-                    misfire_grace_time=120,
+                    alert_monitor_tick, "interval", minutes=3, args=[sync_session_factory],
+                    id="alert_monitor", replace_existing=True,
+                    max_instances=1, coalesce=True, misfire_grace_time=120,
                 )
-                # Also run immediately on startup so we don't wait 3 min
-                scheduler.add_job(
-                    alert_monitor_tick,
-                    args=[sync_session_factory],
-                    id="alert_monitor_initial",
-                )
-                start_alert_watchdog()
-                logger.info("alert_monitor registered (3-min poll) + watchdog armed")
+                logger.info("alert_monitor registered (3-min poll)")
             except Exception:
                 logger.exception("CRITICAL: failed to register alert_monitor — LIVE ALERTS ARE OFF")
+            # (No separate immediate-first-run job: the trigger-less add_job for it was the
+            # 2026-09-29 failure that took down the whole block. The 3-min interval fires within
+            # 3 min of startup — inside the watchdog's 6-min startup grace — so it's not needed.)
+            # Watchdog — SEPARATE try so its arming can never take down the poll.
+            try:
+                from app.background.monitor import start_alert_watchdog
+                start_alert_watchdog()
+                logger.info("alert watchdog armed")
+            except Exception:
+                logger.exception("watchdog arm failed (poll still registered)")
         else:
             logger.warning(
                 "Rule engine DISABLED (RULE_ENGINE_ENABLED=false). "
