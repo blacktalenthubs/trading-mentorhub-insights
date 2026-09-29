@@ -13,6 +13,7 @@ import { ShieldCheck, ChevronDown, Star } from "lucide-react";
 import { useSpyLiveRegime, useBtcLiveRegime, useMarketReports, useReportDates, useToggleWatchlistFocus, useWatchlist, useJobs } from "../api/hooks";
 import type { SpyRegimeSnapshot } from "../api/hooks";
 import RunJobButton from "../components/RunJobButton";
+import JobsPanel from "../components/JobsPanel";
 import MarketClock from "../components/MarketClock";
 import ThemeToggle from "../components/ThemeToggle";
 
@@ -857,6 +858,9 @@ export default function TodayPage() {
           </div>
           <p className="mt-1 text-[12px] text-text-faint">Your trading day, top to bottom — premarket to the close.</p>
         </header>
+
+        {/* Admin: every job's data freshness + a Run-now button. Hidden for non-admins. */}
+        <div className="mb-4"><JobsPanel /></div>
 
         {/* Today = the briefing timeline. The live signal feed lives on the Trading
             page only; here it's plan + reports, top to bottom, premarket → close. */}
