@@ -90,13 +90,77 @@ def _fetch_ohlc_alpaca(symbol: str, period: str, interval: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+_RH_READY = False   # login attempted?
+_RH_OK = False      # login succeeded? (if not, skip RH so we don't hammer a dead session)
+
+
+def _rh_span_for(days: int) -> str:
+    """Smallest Robinhood span that covers `days` (day/week/month/3month/year/5year)."""
+    if days <= 7:
+        return "week"
+    if days <= 31:
+        return "month"
+    if days <= 93:
+        return "3month"
+    if days <= 366:
+        return "year"
+    return "5year"
+
+
+def _fetch_ohlc_robinhood(symbol: str, period: str, interval: str) -> pd.DataFrame:
+    """Robinhood historicals — deep, clean, authed. Reliable in prod where Yahoo rate-limits
+    Railway and Alpaca's IEX daily history is shallow. Serves daily/weekly equities only."""
+    global _RH_READY, _RH_OK
+    if os.environ.get("ROBINHOOD_OHLC_DISABLED", "").lower() in ("1", "true", "yes"):
+        return pd.DataFrame()
+    rh_interval = {"1d": "day", "1wk": "week", "1w": "week"}.get(interval)
+    if not rh_interval:
+        return pd.DataFrame()   # intraday uses other paths; RH here is daily/weekly only
+    try:
+        import robin_stocks.robinhood as rh
+        if not _RH_READY:
+            _RH_READY = True
+            try:
+                # Non-interactive only: prod restores the session from ROBINHOOD_SESSION_B64.
+                # Never fall back to a bare rh.login() — it can prompt for a username and hang.
+                from brokers.robinhood import RobinhoodClient
+                RobinhoodClient().login()
+                _RH_OK = True
+            except Exception:
+                _RH_OK = False
+                logger.info("Robinhood OHLC: login failed — skipping RH source this process")
+        if not _RH_OK:
+            return pd.DataFrame()
+        span = _rh_span_for(_period_to_days(period))
+        h = rh.stocks.get_stock_historicals(symbol, interval=rh_interval, span=span, bounds="regular") or []
+        rows = []
+        for b in h:
+            try:
+                rows.append({"t": b["begins_at"], "Open": float(b["open_price"]),
+                             "High": float(b["high_price"]), "Low": float(b["low_price"]),
+                             "Close": float(b["close_price"]), "Volume": float(b["volume"])})
+            except Exception:
+                pass
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df["t"] = pd.to_datetime(df["t"], utc=True)
+        df = df.sort_values("t").set_index("t")
+        if df.index.tz is not None:
+            df.index = df.index.tz_convert(None)
+        return df[["Open", "High", "Low", "Close", "Volume"]].copy()
+    except Exception as e:
+        logger.info("Robinhood OHLC fetch failed for %s %s/%s: %s", symbol, period, interval, str(e)[:80])
+        return pd.DataFrame()
+
+
 def fetch_ohlc(
     symbol: str, period: str = "3mo", interval: str = "1d",
 ) -> pd.DataFrame:
-    """Fetch OHLC data — Alpaca primary, Coinbase crypto, yfinance fallback.
+    """Fetch OHLC data — equities: Robinhood primary (deep/clean/authed), Alpaca then yfinance
+    fallback; crypto: Coinbase then yfinance.
 
-    Returns DataFrame with Open, High, Low, Close, Volume columns.
-    Returns empty DataFrame on failure.
+    Returns DataFrame with Open, High, Low, Close, Volume columns; empty on failure.
     """
     from config import is_crypto_alert_symbol
 
@@ -107,8 +171,12 @@ def fetch_ohlc(
             return df
         # Fall through to yfinance
 
-    # Equity — Alpaca primary (Yahoo rate-limits Railway IPs constantly)
+    # Equity — Robinhood primary (deep clean authed history; Yahoo rate-limits Railway and
+    # Alpaca IEX daily history is shallow), then Alpaca, then yfinance.
     else:
+        df = _fetch_ohlc_robinhood(symbol, period, interval)
+        if not df.empty:
+            return df
         df = _fetch_ohlc_alpaca(symbol, period, interval)
         if not df.empty:
             return df
