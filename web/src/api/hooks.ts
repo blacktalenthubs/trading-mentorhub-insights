@@ -115,6 +115,7 @@ export interface MarketReportsResponse {
   premarket_signals: MarketReport | null;
   weekly_vp: MarketReport | null;
   breakout_setups: MarketReport | null;
+  weekly_ma20_setups: MarketReport | null;
 }
 // On-demand job runners (admin) — run a scan now instead of waiting for its cron.
 export interface JobStatus {
