@@ -702,10 +702,10 @@ ENABLED_RULES: set[str] = {
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
     "ema_bounce_200",
 
-    # ── Hourly MA support: 20 (rising) + 50 + 200 (2026-09-28 — 50 re-added so the
-    # structural set is a clean 20/50/200 SMA across daily, 4h AND 1h) ──────────────
+    # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
+    # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
+    # frequency without edge on lower TFs. The 50 stays on the DAILY chart only) ────────
     "ma20_support_1h",
-    "ma50_support_1h",
     "ma200_support_1h",
     # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
     # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
@@ -716,16 +716,15 @@ ENABLED_RULES: set[str] = {
     # "hourly_vah_breakout",   # long — broke up through the 1h value-area high
     # "hourly_vah_reject",     # short — rejected at the 1h value-area high
     # "hourly_vah_support",    # long — VAH holding as support after a breakout
-    # ── 4H MA support (day-trade): 20 (rising) + 50 + 200. KEPT 2026-09-28: the deep
-    # fetch (180d) finally makes the 200-4h computable, and it now fires clean on leaders
-    # (SPY/META/DRAM 4h holds). NOTE: 4h is currently UNGATED by symbol (fires on every
-    # polled name) — to restrict it to a leader set, gate in monitor.py (see SMA1H note).
+    # ── 4H MA support (day-trade): 20 (rising) + 200 only (2026-09-28 — same as 1h; 50
+    # dropped intraday, kept on daily). Deep fetch (180d) makes the 200-4h computable.
+    # NOTE: 4h is UNGATED by symbol (fires on every polled name).
     "ma20_support_4h",
-    "ma50_support_4h",
     "ma200_support_4h",
-    # ── 1H / 4H SMA rejection SHORTS (index set only — SHORT_UNIVERSE) ────────────
+    # ── 1H / 4H SMA rejection SHORTS: 20 + 200 (index set only — SHORT_UNIVERSE;
+    # 50 dropped intraday to mirror the support side) ────────────────────────────
     "ma20_reject_1h", "ma200_reject_1h",
-    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
+    "ma20_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
