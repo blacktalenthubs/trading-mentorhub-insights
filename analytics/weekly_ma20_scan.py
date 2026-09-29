@@ -28,7 +28,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 SMA_WKS = 20      # the weekly SMA length
 SLOPE_WKS = 4     # "rising" = 20w SMA now > 20w SMA this many weeks ago
-NEAR_PCT = 3.0    # "at the line" = last weekly close within this % of the 20w SMA
+NEAR_PCT = 1.5    # "at the line" = last weekly close within this % of the 20w SMA (tight — a
+                  # genuine pullback hugging the line, not a name already extended above it)
 STOP_PCT = 1.0    # stop this % below the 20w SMA
 
 
