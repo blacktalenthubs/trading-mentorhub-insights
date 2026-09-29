@@ -693,20 +693,19 @@ ENABLED_RULES: set[str] = {
     # Everything else is OFF. See scanner_ma20_support_spec.md.
     # ============================================================================
 
-    # ── Daily EMA VALUE zones (2026-09-28, trader: Scott Redler 8/21/50/100/200) ────
-    # THE CORE SIGNAL. Intraday price pulls back to a DAILY EMA and reclaims/bounces
-    # (values come from prior_day.ema8/21/50/100/200 in intraday_data.py). Runs broad
-    # over the focus watchlist. Replaces the daily SMA 50/150/200 set below (retired):
-    # the trader trades EMAs, not SMAs, and the SMA set had no 8/21 and no EMA at all.
-    "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
-    "ema_reclaim_8", "ema_reclaim_21", "ema_reclaim_50", "ema_reclaim_100", "ema_reclaim_200",
-    # ── Daily SMA bounce 20/50/200 (2026-09-28, trader): re-added ALONGSIDE the EMA above.
-    # SMA and EMA diverge often enough that the SMA levels are their own signal; dedup +
-    # cooldown handle any same-pullback overlap. (100/150 stay off — trader picked 20/50/200.)
+    # ── Daily structural MAs (2026-09-28, trader simplification) ────────────────────
+    # SIMPLIFIED to cut EMA noise: the fast EMAs (8/21) and the 50/100 EMAs get tapped
+    # constantly and confuse more than they help. Keep the STRUCTURAL levels only —
+    # SMA 20/50/200 (bounce) + the 200 EMA (bounce). Anything above the 8 EMA that matters
+    # is caught by the prior-level system (PDL/PDH reclaim, weekly/monthly) and the multi-TF
+    # SMA support (1h/4h) below. Dropped: ema_bounce/reclaim 8/21/50/100 + ema_reclaim_200.
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
+    "ema_bounce_200",
 
-    # ── Hourly MA support: 20 (rising) + 200 only (2026-09-21 — 50 removed) ──────
+    # ── Hourly MA support: 20 (rising) + 50 + 200 (2026-09-28 — 50 re-added so the
+    # structural set is a clean 20/50/200 SMA across daily, 4h AND 1h) ──────────────
     "ma20_support_1h",
+    "ma50_support_1h",
     "ma200_support_1h",
     # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
     # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
