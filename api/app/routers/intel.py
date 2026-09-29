@@ -792,12 +792,54 @@ def _job_weekly_vp():
     publish(run_daily(syms, date, weeks=weeks, tol=0.02), date)
 
 
+def _job_syms():
+    from analytics.swing_setups_report import _watchlist
+    return _watchlist(_os_jobs.environ["DATABASE_URL"])
+
+
+def _job_gap():
+    from analytics.gap_scanner import scan, publish
+    publish(scan(_job_syms(), want_intraday=True), _today_iso())
+
+
+def _job_ma20():
+    from analytics.ma20_scan_report import build_ma20_report, publish, _fetch
+    date = _today_iso()
+    publish(build_ma20_report(_job_syms(), _fetch, date), date)
+
+
+def _job_putsell():
+    from analytics.putsell_scan import scan, publish
+    publish(scan(_job_syms()), _today_iso())
+
+
+def _job_daily_structural():
+    from analytics.daily_structural_scan import scan, publish
+    publish(scan(_job_syms()), _today_iso())
+
+
+def _job_volume_signals():
+    from analytics.volume_signal_scan import scan, publish
+    publish(scan(_job_syms()), _today_iso())
+
+
+def _job_iv_snapshot():
+    from analytics.iv_snapshot import run
+    run(publish=True)
+
+
 _JOBS = {
     "breakout_setups": {"label": "Breakouts", "kind": "breakout_setups", "run": _job_breakout},
     "premium_desk": {"label": "Premium Desk", "kind": "premium_desk", "run": _job_premium},
     "leap_desk": {"label": "LEAP Desk", "kind": "leap_desk", "run": _job_leap},
     "support": {"label": "At Support / Oversold", "kind": "support", "run": _job_support},
     "weekly_vp": {"label": "Weekly Value", "kind": "weekly_vp", "run": _job_weekly_vp},
+    "gap_setups": {"label": "Gap Setups", "kind": "gap_setups", "run": _job_gap},
+    "ma20_setups": {"label": "20-MA Setups", "kind": "ma20_setups", "run": _job_ma20},
+    "putsell_signals": {"label": "Put-Sell Signals", "kind": "putsell_signals", "run": _job_putsell},
+    "daily_structural": {"label": "Daily Structural", "kind": "daily_structural", "run": _job_daily_structural},
+    "volume_signals": {"label": "Volume Signals", "kind": "volume_signals", "run": _job_volume_signals},
+    "iv_snapshot": {"label": "IV Snapshot", "kind": "iv_snapshot", "run": _job_iv_snapshot},
 }
 
 
