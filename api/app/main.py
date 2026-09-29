@@ -732,6 +732,20 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     logger.exception("putsell scan failed")
 
+            def _run_weekly_ma20():
+                try:
+                    import datetime as _dt
+                    from analytics.weekly_ma20_scan import scan as _w20_scan, publish as _w20_pub
+                    from analytics.swing_setups_report import _watchlist as _w20_wl
+                    _syms = _w20_wl(_os_reports.environ.get("DATABASE_URL")) if _os_reports.environ.get("DATABASE_URL") else []
+                    if not _syms:
+                        logger.warning("weekly-20SMA scan skipped (no watchlist)"); return
+                    _date = _dt.date.today().isoformat()
+                    _w20_pub(_w20_scan(_syms), _date)
+                    logger.info("weekly-20SMA scan posted")
+                except Exception:
+                    logger.exception("weekly-20SMA scan failed")
+
             try:
                 if _en_report("MA20_SCAN_ENABLED"):
                     scheduler.add_job(_run_ma20, _CronD(hour=16, minute=22, day_of_week="mon-fri", timezone=_etd), id="ma20_close", replace_existing=True)
@@ -741,8 +755,12 @@ async def lifespan(app: FastAPI):
                     scheduler.add_job(_run_putsell, _CronD(hour=16, minute=24, day_of_week="mon-fri", timezone=_etd), id="putsell_close", replace_existing=True)
                     scheduler.add_job(_run_putsell, _CronD(hour=8, minute=47, day_of_week="mon-fri", timezone=_etd), id="putsell_premkt", replace_existing=True)
                     logger.info("putsell scan scheduled (16:24 + 08:47 ET, mon-fri)")
+                if _en_report("WEEKLY_MA20_SCAN_ENABLED"):
+                    scheduler.add_job(_run_weekly_ma20, _CronD(hour=16, minute=26, day_of_week="mon-fri", timezone=_etd), id="weekly_ma20_close", replace_existing=True)
+                    scheduler.add_job(_run_weekly_ma20, _CronD(hour=8, minute=49, day_of_week="mon-fri", timezone=_etd), id="weekly_ma20_premkt", replace_existing=True)
+                    logger.info("weekly-20SMA scan scheduled (16:26 + 08:49 ET, mon-fri)")
             except Exception:
-                logger.exception("Failed to register ma20/putsell scan jobs")
+                logger.exception("Failed to register ma20/putsell/weekly-20SMA scan jobs")
 
             # Support/Oversold scan (the Today "At Support · Oversold" board) — rising 20/50
             # & 200 SMA, VWAP/POC/VAL, daily/weekly RSI reclaims, each with the put strike.

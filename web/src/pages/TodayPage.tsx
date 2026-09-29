@@ -634,6 +634,7 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
   const sup = data?.support ?? null;
   const wvp = data?.weekly_vp ?? null;
   const bo = data?.breakout_setups ?? null;
+  const wma20 = data?.weekly_ma20_setups ?? null;
   const ps = data?.premarket_signals ?? null;
   // Timeline rail: which section is active (scroll target). No tab state — every
   // report renders in one scroll, in the order it drops through the day.
@@ -693,6 +694,9 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
     { id: "sec-weekly-vp", group: "Buy the dip", time: "PREMKT", title: "Weekly Value", present: !!wvp, job: "weekly_vp",
       wait: "The weekly-value scan runs premarket (analytics/weekly_vp_scan.py).",
       render: () => <WeeklyValue body={wvp?.body ?? ""} onChart={onChart} /> },
+    { id: "sec-weekly-ma20", group: "Buy the dip", time: "PREMKT", title: "Weekly 20-SMA", present: !!wma20, job: "weekly_ma20_setups",
+      wait: "The weekly rising-20-SMA scan runs premarket + close (analytics/weekly_ma20_scan.py).",
+      render: () => <WeeklyMa20 body={wma20?.body ?? ""} onChart={onChart} /> },
     // ── MOMENTUM — the swing finder's breakout/structure buckets only (the oversold ones
     //    moved to the support board) + premarket gaps. ──
     { id: "sec-swing", group: "Momentum", time: "10:30·15:00", title: "Momentum / Swing", present: !!sw,
@@ -818,6 +822,40 @@ function ReportsView({ onChart }: { onChart: (s: string) => void }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+interface WeeklyMa20Row {
+  sym: string; close: number; sma20w: number; dist_pct: number; status: string;
+  slope_pct: number; rsi_w: number; entry: number; stop: number; risk_pct: number;
+}
+function WeeklyMa20({ body, onChart }: { body?: string | null; onChart: (s: string) => void }) {
+  let rows: WeeklyMa20Row[] = [];
+  try { rows = (body ? (JSON.parse(body).rows as WeeklyMa20Row[]) : []) ?? []; } catch { rows = []; }
+  if (rows.length === 0) return <div className="px-2 py-3 text-[12px] text-text-faint">No names on a rising 20-week SMA today.</div>;
+  return (
+    <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+      {rows.map((r) => (
+        <button
+          key={r.sym}
+          onClick={() => onChart(r.sym)}
+          title={`entry ${r.entry} · stop ${r.stop} (risk ${r.risk_pct}%) · a weekly close below the 20w SMA invalidates`}
+          className="flex items-center justify-between gap-2 rounded-lg border border-bullish-text/30 bg-bullish-text/5 px-3 py-2 text-left transition-colors hover:border-bullish-text"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <b className="text-text-primary">{r.sym}</b>
+              <span className={`rounded px-1 py-0.5 text-[9px] font-semibold ${r.status === "reclaim" ? "bg-accent/15 text-accent" : "bg-bullish-text/15 text-bullish-text"}`}>{r.status}</span>
+            </div>
+            <div className="mt-0.5 text-[10.5px] text-text-faint">20w SMA {r.sma20w} · rising +{r.slope_pct}% · RSIw {r.rsi_w}</div>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-[12px] font-semibold text-text-primary">{r.close}</div>
+            <div className="text-[10px] text-text-faint">{r.dist_pct >= 0 ? "+" : ""}{r.dist_pct}% · stop {r.stop}</div>
+          </div>
+        </button>
+      ))}
     </div>
   );
 }

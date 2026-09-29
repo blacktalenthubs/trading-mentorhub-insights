@@ -670,6 +670,7 @@ async def market_report_latest(
         "spy_levels": await _latest_report(db, "spy_levels", date),
         "weekly_vp": await _latest_report(db, "weekly_vp", date),
         "breakout_setups": await _latest_report(db, "breakout_setups", date),
+        "weekly_ma20_setups": await _latest_report(db, "weekly_ma20_setups", date),
         "session_date": date,
     }
 
@@ -828,6 +829,11 @@ def _job_iv_snapshot():
     run(publish=True)
 
 
+def _job_weekly_ma20():
+    from analytics.weekly_ma20_scan import scan, publish
+    publish(scan(_job_syms()), _today_iso())
+
+
 _JOBS = {
     "breakout_setups": {"label": "Breakouts", "kind": "breakout_setups", "run": _job_breakout},
     "premium_desk": {"label": "Premium Desk", "kind": "premium_desk", "run": _job_premium},
@@ -840,6 +846,7 @@ _JOBS = {
     "daily_structural": {"label": "Daily Structural", "kind": "daily_structural", "run": _job_daily_structural},
     "volume_signals": {"label": "Volume Signals", "kind": "volume_signals", "run": _job_volume_signals},
     "iv_snapshot": {"label": "IV Snapshot", "kind": "iv_snapshot", "run": _job_iv_snapshot},
+    "weekly_ma20_setups": {"label": "Weekly 20-SMA", "kind": "weekly_ma20_setups", "run": _job_weekly_ma20},
 }
 
 
