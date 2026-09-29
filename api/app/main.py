@@ -697,6 +697,53 @@ async def lifespan(app: FastAPI):
                               id="volume_signals_premkt", replace_existing=True)
             logger.info("Volume-signal scan scheduled (16:18 + 08:43 ET, mon-fri)")
 
+            # 20-MA setups + Put-sell signals — previously had NO schedule (only ran when the
+            # trader clicked Run in the UI), so the Today sections went stale for weeks. Schedule
+            # them premarket + close like the others. Behind env toggles (default on).
+            import os as _os_reports
+            def _en_report(k):
+                return _os_reports.environ.get(k, "true").strip().lower() not in ("false", "0", "no", "off")
+
+            def _run_ma20():
+                try:
+                    import datetime as _dt
+                    from analytics.ma20_scan_report import build_ma20_report, publish as _m20_pub, _fetch as _m20_fetch
+                    from analytics.swing_setups_report import _watchlist as _m20_wl
+                    _syms = _m20_wl(_os_reports.environ.get("DATABASE_URL")) if _os_reports.environ.get("DATABASE_URL") else []
+                    if not _syms:
+                        logger.warning("ma20 scan skipped (no watchlist)"); return
+                    _date = _dt.date.today().isoformat()
+                    _m20_pub(build_ma20_report(_syms, _m20_fetch, _date), _date)
+                    logger.info("ma20 scan posted")
+                except Exception:
+                    logger.exception("ma20 scan failed")
+
+            def _run_putsell():
+                try:
+                    import datetime as _dt
+                    from analytics.putsell_scan import scan as _ps_scan, publish as _ps_pub
+                    from analytics.swing_setups_report import _watchlist as _ps_wl
+                    _syms = _ps_wl(_os_reports.environ.get("DATABASE_URL")) if _os_reports.environ.get("DATABASE_URL") else []
+                    if not _syms:
+                        logger.warning("putsell scan skipped (no watchlist)"); return
+                    _date = _dt.date.today().isoformat()
+                    _ps_pub(_ps_scan(_syms), _date)
+                    logger.info("putsell scan posted")
+                except Exception:
+                    logger.exception("putsell scan failed")
+
+            try:
+                if _en_report("MA20_SCAN_ENABLED"):
+                    scheduler.add_job(_run_ma20, _CronD(hour=16, minute=22, day_of_week="mon-fri", timezone=_etd), id="ma20_close", replace_existing=True)
+                    scheduler.add_job(_run_ma20, _CronD(hour=8, minute=45, day_of_week="mon-fri", timezone=_etd), id="ma20_premkt", replace_existing=True)
+                    logger.info("ma20 scan scheduled (16:22 + 08:45 ET, mon-fri)")
+                if _en_report("PUTSELL_SCAN_ENABLED"):
+                    scheduler.add_job(_run_putsell, _CronD(hour=16, minute=24, day_of_week="mon-fri", timezone=_etd), id="putsell_close", replace_existing=True)
+                    scheduler.add_job(_run_putsell, _CronD(hour=8, minute=47, day_of_week="mon-fri", timezone=_etd), id="putsell_premkt", replace_existing=True)
+                    logger.info("putsell scan scheduled (16:24 + 08:47 ET, mon-fri)")
+            except Exception:
+                logger.exception("Failed to register ma20/putsell scan jobs")
+
             # Support/Oversold scan (the Today "At Support · Oversold" board) — rising 20/50
             # & 200 SMA, VWAP/POC/VAL, daily/weekly RSI reclaims, each with the put strike.
             # Refreshes through the day so the board stays current; Telegram digest on the
