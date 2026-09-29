@@ -18,6 +18,21 @@ _PERIOD_DAYS = {
     "1y": 365, "2y": 730, "5y": 1825, "10y": 3650, "ytd": 365, "max": 3650,
 }
 
+
+def _period_to_days(period: str) -> int:
+    """Days-back for a yfinance-style period string. Exact map first, then parse
+    '<n><unit>' (d/w/mo/y). Without this, any period NOT in the map (e.g. '14mo',
+    '15mo', '3y', '4y' — used by the batch scans) silently clamped to the 90-day
+    default on the Alpaca path, starving the 150/200/20w SMA scans → empty reports."""
+    exact = _PERIOD_DAYS.get(period)
+    if exact is not None:
+        return exact
+    import re
+    m = re.fullmatch(r"\s*(\d+)\s*(d|w|mo|y)\s*", (period or "").lower())
+    if m:
+        return int(m.group(1)) * {"d": 1, "w": 7, "mo": 31, "y": 366}[m.group(2)]
+    return 90
+
 _ALPACA_TF = {
     "1m": ("Minute", 1), "2m": ("Minute", 2), "5m": ("Minute", 5),
     "15m": ("Minute", 15), "30m": ("Minute", 30),
@@ -48,7 +63,7 @@ def _fetch_ohlc_alpaca(symbol: str, period: str, interval: str) -> pd.DataFrame:
         unit = getattr(TimeFrameUnit, unit_str)
         tf = TimeFrame(amount, unit)
 
-        days = _PERIOD_DAYS.get(period, 90)
+        days = _period_to_days(period)
         client = StockHistoricalDataClient(key, secret)
         req = StockBarsRequest(
             symbol_or_symbols=symbol,
@@ -129,7 +144,7 @@ def _fetch_ohlc_coinbase(symbol: str, period: str, interval: str) -> pd.DataFram
     }
 
     granularity = _gran_map.get(interval)
-    days = _period_days.get(period, 90)
+    days = _period_to_days(period)
     if not granularity:
         return pd.DataFrame()
 
