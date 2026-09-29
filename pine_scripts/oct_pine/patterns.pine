@@ -54,7 +54,6 @@ extPct   = input.float(5.0, "Extended above TBA %", group=g5) / 100
 holdBars = input.int(5, "Keep showing pattern after breakout (bars)", group=g5)
 maxRisk  = input.float(8.0, "Max stop distance below TBA %", group=g5) / 100
 reqTrend = input.bool(false, "Only detect above rising 50 SMA", group=g5)
-showMA   = input.bool(true, "Plot 50 SMA", group=g5)
 showHUD  = input.bool(true, "Show HUD", group=g5)
 hudPos   = input.string("Top Right", "HUD position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g5)
 hudSize  = input.string("Large", "HUD text size", options=["Small", "Normal", "Large", "Huge"], group=g5)
@@ -71,7 +70,6 @@ showE21  = input.bool(true,  "21 EMA",  inline="e",  group=gE)
 showE50  = input.bool(true,  "50 EMA",  inline="e",  group=gE)
 showE100 = input.bool(false, "100 EMA", inline="e2", group=gE)
 showE200 = input.bool(true,  "200 EMA", inline="e2", group=gE)
-show200  = input.bool(true,  "200 SMA", inline="e2", group=gE)
 emaLock  = input.bool(false, "Lock EMAs/MAs to a timeframe (UNCHECK = follow chart / unlock)", group=gE)
 emaTf    = input.timeframe("D", "…lock to this timeframe (only when locked above)", group=gE)
 colE8    = input.color(#00BCD4,      "8",   inline="ec", group=gE)
@@ -79,7 +77,14 @@ colE21   = input.color(#9C27B0,      "21",  inline="ec", group=gE)
 colE50   = input.color(color.green,  "50",  inline="ec", group=gE)
 colE100  = input.color(#F57F17,      "100", inline="ec", group=gE)
 colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
-col200S  = input.color(#787B86,      "200S",inline="ec", group=gE)
+
+gS = "SMAs (20 / 50 / 200)"
+showS20  = input.bool(true, "20 SMA",  inline="s",  group=gS)
+showS50  = input.bool(true, "50 SMA",  inline="s",  group=gS)
+showS200 = input.bool(true, "200 SMA", inline="s",  group=gS)
+colS20   = input.color(#42A5F5, "20",  inline="sc", group=gS)
+colS50   = input.color(#FF9800, "50",  inline="sc", group=gS)
+colS200  = input.color(#787B86, "200", inline="sc", group=gS)
 
 gLk = "Lock levels to a timeframe"
 lockLevels = input.bool(true, "Lock TBA / stop / support / resistance to a fixed timeframe", group=gLk, tooltip="ON = the pattern levels are computed on the timeframe below and stay put on any chart TF (so a 15m chart still shows the DAILY levels). The current forming HTF bar updates live.")
@@ -95,7 +100,6 @@ rsi0    = ta.rsi(close, 14)
 vol5    = ta.sma(volume, 5)
 recLow  = ta.lowest(low, 10)
 recHigh = ta.highest(high, 10)
-plot(showMA ? sma50 : na, "50 SMA", color=color.new(color.orange, 20), linewidth=1)
 
 // 8 / 21 / 50 EMA — each toggleable; optionally locked to a fixed timeframe (settled [1] +
 // lookahead_on = non-repainting, same values on any chart TF). Unlocked = live chart-TF EMA.
@@ -108,13 +112,18 @@ ema21  = f_ema(21)
 ema50  = f_ema(50)
 ema100 = f_ema(100)
 ema200 = f_ema(200)
+sma20v  = f_sma(20)
+sma50v  = f_sma(50)
 sma200v = f_sma(200)
 plot(showE8   ? ema8   : na, "8 EMA",   color=color.new(colE8, 0),   linewidth=1)
 plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1)
 plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
 plot(showE100 ? ema100 : na, "100 EMA", color=color.new(colE100, 0), linewidth=2)
 plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2)
-plot(show200  ? sma200v : na, "200 SMA", color=color.new(col200S, 0), linewidth=2, style=plot.style_circles)
+// SMAs 20 / 50 / 200 — structural levels (match the scanner). Same lock as the EMAs (emaLock).
+plot(showS20  ? sma20v  : na, "20 SMA",  color=color.new(colS20, 0),  linewidth=1)
+plot(showS50  ? sma50v  : na, "50 SMA",  color=color.new(colS50, 0),  linewidth=2)
+plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=2, style=plot.style_circles)
 
 // Confirmed swing highs / lows
 var shP = array.new_float()
