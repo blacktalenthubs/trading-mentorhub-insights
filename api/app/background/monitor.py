@@ -190,6 +190,10 @@ def poll_all_users(sync_session_factory) -> int:
     Uses synchronous SQLAlchemy since this runs in a background thread.
     Returns total alerts fired across all users.
     """
+    # Read-only liveness heartbeat (2026-09-30): every call bumps this so /healthz proves the
+    # scheduler is firing the poll. Purely additive — no effect on the poll's behavior.
+    _HEARTBEAT["started_at"] = time.time()
+    _HEARTBEAT["cycles"] = float(_HEARTBEAT.get("cycles", 0)) + 1
     try:
         return _poll_all_users_inner(sync_session_factory)
     except Exception:
