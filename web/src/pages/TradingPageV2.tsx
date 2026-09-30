@@ -42,7 +42,7 @@ import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
-import { formatSetup, isFeedSignal, isVolumeSignal, isBreakoutSignal, setupBlurb } from "../lib/alertFormat";
+import { formatSetup, isFeedSignal, isVolumeSignal, isBreakoutSignal, isExitAlert, setupBlurb } from "../lib/alertFormat";
 import { DisclaimerFooter } from "../components/DisclaimerModal";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
@@ -555,15 +555,21 @@ function SignalFeedTab({
   // allowlist) AND dedup-collapsed — is hidden by default and revealed by the toggle for review,
   // so the live feed reads as "what actually sent" and isn't a wall of NOT SENT.
   // CLEAN feed = delivered feed signals (isFeedSignal + no suppressed_reason). REVIEW
-  // (Show collapsed) = EVERYTHING recorded-but-suppressed, ANY type — exits, non-enabled
-  // rules, off-hours — so nothing records invisibly and the user can review what fired to
-  // learn what to enable later (2026-09-30 trader: "let everything flow but suppress all
-  // non-buy; view suppressed in the feed"). Only the clean-feed set (delivered) ever pings.
+  // (Show collapsed) = EVERYTHING recorded-but-suppressed, ANY type — non-enabled rules,
+  // off-hours, off-index shorts — so nothing records invisibly and the user can review what
+  // fired to learn what to enable later (2026-09-30 trader: "let everything flow but suppress
+  // all non-buy; view suppressed in the feed"). EXCEPTION: exit/lifecycle events (target &
+  // stop hits) are DB-only — never in the feed, delivered or review (trader: "target/stop
+  // hits stay in db only, not in feeds"). Only the clean-feed set (delivered) ever pings.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => (isFeedSignal(a.alert_type) && !a.suppressed_reason) || (showCollapsed && !!a.suppressed_reason),
+    (a) => !isExitAlert(a.alert_type)
+      && ((isFeedSignal(a.alert_type) && !a.suppressed_reason) || (showCollapsed && !!a.suppressed_reason)),
   );
-  // Count of everything hidden from the clean feed (not-sent + deduped, any type) — toggle badge.
-  const collapsedCount = (alerts ?? []).filter((a) => !!a.suppressed_reason).length;
+  // Count of everything hidden from the clean feed (not-sent + deduped, any type EXCEPT
+  // exits, which never show) — toggle badge.
+  const collapsedCount = (alerts ?? []).filter(
+    (a) => !!a.suppressed_reason && !isExitAlert(a.alert_type),
+  ).length;
   // Day vs Swing (2026-07-07). DAY = a day trade — you're OUT by the close (sell it that session
   // at some point). SWING = held multiple days, as long as the thesis holds (swing + long-term
   // styles). Premarket is its own isolated channel.

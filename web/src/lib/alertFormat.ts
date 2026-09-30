@@ -382,6 +382,19 @@ export function isBreakoutSignal(alertType?: string): boolean {
   return (alertType ?? "").startsWith("breakout_");
 }
 
+/** Exit / trade-lifecycle events — target hits and stop-outs. Kept in the DB for P&L
+ *  tracking but NEVER shown in the feed (delivered OR review): the trader manages exits on
+ *  the chart (2026-09-30: "target/stop hits stay in db only, not in feeds"). Mirrors
+ *  alert_config.EXIT_ALERT_TYPES. */
+const EXIT_ALERT_TYPES = new Set([
+  "target_1_hit", "target_2_hit",
+  "stop_loss_hit", "auto_stop_out", "trailing_stop_hit",
+  "swing_target_hit", "swing_stopped_out",
+]);
+export function isExitAlert(alertType?: string): boolean {
+  return EXIT_ALERT_TYPES.has(alertType ?? "");
+}
+
 /** True for alerts that belong in the Signals feed — AI scans, TV signals, the scanner's own
  *  long entries, volume-profile signals, and breakout signals. No WAITs. */
 export function isFeedSignal(alertType?: string): boolean {
