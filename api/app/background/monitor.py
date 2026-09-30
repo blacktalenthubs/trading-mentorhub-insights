@@ -68,29 +68,49 @@ _spy_inside_day_notified: bool = False
 # completes within _WATCHDOG_STALE_SEC (startup-abort OR a hung/wedged poll), the watchdog
 # force-exits so Railway restarts the container with a fresh scheduler. Blunt but correct —
 # a dark scanner during market hours is worse than a ~30-second restart.
-_HEARTBEAT: Dict[str, float] = {"started_at": 0.0, "finished_at": 0.0, "cycles": 0.0}
+_HEARTBEAT: dict = {"started_at": 0.0, "finished_at": 0.0, "cycles": 0.0,
+                    "registered": False, "last_error": None}
 _WATCHDOG_STALE_SEC = 12 * 60       # ~4 missed 3-min cycles → loop is wedged
 _WATCHDOG_STARTUP_GRACE_SEC = 6 * 60  # allow the first poll to happen before alarming
 
 
-def poll_heartbeat() -> Dict[str, float]:
+def poll_heartbeat() -> dict:
     """Snapshot of the poll loop's liveness — read by /healthz and the watchdog."""
     return dict(_HEARTBEAT)
+
+
+def mark_registered() -> None:
+    """main.py calls this right after add_job(alert_monitor) succeeds, so /healthz can
+    distinguish 'registered but not running' from 'registration threw'."""
+    _HEARTBEAT["registered"] = True
 
 
 def alert_monitor_tick(sync_session_factory) -> int:
     """Heartbeat-wrapped poll. The scheduler calls THIS (not poll_all_users directly) so a
     crash in one cycle is logged (not silently swallowed) and the heartbeat always records
-    liveness + last-completed time for the watchdog and /healthz."""
+    liveness + last-completed time + last error for the watchdog and /healthz."""
     _HEARTBEAT["started_at"] = time.time()
     try:
-        return poll_all_users(sync_session_factory)
-    except Exception:
+        n = poll_all_users(sync_session_factory)
+        _HEARTBEAT["last_error"] = None
+        return n
+    except Exception as exc:
         logger.exception("alert_monitor poll cycle crashed")
+        _HEARTBEAT["last_error"] = f"{type(exc).__name__}: {str(exc)[:140]}"
         return 0
     finally:
         _HEARTBEAT["finished_at"] = time.time()
         _HEARTBEAT["cycles"] += 1
+
+
+def run_immediate_poll(sync_session_factory) -> None:
+    """Run one poll cycle NOW in a daemon thread (NOT a scheduler add_job — that immediate-run
+    add threw and took the whole block down on 2026-09-29). A fresh worker then produces alerts
+    within seconds and /healthz reflects liveness immediately, instead of waiting the 3-min tick.
+    If poll_all_users hangs, this thread is orphaned (daemon) but started_at still advances so
+    /healthz shows 'started but not finished' = a hang."""
+    threading.Thread(target=alert_monitor_tick, args=(sync_session_factory,),
+                     name="alert-initial-poll", daemon=True).start()
 
 
 def start_alert_watchdog() -> None:
