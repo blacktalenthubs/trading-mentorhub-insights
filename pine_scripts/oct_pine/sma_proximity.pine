@@ -1,82 +1,142 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// SMA PROXIMITY — 20 / 50 / 100 / 200, gated by % distance from price. VISUAL ONLY.
+// MA PROXIMITY — EMA 8/21/50/100/200 + SMA 20/50/100/200, gated by % distance. VISUAL ONLY.
 // NO alerts, NO webhook payload — nothing here can touch the ma/ema alert engine.
 //
-// The whole point: a 200 SMA sitting 22% below price is not a level you trade today, it's
-// a line that squashes the candles into a ribbon. So EVERY SMA here is %-gated — a line
-// draws only when price is within prox_pct% of it. Price falls toward the 50, the 100
-// comes into range and appears. The 200 stays hidden until it actually matters.
+// The whole point: a 200 SMA sitting 22% below price is not a level you trade today, it's a
+// line that squashes the candles into a ribbon. So:
+//   • EMA 8 / 21 / 50 ALWAYS draw — the working cluster, price lives on them.
+//   • EVERYTHING else (EMA 100 / 200 + SMA 20 / 50 / 100 / 200) draws ONLY when price is
+//     within prox_pct% of it. Price falls toward the 50, the next supports come into range
+//     and reveal themselves; a far 200 stays hidden until it actually matters.
 //
-// Draws:
-//   • Daily SMA 20 / 50 / 100 / 200 flat lines (settled [1]+lookahead_on, non-repainting),
-//     role-colored — green = support (price above), red = resistance (price below).
-//   • CONFLUENCE MERGE — SMAs within ±0.20% collapse into ONE line naming every member
-//     ("SMA 50 · SMA 100 ·×2"), drawn thicker. Two MAs at one price IS the information.
-//   • DISTANCE TABLE — every SMA, in range or not, with its price and signed % distance.
+// Every MA owns its LOOK — its own color, width and line style (solid / dashed / dotted),
+// set per line in the "Per-MA look" group, so you read which MA it is from the line itself.
+// Prefer the old red/green read? Set Line color = "role" and every line colors by whether
+// price sits above it (support) or below it (resistance).
+//
+// Also draws:
+//   • CONFLUENCE MERGE — MAs within ±0.20% collapse into ONE line naming every member
+//     ("EMA 21 · SMA 50 ·×2"), one step thicker, wearing the look of the member nearest price.
+//   • DISTANCE TABLE — all nine, in range or not, with price and signed % distance.
 //     Nothing is lost by hiding a line: you still see "SMA 200  412.80  -18.4%  hidden".
-// Bind on any intraday TF — the values are settled daily, so the lines stay flat.
+// Values are settled daily ([1]+lookahead_on) — non-repainting, flat on any intraday TF.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("SMA Proximity · 20/50/100/200", "SMA·prox", overlay = true, max_labels_count = 100, max_lines_count = 30)
+indicator("MA Proximity · EMA + SMA", "MA·prox", overlay = true, max_labels_count = 100, max_lines_count = 40)
 
-// ── which SMAs ──────────────────────────────────────────────────────────────────
-gMa        = "SMA lines"
-show_lines = input.bool(true, "Show SMA flat lines (master)", group = gMa)
-show_20    = input.bool(true, "  · SMA 20",  group = gMa, inline = "m1")
-show_50    = input.bool(true, "  · SMA 50",  group = gMa, inline = "m1")
-show_100   = input.bool(true, "  · SMA 100", group = gMa, inline = "m2")
-show_200   = input.bool(true, "  · SMA 200", group = gMa, inline = "m2")
-maTf       = input.timeframe("D", "SMA timeframe", group = gMa, tooltip = "Daily by default. Values are read settled ([1] + lookahead_on) so the lines are flat and never repaint on an intraday chart.")
+// ── which MAs ───────────────────────────────────────────────────────────────────
+gMa        = "MA lines"
+show_lines = input.bool(true, "Show MA flat lines (master)", group = gMa)
+show_e8    = input.bool(true, "  · EMA 8",   group = gMa, inline = "e1")
+show_e21   = input.bool(true, "  · EMA 21",  group = gMa, inline = "e1")
+show_e50   = input.bool(true, "  · EMA 50",  group = gMa, inline = "e1")
+show_e100  = input.bool(true, "  · EMA 100", group = gMa, inline = "e2")
+show_e200  = input.bool(true, "  · EMA 200", group = gMa, inline = "e2")
+show_s20   = input.bool(true, "  · SMA 20",  group = gMa, inline = "s1")
+show_s50   = input.bool(true, "  · SMA 50",  group = gMa, inline = "s1")
+show_s100  = input.bool(true, "  · SMA 100", group = gMa, inline = "s2")
+show_s200  = input.bool(true, "  · SMA 200", group = gMa, inline = "s2")
+maTf       = input.timeframe("D", "MA timeframe", group = gMa, tooltip = "Daily by default. Values are read settled ([1] + lookahead_on) so the lines are flat and never repaint on an intraday chart.")
 
 // ── proximity gate — the reason this file exists ────────────────────────────────
-gPx      = "Proximity gate"
-prox_on  = input.bool(true, "Gate every SMA by % distance from price", group = gPx, tooltip = "OFF = draw all four regardless of distance (and watch the chart compress).")
-prox_pct = input.float(10.0, "  · draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "An SMA draws only when |price - SMA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
-prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the distance table below still tells you where they all are. Turn on if you'd rather always have one reference line, accepting that a far line compresses the scale.")
+gPx       = "Proximity gate"
+prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", group = gPx, tooltip = "EMA 8/21/50 always draw — they're the working cluster. Everything else (EMA 100/200 + all four SMAs) is subject to the % below. OFF = draw all nine regardless of distance, and watch the chart compress.")
+prox_pct  = input.float(10.0, "  · gated MAs draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "A gated MA draws only when |price - MA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
+gate_fast = input.bool(false, "  · gate the EMA 8/21/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/21/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
+prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only reachable when the fast EMAs are gated too. Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the distance table still tells you where they all are. On = always one reference line, accepting that a far line compresses the scale.")
 
-// ── style ───────────────────────────────────────────────────────────────────────
-gSt       = "Style"
-sup_col   = input.color(#26A69A, "Support (price above)",    group = gSt, inline = "c")
-res_col   = input.color(#EF5350, "Resistance (price below)", group = gSt, inline = "c")
-flat_len  = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
-line_w    = input.int  (2, "Line thickness (merged lines +1)", minval = 1, maxval = 8, group = gSt)
-style_in  = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gSt)
-merge_pct = input.float(0.20, "Merge SMAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "SMAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'SMA 50 · SMA 100 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — and draws thicker. 0 = draw every SMA separately.") / 100.0
-ln_style  = style_in == "dashed" ? line.style_dashed : style_in == "dotted" ? line.style_dotted : line.style_solid
+// ── per-MA look — each line its own color, width and style ──────────────────────
+// One row per MA: colour swatch · width · style. "dashed"/"dotted" are the breaking lines —
+// a good way to keep the SMAs visually subordinate to the EMAs, or to mark the 200s.
+gLk       = "Per-MA look (color · width · style)"
+c_e8   = input.color(#FFD54F, "EMA 8", group = gLk, inline = "L1")
+w_e8   = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L1")
+y_e8   = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L1")
+c_e21  = input.color(#FFA726, "EMA 21", group = gLk, inline = "L2")
+w_e21  = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L2")
+y_e21  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L2")
+c_e50  = input.color(#29B6F6, "EMA 50", group = gLk, inline = "L3")
+w_e50  = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L3")
+y_e50  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L3")
+c_e100 = input.color(#AB47BC, "EMA 100", group = gLk, inline = "L4")
+w_e100 = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L4")
+y_e100 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L4")
+c_e200 = input.color(#EF5350, "EMA 200", group = gLk, inline = "L5")
+w_e200 = input.int(3, "", minval = 1, maxval = 8, group = gLk, inline = "L5")
+y_e200 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L5")
+c_s20  = input.color(#66BB6A, "SMA 20", group = gLk, inline = "L6")
+w_s20  = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L6")
+y_s20  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L6")
+c_s50  = input.color(#26A69A, "SMA 50", group = gLk, inline = "L7")
+w_s50  = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L7")
+y_s50  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L7")
+c_s100 = input.color(#5C6BC0, "SMA 100", group = gLk, inline = "L8")
+w_s100 = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L8")
+y_s100 = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L8")
+c_s200 = input.color(#8D6E63, "SMA 200", group = gLk, inline = "L9")
+w_s200 = input.int(3, "", minval = 1, maxval = 8, group = gLk, inline = "L9")
+y_s200 = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L9")
+
+// ── style (global) ──────────────────────────────────────────────────────────────
+gSt        = "Style"
+color_mode = input.string("per-MA", "Line color", options = ["per-MA", "role (support / resistance)"], group = gSt, tooltip = "per-MA = every line wears the colour you set above, so you identify the MA from the line. role = the old read: green when price is above the level (support), red when price is below it (resistance). Width and line style stay per-MA either way.")
+sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
+res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
+flat_len   = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
+merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 21 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
+by_role    = color_mode != "per-MA"
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+// label text that stays readable on a bright swatch (amber/yellow lines need black text)
+f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 
 // ── distance table ──────────────────────────────────────────────────────────────
 gTb        = "Distance table"
-show_table = input.bool(true, "Show the distance table (all four, in range or not)", group = gTb)
+show_table = input.bool(true, "Show the distance table (all nine, in range or not)", group = gTb)
 tbl_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gTb)
-tbl_size   = input.string("small", "Text size", options = ["tiny", "small", "normal"], group = gTb)
+tbl_size   = input.string("tiny", "Text size", options = ["tiny", "small", "normal"], group = gTb)
 tbl_pos    = tbl_pos_in == "top_left" ? position.top_left : tbl_pos_in == "bottom_right" ? position.bottom_right : tbl_pos_in == "bottom_left" ? position.bottom_left : tbl_pos_in == "middle_right" ? position.middle_right : position.top_right
 tbl_txt    = tbl_size == "tiny" ? size.tiny : tbl_size == "normal" ? size.normal : size.small
 
-// ── values — SETTLED daily SMAs ([1]+lookahead_on), non-repainting, flat on any chart TF ──
-tid   = syminfo.tickerid
+// ── values — SETTLED daily MAs ([1]+lookahead_on), non-repainting, flat on any chart TF ──
+tid    = syminfo.tickerid
+ema8   = request.security(tid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
+ema21  = request.security(tid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
+ema50  = request.security(tid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
+ema100 = request.security(tid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
+ema200 = request.security(tid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
 sma20  = request.security(tid, maTf, ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on)
 sma50  = request.security(tid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
 sma100 = request.security(tid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
 sma200 = request.security(tid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// signed % distance: positive = SMA is ABOVE price (resistance overhead), negative = below (support under).
+// signed % distance: positive = MA is ABOVE price (resistance overhead), negative = below (support under).
 sdist(float v) => na(v) or close <= 0 ? float(na) : (v - close) / close * 100.0
 // the gate itself — absolute distance, so a far level is hidden whichever side it sits on.
 prox_ok(float v) =>
     float d = sdist(v)
     not prox_on or na(d) or math.abs(d) <= prox_pct
+// the fast cluster: exempt unless the user opts them into the gate.
+fast_ok(float v) => not gate_fast or prox_ok(v)
 
 // ── draw (rebuilt on the last bar) ──────────────────────────────────────────────
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
-// everything that survived the gate is QUEUED first, then merged and drawn in one pass —
+// everything that survived its gate is QUEUED first, then merged and drawn in one pass —
 // drawing each level as it's decided is what produces stacks of overlapping labels.
+// FIVE arrays in lockstep — value · name · color · width · style. Every push site pushes ALL
+// five (queue_ma is the only one), or a short array reads out of bounds during the merge.
 var float[]  _qv = array.new_float()
 var string[] _qn = array.new_string()
-queue_sma(float v, string nm, bool show) =>
+var color[]  _qc = array.new_color()
+var int[]    _qw = array.new_int()
+var string[] _qy = array.new_string()
+queue_ma(float v, string nm, color col, int wid, string sty, bool show) =>
     if show and not na(v)
         array.push(_qv, v)
         array.push(_qn, nm)
+        array.push(_qc, col)
+        array.push(_qw, wid)
+        array.push(_qy, f_style(sty))
 
 if show_lines and barstate.islast
     if array.size(_ln) > 0
@@ -89,22 +149,38 @@ if show_lines and barstate.islast
         array.clear(_lb)
     array.clear(_qv)
     array.clear(_qn)
+    array.clear(_qc)
+    array.clear(_qw)
+    array.clear(_qy)
 
-    queue_sma(sma20,  "SMA 20",  show_20  and prox_ok(sma20))
-    queue_sma(sma50,  "SMA 50",  show_50  and prox_ok(sma50))
-    queue_sma(sma100, "SMA 100", show_100 and prox_ok(sma100))
-    queue_sma(sma200, "SMA 200", show_200 and prox_ok(sma200))
+    // the working cluster — ALWAYS drawn (unless the user gates them on purpose)
+    queue_ma(ema8,  "EMA 8",  c_e8,  w_e8,  y_e8,  show_e8  and fast_ok(ema8))
+    queue_ma(ema21, "EMA 21", c_e21, w_e21, y_e21, show_e21 and fast_ok(ema21))
+    queue_ma(ema50, "EMA 50", c_e50, w_e50, y_e50, show_e50 and fast_ok(ema50))
+    // everything deeper — %-gated, appears only as price comes into range
+    queue_ma(ema100, "EMA 100", c_e100, w_e100, y_e100, show_e100 and prox_ok(ema100))
+    queue_ma(ema200, "EMA 200", c_e200, w_e200, y_e200, show_e200 and prox_ok(ema200))
+    queue_ma(sma20,  "SMA 20",  c_s20,  w_s20,  y_s20,  show_s20  and prox_ok(sma20))
+    queue_ma(sma50,  "SMA 50",  c_s50,  w_s50,  y_s50,  show_s50  and prox_ok(sma50))
+    queue_ma(sma100, "SMA 100", c_s100, w_s100, y_s100, show_s100 and prox_ok(sma100))
+    queue_ma(sma200, "SMA 200", c_s200, w_s200, y_s200, show_s200 and prox_ok(sma200))
 
-    // fallback — every SMA was gated out and the user asked for one reference line anyway:
-    // draw the single NEAREST enabled SMA (least compression of the four).
+    // fallback — every MA was gated out (only possible with gate_fast on) and the user asked
+    // for one reference line anyway: draw the single NEAREST enabled MA, in its own look.
     if prox_near and array.size(_qv) == 0
-        _fv = array.from(sma20, sma50, sma100, sma200)
-        _fn = array.from("SMA 20", "SMA 50", "SMA 100", "SMA 200")
-        _fe = array.from(show_20, show_50, show_100, show_200)
-        float _fbest  = na
-        string _fbnm  = ""
-        float _fbestD = 1e18
-        for _fi = 0 to 3
+        _fv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
+        _fn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+        _fe = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+        _fc = array.from(c_e8, c_e21, c_e50, c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
+        _fw = array.from(w_e8, w_e21, w_e50, w_e100, w_e200, w_s20, w_s50, w_s100, w_s200)
+        _fy = array.from(y_e8, y_e21, y_e50, y_e100, y_e200, y_s20, y_s50, y_s100, y_s200)
+        float  _fbest  = na
+        string _fbnm   = ""
+        color  _fbcol  = color.gray
+        int    _fbw    = 1
+        string _fbsty  = "solid"
+        float  _fbestD = 1e18
+        for _fi = 0 to array.size(_fv) - 1
             _fvv = array.get(_fv, _fi)
             if array.get(_fe, _fi) and not na(_fvv)
                 _fd = math.abs(close - _fvv)
@@ -112,12 +188,15 @@ if show_lines and barstate.islast
                     _fbestD := _fd
                     _fbest  := _fvv
                     _fbnm   := array.get(_fn, _fi)
-        queue_sma(_fbest, _fbnm + " (nearest, out of range)", not na(_fbest))
+                    _fbcol  := array.get(_fc, _fi)
+                    _fbw    := array.get(_fw, _fi)
+                    _fbsty  := array.get(_fy, _fi)
+        queue_ma(_fbest, _fbnm + " (nearest, out of range)", _fbcol, _fbw, _fbsty, not na(_fbest))
 
-    // ── MERGE + DRAW — SMAs stacked within merge_pct collapse into ONE line that NAMES every
+    // ── MERGE + DRAW — MAs stacked within merge_pct collapse into ONE line that NAMES every
     //    member. The merged line sits on the member NEAREST price — a real level, never a
-    //    fabricated average that lands on none of them — and draws thicker, because two MAs
-    //    at one price IS the information.
+    //    fabricated average that lands on none of them — wears THAT member's colour and style,
+    //    and draws one step thicker, because two MAs at one price IS the information.
     _n = array.size(_qv)
     if _n > 0
         _ord = array.sort_indices(_qv, order.ascending)
@@ -129,6 +208,9 @@ if show_lines and barstate.islast
             _cnt   = 1
             _near  = _hi                          // the member closest to price anchors the line
             _nearD = math.abs(close - _hi)
+            _col   = array.get(_qc, _s)           // …and lends it its look
+            _wid   = array.get(_qw, _s)
+            _sty   = array.get(_qy, _s)
             _j = _i + 1
             while _j < _n
                 _k  = array.get(_ord, _j)
@@ -140,40 +222,48 @@ if show_lines and barstate.islast
                     if math.abs(close - _v2) < _nearD
                         _near  := _v2
                         _nearD := math.abs(close - _v2)
+                        _col   := array.get(_qc, _k)
+                        _wid   := array.get(_qw, _k)
+                        _sty   := array.get(_qy, _k)
                     _j := _j + 1
                 else
                     break
-            _sup = close > _near
-            _col = _sup ? sup_col : res_col
-            _w   = _cnt > 1 ? line_w + 1 : line_w          // a merged cluster (a wall) draws one thicker
+            _sup  = close > _near
+            _draw = by_role ? (_sup ? sup_col : res_col) : _col
+            _w    = _cnt > 1 and _wid < 8 ? _wid + 1 : _wid             // a merged cluster (a wall) draws one thicker
             float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
             _txt = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
-            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _col, width = _w, style = ln_style))
-            array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _col, textcolor = color.white, size = size.small))
+            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
+            array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
 
-// ── DISTANCE TABLE — nothing is lost by hiding a line. Every SMA is listed with its price
-//    and signed % distance (+ = overhead resistance, − = support below), and whether it made
-//    the proximity cut. A 200 that's 18% away is still information; it just isn't a line.
-var table _tb = table.new(tbl_pos, 4, 5, border_width = 1)
+// ── DISTANCE TABLE — nothing is lost by hiding a line. Every MA is listed with its price and
+//    signed % distance (+ = overhead resistance, − = support below), and whether it made the
+//    cut: "always" (the 8/21/50 cluster), "shown", "hidden" (gated out) or "off" (unticked).
+//    A 200 that's 18% away is still information; it just isn't a line.
+var table _tb = table.new(tbl_pos, 4, 10, border_width = 1)
 if show_table and barstate.islast
-    table.clear(_tb, 0, 0, 3, 4)
+    table.clear(_tb, 0, 0, 3, 9)
     _hdrBg = color.new(color.gray, 70)
-    table.cell(_tb, 0, 0, "SMA",  bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
+    table.cell(_tb, 0, 0, "MA",    bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
     table.cell(_tb, 1, 0, "price", bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
     table.cell(_tb, 2, 0, "dist",  bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
     table.cell(_tb, 3, 0, prox_on ? str.tostring(prox_pct, "#.#") + "% gate" : "gate off", bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
-    _tv = array.from(sma20, sma50, sma100, sma200)
-    _tn = array.from("20", "50", "100", "200")
-    _te = array.from(show_20, show_50, show_100, show_200)
-    for _ti = 0 to 3
-        _tvv  = array.get(_tv, _ti)
-        _td   = sdist(_tvv)                                  // + = above price, − = below
-        _ton  = array.get(_te, _ti)
-        _tin  = _ton and prox_ok(_tvv) and not na(_tvv)
-        _tcol = na(_td) ? color.gray : _td < 0 ? sup_col : res_col
-        _tdim = _tin ? 0 : 55                                // out-of-range rows sit faded, still readable
-        table.cell(_tb, 0, _ti + 1, "SMA " + array.get(_tn, _ti), text_color = color.new(_tcol, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 1, _ti + 1, na(_tvv) ? "—" : str.tostring(_tvv, format.mintick), text_color = color.new(_tcol, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 2, _ti + 1, na(_td) ? "—" : (_td > 0 ? "+" : "") + str.tostring(_td, "#.#") + "%", text_color = color.new(_tcol, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 3, _ti + 1, not _ton ? "off" : na(_tvv) ? "n/a" : _tin ? "shown" : "hidden", text_color = color.new(_tin ? _tcol : color.gray, _tdim), text_size = tbl_txt)
+    _tv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
+    _tn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+    _te = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+    _tc = array.from(c_e8, c_e21, c_e50, c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
+    for _ti = 0 to array.size(_tv) - 1
+        _tvv   = array.get(_tv, _ti)
+        _td    = sdist(_tvv)                                 // + = above price, − = below
+        _ton   = array.get(_te, _ti)
+        _tfast = _ti <= 2                                    // EMA 8 / 21 / 50
+        _tin   = _ton and not na(_tvv) and (_tfast ? fast_ok(_tvv) : prox_ok(_tvv))
+        _tst   = not _ton ? "off" : na(_tvv) ? "n/a" : not _tin ? "hidden" : _tfast and not gate_fast ? "always" : "shown"
+        _trole = na(_td) ? color.gray : _td < 0 ? sup_col : res_col   // role tint for the distance
+        _tnmc  = by_role ? _trole : array.get(_tc, _ti)               // the name wears the line's own colour
+        _tdim  = _tin ? 0 : 55                               // out-of-range rows sit faded, still readable
+        table.cell(_tb, 0, _ti + 1, array.get(_tn, _ti), text_color = color.new(_tnmc, _tdim), text_size = tbl_txt)
+        table.cell(_tb, 1, _ti + 1, na(_tvv) ? "—" : str.tostring(_tvv, format.mintick), text_color = color.new(_tnmc, _tdim), text_size = tbl_txt)
+        table.cell(_tb, 2, _ti + 1, na(_td) ? "—" : (_td > 0 ? "+" : "") + str.tostring(_td, "#.#") + "%", text_color = color.new(_trole, _tdim), text_size = tbl_txt)
+        table.cell(_tb, 3, _ti + 1, _tst, text_color = color.new(_tin ? _trole : color.gray, _tdim), text_size = tbl_txt)
