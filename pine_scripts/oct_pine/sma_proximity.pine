@@ -1,11 +1,11 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// MA PROXIMITY — EMA 8/21/50/100/200 + SMA 20/50/100/200, gated by % distance. VISUAL ONLY.
+// MA PROXIMITY — EMA 8/20/50/100/200 + SMA 20/50/100/200, gated by % distance. VISUAL ONLY.
 // NO alerts, NO webhook payload — nothing here can touch the ma/ema alert engine.
 //
 // The whole point: a 200 SMA sitting 22% below price is not a level you trade today, it's a
 // line that squashes the candles into a ribbon. So:
-//   • EMA 8 / 21 / 50 ALWAYS draw — the working cluster, price lives on them.
+//   • EMA 8 / 20 / 50 ALWAYS draw — the working cluster, price lives on them.
 //   • EVERYTHING else (EMA 100 / 200 + SMA 20 / 50 / 100 / 200) draws ONLY when price is
 //     within prox_pct% of it. Price falls toward the 50, the next supports come into range
 //     and reveal themselves; a far 200 stays hidden until it actually matters.
@@ -15,7 +15,7 @@
 // the green-support / red-resistance read.
 //
 // THE HUD — the daily read, in one block:
-//   • RSI 14 (daily) · SMA 20 and EMA 21 SLOPE IN DEGREES (both lengths are inputs) (ATR-normalised, so the angle means
+//   • RSI 14 (daily) · SMA 20 and EMA 20 SLOPE IN DEGREES (both lengths are inputs) (ATR-normalised, so the angle means
 //     the same thing on a $9 stock and a $900 one — that is how "rising" is measured here).
 //   • Today's volume vs yesterday's, and vs the 50-day average.
 //   • Daily ATR % (how much room the name gives a stop) and today's change.
@@ -47,7 +47,7 @@ tf_tag  = lock_on ? "🔒 " + lock_tf : "chart " + timeframe.period
 gMa        = "MA lines"
 show_lines = input.bool(true, "Show MA flat lines (master)", group = gMa)
 show_e8    = input.bool(true, "  · EMA 8",   group = gMa, inline = "e1")
-show_e21   = input.bool(true, "  · EMA 21",  group = gMa, inline = "e1")
+show_e20   = input.bool(true, "  · EMA 20",  group = gMa, inline = "e1")
 show_e50   = input.bool(true, "  · EMA 50",  group = gMa, inline = "e1")
 show_e100  = input.bool(true, "  · EMA 100", group = gMa, inline = "e2")
 show_e200  = input.bool(true, "  · EMA 200", group = gMa, inline = "e2")
@@ -58,9 +58,9 @@ show_s200  = input.bool(true, "  · SMA 200", group = gMa, inline = "s2")
 
 // ── proximity gate — the reason this file exists ────────────────────────────────
 gPx       = "Proximity gate"
-prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", group = gPx, tooltip = "EMA 8/21/50 always draw — they're the working cluster. Everything else (EMA 100/200 + all four SMAs) is subject to the % below. OFF = draw all nine regardless of distance, and watch the chart compress.")
+prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", group = gPx, tooltip = "EMA 8/20/50 always draw — they're the working cluster. Everything else (EMA 100/200 + all four SMAs) is subject to the % below. OFF = draw all nine regardless of distance, and watch the chart compress.")
 prox_pct  = input.float(10.0, "  · gated MAs draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "A gated MA draws only when |price - MA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
-gate_fast = input.bool(false, "  · gate the EMA 8/21/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/21/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
+gate_fast = input.bool(false, "  · gate the EMA 8/20/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/20/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
 prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only reachable when the fast EMAs are gated too. Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the HUD still names the nearest MA above and below. On = always one reference line, accepting that a far line compresses the scale.")
 
 // ── per-MA look — each line its own color, width and style ──────────────────────
@@ -70,9 +70,9 @@ gLk    = "Per-MA look (color · width · style)"
 c_e8   = input.color(#FFD54F, "EMA 8", group = gLk, inline = "L1")
 w_e8   = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L1")
 y_e8   = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L1")
-c_e21  = input.color(#FFA726, "EMA 21", group = gLk, inline = "L2")
-w_e21  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L2")
-y_e21  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L2")
+c_e20  = input.color(#FFA726, "EMA 20", group = gLk, inline = "L2")
+w_e20  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L2")
+y_e20  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L2")
 c_e50  = input.color(#29B6F6, "EMA 50", group = gLk, inline = "L3")
 w_e50  = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L3")
 y_e50  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L3")
@@ -102,7 +102,7 @@ sup_col    = input.color(#26A69A, "role · support (price above)",    group = gS
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
 w_boost    = input.int  (0, "Thickness boost — adds to EVERY line", minval = 0, maxval = 6, group = gSt, tooltip = "Quick global fattener on top of the per-MA widths set above: +2 makes a 1 draw at 3 and a 3 at 5. Leave at 0 and each MA keeps exactly the width you gave it. Capped at 10.")
-merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 21 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
+merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 20 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
 by_role    = color_mode != "per-MA"
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 // label text that stays readable on a bright swatch (amber/yellow lines need black text)
@@ -114,7 +114,7 @@ show_hud   = input.bool(true, "Show the HUD", group = gHd)
 hud_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gHd)
 hud_size   = input.string("small", "Text size", options = ["tiny", "small", "normal", "large"], group = gHd)
 slope_sma  = input.int(20, "Slope · SMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
-slope_ema  = input.int(21, "Slope · EMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
+slope_ema  = input.int(20, "Slope · EMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
 slope_lb   = input.int(5, "Slope lookback (daily bars)", minval = 2, maxval = 30, group = gHd, tooltip = "The angle is measured over this many daily bars: rise per bar ÷ daily ATR, turned into degrees. ATR-normalising is what makes the number comparable across symbols and price levels — 30° on a $9 stock means the same slope as 30° on a $900 one. 5 bars = this week's angle; 10-20 = the trend's angle.")
 hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
 hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
@@ -159,7 +159,7 @@ f_ema(simple int len) =>
 f_sma(simple int len) =>
     lock_on ? request.security(tid, lock_tf, ta.sma(close, len)[1], lookahead = barmerge.lookahead_on) : ta.sma(close, len)
 ema8   = f_ema(8)
-ema21  = f_ema(21)
+ema20  = f_ema(20)
 ema50  = f_ema(50)
 ema100 = f_ema(100)
 ema200 = f_ema(200)
@@ -181,12 +181,12 @@ fast_ok(float v) => not gate_fast or prox_ok(v)
 // The slope is ATR-normalised: (MA − MA[lookback]) / lookback / ATR, as an angle. A raw price
 // slope is meaningless across symbols ($2 a day is vertical on a $20 stock, nothing on a $900
 // one); dividing by ATR puts every name on the same protractor.
-[h_rsi, h_sma20, h_sma20p, h_ema21, h_ema21p, h_atr, h_vol, h_volPrev, h_volAvg, h_close, h_closePrev] = request.security(tid, tf_use, [ta.rsi(close, 14), ta.sma(close, slope_sma), ta.sma(close, slope_sma)[slope_lb], ta.ema(close, slope_ema), ta.ema(close, slope_ema)[slope_lb], ta.atr(14), volume, volume[1], ta.sma(volume, 50)[1], close, close[1]], lookahead = barmerge.lookahead_off)
+[h_rsi, h_sma20, h_sma20p, h_ema20, h_ema20p, h_atr, h_vol, h_volPrev, h_volAvg, h_close, h_closePrev] = request.security(tid, tf_use, [ta.rsi(close, 14), ta.sma(close, slope_sma), ta.sma(close, slope_sma)[slope_lb], ta.ema(close, slope_ema), ta.ema(close, slope_ema)[slope_lb], ta.atr(14), volume, volume[1], ta.sma(volume, 50)[1], close, close[1]], lookahead = barmerge.lookahead_off)
 
 f_deg(float now, float then) =>
     na(now) or na(then) or na(h_atr) or h_atr <= 0 ? float(na) : math.todegrees(math.atan((now - then) / slope_lb / h_atr))
 deg_s20 = f_deg(h_sma20, h_sma20p)
-deg_e21 = f_deg(h_ema21, h_ema21p)
+deg_e20 = f_deg(h_ema20, h_ema20p)
 // one vocabulary for both angles, so "rising" means the same thing on every row
 f_degTxt(float d) => na(d) ? "—" : str.tostring(d, "#.0") + "°  " + (d >= 30 ? "steep up" : d >= 10 ? "rising" : d > -10 ? "flat" : d > -30 ? "falling" : "steep down")
 f_degCol(float d) => na(d) ? color.gray : d >= 30 ? color.lime : d >= 10 ? #8BC34A : d > -10 ? color.gray : d > -30 ? color.orange : color.red
@@ -404,7 +404,7 @@ if show_lines and barstate.islast
 
     // the working cluster — ALWAYS drawn (unless the user gates them on purpose)
     queue_ma(ema8,  "EMA 8",  c_e8,  w_e8,  y_e8,  show_e8  and fast_ok(ema8))
-    queue_ma(ema21, "EMA 21", c_e21, w_e21, y_e21, show_e21 and fast_ok(ema21))
+    queue_ma(ema20, "EMA 20", c_e20, w_e20, y_e20, show_e20 and fast_ok(ema20))
     queue_ma(ema50, "EMA 50", c_e50, w_e50, y_e50, show_e50 and fast_ok(ema50))
     // everything deeper — %-gated, appears only as price comes into range
     queue_ma(ema100, "EMA 100", c_e100, w_e100, y_e100, show_e100 and prox_ok(ema100))
@@ -417,12 +417,12 @@ if show_lines and barstate.islast
     // fallback — every MA was gated out (only possible with gate_fast on) and the user asked
     // for one reference line anyway: draw the single NEAREST enabled MA, in its own look.
     if prox_near and array.size(_qv) == 0
-        _fv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
-        _fn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
-        _fe = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
-        _fc = array.from(c_e8, c_e21, c_e50, c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
-        _fw = array.from(w_e8, w_e21, w_e50, w_e100, w_e200, w_s20, w_s50, w_s100, w_s200)
-        _fy = array.from(y_e8, y_e21, y_e50, y_e100, y_e200, y_s20, y_s50, y_s100, y_s200)
+        _fv = array.from(ema8, ema20, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
+        _fn = array.from("EMA 8", "EMA 20", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+        _fe = array.from(show_e8, show_e20, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+        _fc = array.from(c_e8, c_e20, c_e50, c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
+        _fw = array.from(w_e8, w_e20, w_e50, w_e100, w_e200, w_s20, w_s50, w_s100, w_s200)
+        _fy = array.from(y_e8, y_e20, y_e50, y_e100, y_e200, y_s20, y_s50, y_s100, y_s200)
         float  _fbest  = na
         string _fbnm   = ""
         color  _fbcol  = color.gray
@@ -513,9 +513,9 @@ f_row(int r, string k, string v, color c) =>
 if show_hud and barstate.islast
     // nearest MA under and over price — the proximity gate can hide a line, but never the fact
     // that it is there. Two rows replace the old nine-row distance table.
-    _nv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
-    _nn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
-    _ne = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+    _nv = array.from(ema8, ema20, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
+    _nn = array.from("EMA 8", "EMA 20", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+    _ne = array.from(show_e8, show_e20, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
     float  _upV = na
     float  _dnV = na
     string _upN = "—"
@@ -546,7 +546,7 @@ if show_hud and barstate.islast
     f_row(0,  "MA·prox  " + syminfo.ticker, tf_tag, color.white)
     f_row(1,  "RSI 14", _rsiTxt, _rsiCol)
     f_row(2,  "SMA " + str.tostring(slope_sma) + " slope", f_degTxt(deg_s20), f_degCol(deg_s20))
-    f_row(3,  "EMA " + str.tostring(slope_ema) + " slope", f_degTxt(deg_e21), f_degCol(deg_e21))
+    f_row(3,  "EMA " + str.tostring(slope_ema) + " slope", f_degTxt(deg_e20), f_degCol(deg_e20))
     f_row(4,  "Volume today", _volTxt, _volCol)
     f_row(5,  "vs 50-day avg", _relTxt, _relCol)
     f_row(6,  "Change today", _chgTxt, _chgCol)
