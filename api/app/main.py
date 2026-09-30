@@ -450,20 +450,32 @@ async def lifespan(app: FastAPI):
             # add threw in prod → caught → the poll was skipped and the scanner was dead all day
             # while the rest of the scheduler ran. Split into independent steps so that can't recur.
             try:
-                from app.background.monitor import alert_monitor_tick
-                scheduler.add_job(
-                    alert_monitor_tick, "interval", minutes=3, args=[sync_session_factory],
-                    id="alert_monitor", replace_existing=True,
-                    max_instances=1, coalesce=True, misfire_grace_time=120,
+                from app.background.monitor import (
+                    alert_monitor_tick, mark_registered, run_immediate_poll, set_reg_error,
                 )
-                logger.info("alert_monitor registered (3-min poll)")
-                # Confirm registration in /healthz + run the first poll NOW (in a thread, not a
-                # scheduler add_job) so a fresh worker is live in seconds, not 3 minutes.
-                from app.background.monitor import mark_registered, run_immediate_poll
+                # MINIMAL add_job — the exact pre-2026-09-28 form that worked for months. The extra
+                # kwargs I added then (max_instances/coalesce/misfire_grace_time) are the only change
+                # to this call and the prime suspect for the prod-only registration throw. Dropped.
+                try:
+                    scheduler.add_job(
+                        alert_monitor_tick, "interval", minutes=3, args=[sync_session_factory],
+                        id="alert_monitor", replace_existing=True,
+                    )
+                except Exception as _e_add:
+                    logger.exception("alert_monitor add_job failed — retrying under a fresh id")
+                    set_reg_error(f"add_job: {type(_e_add).__name__}: {_e_add}")
+                    scheduler.add_job(alert_monitor_tick, "interval", minutes=3,
+                                      args=[sync_session_factory], id="alert_monitor2", replace_existing=True)
                 mark_registered()
-                run_immediate_poll(sync_session_factory)
-                logger.info("alert_monitor: immediate first poll kicked off")
+                run_immediate_poll(sync_session_factory)   # first poll NOW (thread, not add_job)
+                logger.info("alert_monitor registered (3-min poll) + first poll kicked off")
             except Exception:
+                import traceback as _tb_reg
+                try:
+                    from app.background.monitor import set_reg_error as _sre
+                    _sre(_tb_reg.format_exc())
+                except Exception:
+                    pass
                 logger.exception("CRITICAL: failed to register alert_monitor — LIVE ALERTS ARE OFF")
             # (No separate immediate-first-run job: the trigger-less add_job for it was the
             # 2026-09-29 failure that took down the whole block. The 3-min interval fires within
@@ -2231,6 +2243,7 @@ def create_app() -> FastAPI:
                     "last_start_age_sec": round(_t.time() - started, 1) if started > 0 else None,  # since a poll STARTED
                     "cycles": int(hb.get("cycles", 0)),
                     "last_error": hb.get("last_error"),                              # last cycle's crash (if any)
+                    "reg_error": hb.get("reg_error"),                               # registration exception (if any)
                 },
             }
             if stale:
