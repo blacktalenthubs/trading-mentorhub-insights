@@ -377,6 +377,12 @@ const NOT_ROUTED_LABELS: Record<string, string> = {
   dedup_type_day: "already fired today",
   dedup_zone: "same zone",
   not_delivered: "not sent",
+  // Everything flows to the feed now; only BUY entries route to Telegram (2026-09-30 trader).
+  exits_not_delivered: "exit (target/stop)",
+  rule_not_enabled: "rule off",
+  short_not_index: "short (not index)",
+  not_an_entry: "not an entry",
+  rule_toggled_off: "muted in Settings",
 };
 function notRoutedLabel(reason?: string | null): string | null {
   if (!reason) return null;
@@ -548,13 +554,16 @@ function SignalFeedTab({
   // Everything recorded-but-not-delivered — NOT SENT gate catches (type off / SPY gate / grade /
   // allowlist) AND dedup-collapsed — is hidden by default and revealed by the toggle for review,
   // so the live feed reads as "what actually sent" and isn't a wall of NOT SENT.
+  // CLEAN feed = delivered feed signals (isFeedSignal + no suppressed_reason). REVIEW
+  // (Show collapsed) = EVERYTHING recorded-but-suppressed, ANY type — exits, non-enabled
+  // rules, off-hours — so nothing records invisibly and the user can review what fired to
+  // learn what to enable later (2026-09-30 trader: "let everything flow but suppress all
+  // non-buy; view suppressed in the feed"). Only the clean-feed set (delivered) ever pings.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason),
+    (a) => (isFeedSignal(a.alert_type) && !a.suppressed_reason) || (showCollapsed && !!a.suppressed_reason),
   );
-  // Count of everything hidden from the clean feed (not-sent + deduped) — the toggle badge.
-  const collapsedCount = (alerts ?? []).filter(
-    (a) => isFeedSignal(a.alert_type) && !!a.suppressed_reason,
-  ).length;
+  // Count of everything hidden from the clean feed (not-sent + deduped, any type) — toggle badge.
+  const collapsedCount = (alerts ?? []).filter((a) => !!a.suppressed_reason).length;
   // Day vs Swing (2026-07-07). DAY = a day trade — you're OUT by the close (sell it that session
   // at some point). SWING = held multiple days, as long as the thesis holds (swing + long-term
   // styles). Premarket is its own isolated channel.
