@@ -457,6 +457,12 @@ async def lifespan(app: FastAPI):
                     max_instances=1, coalesce=True, misfire_grace_time=120,
                 )
                 logger.info("alert_monitor registered (3-min poll)")
+                # Confirm registration in /healthz + run the first poll NOW (in a thread, not a
+                # scheduler add_job) so a fresh worker is live in seconds, not 3 minutes.
+                from app.background.monitor import mark_registered, run_immediate_poll
+                mark_registered()
+                run_immediate_poll(sync_session_factory)
+                logger.info("alert_monitor: immediate first poll kicked off")
             except Exception:
                 logger.exception("CRITICAL: failed to register alert_monitor — LIVE ALERTS ARE OFF")
             # (No separate immediate-first-run job: the trigger-less add_job for it was the
@@ -2214,13 +2220,17 @@ def create_app() -> FastAPI:
             from app.background.monitor import poll_heartbeat, _WATCHDOG_STALE_SEC
             hb = poll_heartbeat()
             fin = float(hb.get("finished_at", 0.0) or 0.0)
+            started = float(hb.get("started_at", 0.0) or 0.0)
             age = (_t.time() - fin) if fin > 0 else None
             stale = age is not None and age > _WATCHDOG_STALE_SEC
             body = {
                 "status": "degraded" if stale else "ok",
                 "alert_loop": {
-                    "last_poll_age_sec": round(age, 1) if age is not None else None,
+                    "registered": bool(hb.get("registered")),                       # add_job succeeded?
+                    "last_poll_age_sec": round(age, 1) if age is not None else None,  # since a poll FINISHED
+                    "last_start_age_sec": round(_t.time() - started, 1) if started > 0 else None,  # since a poll STARTED
                     "cycles": int(hb.get("cycles", 0)),
+                    "last_error": hb.get("last_error"),                              # last cycle's crash (if any)
                 },
             }
             if stale:
