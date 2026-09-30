@@ -23,11 +23,25 @@
 //     its TBA (the breakout line), the distance to it, and the pattern stop. Detection is the
 //     engine from patterns.pine, run on the daily and drawn here as the TBA + stop lines.
 //   • Nearest MA above and below price, so the proximity gate never hides what is out there.
-// MA lines are settled daily ([1]+lookahead_on) — non-repainting, flat on any intraday TF.
+// ONE TIMEFRAME LOCK governs all of it: locked (default D), every value — MA lines, HUD,
+// pattern and TBA — is computed on that timeframe and does NOT move when you change the chart
+// TF. Unlock it and everything follows the chart instead.
 // The HUD's live metrics (RSI, volume, pattern) read the FORMING daily bar, so they update
 // through the session — that is the point of them.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("MA Proximity · EMA + SMA", "MA·prox", overlay = true, max_labels_count = 100, max_lines_count = 60, max_bars_back = 500)
+
+// ── TIMEFRAME LOCK — one switch for the whole indicator ─────────────────────────
+// LOCKED (default): every number here — MA values, HUD metrics, the pattern and its TBA — is
+// computed on lock_tf and stays put whatever chart timeframe you are on. Drop from the daily
+// to a 5m and the lines do not move, the TBA does not move, the HUD still reads the daily.
+// UNLOCKED: everything follows the chart, so a 5m chart shows 5m MAs and a 5m pattern.
+gTf     = "Timeframe lock"
+lock_on = input.bool(true, "🔒 Lock everything to a fixed timeframe", group = gTf, tooltip = "ON = MA lines, HUD and the pattern/TBA are all read from the timeframe below, no matter what the chart is set to — that is what keeps the daily TBA and the daily MAs identical on a 5m, 15m or 1h chart. OFF = everything follows the chart timeframe (5m chart = 5m MAs, 5m pattern).")
+lock_tf = input.timeframe("D", "  · …to this timeframe", group = gTf, tooltip = "D = the daily read. W gives weekly MAs and a weekly TBA. Ignored while the lock above is off.")
+// One resolution for everything downstream. "" is not used: timeframe.period IS the chart's own.
+tf_use  = lock_on ? lock_tf : timeframe.period
+tf_tag  = lock_on ? "🔒 " + lock_tf : "chart " + timeframe.period
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMa        = "MA lines"
@@ -41,7 +55,6 @@ show_s20   = input.bool(true, "  · SMA 20",  group = gMa, inline = "s1")
 show_s50   = input.bool(true, "  · SMA 50",  group = gMa, inline = "s1")
 show_s100  = input.bool(true, "  · SMA 100", group = gMa, inline = "s2")
 show_s200  = input.bool(true, "  · SMA 200", group = gMa, inline = "s2")
-maTf       = input.timeframe("D", "MA timeframe", group = gMa, tooltip = "Daily by default. Values are read settled ([1] + lookahead_on) so the lines are flat and never repaint on an intraday chart.")
 
 // ── proximity gate — the reason this file exists ────────────────────────────────
 gPx       = "Proximity gate"
@@ -103,7 +116,6 @@ hud_size   = input.string("small", "Text size", options = ["tiny", "small", "nor
 slope_sma  = input.int(20, "Slope · SMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
 slope_ema  = input.int(21, "Slope · EMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
 slope_lb   = input.int(5, "Slope lookback (daily bars)", minval = 2, maxval = 30, group = gHd, tooltip = "The angle is measured over this many daily bars: rise per bar ÷ daily ATR, turned into degrees. ATR-normalising is what makes the number comparable across symbols and price levels — 30° on a $9 stock means the same slope as 30° on a $900 one. 5 bars = this week's angle; 10-20 = the trend's angle.")
-hud_tf     = input.timeframe("D", "HUD timeframe", group = gHd, tooltip = "What the HUD reads. Daily is the point of it — keep D even while you work a 5m chart.")
 hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
 hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
 
@@ -111,7 +123,6 @@ hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal
 gPt        = "Pattern · TBA (from patterns.pine)"
 show_pat   = input.bool(true, "Detect the forming pattern", group = gPt)
 show_tba   = input.bool(true, "Draw the TBA + pattern stop lines", group = gPt)
-p_tf       = input.timeframe("D", "Pattern timeframe", group = gPt, tooltip = "The pattern is found on this timeframe and its levels stay put on any chart TF — a 15m chart still shows the DAILY TBA.")
 p_piv      = input.int(5, "Swing pivot length", minval = 2, group = gPt)
 p_tol      = input.float(3.0, "Ceiling tolerance %", minval = 0.5, step = 0.5, group = gPt) / 100
 p_maxD     = input.float(35.0, "Max base depth %", group = gPt) / 100
@@ -139,17 +150,23 @@ p_maxRisk  = input.float(8.0, "Max stop distance below TBA %", group = gPt) / 10
 c_tba      = input.color(color.aqua, "TBA line", group = gPt, inline = "pc")
 c_stp      = input.color(#EF5350, "Stop line", group = gPt, inline = "pc")
 
-// ── values — SETTLED daily MAs ([1]+lookahead_on), non-repainting, flat on any chart TF ──
+// ── MA values — locked to lock_tf (settled, non-repainting) or the chart TF when unlocked ──
 tid    = syminfo.tickerid
-ema8   = request.security(tid, maTf, ta.ema(close, 8)[1],   lookahead = barmerge.lookahead_on)
-ema21  = request.security(tid, maTf, ta.ema(close, 21)[1],  lookahead = barmerge.lookahead_on)
-ema50  = request.security(tid, maTf, ta.ema(close, 50)[1],  lookahead = barmerge.lookahead_on)
-ema100 = request.security(tid, maTf, ta.ema(close, 100)[1], lookahead = barmerge.lookahead_on)
-ema200 = request.security(tid, maTf, ta.ema(close, 200)[1], lookahead = barmerge.lookahead_on)
-sma20  = request.security(tid, maTf, ta.sma(close, 20)[1],  lookahead = barmerge.lookahead_on)
-sma50  = request.security(tid, maTf, ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
-sma100 = request.security(tid, maTf, ta.sma(close, 100)[1], lookahead = barmerge.lookahead_on)
-sma200 = request.security(tid, maTf, ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
+// LOCKED: settled ([1] + lookahead_on) values off lock_tf — flat and non-repainting on any
+// chart TF. UNLOCKED: the plain chart-TF average. Same idiom as patterns.pine's f_ema/f_sma.
+f_ema(simple int len) =>
+    lock_on ? request.security(tid, lock_tf, ta.ema(close, len)[1], lookahead = barmerge.lookahead_on) : ta.ema(close, len)
+f_sma(simple int len) =>
+    lock_on ? request.security(tid, lock_tf, ta.sma(close, len)[1], lookahead = barmerge.lookahead_on) : ta.sma(close, len)
+ema8   = f_ema(8)
+ema21  = f_ema(21)
+ema50  = f_ema(50)
+ema100 = f_ema(100)
+ema200 = f_ema(200)
+sma20  = f_sma(20)
+sma50  = f_sma(50)
+sma100 = f_sma(100)
+sma200 = f_sma(200)
 
 // signed % distance: positive = MA is ABOVE price (resistance overhead), negative = below (support under).
 sdist(float v) => na(v) or close <= 0 ? float(na) : (v - close) / close * 100.0
@@ -160,11 +177,11 @@ prox_ok(float v) =>
 // the fast cluster: exempt unless the user opts them into the gate.
 fast_ok(float v) => not gate_fast or prox_ok(v)
 
-// ── HUD metrics — read on hud_tf's FORMING bar (lookahead_off) so they are live today ──────
+// ── HUD metrics — read on tf_use's FORMING bar (lookahead_off) so they are live today ──────
 // The slope is ATR-normalised: (MA − MA[lookback]) / lookback / ATR, as an angle. A raw price
 // slope is meaningless across symbols ($2 a day is vertical on a $20 stock, nothing on a $900
 // one); dividing by ATR puts every name on the same protractor.
-[h_rsi, h_sma20, h_sma20p, h_ema21, h_ema21p, h_atr, h_vol, h_volPrev, h_volAvg, h_close, h_closePrev] = request.security(tid, hud_tf, [ta.rsi(close, 14), ta.sma(close, slope_sma), ta.sma(close, slope_sma)[slope_lb], ta.ema(close, slope_ema), ta.ema(close, slope_ema)[slope_lb], ta.atr(14), volume, volume[1], ta.sma(volume, 50)[1], close, close[1]], lookahead = barmerge.lookahead_off)
+[h_rsi, h_sma20, h_sma20p, h_ema21, h_ema21p, h_atr, h_vol, h_volPrev, h_volAvg, h_close, h_closePrev] = request.security(tid, tf_use, [ta.rsi(close, 14), ta.sma(close, slope_sma), ta.sma(close, slope_sma)[slope_lb], ta.ema(close, slope_ema), ta.ema(close, slope_ema)[slope_lb], ta.atr(14), volume, volume[1], ta.sma(volume, 50)[1], close, close[1]], lookahead = barmerge.lookahead_off)
 
 f_deg(float now, float then) =>
     na(now) or na(then) or na(h_atr) or h_atr <= 0 ? float(na) : math.todegrees(math.atan((now - then) / slope_lb / h_atr))
@@ -180,8 +197,8 @@ day_chg  = na(h_close) or na(h_closePrev) or h_closePrev <= 0 ? float(na) : (h_c
 atr_pct  = na(h_atr) or na(h_close) or h_close <= 0 ? float(na) : h_atr / h_close * 100.0
 
 // ── PATTERN ENGINE — ported from patterns.pine (same swings, same TBA, same status) ────────
-// Computed on the chart TF, then re-evaluated on p_tf by request.security below, so a 5m chart
-// still reads the DAILY pattern. Trimmed to the part that answers "what is forming, where does
+// Computed on the chart TF, then re-evaluated on tf_use by request.security below, so a 5m chart
+// still reads the DAILY pattern while the lock is on. Trimmed to the part that answers "what is forming, where does
 // it break out, where is the stop" — no inner base, stage or playbook rows here.
 p_avgVol = ta.sma(volume, p_volLen)
 p_rvol   = p_avgVol > 0 ? volume / p_avgVol : na
@@ -346,8 +363,8 @@ if p_active
         p_status := "Forming, " + str.tostring(-p_distPct, "#.0") + "% below TBA"
         p_stCol  := color.aqua
 
-// re-read the whole engine on p_tf — a 5m chart then carries the DAILY pattern and its levels
-[P_act, P_pat, P_tba, P_stop, P_stat, P_col] = request.security(tid, p_tf, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol], lookahead = barmerge.lookahead_off)
+// re-read the whole engine on tf_use — locked, a 5m chart carries the DAILY pattern and its levels
+[P_act, P_pat, P_tba, P_stop, P_stat, P_col] = request.security(tid, tf_use, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol], lookahead = barmerge.lookahead_off)
 
 // ── draw the MA lines (rebuilt on the last bar) ─────────────────────────────────
 var line[]  _ln = array.new_line()
@@ -526,7 +543,7 @@ if show_hud and barstate.islast
     _atrTxt = na(atr_pct) ? "—" : str.tostring(atr_pct, "#.0") + "%  (" + str.tostring(h_atr, format.mintick) + ")"
     _tbaTxt = not show_pat ? "off" : not P_act or na(P_tba) ? "—" : str.tostring(P_tba, format.mintick) + "  (" + (close > P_tba ? "+" : "") + str.tostring((close / P_tba - 1) * 100, "#.0") + "%)"
 
-    f_row(0,  "MA·prox  " + syminfo.ticker, hud_tf + " read", color.white)
+    f_row(0,  "MA·prox  " + syminfo.ticker, tf_tag, color.white)
     f_row(1,  "RSI 14", _rsiTxt, _rsiCol)
     f_row(2,  "SMA " + str.tostring(slope_sma) + " slope", f_degTxt(deg_s20), f_degCol(deg_s20))
     f_row(3,  "EMA " + str.tostring(slope_ema) + " slope", f_degTxt(deg_e21), f_degCol(deg_e21))
