@@ -216,6 +216,7 @@ SCANNER_UNIVERSE: list[str] = [
     "AMZN", "SOXL", "MSFT", "CRWD", "DIA", "AAPL", "QQQ", "AMD", "MSTR", "SNDK",
     "PLTR", "MRNA", "NOW", "USO", "SPY", "NBIS", "MU", "META", "SMH", "NVDA",
     "CRDO", "GOOGL", "DRAM", "ABNB",
+    "TSLA", "ARM", "SPOT", "SPCX",   # added 2026-09-30 (trader)
     # Crypto (internal -USD form → is_crypto + 24/7 crypto data path via Coinbase). Widened
     # 2026-09-30 — 24/7 coverage + a live canary to verify the scanner outside market hours.
     "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "LTC-USD",
