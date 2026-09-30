@@ -29,7 +29,7 @@
 // The HUD's live metrics (RSI, volume, pattern) read the FORMING daily bar, so they update
 // through the session — that is the point of them.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA Proximity · EMA + SMA", "MA·prox", overlay = true, max_labels_count = 100, max_lines_count = 60, max_bars_back = 500)
+indicator("MA-EMA-TBA", overlay = true, max_labels_count = 100, max_lines_count = 60, max_bars_back = 500)
 
 // ── TIMEFRAME LOCK — one switch for the whole indicator ─────────────────────────
 // LOCKED (default): every number here — MA values, HUD metrics, the pattern and its TBA — is
@@ -151,6 +151,8 @@ p_volMlt   = input.float(1.5, "Breakout volume multiple", step = 0.1, group = gP
 p_ext      = input.float(5.0, "Extended above TBA %", group = gPt) / 100
 p_hold     = input.int(5, "Keep the pattern after breakout (bars)", group = gPt)
 p_maxRisk  = input.float(8.0, "Max stop distance below TBA %", group = gPt) / 100
+p_trailOn  = input.bool(true, "After the break, trail the stop up with each day's low", group = gPt, tooltip = "ON: once price breaks the TBA the stop stops being a fixed line. Every new bar it lifts to the prior bar's low and NEVER steps back down — the trade keeps the ground it has taken. OFF: the old behaviour, one lift to the breakout bar's low and then static.")
+p_trailLb  = input.int(1, "  · trail to the lowest low of the last N bars", minval = 1, maxval = 10, group = gPt, tooltip = "1 = the prior day's low, the tightest version — it will shake you out of a breakout that consolidates sideways for two or three days. 2-3 gives the move room to breathe and still ratchets. The trail never drops, whatever you set.")
 c_tba      = input.color(color.aqua, "TBA line", group = gPt, inline = "pc")
 c_stp      = input.color(#EF5350, "Stop line", group = gPt, inline = "pc")
 
@@ -342,7 +344,21 @@ if p_crossUp
     p_brkRef := p_mTba
 p_afterBrk = p_active and not na(p_brkRef) and p_brkRef == p_mTba
 p_capStop  = p_mTba * (1 - p_maxRisk)
-p_stopF    = p_afterBrk ? math.max(p_brkLow, p_mStp) : math.max(p_mStp, p_capStop)
+// ── TRAILING STOP — a stop that does not move is not managing anything. Once the TBA breaks,
+// the stop lifts to the prior bar's low every bar and RATCHETS: math.max against its own last
+// value, so it can only ever climb. Break below it and the status flips to "Failed".
+// p_trailRef is the lowest low of the last N bars ENDING AT THE PRIOR BAR ([1]) — today's own
+// low is deliberately excluded, or an intraday flush would drag the stop down onto itself.
+p_trailRef = ta.lowest(low, p_trailLb)[1]
+var float p_trail = na
+if p_crossUp
+    p_trail := math.max(low, p_mStp)                  // seed at the breakout bar's low
+else if p_afterBrk
+    p_trail := na(p_trailRef) ? p_trail : math.max(nz(p_trail, p_trailRef), p_trailRef)
+else
+    p_trail := na                                     // no breakout in play, no trail
+p_trailed = p_afterBrk and p_trailOn and not na(p_trail)
+p_stopF   = p_trailed ? math.max(p_trail, p_mStp) : p_afterBrk ? math.max(p_brkLow, p_mStp) : math.max(p_mStp, p_capStop)
 
 string p_status = "No pattern"
 color  p_stCol  = color.gray
@@ -368,7 +384,7 @@ if p_active
         p_stCol  := color.aqua
 
 // re-read the whole engine on tf_use — locked, a 5m chart carries the DAILY pattern and its levels
-[P_act, P_pat, P_tba, P_stop, P_stat, P_col] = request.security(tid, tf_use, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol], lookahead = barmerge.lookahead_off)
+[P_act, P_pat, P_tba, P_stop, P_stat, P_col, P_trl] = request.security(tid, tf_use, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol, p_trailed], lookahead = barmerge.lookahead_off)
 
 // ── draw the MA lines (rebuilt on the last bar) ─────────────────────────────────
 var line[]  _ln = array.new_line()
@@ -506,7 +522,7 @@ if barstate.islast
         _tbaLb := label.new(bar_index + 6, P_tba, "TBA " + str.tostring(P_tba, format.mintick) + "  ·  " + P_pat, style = label.style_label_left, color = c_tba, textcolor = f_txtcol(c_tba), size = size.small)
         if not na(P_stop)
             _stpLn := line.new(bar_index - flat_len, P_stop, bar_index + 6, P_stop, color = color.new(c_stp, 20), width = 1, style = line.style_dashed)
-            _stpLb := label.new(bar_index + 6, P_stop, "Pattern stop " + str.tostring(P_stop, format.mintick), style = label.style_label_left, color = color.new(c_stp, 20), textcolor = f_txtcol(c_stp), size = size.small)
+            _stpLb := label.new(bar_index + 6, P_stop, (P_trl ? "Trailing stop ▲ " : "Pattern stop ") + str.tostring(P_stop, format.mintick), style = label.style_label_left, color = color.new(c_stp, 20), textcolor = f_txtcol(c_stp), size = size.small)
 
 // ── HUD — the daily read: angles, volume, pattern, and what price sits between. ────────────
 // Unchecked = the table is never even created, so nothing can sit over the chart on a phone.
