@@ -222,6 +222,32 @@ SCANNER_UNIVERSE: list[str] = [
     "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "LTC-USD",
 ]
 
+# Crypto canary — always scanned regardless of focus, so the 24/7 data path gives us a
+# live heartbeat that the scanner is firing even when the equity market is closed.
+_CRYPTO_CANARY: list[str] = [s for s in SCANNER_UNIVERSE if s.endswith("-USD")]
+
+
+def scan_universe() -> list[str]:
+    """The symbols the scanner polls = the trader's FOCUS stars (user 3, managed in the
+    app — star a name to add it, no code edit) UNION the crypto canary (always on for the
+    24/7 heartbeat). Falls back to the hardcoded SCANNER_UNIVERSE if the focus read yields
+    nothing usable, so the money path is never left with an empty or tiny universe.
+
+    2026-09-30 (trader): "drive this using the focus items so i can easily add more to
+    focus." focus_symbols() is DB-backed with a 5-min cache + a static fallback of its own,
+    so this adds no new hard dependency to the hot poll loop."""
+    try:
+        focus = {s.upper() for s in _focus_symbols()}
+    except Exception:
+        focus = set()
+    syms = focus | {s.upper() for s in _CRYPTO_CANARY}
+    # Safety net: if focus somehow collapsed to just the crypto canary (DB down AND a tiny
+    # static fallback), fall back to the full hardcoded universe rather than scan crypto-only.
+    if len(syms) <= len(_CRYPTO_CANARY):
+        return list(SCANNER_UNIVERSE)
+    return sorted(syms)
+
+
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
 # this session. Cleared on the session rollover alongside the other per-day trackers.
 _entry_type_day: set = set()
@@ -383,13 +409,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         # Gather all unique symbols across Pro users (dedup fetches)
         user_symbols: Dict[int, List[str]] = {}
         all_symbols: set[str] = set()
+        # The universe is FOCUS-driven (2026-09-30): scan_universe() = the trader's focus
+        # stars ∪ the crypto canary, so names are added by starring in the app (no code
+        # edit). ENFORCED for every user (per-user watchlists still bypassed); computed
+        # once per poll so all users evaluate the same controlled set.
+        _scan_syms = scan_universe()
         for user_id in pro_users:
-            # Eval narrowing (2026-09-10): scan the FIXED SCANNER_UNIVERSE for every
-            # user, ignoring per-user watchlists, so the whole platform evaluates the
-            # same controlled 17-symbol set. Revert to the watchlist path when widening.
-            _syms = list(SCANNER_UNIVERSE)
-            user_symbols[user_id] = _syms
-            all_symbols.update(_syms)
+            user_symbols[user_id] = list(_scan_syms)
+            all_symbols.update(_scan_syms)
 
         for uid, syms in user_symbols.items():
             logger.info("User %d watchlist: %s", uid, ", ".join(syms) if syms else "(empty)")
