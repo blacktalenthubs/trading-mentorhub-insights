@@ -444,49 +444,19 @@ async def lifespan(app: FastAPI):
 
         if RULE_ENGINE_ENABLED:
             logger.info("Rule engine ENABLED — rule-based alerts will fire alongside AI scan")
-            # alert_monitor is THE money path. Register the 3-min poll ALONE and FIRST, in its
-            # own minimal try — nothing (the immediate first-run add, the watchdog, a sibling job)
-            # may prevent it. 2026-09-29: they were all in one try/except; the watchdog/initial-run
-            # add threw in prod → caught → the poll was skipped and the scanner was dead all day
-            # while the rest of the scheduler ran. Split into independent steps so that can't recur.
-            try:
-                from app.background.monitor import (
-                    alert_monitor_tick, mark_registered, run_immediate_poll, set_reg_error,
-                )
-                # MINIMAL add_job — the exact pre-2026-09-28 form that worked for months. The extra
-                # kwargs I added then (max_instances/coalesce/misfire_grace_time) are the only change
-                # to this call and the prime suspect for the prod-only registration throw. Dropped.
-                try:
-                    scheduler.add_job(
-                        alert_monitor_tick, "interval", minutes=3, args=[sync_session_factory],
-                        id="alert_monitor", replace_existing=True,
-                    )
-                except Exception as _e_add:
-                    logger.exception("alert_monitor add_job failed — retrying under a fresh id")
-                    set_reg_error(f"add_job: {type(_e_add).__name__}: {_e_add}")
-                    scheduler.add_job(alert_monitor_tick, "interval", minutes=3,
-                                      args=[sync_session_factory], id="alert_monitor2", replace_existing=True)
-                mark_registered()
-                run_immediate_poll(sync_session_factory)   # first poll NOW (thread, not add_job)
-                logger.info("alert_monitor registered (3-min poll) + first poll kicked off")
-            except Exception:
-                import traceback as _tb_reg
-                try:
-                    from app.background.monitor import set_reg_error as _sre
-                    _sre(_tb_reg.format_exc())
-                except Exception:
-                    pass
-                logger.exception("CRITICAL: failed to register alert_monitor — LIVE ALERTS ARE OFF")
-            # (No separate immediate-first-run job: the trigger-less add_job for it was the
-            # 2026-09-29 failure that took down the whole block. The 3-min interval fires within
-            # 3 min of startup — inside the watchdog's 6-min startup grace — so it's not needed.)
-            # Watchdog — SEPARATE try so its arming can never take down the poll.
-            try:
-                from app.background.monitor import start_alert_watchdog
-                start_alert_watchdog()
-                logger.info("alert watchdog armed")
-            except Exception:
-                logger.exception("watchdog arm failed (poll still registered)")
+            # ROLLBACK 2026-09-29 — restored to the EXACT registration that ran for months
+            # (direct poll_all_users; no watchdog/tick wrapper, no extra add_job kwargs). The
+            # 09-28 watchdog refactor and its follow-ups broke this in prod; reverted wholesale.
+            from app.background.monitor import poll_all_users as _poll
+            scheduler.add_job(
+                _poll, "interval", minutes=3, args=[sync_session_factory],
+                id="alert_monitor", replace_existing=True,
+            )
+            # Also run immediately on startup so we don't wait 3 min
+            scheduler.add_job(
+                _poll, args=[sync_session_factory], id="alert_monitor_initial",
+            )
+            logger.info("alert_monitor registered (3-min poll) [rolled back to months-working form]")
         else:
             logger.warning(
                 "Rule engine DISABLED (RULE_ENGINE_ENABLED=false). "
@@ -2222,36 +2192,7 @@ def create_app() -> FastAPI:
     # --- Health check ---
     @app.get("/healthz")
     async def health():
-        # Reflects the alert poll loop's liveness. Returns 503 only when a loop that HAS
-        # been running goes stale (> _WATCHDOG_STALE_SEC) — so Railway's health check
-        # restarts a wedged worker. Stays 200 during normal startup (no cycle yet) and
-        # when the rule engine is intentionally off (finished_at stays 0). The in-process
-        # watchdog is the primary self-heal; this is the belt-and-suspenders path.
-        import time as _t
-        try:
-            from app.background.monitor import poll_heartbeat, _WATCHDOG_STALE_SEC
-            hb = poll_heartbeat()
-            fin = float(hb.get("finished_at", 0.0) or 0.0)
-            started = float(hb.get("started_at", 0.0) or 0.0)
-            age = (_t.time() - fin) if fin > 0 else None
-            stale = age is not None and age > _WATCHDOG_STALE_SEC
-            body = {
-                "status": "degraded" if stale else "ok",
-                "alert_loop": {
-                    "registered": bool(hb.get("registered")),                       # add_job succeeded?
-                    "last_poll_age_sec": round(age, 1) if age is not None else None,  # since a poll FINISHED
-                    "last_start_age_sec": round(_t.time() - started, 1) if started > 0 else None,  # since a poll STARTED
-                    "cycles": int(hb.get("cycles", 0)),
-                    "last_error": hb.get("last_error"),                              # last cycle's crash (if any)
-                    "reg_error": hb.get("reg_error"),                               # registration exception (if any)
-                },
-            }
-            if stale:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(body, status_code=503)
-            return body
-        except Exception:
-            return {"status": "ok"}   # never let health reporting itself break the check
+        return {"status": "ok"}
 
     # --- Router registration ---
     from app.routers import (
