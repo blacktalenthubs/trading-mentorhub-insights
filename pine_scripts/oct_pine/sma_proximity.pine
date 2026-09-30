@@ -505,7 +505,8 @@ if barstate.islast
             _stpLb := label.new(bar_index + 6, P_stop, "Pattern stop " + str.tostring(P_stop, format.mintick), style = label.style_label_left, color = color.new(c_stp, 20), textcolor = f_txtcol(c_stp), size = size.small)
 
 // ── HUD — the daily read: angles, volume, pattern, and what price sits between. ────────────
-var table _hud = table.new(hud_pos, 2, 13, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+// Unchecked = the table is never even created, so nothing can sit over the chart on a phone.
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 13, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
 f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
