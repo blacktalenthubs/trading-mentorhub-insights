@@ -2192,7 +2192,18 @@ def create_app() -> FastAPI:
     # --- Health check ---
     @app.get("/healthz")
     async def health():
-        return {"status": "ok"}
+        # Read-only liveness: cycles climbs each poll; last_poll_age_sec small = scanner firing.
+        import time as _t
+        try:
+            from app.background.monitor import poll_heartbeat
+            hb = poll_heartbeat()
+            started = float(hb.get("started_at", 0.0) or 0.0)
+            return {"status": "ok", "alert_loop": {
+                "cycles": int(hb.get("cycles", 0)),
+                "last_poll_age_sec": round(_t.time() - started, 1) if started > 0 else None,
+            }}
+        except Exception:
+            return {"status": "ok"}
 
     # --- Router registration ---
     from app.routers import (
