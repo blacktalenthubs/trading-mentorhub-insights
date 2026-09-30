@@ -441,6 +441,11 @@ async def lifespan(app: FastAPI):
         import os as _os
         _rule_env = _os.environ.get("RULE_ENGINE_ENABLED", "true").strip().lower()
         RULE_ENGINE_ENABLED = _rule_env not in ("false", "0", "no", "off")
+        try:
+            from app.background import monitor as _mon_hb
+            _mon_hb._HEARTBEAT["rule_engine"] = bool(RULE_ENGINE_ENABLED)
+        except Exception:
+            pass
 
         if RULE_ENGINE_ENABLED:
             logger.info("Rule engine ENABLED — rule-based alerts will fire alongside AI scan")
@@ -2082,6 +2087,12 @@ async def lifespan(app: FastAPI):
         # late registration failure can't kill all scheduled jobs).
         logger.info("Background monitor jobs registered (3-min poll + EOD/premarket/weekly jobs)")
     except Exception:
+        import traceback as _tbo
+        try:
+            from app.background import monitor as _mon_oe
+            _mon_oe._HEARTBEAT["outer_error"] = _tbo.format_exc()[-400:]
+        except Exception:
+            pass
         logger.exception("Failed to register some background jobs (scheduler still running)")
 
     # Start Telegram bot — webhook on Railway, polling for local dev
@@ -2201,6 +2212,8 @@ def create_app() -> FastAPI:
             return {"status": "ok", "alert_loop": {
                 "cycles": int(hb.get("cycles", 0)),
                 "last_poll_age_sec": round(_t.time() - started, 1) if started > 0 else None,
+                "rule_engine": hb.get("rule_engine"),      # was the RULE_ENGINE block entered?
+                "outer_error": hb.get("outer_error"),      # did the scheduler block throw before it?
             }}
         except Exception:
             return {"status": "ok"}
