@@ -11,18 +11,23 @@
 //     and reveal themselves; a far 200 stays hidden until it actually matters.
 //
 // Every MA owns its LOOK — its own color, width and line style (solid / dashed / dotted),
-// set per line in the "Per-MA look" group, so you read which MA it is from the line itself.
-// Prefer the old red/green read? Set Line color = "role" and every line colors by whether
-// price sits above it (support) or below it (resistance).
+// set per line in the "Per-MA look" group. "Line color = role" switches the whole set back to
+// the green-support / red-resistance read.
 //
-// Also draws:
-//   • CONFLUENCE MERGE — MAs within ±0.20% collapse into ONE line naming every member
-//     ("EMA 21 · SMA 50 ·×2"), one step thicker, wearing the look of the member nearest price.
-//   • DISTANCE TABLE — all nine, in range or not, with price and signed % distance.
-//     Nothing is lost by hiding a line: you still see "SMA 200  412.80  -18.4%  hidden".
-// Values are settled daily ([1]+lookahead_on) — non-repainting, flat on any intraday TF.
+// THE HUD — the daily read, in one block:
+//   • RSI 14 (daily) · SMA 20 and EMA 21 SLOPE IN DEGREES (both lengths are inputs) (ATR-normalised, so the angle means
+//     the same thing on a $9 stock and a $900 one — that is how "rising" is measured here).
+//   • Today's volume vs yesterday's, and vs the 50-day average.
+//   • Daily ATR % (how much room the name gives a stop) and today's change.
+//   • The PATTERN forming — bull flag / cup w/ handle / ascending triangle / flat base — with
+//     its TBA (the breakout line), the distance to it, and the pattern stop. Detection is the
+//     engine from patterns.pine, run on the daily and drawn here as the TBA + stop lines.
+//   • Nearest MA above and below price, so the proximity gate never hides what is out there.
+// MA lines are settled daily ([1]+lookahead_on) — non-repainting, flat on any intraday TF.
+// The HUD's live metrics (RSI, volume, pattern) read the FORMING daily bar, so they update
+// through the session — that is the point of them.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("MA Proximity · EMA + SMA", "MA·prox", overlay = true, max_labels_count = 100, max_lines_count = 40)
+indicator("MA Proximity · EMA + SMA", "MA·prox", overlay = true, max_labels_count = 100, max_lines_count = 60, max_bars_back = 500)
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMa        = "MA lines"
@@ -43,12 +48,12 @@ gPx       = "Proximity gate"
 prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", group = gPx, tooltip = "EMA 8/21/50 always draw — they're the working cluster. Everything else (EMA 100/200 + all four SMAs) is subject to the % below. OFF = draw all nine regardless of distance, and watch the chart compress.")
 prox_pct  = input.float(10.0, "  · gated MAs draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "A gated MA draws only when |price - MA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
 gate_fast = input.bool(false, "  · gate the EMA 8/21/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/21/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
-prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only reachable when the fast EMAs are gated too. Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the distance table still tells you where they all are. On = always one reference line, accepting that a far line compresses the scale.")
+prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only reachable when the fast EMAs are gated too. Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the HUD still names the nearest MA above and below. On = always one reference line, accepting that a far line compresses the scale.")
 
 // ── per-MA look — each line its own color, width and style ──────────────────────
-// One row per MA: colour swatch · width · style. "dashed"/"dotted" are the breaking lines —
+// One row per MA: colour swatch · width (w) · style. "dashed"/"dotted" are the breaking lines —
 // a good way to keep the SMAs visually subordinate to the EMAs, or to mark the 200s.
-gLk       = "Per-MA look (color · width · style)"
+gLk    = "Per-MA look (color · width · style)"
 c_e8   = input.color(#FFD54F, "EMA 8", group = gLk, inline = "L1")
 w_e8   = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L1")
 y_e8   = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L1")
@@ -90,13 +95,49 @@ f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.st
 // label text that stays readable on a bright swatch (amber/yellow lines need black text)
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 
-// ── distance table ──────────────────────────────────────────────────────────────
-gTb        = "Distance table"
-show_table = input.bool(true, "Show the distance table (all nine, in range or not)", group = gTb)
-tbl_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gTb)
-tbl_size   = input.string("tiny", "Text size", options = ["tiny", "small", "normal"], group = gTb)
-tbl_pos    = tbl_pos_in == "top_left" ? position.top_left : tbl_pos_in == "bottom_right" ? position.bottom_right : tbl_pos_in == "bottom_left" ? position.bottom_left : tbl_pos_in == "middle_right" ? position.middle_right : position.top_right
-tbl_txt    = tbl_size == "tiny" ? size.tiny : tbl_size == "normal" ? size.normal : size.small
+// ── HUD ─────────────────────────────────────────────────────────────────────────
+gHd        = "HUD"
+show_hud   = input.bool(true, "Show the HUD", group = gHd)
+hud_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gHd)
+hud_size   = input.string("small", "Text size", options = ["tiny", "small", "normal", "large"], group = gHd)
+slope_sma  = input.int(20, "Slope · SMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
+slope_ema  = input.int(21, "Slope · EMA length", minval = 2, maxval = 200, group = gHd, inline = "sl")
+slope_lb   = input.int(5, "Slope lookback (daily bars)", minval = 2, maxval = 30, group = gHd, tooltip = "The angle is measured over this many daily bars: rise per bar ÷ daily ATR, turned into degrees. ATR-normalising is what makes the number comparable across symbols and price levels — 30° on a $9 stock means the same slope as 30° on a $900 one. 5 bars = this week's angle; 10-20 = the trend's angle.")
+hud_tf     = input.timeframe("D", "HUD timeframe", group = gHd, tooltip = "What the HUD reads. Daily is the point of it — keep D even while you work a 5m chart.")
+hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
+hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
+
+// ── pattern engine (ported from patterns.pine — same thresholds, same TBA) ──────
+gPt        = "Pattern · TBA (from patterns.pine)"
+show_pat   = input.bool(true, "Detect the forming pattern", group = gPt)
+show_tba   = input.bool(true, "Draw the TBA + pattern stop lines", group = gPt)
+p_tf       = input.timeframe("D", "Pattern timeframe", group = gPt, tooltip = "The pattern is found on this timeframe and its levels stay put on any chart TF — a 15m chart still shows the DAILY TBA.")
+p_piv      = input.int(5, "Swing pivot length", minval = 2, group = gPt)
+p_tol      = input.float(3.0, "Ceiling tolerance %", minval = 0.5, step = 0.5, group = gPt) / 100
+p_maxD     = input.float(35.0, "Max base depth %", group = gPt) / 100
+p_flatD    = input.float(15.0, "Flat base max depth %", group = gPt) / 100
+p_minB     = input.int(10, "Min base length (bars)", group = gPt)
+p_maxB     = input.int(120, "Max base lookback (bars)", group = gPt)
+p_poleMin  = input.float(12.0, "Flag · min pole gain %", group = gPt) / 100
+p_poleMax  = input.int(15, "Flag · max pole length (bars)", group = gPt)
+p_flagMin  = input.int(3, "Flag · min length (bars)", group = gPt)
+p_flagMax  = input.int(12, "Flag · max length (bars)", group = gPt)
+p_retrMax  = input.float(50.0, "Flag · max retrace of pole %", group = gPt) / 100
+p_cupLen   = input.int(80, "Cup · lookback (bars)", group = gPt)
+p_minCup   = input.int(20, "Cup · min length (bars)", group = gPt)
+p_cupMinD  = input.float(12.0, "Cup · min depth %", group = gPt) / 100
+p_cupMaxD  = input.float(40.0, "Cup · max depth %", group = gPt) / 100
+p_rimTol   = input.float(5.0, "Cup · right rim within % of left", group = gPt) / 100
+p_hMin     = input.int(3, "Cup · min handle (bars)", group = gPt)
+p_hMax     = input.int(15, "Cup · max handle (bars)", group = gPt)
+p_hMaxD    = input.float(12.0, "Cup · max handle depth %", group = gPt) / 100
+p_volLen   = input.int(50, "Avg volume length (bars)", group = gPt)
+p_volMlt   = input.float(1.5, "Breakout volume multiple", step = 0.1, group = gPt)
+p_ext      = input.float(5.0, "Extended above TBA %", group = gPt) / 100
+p_hold     = input.int(5, "Keep the pattern after breakout (bars)", group = gPt)
+p_maxRisk  = input.float(8.0, "Max stop distance below TBA %", group = gPt) / 100
+c_tba      = input.color(color.aqua, "TBA line", group = gPt, inline = "pc")
+c_stp      = input.color(#EF5350, "Stop line", group = gPt, inline = "pc")
 
 // ── values — SETTLED daily MAs ([1]+lookahead_on), non-repainting, flat on any chart TF ──
 tid    = syminfo.tickerid
@@ -119,11 +160,200 @@ prox_ok(float v) =>
 // the fast cluster: exempt unless the user opts them into the gate.
 fast_ok(float v) => not gate_fast or prox_ok(v)
 
-// ── draw (rebuilt on the last bar) ──────────────────────────────────────────────
+// ── HUD metrics — read on hud_tf's FORMING bar (lookahead_off) so they are live today ──────
+// The slope is ATR-normalised: (MA − MA[lookback]) / lookback / ATR, as an angle. A raw price
+// slope is meaningless across symbols ($2 a day is vertical on a $20 stock, nothing on a $900
+// one); dividing by ATR puts every name on the same protractor.
+[h_rsi, h_sma20, h_sma20p, h_ema21, h_ema21p, h_atr, h_vol, h_volPrev, h_volAvg, h_close, h_closePrev] = request.security(tid, hud_tf, [ta.rsi(close, 14), ta.sma(close, slope_sma), ta.sma(close, slope_sma)[slope_lb], ta.ema(close, slope_ema), ta.ema(close, slope_ema)[slope_lb], ta.atr(14), volume, volume[1], ta.sma(volume, 50)[1], close, close[1]], lookahead = barmerge.lookahead_off)
+
+f_deg(float now, float then) =>
+    na(now) or na(then) or na(h_atr) or h_atr <= 0 ? float(na) : math.todegrees(math.atan((now - then) / slope_lb / h_atr))
+deg_s20 = f_deg(h_sma20, h_sma20p)
+deg_e21 = f_deg(h_ema21, h_ema21p)
+// one vocabulary for both angles, so "rising" means the same thing on every row
+f_degTxt(float d) => na(d) ? "—" : str.tostring(d, "#.0") + "°  " + (d >= 30 ? "steep up" : d >= 10 ? "rising" : d > -10 ? "flat" : d > -30 ? "falling" : "steep down")
+f_degCol(float d) => na(d) ? color.gray : d >= 30 ? color.lime : d >= 10 ? #8BC34A : d > -10 ? color.gray : d > -30 ? color.orange : color.red
+
+vol_chg  = na(h_vol) or na(h_volPrev) or h_volPrev <= 0 ? float(na) : (h_vol / h_volPrev - 1) * 100.0
+vol_rel  = na(h_vol) or na(h_volAvg) or h_volAvg <= 0 ? float(na) : h_vol / h_volAvg
+day_chg  = na(h_close) or na(h_closePrev) or h_closePrev <= 0 ? float(na) : (h_close / h_closePrev - 1) * 100.0
+atr_pct  = na(h_atr) or na(h_close) or h_close <= 0 ? float(na) : h_atr / h_close * 100.0
+
+// ── PATTERN ENGINE — ported from patterns.pine (same swings, same TBA, same status) ────────
+// Computed on the chart TF, then re-evaluated on p_tf by request.security below, so a 5m chart
+// still reads the DAILY pattern. Trimmed to the part that answers "what is forming, where does
+// it break out, where is the stop" — no inner base, stage or playbook rows here.
+p_avgVol = ta.sma(volume, p_volLen)
+p_rvol   = p_avgVol > 0 ? volume / p_avgVol : na
+
+var p_shP = array.new_float()
+var p_shI = array.new_int()
+var p_slP = array.new_float()
+var p_slI = array.new_int()
+p_ph = ta.pivothigh(high, p_piv, p_piv)
+p_pl = ta.pivotlow(low, p_piv, p_piv)
+if not na(p_ph)
+    array.push(p_shP, p_ph)
+    array.push(p_shI, bar_index - p_piv)
+    if array.size(p_shP) > 30
+        array.shift(p_shP)
+        array.shift(p_shI)
+if not na(p_pl)
+    array.push(p_slP, p_pl)
+    array.push(p_slI, bar_index - p_piv)
+    if array.size(p_slP) > 30
+        array.shift(p_slP)
+        array.shift(p_slI)
+
+// flat base / ascending triangle — a ceiling touched twice, lows flat or rising underneath
+float p_ceil     = na
+int   p_touch    = 0
+int   p_first    = na
+int   p_lowsFrom = na
+float p_baseLow  = na
+float p_firstL   = na
+float p_prevL    = na
+float p_lastL    = na
+int   p_nLows    = 0
+p_nH = array.size(p_shP)
+if p_nH > 0
+    p_lastH = array.get(p_shP, p_nH - 1)
+    p_ceil := p_lastH
+    for i = p_nH - 1 to 0
+        h  = array.get(p_shP, i)
+        ix = array.get(p_shI, i)
+        if bar_index - ix > p_maxB
+            break
+        if h > p_lastH * (1 + p_tol)
+            p_lowsFrom := ix
+            break
+        if h >= p_lastH * (1 - p_tol)
+            p_touch += 1
+            p_ceil  := math.max(p_ceil, h)
+            p_first := ix
+    if na(p_lowsFrom)
+        p_lowsFrom := p_first
+    p_nL = array.size(p_slP)
+    if p_nL > 0 and not na(p_lowsFrom)
+        for j = 0 to p_nL - 1
+            ix = array.get(p_slI, j)
+            if ix > p_lowsFrom
+                l = array.get(p_slP, j)
+                p_baseLow := na(p_baseLow) ? l : math.min(p_baseLow, l)
+                if na(p_firstL)
+                    p_firstL := l
+                p_prevL := p_lastL
+                p_lastL := l
+                p_nLows += 1
+
+p_baseLen = na(p_lowsFrom) ? 0 : bar_index - p_lowsFrom
+p_depth   = not na(p_baseLow) and p_ceil > 0 ? (p_ceil - p_baseLow) / p_ceil : na
+p_rising  = p_nLows >= 2 and p_lastL > p_prevL and p_lastL > p_firstL
+p_isTri   = p_touch >= 2 and p_rising and p_depth <= p_maxD and p_baseLen >= p_minB
+p_isFlat  = p_touch >= 2 and not p_isTri and p_depth <= p_flatD and p_baseLen >= p_minB
+
+// bull flag — a pole, then a shallow drift
+p_k        = nz(-ta.highestbars(high, p_flagMax + 1))
+p_kLen     = math.max(p_k, 1)
+p_kLen2    = math.max(p_k - 1, 1)
+p_poleTop  = high[p_k]
+p_lowPole  = ta.lowest(low, p_poleMax)
+p_poleBase = p_lowPole[p_k]
+p_flagLow  = ta.lowest(low, p_kLen)
+p_flagHigh = ta.highest(high[1], p_kLen2)
+p_poleGain = p_poleBase > 0 ? p_poleTop / p_poleBase - 1 : 0.0
+p_retr     = p_poleTop > p_poleBase ? (p_poleTop - p_flagLow) / (p_poleTop - p_poleBase) : 1.0
+p_isFlag   = p_k >= p_flagMin and p_k <= p_flagMax and p_poleGain >= p_poleMin and p_retr <= p_retrMax
+
+// cup with handle
+p_lrOff     = nz(-ta.highestbars(high[p_hMax], p_cupLen - p_hMax))
+p_lrLen     = math.max(p_lrOff, 1)
+p_leftAgo   = p_hMax + p_lrOff
+p_leftRim   = high[p_leftAgo]
+p_cupLow    = ta.lowest(low[p_hMax], p_lrLen)
+p_rOff      = nz(-ta.highestbars(high, p_hMax))
+p_rLen      = math.max(p_rOff, 1)
+p_rightRim  = high[p_rOff]
+p_handleLow = ta.lowest(low, p_rLen)
+p_cupDepth  = p_leftRim > 0 ? (p_leftRim - p_cupLow) / p_leftRim : 0.0
+p_hDepth    = p_rightRim > 0 ? (p_rightRim - p_handleLow) / p_rightRim : 1.0
+p_cupMid    = p_cupLow + (p_leftRim - p_cupLow) / 2
+p_isCup     = p_leftAgo - p_rOff >= p_minCup and p_cupDepth >= p_cupMinD and p_cupDepth <= p_cupMaxD and p_rightRim >= p_leftRim * (1 - p_rimTol) and p_rightRim <= p_leftRim * (1 + p_rimTol) and p_rOff >= p_hMin and p_hDepth <= p_hMaxD and p_handleLow > p_cupMid
+
+// pick one — flag first (most immediate), then cup, then triangle, then flat base
+string p_pat = na
+float  p_tba = na
+float  p_stp = na
+if p_isFlag
+    p_pat := "Bull Flag"
+    p_tba := p_flagHigh
+    p_stp := p_flagLow
+else if p_isCup
+    p_pat := "Cup w/ Handle"
+    p_tba := p_rightRim
+    p_stp := p_handleLow
+else if p_isTri
+    p_pat := "Ascending Triangle"
+    p_tba := p_ceil
+    p_stp := p_lastL
+else if p_isFlat
+    p_pat := "Flat Base"
+    p_tba := p_ceil
+    p_stp := p_lastL
+
+// a found pattern is held for p_hold bars so a breakout day does not blank the HUD
+var string p_mPat = na
+var float  p_mTba = na
+var float  p_mStp = na
+var int    p_mBar = na
+if not na(p_pat)
+    p_mPat := p_pat
+    p_mTba := p_tba
+    p_mStp := p_stp
+    p_mBar := bar_index
+p_active = not na(p_mBar) and bar_index - p_mBar <= p_hold
+
+var float p_brkLow = na
+var float p_brkRef = na
+p_crossUp = p_active and close > p_mTba and close[1] <= p_mTba
+if p_crossUp
+    p_brkLow := low
+    p_brkRef := p_mTba
+p_afterBrk = p_active and not na(p_brkRef) and p_brkRef == p_mTba
+p_capStop  = p_mTba * (1 - p_maxRisk)
+p_stopF    = p_afterBrk ? math.max(p_brkLow, p_mStp) : math.max(p_mStp, p_capStop)
+
+string p_status = "No pattern"
+color  p_stCol  = color.gray
+if p_active
+    p_distPct = (close / p_mTba - 1) * 100
+    if close < p_stopF
+        p_status := "Failed (below stop)"
+        p_stCol  := color.red
+    else if close > p_mTba * (1 + p_ext)
+        p_status := "Extended +" + str.tostring(p_distPct, "#.0") + "%"
+        p_stCol  := color.orange
+    else if p_crossUp
+        p_status := p_rvol >= p_volMlt ? "BREAKOUT on volume" : "Breakout, light volume"
+        p_stCol  := p_rvol >= p_volMlt ? color.lime : color.yellow
+    else if p_afterBrk and close > p_mTba
+        p_status := "Holding above TBA"
+        p_stCol  := color.lime
+    else if p_afterBrk
+        p_status := "Back below TBA"
+        p_stCol  := color.orange
+    else
+        p_status := "Forming, " + str.tostring(-p_distPct, "#.0") + "% below TBA"
+        p_stCol  := color.aqua
+
+// re-read the whole engine on p_tf — a 5m chart then carries the DAILY pattern and its levels
+[P_act, P_pat, P_tba, P_stop, P_stat, P_col] = request.security(tid, p_tf, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol], lookahead = barmerge.lookahead_off)
+
+// ── draw the MA lines (rebuilt on the last bar) ─────────────────────────────────
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 // everything that survived its gate is QUEUED first, then merged and drawn in one pass —
-// drawing each level as it's decided is what produces stacks of overlapping labels.
+// drawing each level as it is decided is what produces stacks of overlapping labels.
 // FIVE arrays in lockstep — value · name · color · width · style. Every push site pushes ALL
 // five (queue_ma is the only one), or a short array reads out of bounds during the merge.
 var float[]  _qv = array.new_float()
@@ -239,33 +469,73 @@ if show_lines and barstate.islast
             array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
 
-// ── DISTANCE TABLE — nothing is lost by hiding a line. Every MA is listed with its price and
-//    signed % distance (+ = overhead resistance, − = support below), and whether it made the
-//    cut: "always" (the 8/21/50 cluster), "shown", "hidden" (gated out) or "off" (unticked).
-//    A 200 that's 18% away is still information; it just isn't a line.
-var table _tb = table.new(tbl_pos, 4, 10, border_width = 1)
-if show_table and barstate.islast
-    table.clear(_tb, 0, 0, 3, 9)
-    _hdrBg = color.new(color.gray, 70)
-    table.cell(_tb, 0, 0, "MA",    bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
-    table.cell(_tb, 1, 0, "price", bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
-    table.cell(_tb, 2, 0, "dist",  bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
-    table.cell(_tb, 3, 0, prox_on ? str.tostring(prox_pct, "#.#") + "% gate" : "gate off", bgcolor = _hdrBg, text_color = color.white, text_size = tbl_txt)
-    _tv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
-    _tn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
-    _te = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
-    _tc = array.from(c_e8, c_e21, c_e50, c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
-    for _ti = 0 to array.size(_tv) - 1
-        _tvv   = array.get(_tv, _ti)
-        _td    = sdist(_tvv)                                 // + = above price, − = below
-        _ton   = array.get(_te, _ti)
-        _tfast = _ti <= 2                                    // EMA 8 / 21 / 50
-        _tin   = _ton and not na(_tvv) and (_tfast ? fast_ok(_tvv) : prox_ok(_tvv))
-        _tst   = not _ton ? "off" : na(_tvv) ? "n/a" : not _tin ? "hidden" : _tfast and not gate_fast ? "always" : "shown"
-        _trole = na(_td) ? color.gray : _td < 0 ? sup_col : res_col   // role tint for the distance
-        _tnmc  = by_role ? _trole : array.get(_tc, _ti)               // the name wears the line's own colour
-        _tdim  = _tin ? 0 : 55                               // out-of-range rows sit faded, still readable
-        table.cell(_tb, 0, _ti + 1, array.get(_tn, _ti), text_color = color.new(_tnmc, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 1, _ti + 1, na(_tvv) ? "—" : str.tostring(_tvv, format.mintick), text_color = color.new(_tnmc, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 2, _ti + 1, na(_td) ? "—" : (_td > 0 ? "+" : "") + str.tostring(_td, "#.#") + "%", text_color = color.new(_trole, _tdim), text_size = tbl_txt)
-        table.cell(_tb, 3, _ti + 1, _tst, text_color = color.new(_tin ? _trole : color.gray, _tdim), text_size = tbl_txt)
+// ── TBA + pattern stop lines ────────────────────────────────────────────────────
+// Horizontal, so a fixed lookback is used for x1 (a daily bar_index cannot map onto a 5m chart).
+var line  _tbaLn = na
+var line  _stpLn = na
+var label _tbaLb = na
+var label _stpLb = na
+if barstate.islast
+    line.delete(_tbaLn)
+    line.delete(_stpLn)
+    label.delete(_tbaLb)
+    label.delete(_stpLb)
+    if show_pat and show_tba and P_act and not na(P_tba)
+        _tbaLn := line.new(bar_index - flat_len, P_tba, bar_index + 6, P_tba, color = c_tba, width = 2)
+        _tbaLb := label.new(bar_index + 6, P_tba, "TBA " + str.tostring(P_tba, format.mintick) + "  ·  " + P_pat, style = label.style_label_left, color = c_tba, textcolor = f_txtcol(c_tba), size = size.small)
+        if not na(P_stop)
+            _stpLn := line.new(bar_index - flat_len, P_stop, bar_index + 6, P_stop, color = color.new(c_stp, 20), width = 1, style = line.style_dashed)
+            _stpLb := label.new(bar_index + 6, P_stop, "Pattern stop " + str.tostring(P_stop, format.mintick), style = label.style_label_left, color = color.new(c_stp, 20), textcolor = f_txtcol(c_stp), size = size.small)
+
+// ── HUD — the daily read: angles, volume, pattern, and what price sits between. ────────────
+var table _hud = table.new(hud_pos, 2, 13, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+f_row(int r, string k, string v, color c) =>
+    table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
+    table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
+
+if show_hud and barstate.islast
+    // nearest MA under and over price — the proximity gate can hide a line, but never the fact
+    // that it is there. Two rows replace the old nine-row distance table.
+    _nv = array.from(ema8, ema21, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
+    _nn = array.from("EMA 8", "EMA 21", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+    _ne = array.from(show_e8, show_e21, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+    float  _upV = na
+    float  _dnV = na
+    string _upN = "—"
+    string _dnN = "—"
+    for _ni = 0 to array.size(_nv) - 1
+        _nvv = array.get(_nv, _ni)
+        if array.get(_ne, _ni) and not na(_nvv)
+            if _nvv > close and (na(_upV) or _nvv < _upV)
+                _upV := _nvv
+                _upN := array.get(_nn, _ni)
+            if _nvv < close and (na(_dnV) or _nvv > _dnV)
+                _dnV := _nvv
+                _dnN := array.get(_nn, _ni)
+    _upTxt = na(_upV) ? "—" : _upN + "  " + str.tostring(_upV, format.mintick) + "  (+" + str.tostring(sdist(_upV), "#.#") + "%)"
+    _dnTxt = na(_dnV) ? "—" : _dnN + "  " + str.tostring(_dnV, format.mintick) + "  (" + str.tostring(sdist(_dnV), "#.#") + "%)"
+
+    _rsiTxt = na(h_rsi) ? "—" : str.tostring(h_rsi, "#.0") + "  " + (h_rsi >= 70 ? "overbought" : h_rsi <= 30 ? "oversold" : h_rsi >= 50 ? "bullish" : "bearish")
+    _rsiCol = na(h_rsi) ? color.gray : h_rsi >= 70 ? color.red : h_rsi <= 30 ? color.lime : h_rsi >= 50 ? #8BC34A : color.orange
+    _volTxt = na(vol_chg) ? "—" : (vol_chg >= 0 ? "▲ +" : "▼ ") + str.tostring(vol_chg, "#.0") + "% vs yest"
+    _volCol = na(vol_chg) ? color.gray : vol_chg >= 0 ? color.lime : color.orange
+    _relTxt = na(vol_rel) ? "—" : str.tostring(vol_rel, "#.00") + "x  " + (vol_rel >= 2.0 ? "heavy" : vol_rel >= p_volMlt ? "above avg" : vol_rel >= 0.8 ? "normal" : "drying up")
+    _relCol = na(vol_rel) ? color.gray : vol_rel >= p_volMlt ? color.lime : vol_rel >= 0.8 ? color.white : color.aqua
+    _chgTxt = na(day_chg) ? "—" : (day_chg >= 0 ? "+" : "") + str.tostring(day_chg, "#.00") + "%"
+    _chgCol = na(day_chg) ? color.gray : day_chg >= 0 ? color.lime : color.red
+    _atrTxt = na(atr_pct) ? "—" : str.tostring(atr_pct, "#.0") + "%  (" + str.tostring(h_atr, format.mintick) + ")"
+    _tbaTxt = not show_pat ? "off" : not P_act or na(P_tba) ? "—" : str.tostring(P_tba, format.mintick) + "  (" + (close > P_tba ? "+" : "") + str.tostring((close / P_tba - 1) * 100, "#.0") + "%)"
+
+    f_row(0,  "MA·prox  " + syminfo.ticker, hud_tf + " read", color.white)
+    f_row(1,  "RSI 14", _rsiTxt, _rsiCol)
+    f_row(2,  "SMA " + str.tostring(slope_sma) + " slope", f_degTxt(deg_s20), f_degCol(deg_s20))
+    f_row(3,  "EMA " + str.tostring(slope_ema) + " slope", f_degTxt(deg_e21), f_degCol(deg_e21))
+    f_row(4,  "Volume today", _volTxt, _volCol)
+    f_row(5,  "vs 50-day avg", _relTxt, _relCol)
+    f_row(6,  "Change today", _chgTxt, _chgCol)
+    f_row(7,  "ATR 14", _atrTxt, color.white)
+    f_row(8,  "Pattern", not show_pat ? "off" : P_act ? P_pat : "None", P_act ? color.white : color.gray)
+    f_row(9,  "Status", not show_pat ? "off" : P_stat, P_col)
+    f_row(10, "TBA", _tbaTxt, P_act ? c_tba : color.gray)
+    f_row(11, "Next resistance", _upTxt, res_col)
+    f_row(12, "Next support", _dnTxt, sup_col)
