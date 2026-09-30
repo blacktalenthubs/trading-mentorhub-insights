@@ -61,37 +61,41 @@ gPx       = "Proximity gate"
 prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", group = gPx, tooltip = "EMA 8/20/50 always draw — they're the working cluster. Everything else (EMA 100/200 + all four SMAs) is subject to the % below. OFF = draw all nine regardless of distance, and watch the chart compress.")
 prox_pct  = input.float(10.0, "  · gated MAs draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "A gated MA draws only when |price - MA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
 gate_fast = input.bool(false, "  · gate the EMA 8/20/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/20/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
-prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only reachable when the fast EMAs are gated too. Off by default: an empty chart is the honest answer when price is nowhere near a moving average — and the HUD still names the nearest MA above and below. On = always one reference line, accepting that a far line compresses the scale.")
+prox_near = input.bool(true, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only bites when the fast EMAs are gated too (otherwise the 8/20/50 are always on the chart anyway). On = you always keep one reference line, accepting that a far one compresses the scale. Off = an empty chart when price is nowhere near a moving average, with the HUD still naming the nearest MA above and below.")
 
 // ── per-MA look — each line its own color, width and style ──────────────────────
-// One row per MA: colour swatch · width (w) · style. "dashed"/"dotted" are the breaking lines —
-// a good way to keep the SMAs visually subordinate to the EMAs, or to mark the 200s.
+// One row per MA: colour swatch · width (w) · style. The defaults encode two things at once:
+// COLOUR = THE LENGTH — 8 red · 20 green · 50 blue · 100 orange · 200 black, so the same length
+// is the same colour in both families and an EMA/SMA pair is read as one colour, two lines.
+// STYLE = THE FAMILY — EMA solid, SMA dotted. Width steps up with the length (1 / 1 / 2 / 2 / 3),
+// so the deeper the average, the heavier the line. Note the 200s are black: set for a light
+// chart, and worth recolouring if you run a dark theme.
 gLk    = "Per-MA look (color · width · style)"
-c_e8   = input.color(#FFD54F, "EMA 8", group = gLk, inline = "L1")
+c_e8   = input.color(#EF5350, "EMA 8", group = gLk, inline = "L1")
 w_e8   = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L1")
 y_e8   = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L1")
-c_e20  = input.color(#FFA726, "EMA 20", group = gLk, inline = "L2")
+c_e20  = input.color(#26A69A, "EMA 20", group = gLk, inline = "L2")
 w_e20  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L2")
 y_e20  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L2")
-c_e50  = input.color(#29B6F6, "EMA 50", group = gLk, inline = "L3")
+c_e50  = input.color(#2962FF, "EMA 50", group = gLk, inline = "L3")
 w_e50  = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L3")
 y_e50  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L3")
-c_e100 = input.color(#AB47BC, "EMA 100", group = gLk, inline = "L4")
+c_e100 = input.color(#FF9800, "EMA 100", group = gLk, inline = "L4")
 w_e100 = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L4")
 y_e100 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L4")
-c_e200 = input.color(#EF5350, "EMA 200", group = gLk, inline = "L5")
+c_e200 = input.color(#000000, "EMA 200", group = gLk, inline = "L5")
 w_e200 = input.int(3, "w", minval = 1, maxval = 10, group = gLk, inline = "L5")
 y_e200 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L5")
-c_s20  = input.color(#66BB6A, "SMA 20", group = gLk, inline = "L6")
+c_s20  = input.color(#26A69A, "SMA 20", group = gLk, inline = "L6")
 w_s20  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L6")
-y_s20  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L6")
-c_s50  = input.color(#26A69A, "SMA 50", group = gLk, inline = "L7")
+y_s20  = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L6")
+c_s50  = input.color(#2962FF, "SMA 50", group = gLk, inline = "L7")
 w_s50  = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L7")
-y_s50  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L7")
-c_s100 = input.color(#5C6BC0, "SMA 100", group = gLk, inline = "L8")
+y_s50  = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L7")
+c_s100 = input.color(#FF9800, "SMA 100", group = gLk, inline = "L8")
 w_s100 = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L8")
-y_s100 = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L8")
-c_s200 = input.color(#8D6E63, "SMA 200", group = gLk, inline = "L9")
+y_s100 = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L8")
+c_s200 = input.color(#000000, "SMA 200", group = gLk, inline = "L9")
 w_s200 = input.int(3, "w", minval = 1, maxval = 10, group = gLk, inline = "L9")
 y_s200 = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L9")
 
@@ -101,7 +105,7 @@ color_mode = input.string("per-MA", "Line color", options = ["per-MA", "role (su
 sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
-w_boost    = input.int  (0, "Thickness boost — adds to EVERY line", minval = 0, maxval = 6, group = gSt, tooltip = "Quick global fattener on top of the per-MA widths set above: +2 makes a 1 draw at 3 and a 3 at 5. Leave at 0 and each MA keeps exactly the width you gave it. Capped at 10.")
+w_boost    = input.int  (2, "Thickness boost — adds to EVERY line", minval = 0, maxval = 6, group = gSt, tooltip = "Quick global fattener on top of the per-MA widths set above: +2 (the default) makes a 1 draw at 3 and a 3 at 5. Set it to 0 and each MA keeps exactly the width you gave it above. Capped at 10.")
 merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 20 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
 by_role    = color_mode != "per-MA"
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
