@@ -693,14 +693,13 @@ ENABLED_RULES: set[str] = {
     # Everything else is OFF. See scanner_ma20_support_spec.md.
     # ============================================================================
 
-    # ── Daily structural MAs (2026-09-28, trader simplification) ────────────────────
-    # SIMPLIFIED to cut EMA noise: the fast EMAs (8/21) and the 50/100 EMAs get tapped
-    # constantly and confuse more than they help. Keep the STRUCTURAL levels only —
-    # SMA 20/50/200 (bounce) + the 200 EMA (bounce). Anything above the 8 EMA that matters
-    # is caught by the prior-level system (PDL/PDH reclaim, weekly/monthly) and the multi-TF
-    # SMA support (1h/4h) below. Dropped: ema_bounce/reclaim 8/21/50/100 + ema_reclaim_200.
+    # ── Daily MAs — SMA 20/50/200 + the FULL EMA cluster 8/21/50/100/200 (2026-09-30) ──
+    # Re-added the daily EMA 8/21/50/100 bounces so the ALERTS match the chart's EMA cluster
+    # (sma_proximity.pine draws EMA 8/20/50/100/200). Values come from prior_day.ema8/21/50/100/200.
+    # These fast EMAs fire more often (that was the earlier noise concern) — dedup + cooldown
+    # manage overlap; trade them on the chart with the usual discretion.
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
-    "ema_bounce_200",
+    "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
