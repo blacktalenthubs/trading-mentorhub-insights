@@ -554,21 +554,20 @@ function SignalFeedTab({
   // Everything recorded-but-not-delivered — NOT SENT gate catches (type off / SPY gate / grade /
   // allowlist) AND dedup-collapsed — is hidden by default and revealed by the toggle for review,
   // so the live feed reads as "what actually sent" and isn't a wall of NOT SENT.
-  // CLEAN feed = delivered feed signals (isFeedSignal + no suppressed_reason). REVIEW
-  // (Show collapsed) = EVERYTHING recorded-but-suppressed, ANY type — non-enabled rules,
-  // off-hours, off-index shorts — so nothing records invisibly and the user can review what
-  // fired to learn what to enable later (2026-09-30 trader: "let everything flow but suppress
-  // all non-buy; view suppressed in the feed"). EXCEPTION: exit/lifecycle events (target &
-  // stop hits) are DB-only — never in the feed, delivered or review (trader: "target/stop
-  // hits stay in db only, not in feeds"). Only the clean-feed set (delivered) ever pings.
+  // The feed shows TRADEABLE ENTRY signals only (isFeedSignal — scanner entries, TV, AI,
+  // volume, breakout). CLEAN feed = delivered (no suppressed_reason). REVIEW (Show collapsed)
+  // = suppressed ENTRY CANDIDATES (e.g. a rule-off ema_bounce_21) so the trader can see what
+  // to enable later. Management / notice / lifecycle types are NOT isFeedSignal and never
+  // appear: exits (target/stop hits — DB-only for P&L) and heads-up warnings like
+  // hourly_resistance_approach ("tighten stop / take profits") are noise, not setups
+  // (2026-09-30 trader: "why send these notice when there's no buy signal … not needed").
+  // isExitAlert kept as an explicit belt-and-suspenders guard. Only the clean set ever pings.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => !isExitAlert(a.alert_type)
-      && ((isFeedSignal(a.alert_type) && !a.suppressed_reason) || (showCollapsed && !!a.suppressed_reason)),
+    (a) => !isExitAlert(a.alert_type) && isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason),
   );
-  // Count of everything hidden from the clean feed (not-sent + deduped, any type EXCEPT
-  // exits, which never show) — toggle badge.
+  // Count of suppressed ENTRY candidates hidden from the clean feed (not-sent + deduped) — toggle badge.
   const collapsedCount = (alerts ?? []).filter(
-    (a) => !!a.suppressed_reason && !isExitAlert(a.alert_type),
+    (a) => isFeedSignal(a.alert_type) && !isExitAlert(a.alert_type) && !!a.suppressed_reason,
   ).length;
   // Day vs Swing (2026-07-07). DAY = a day trade — you're OUT by the close (sell it that session
   // at some point). SWING = held multiple days, as long as the thesis holds (swing + long-term
