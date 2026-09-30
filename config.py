@@ -45,10 +45,12 @@ INDEX_ETF = {
     "XLRE", "XLC",
 }
 
-CRYPTO_SYMBOLS = {"BTC", "ETH", "DOGE", "SOL", "ADA", "XRP"}
+CRYPTO_SYMBOLS = {"BTC", "ETH", "DOGE", "SOL", "ADA", "XRP", "AVAX", "LINK", "LTC"}
 
-# yfinance-format crypto tickers for the alert pipeline (24h markets)
-CRYPTO_ALERT_SYMBOLS = {"BTC-USD", "ETH-USD"}
+# -USD-format crypto tickers for the alert pipeline (24h markets → the scanner's live canary).
+# All are Coinbase products (the crypto data path). 2026-09-30: widened past BTC/ETH.
+CRYPTO_ALERT_SYMBOLS = {"BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD",
+                        "AVAX-USD", "LINK-USD", "LTC-USD"}
 
 
 def is_crypto_alert_symbol(symbol: str) -> bool:
