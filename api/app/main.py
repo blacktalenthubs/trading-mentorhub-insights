@@ -409,10 +409,17 @@ async def lifespan(app: FastAPI):
             sync_url = settings.DATABASE_URL.replace("+aiosqlite", "")
             sync_engine = create_engine(sync_url, pool_pre_ping=True)
         else:
-            # Postgres: ensure plain postgresql:// for sync psycopg2
+            # Postgres sync engine for the scheduler/poll. FORCE the psycopg2 driver: bare
+            # postgresql:// now resolves to psycopg (v3) in current SQLAlchemy, which ISN'T
+            # installed (only psycopg2-binary is) → create_engine threw ModuleNotFoundError,
+            # aborting the WHOLE scheduler block (alert_monitor + all report jobs). 2026-09-30.
             sync_url = settings.DATABASE_URL
             for suffix in ("+asyncpg", "+psycopg2", "+psycopg"):
                 sync_url = sync_url.replace(suffix, "")
+            if sync_url.startswith("postgresql://"):
+                sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+            elif sync_url.startswith("postgres://"):
+                sync_url = sync_url.replace("postgres://", "postgresql+psycopg2://", 1)
             sync_engine = create_engine(sync_url, pool_pre_ping=True)
 
         sync_session_factory = sessionmaker(bind=sync_engine)
