@@ -50,31 +50,31 @@ prox_near = input.bool(false, "  · if EVERYTHING is out of range, still draw th
 // a good way to keep the SMAs visually subordinate to the EMAs, or to mark the 200s.
 gLk       = "Per-MA look (color · width · style)"
 c_e8   = input.color(#FFD54F, "EMA 8", group = gLk, inline = "L1")
-w_e8   = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L1")
+w_e8   = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L1")
 y_e8   = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L1")
 c_e21  = input.color(#FFA726, "EMA 21", group = gLk, inline = "L2")
-w_e21  = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L2")
+w_e21  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L2")
 y_e21  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L2")
 c_e50  = input.color(#29B6F6, "EMA 50", group = gLk, inline = "L3")
-w_e50  = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L3")
+w_e50  = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L3")
 y_e50  = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L3")
 c_e100 = input.color(#AB47BC, "EMA 100", group = gLk, inline = "L4")
-w_e100 = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L4")
+w_e100 = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L4")
 y_e100 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L4")
 c_e200 = input.color(#EF5350, "EMA 200", group = gLk, inline = "L5")
-w_e200 = input.int(3, "", minval = 1, maxval = 8, group = gLk, inline = "L5")
+w_e200 = input.int(3, "w", minval = 1, maxval = 10, group = gLk, inline = "L5")
 y_e200 = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L5")
 c_s20  = input.color(#66BB6A, "SMA 20", group = gLk, inline = "L6")
-w_s20  = input.int(1, "", minval = 1, maxval = 8, group = gLk, inline = "L6")
+w_s20  = input.int(1, "w", minval = 1, maxval = 10, group = gLk, inline = "L6")
 y_s20  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L6")
 c_s50  = input.color(#26A69A, "SMA 50", group = gLk, inline = "L7")
-w_s50  = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L7")
+w_s50  = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L7")
 y_s50  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L7")
 c_s100 = input.color(#5C6BC0, "SMA 100", group = gLk, inline = "L8")
-w_s100 = input.int(2, "", minval = 1, maxval = 8, group = gLk, inline = "L8")
+w_s100 = input.int(2, "w", minval = 1, maxval = 10, group = gLk, inline = "L8")
 y_s100 = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L8")
 c_s200 = input.color(#8D6E63, "SMA 200", group = gLk, inline = "L9")
-w_s200 = input.int(3, "", minval = 1, maxval = 8, group = gLk, inline = "L9")
+w_s200 = input.int(3, "w", minval = 1, maxval = 10, group = gLk, inline = "L9")
 y_s200 = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLk, inline = "L9")
 
 // ── style (global) ──────────────────────────────────────────────────────────────
@@ -83,6 +83,7 @@ color_mode = input.string("per-MA", "Line color", options = ["per-MA", "role (su
 sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
+w_boost    = input.int  (0, "Thickness boost — adds to EVERY line", minval = 0, maxval = 6, group = gSt, tooltip = "Quick global fattener on top of the per-MA widths set above: +2 makes a 1 draw at 3 and a 3 at 5. Leave at 0 and each MA keeps exactly the width you gave it. Capped at 10.")
 merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 21 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
 by_role    = color_mode != "per-MA"
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
@@ -135,7 +136,8 @@ queue_ma(float v, string nm, color col, int wid, string sty, bool show) =>
         array.push(_qv, v)
         array.push(_qn, nm)
         array.push(_qc, col)
-        array.push(_qw, wid)
+        int _wB = wid + w_boost
+        array.push(_qw, _wB > 10 ? 10 : _wB < 1 ? 1 : _wB)
         array.push(_qy, f_style(sty))
 
 if show_lines and barstate.islast
@@ -230,7 +232,7 @@ if show_lines and barstate.islast
                     break
             _sup  = close > _near
             _draw = by_role ? (_sup ? sup_col : res_col) : _col
-            _w    = _cnt > 1 and _wid < 8 ? _wid + 1 : _wid             // a merged cluster (a wall) draws one thicker
+            _w    = _cnt > 1 and _wid < 10 ? _wid + 1 : _wid             // a merged cluster (a wall) draws one thicker
             float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
             _txt = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
             array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
