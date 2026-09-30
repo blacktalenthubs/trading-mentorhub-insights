@@ -69,7 +69,13 @@ _spy_inside_day_notified: bool = False
 # force-exits so Railway restarts the container with a fresh scheduler. Blunt but correct —
 # a dark scanner during market hours is worse than a ~30-second restart.
 _HEARTBEAT: dict = {"started_at": 0.0, "finished_at": 0.0, "cycles": 0.0,
-                    "registered": False, "last_error": None}
+                    "registered": False, "last_error": None, "reg_error": None}
+
+
+def set_reg_error(msg) -> None:
+    """main.py stores the alert_monitor registration exception here so /healthz shows WHY it
+    failed (the traceback otherwise only lives in the worker logs)."""
+    _HEARTBEAT["reg_error"] = (str(msg) or "")[:400]
 _WATCHDOG_STALE_SEC = 12 * 60       # ~4 missed 3-min cycles → loop is wedged
 _WATCHDOG_STARTUP_GRACE_SEC = 6 * 60  # allow the first poll to happen before alarming
 
