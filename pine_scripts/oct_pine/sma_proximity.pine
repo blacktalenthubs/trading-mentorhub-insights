@@ -22,6 +22,7 @@
 //   • The PATTERN forming — bull flag / cup w/ handle / ascending triangle / flat base — with
 //     its TBA (the breakout line), the distance to it, and the pattern stop. Detection is the
 //     engine from patterns.pine, run on the daily and drawn here as the TBA + stop lines.
+//     A pattern that closes below its stop is INVALIDATED — flagged once, then dropped.
 //   • Nearest MA above and below price, so the proximity gate never hides what is out there.
 // ONE TIMEFRAME LOCK governs all of it: locked (default D), every value — MA lines, HUD,
 // pattern and TBA — is computed on that timeframe and does NOT move when you change the chart
@@ -329,7 +330,17 @@ var string p_mPat = na
 var float  p_mTba = na
 var float  p_mStp = na
 var int    p_mBar = na
-if not na(p_pat)
+// A structure that already failed is remembered by its ceiling so the detector cannot simply
+// re-find it on the next bar and show it again — which is exactly what made a dead base linger.
+// It is un-blocked when price closes back above the STOP it broke (not the ceiling: demanding a
+// close above the ceiling would hide a perfectly good base rebuilt underneath it).
+var float p_deadTba  = na
+var float p_deadStop = na
+if not na(p_deadStop) and close > p_deadStop
+    p_deadTba  := na
+    p_deadStop := na
+p_fresh = na(p_deadTba) or na(p_tba) or math.abs(p_tba - p_deadTba) > p_deadTba * 0.002
+if not na(p_pat) and p_fresh
     p_mPat := p_pat
     p_mTba := p_tba
     p_mStp := p_stp
@@ -382,6 +393,22 @@ if p_active
     else
         p_status := "Forming, " + str.tostring(-p_distPct, "#.0") + "% below TBA"
         p_stCol  := color.aqua
+
+// ── INVALIDATION — a close below the stop ends the pattern. It says "Failed (below stop)" on
+// the bar it breaks (that is the exit), and from the next bar there is no pattern at all: no
+// name in the HUD, no TBA line, no stop line. Its ceiling goes into p_deadTba so the detector
+// cannot re-adopt the same dead structure. Without this a base stayed on screen for weeks
+// after price had fallen through it — 14% below a TBA it will not see again this month.
+if p_active and not na(p_stopF) and close < p_stopF
+    p_deadTba  := p_mTba
+    p_deadStop := p_stopF
+    p_mPat    := na
+    p_mTba    := na
+    p_mStp    := na
+    p_mBar    := na
+    p_brkRef  := na
+    p_brkLow  := na
+    p_trail   := na
 
 // re-read the whole engine on tf_use — locked, a 5m chart carries the DAILY pattern and its levels
 [P_act, P_pat, P_tba, P_stop, P_stat, P_col, P_trl] = request.security(tid, tf_use, [p_active, p_mPat, p_mTba, p_stopF, p_status, p_stCol, p_trailed], lookahead = barmerge.lookahead_off)
