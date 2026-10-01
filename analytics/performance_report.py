@@ -116,9 +116,11 @@ def fetch_daily(symbol, start, end):
 def score(entry, stop, target, direction, bars, mode="day"):
     """bars: iterable of (high, low, close) in time order. Returns outcome dict.
 
-    DAY trades are judged purely on INTRADAY MOVEMENT — the alert targets are unreliable for
-    day trades (often 10-40 R:R), so we ignore them: a day trade is a WIN if the intraday high
-    cleared entry (you take the intraday pop), LOSS if it never went green.
+    DAY trades are judged on the POST-SIGNAL HIGH vs entry — the alert targets are unreliable
+    (often 10-40 R:R) so we ignore them: a day trade is a WIN if the post-signal high cleared a
+    realistic +1R target (the signal led the move; you never bought higher) OR it closed green;
+    LOSS only if it never reached +1R and closed red. We do NOT fail it on an intraday stop
+    wick (yfinance 5m prints spurious lows).
 
     SWING/LONG trades are judged at the LATEST price: WIN if the stop was never hit AND price
     is above entry; LOSS if the stop was hit; still-OPEN if the stop held but it's not yet
@@ -156,19 +158,19 @@ def score(entry, stop, target, direction, bars, mode="day"):
 
     is_open = False
     if mode == "day":
-        # TRUE state — don't assume the user sold the high. A day trade with a stop is a WIN
-        # only if it reached a REALISTIC profit (+1R off the stop) BEFORE the stop was hit;
-        # if the stop came first, they were stopped out = LOSS. Sequence-aware (walk the bars).
-        # Alert targets are ignored (unreliable, 10-40 R:R). No real stop -> judged by close.
+        # Day-trade success is judged on the POST-SIGNAL HIGH vs entry. The window already
+        # starts at the alert's fire time, so every bar here is AFTER the signal — if the high
+        # cleared a realistic +1R target, the signal led the move and you never had to buy
+        # higher than entry = WIN. We do NOT fail it on an intraday wick toward the stop:
+        # yfinance 5m bars print spurious lows (e.g. WDC 2026-09-30: a phantom dip below the
+        # stop flipped a clean +2.7% winner to a loss), and the old stop-first sequence trusted
+        # those wicks. A trade that never reached +1R is a WIN only if it still closed green,
+        # else LOSS. (Trader 2026-10-01: "entry vs high of day — if the signal was sent before
+        # the high, we never bought higher.") Alert targets ignored (unreliable, 10-40 R:R).
         if valid_stop:
             r1 = 2 * entry - stop                          # entry + risk (1:1) = a realistic day target
-            first = "neither"
-            for h, l, c in bars:
-                if (l <= stop) if long else (h >= stop):
-                    first = "stop"; break
-                if (h >= r1) if long else (l <= r1):
-                    first = "target"; break
-            result = "WIN" if first == "target" else ("LOSS" if first == "stop" else ("WIN" if closed_green else "LOSS"))
+            reached_target = (intraday_high >= r1) if long else (intraday_low <= r1)
+            result = "WIN" if (reached_target or closed_green) else "LOSS"
         else:
             result = "WIN" if above_entry else "LOSS"
     elif stop_hit:
