@@ -108,7 +108,8 @@ sup_col    = input.color(#26A69A, "role · support (price above)",    group = gS
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int  (60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
 w_boost    = input.int  (2, "Thickness boost — adds to EVERY line", minval = 0, maxval = 6, group = gSt, tooltip = "Quick global fattener on top of the per-MA widths set above: +2 (the default) makes a 1 draw at 3 and a 3 at 5. Set it to 0 and each MA keeps exactly the width you gave it above. Capped at 10.")
-merge_pct  = input.float(0.20, "Merge MAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'EMA 20 · SMA 50 ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every MA separately.") / 100.0
+merge_pct  = input.float(0.25, "Merge MAs/levels within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "MAs AND levels (PDH/PDL, PWH/PWL, premarket, …) stacked within this % of each other collapse into a SINGLE line whose label names every member (e.g. 'SMA 50 · PDL ·×2'). Identity kept, stacked labels gone. The merged line sits on the member NEAREST price — a real level, never a fabricated average — takes that member's colour and style, and draws one step thicker. 0 = draw every one separately.") / 100.0
+lbl_gap    = input.float(0.08, "De-overlap labels within (%)", minval = 0.0, maxval = 1, step = 0.02, group = gSt, tooltip = "Two levels too close to MERGE but close enough that their right-edge tags would sit on top of each other (hiding one behind the other) get nudged apart vertically — the LINE stays on its true price, only the text box shifts. This is a label-height proxy in price terms; raise it if tags still overlap when zoomed out, lower it (or 0) if they float too far from their lines.") / 100.0
 by_role    = color_mode != "per-MA"
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 // label text that stays readable on a bright swatch (amber/yellow lines need black text)
@@ -617,6 +618,10 @@ if (show_lines or show_levels) and barstate.islast
     _n = array.size(_qv)
     if _n > 0
         _ord = array.sort_indices(_qv, order.ascending)
+        // de-overlap: clusters draw bottom→top, so each tag is pushed to at least _gap above the
+        // previous tag's text position. Lines keep their true price; only the label box shifts.
+        float _gap     = close * lbl_gap
+        float _lastLbl = na
         _i = 0
         while _i < _n
             _s     = array.get(_ord, _i)
@@ -650,8 +655,12 @@ if (show_lines or show_levels) and barstate.islast
             _w    = _cnt > 1 and _wid < 10 ? _wid + 1 : _wid             // a merged cluster (a wall) draws one thicker
             float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
             _txt = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
+            float _lblY = _near
+            if lbl_gap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
+                _lblY := _lastLbl + _gap           // nudge up so this tag clears the one below it
+            _lastLbl := _lblY
             array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
-            array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
+            array.push(_lb, label.new(bar_index + 6, _lblY, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
 
 // ── TBA + pattern stop lines ────────────────────────────────────────────────────
