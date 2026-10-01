@@ -63,6 +63,7 @@ prox_on   = input.bool(true, "Gate the deeper MAs by % distance from price", gro
 prox_pct  = input.float(10.0, "  · gated MAs draw only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx, tooltip = "A gated MA draws only when |price - MA| / price is at or under this %. 10 = anything further than 10% away stays off the chart. Lower it (4-6%) for a tight day-trading read, raise it (15-20%) when you want to see what price is falling toward.")
 gate_fast = input.bool(false, "  · gate the EMA 8/20/50 too (they're exempt by default)", group = gPx, tooltip = "Off: the 8/20/50 EMA always draw, however far price has run from them — they're the reference the day is read against. On: they obey the same % as everything else.")
 prox_near = input.bool(true, "  · if EVERYTHING is out of range, still draw the nearest one", group = gPx, tooltip = "Only bites when the fast EMAs are gated too (otherwise the 8/20/50 are always on the chart anyway). On = you always keep one reference line, accepting that a far one compresses the scale. Off = an empty chart when price is nowhere near a moving average, with the HUD still naming the nearest MA above and below.")
+gate_mode = input.string("nearest above + below", "Deeper-MA gate mode", options = ["nearest above + below", "within % of price"], group = gPx, tooltip = "The fast cluster (EMA 8/20/50) always draws. This controls the DEEPER MAs (EMA 100/200 + all four SMAs). 'nearest above + below' = show ONLY the single closest one above price and the single closest below — one support + one resistance, always relative to where price is, matching the D/W/M levels. 'within % of price' = the older gate: any deeper MA closer than the % above.")
 
 // ── per-MA look — each line its own color, width and style ──────────────────────
 // One row per MA: colour swatch · width (w) · style. The defaults encode two things at once:
@@ -112,6 +113,19 @@ by_role    = color_mode != "per-MA"
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 // label text that stays readable on a bright swatch (amber/yellow lines need black text)
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+
+// ── LEVELS — prior day / week / month high + low ────────────────────────────────
+// Yesterday's range (PDH/PDL) is today's immediate battleground, so it ALWAYS draws. The
+// bigger-timeframe levels (PWH/PWL weekly, PMH/PML monthly) are magnets further out — showing
+// all four clutters the chart, so they're gated to just the NEAREST one ABOVE price and the
+// NEAREST one BELOW price (the next HTF level you'd actually trade toward on each side). Prior
+// highs/lows are settled ([1] + lookahead_on) so they never repaint. Dashed + left-labelled to
+// keep them visually distinct from the MA ribbon (which labels on the right).
+gLv          = "Levels · prior D / W / M"
+show_levels  = input.bool(true, "Show prior-period levels", group = gLv, tooltip = "PDH/PDL (yesterday's high & low) ALWAYS draw. The weekly (PWH/PWL) and monthly (PMH/PML) levels are gated to the single nearest one above price and the single nearest one below — the next higher-timeframe magnet on each side, instead of all six at once.")
+c_pd         = input.color(#787B86, "PDH / PDL", group = gLv, inline = "lv")
+c_pw         = input.color(#AB47BC, "PWH / PWL", group = gLv, inline = "lv")
+c_pm         = input.color(#FF7043, "PMH / PML", group = gLv, inline = "lv")
 
 // ── HUD ─────────────────────────────────────────────────────────────────────────
 gHd        = "HUD"
@@ -174,6 +188,16 @@ sma20  = f_sma(20)
 sma50  = f_sma(50)
 sma100 = f_sma(100)
 sma200 = f_sma(200)
+
+// ── prior D/W/M levels — settled prior-period high/low ([1] + lookahead_on = non-repainting) ──
+f_phi(simple string tf) => request.security(tid, tf, high[1], lookahead = barmerge.lookahead_on)
+f_plo(simple string tf) => request.security(tid, tf, low[1],  lookahead = barmerge.lookahead_on)
+pdh = f_phi("D")
+pdl = f_plo("D")
+pwh = f_phi("W")
+pwl = f_plo("W")
+pmh = f_phi("M")
+pml = f_plo("M")
 
 // signed % distance: positive = MA is ABOVE price (resistance overhead), negative = below (support under).
 sdist(float v) => na(v) or close <= 0 ? float(na) : (v - close) / close * 100.0
@@ -453,13 +477,37 @@ if show_lines and barstate.islast
     queue_ma(ema8,  "EMA 8",  c_e8,  w_e8,  y_e8,  show_e8  and fast_ok(ema8))
     queue_ma(ema20, "EMA 20", c_e20, w_e20, y_e20, show_e20 and fast_ok(ema20))
     queue_ma(ema50, "EMA 50", c_e50, w_e50, y_e50, show_e50 and fast_ok(ema50))
-    // everything deeper — %-gated, appears only as price comes into range
-    queue_ma(ema100, "EMA 100", c_e100, w_e100, y_e100, show_e100 and prox_ok(ema100))
-    queue_ma(ema200, "EMA 200", c_e200, w_e200, y_e200, show_e200 and prox_ok(ema200))
-    queue_ma(sma20,  "SMA 20",  c_s20,  w_s20,  y_s20,  show_s20  and prox_ok(sma20))
-    queue_ma(sma50,  "SMA 50",  c_s50,  w_s50,  y_s50,  show_s50  and prox_ok(sma50))
-    queue_ma(sma100, "SMA 100", c_s100, w_s100, y_s100, show_s100 and prox_ok(sma100))
-    queue_ma(sma200, "SMA 200", c_s200, w_s200, y_s200, show_s200 and prox_ok(sma200))
+    // everything deeper (EMA 100/200 + all four SMAs) — gated either by % distance (old mode)
+    // or, by default, to the single NEAREST one above price + the single nearest below, so the
+    // chart always carries one deeper support and one deeper resistance relative to price.
+    _dv = array.from(ema100, ema200, sma20, sma50, sma100, sma200)
+    _dn = array.from("EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
+    _de = array.from(show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
+    _dc = array.from(c_e100, c_e200, c_s20, c_s50, c_s100, c_s200)
+    _dw = array.from(w_e100, w_e200, w_s20, w_s50, w_s100, w_s200)
+    _dy = array.from(y_e100, y_e200, y_s20, y_s50, y_s100, y_s200)
+    if gate_mode == "within % of price"
+        for _di = 0 to array.size(_dv) - 1
+            _dvv = array.get(_dv, _di)
+            queue_ma(_dvv, array.get(_dn, _di), array.get(_dc, _di), array.get(_dw, _di), array.get(_dy, _di), array.get(_de, _di) and prox_ok(_dvv))
+    else
+        int   _upI  = -1
+        float _upVd = na
+        int   _dnI  = -1
+        float _dnVd = na
+        for _di = 0 to array.size(_dv) - 1
+            _dvv = array.get(_dv, _di)
+            if array.get(_de, _di) and not na(_dvv)
+                if _dvv > close and (na(_upVd) or _dvv < _upVd)
+                    _upVd := _dvv
+                    _upI  := _di
+                if _dvv < close and (na(_dnVd) or _dvv > _dnVd)
+                    _dnVd := _dvv
+                    _dnI  := _di
+        if _upI >= 0
+            queue_ma(array.get(_dv, _upI), array.get(_dn, _upI), array.get(_dc, _upI), array.get(_dw, _upI), array.get(_dy, _upI), true)
+        if _dnI >= 0
+            queue_ma(array.get(_dv, _dnI), array.get(_dn, _dnI), array.get(_dc, _dnI), array.get(_dw, _dnI), array.get(_dy, _dnI), true)
 
     // fallback — every MA was gated out (only possible with gate_fast on) and the user asked
     // for one reference line anyway: draw the single NEAREST enabled MA, in its own look.
@@ -532,6 +580,55 @@ if show_lines and barstate.islast
             array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
             array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
+
+// ── prior D/W/M LEVELS — PDH/PDL always; W/M gated to the nearest above + below price ───────
+// Left-labelled + dashed so they read apart from the MA ribbon (which labels on the right).
+var line[]  _lvLn = array.new_line()
+var label[] _lvLb = array.new_label()
+f_lvl(float v, string nm, color col) =>
+    if show_levels and not na(v)
+        float  _p = close > 0 ? (v - close) / close * 100.0 : float(na)
+        string _t = nm + "  " + str.tostring(v, format.mintick) + (na(_p) ? "" : "  (" + (_p >= 0 ? "+" : "") + str.tostring(_p, "#.#") + "%)")
+        array.push(_lvLn, line.new(bar_index - flat_len, v, bar_index + 6, v, color = col, width = 1, style = line.style_dashed))
+        array.push(_lvLb, label.new(bar_index - flat_len, v, _t, style = label.style_label_right, color = col, textcolor = f_txtcol(col), size = size.small))
+
+if show_levels and barstate.islast
+    if array.size(_lvLn) > 0
+        for i = 0 to array.size(_lvLn) - 1
+            line.delete(array.get(_lvLn, i))
+        array.clear(_lvLn)
+    if array.size(_lvLb) > 0
+        for i = 0 to array.size(_lvLb) - 1
+            label.delete(array.get(_lvLb, i))
+        array.clear(_lvLb)
+    // always on — yesterday's range
+    f_lvl(pdh, "PDH", c_pd)
+    f_lvl(pdl, "PDL", c_pd)
+    // weekly + monthly → keep only the nearest ABOVE and nearest BELOW price
+    _hv = array.from(pwh, pwl, pmh, pml)
+    _hn = array.from("PWH", "PWL", "PMH", "PML")
+    _hc = array.from(c_pw,  c_pw,  c_pm,  c_pm)
+    float  _upV = na
+    string _upN = ""
+    color  _upC = c_pw
+    float  _dnV = na
+    string _dnN = ""
+    color  _dnC = c_pw
+    for _li = 0 to array.size(_hv) - 1
+        _lv = array.get(_hv, _li)
+        if not na(_lv)
+            if _lv > close and (na(_upV) or _lv < _upV)
+                _upV := _lv
+                _upN := array.get(_hn, _li)
+                _upC := array.get(_hc, _li)
+            if _lv < close and (na(_dnV) or _lv > _dnV)
+                _dnV := _lv
+                _dnN := array.get(_hn, _li)
+                _dnC := array.get(_hc, _li)
+    if not na(_upV)
+        f_lvl(_upV, _upN, _upC)
+    if not na(_dnV)
+        f_lvl(_dnV, _dnN, _dnC)
 
 // ── TBA + pattern stop lines ────────────────────────────────────────────────────
 // Horizontal, so a fixed lookback is used for x1 (a daily bar_index cannot map onto a 5m chart).
