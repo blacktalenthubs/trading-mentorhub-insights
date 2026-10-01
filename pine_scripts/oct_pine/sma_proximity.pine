@@ -132,6 +132,9 @@ y_pw         = input.string("dashed", "", options = ["solid", "dashed", "dotted"
 c_pm         = input.color(#FF7043, "PMH / PML", group = gLv, inline = "lv3")
 w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
 y_pm         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
+c_pre        = input.color(#00BCD4, "Pre-H / Pre-L", group = gLv, inline = "lv4")
+w_pre        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv4")
+y_pre        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv4")
 
 // ── HUD ─────────────────────────────────────────────────────────────────────────
 gHd        = "HUD"
@@ -204,6 +207,21 @@ pwh = f_phi("W")
 pwl = f_plo("W")
 pmh = f_phi("M")
 pml = f_plo("M")
+
+// ── premarket high/low (today) — built on the chart's own bars (needs an intraday chart with
+// extended-hours ON; na on a daily chart or RTH-only data, in which case the lines just hide).
+_preSess = time(timeframe.period, "0400-0930", "America/New_York")
+_inPre   = not na(_preSess)
+_newPre  = _inPre and not nz(_inPre[1], false)
+var float premH = na
+var float premL = na
+if _newPre
+    premH := high
+    premL := low
+else if _inPre
+    premH := math.max(premH, high)
+    premL := math.min(premL, low)
+// premH/premL persist through the RTH session (neither branch runs) until the next premarket resets them
 
 // signed % distance: positive = MA is ABOVE price (resistance overhead), negative = below (support under).
 sdist(float v) => na(v) or close <= 0 ? float(na) : (v - close) / close * 100.0
@@ -464,7 +482,7 @@ queue_ma(float v, string nm, color col, int wid, string sty, bool show) =>
         array.push(_qw, _wB > 10 ? 10 : _wB < 1 ? 1 : _wB)
         array.push(_qy, f_style(sty))
 
-if show_lines and barstate.islast
+if (show_lines or show_levels) and barstate.islast
     if array.size(_ln) > 0
         for i = 0 to array.size(_ln) - 1
             line.delete(array.get(_ln, i))
@@ -480,9 +498,9 @@ if show_lines and barstate.islast
     array.clear(_qy)
 
     // the working cluster — ALWAYS drawn (unless the user gates them on purpose)
-    queue_ma(ema8,  "EMA 8",  c_e8,  w_e8,  y_e8,  show_e8  and fast_ok(ema8))
-    queue_ma(ema20, "EMA 20", c_e20, w_e20, y_e20, show_e20 and fast_ok(ema20))
-    queue_ma(ema50, "EMA 50", c_e50, w_e50, y_e50, show_e50 and fast_ok(ema50))
+    queue_ma(ema8,  "EMA 8",  c_e8,  w_e8,  y_e8,  show_lines and show_e8  and fast_ok(ema8))
+    queue_ma(ema20, "EMA 20", c_e20, w_e20, y_e20, show_lines and show_e20 and fast_ok(ema20))
+    queue_ma(ema50, "EMA 50", c_e50, w_e50, y_e50, show_lines and show_e50 and fast_ok(ema50))
     // everything deeper (EMA 100/200 + all four SMAs) — gated either by % distance (old mode)
     // or, by default, to the single NEAREST one above price + the single nearest below, so the
     // chart always carries one deeper support and one deeper resistance relative to price.
@@ -495,7 +513,7 @@ if show_lines and barstate.islast
     if gate_mode == "within % of price"
         for _di = 0 to array.size(_dv) - 1
             _dvv = array.get(_dv, _di)
-            queue_ma(_dvv, array.get(_dn, _di), array.get(_dc, _di), array.get(_dw, _di), array.get(_dy, _di), array.get(_de, _di) and prox_ok(_dvv))
+            queue_ma(_dvv, array.get(_dn, _di), array.get(_dc, _di), array.get(_dw, _di), array.get(_dy, _di), show_lines and array.get(_de, _di) and prox_ok(_dvv))
     else
         int   _upI  = -1
         float _upVd = na
@@ -511,13 +529,13 @@ if show_lines and barstate.islast
                     _dnVd := _dvv
                     _dnI  := _di
         if _upI >= 0
-            queue_ma(array.get(_dv, _upI), array.get(_dn, _upI), array.get(_dc, _upI), array.get(_dw, _upI), array.get(_dy, _upI), true)
+            queue_ma(array.get(_dv, _upI), array.get(_dn, _upI), array.get(_dc, _upI), array.get(_dw, _upI), array.get(_dy, _upI), show_lines)
         if _dnI >= 0
-            queue_ma(array.get(_dv, _dnI), array.get(_dn, _dnI), array.get(_dc, _dnI), array.get(_dw, _dnI), array.get(_dy, _dnI), true)
+            queue_ma(array.get(_dv, _dnI), array.get(_dn, _dnI), array.get(_dc, _dnI), array.get(_dw, _dnI), array.get(_dy, _dnI), show_lines)
 
     // fallback — every MA was gated out (only possible with gate_fast on) and the user asked
     // for one reference line anyway: draw the single NEAREST enabled MA, in its own look.
-    if prox_near and array.size(_qv) == 0
+    if show_lines and prox_near and array.size(_qv) == 0
         _fv = array.from(ema8, ema20, ema50, ema100, ema200, sma20, sma50, sma100, sma200)
         _fn = array.from("EMA 8", "EMA 20", "EMA 50", "EMA 100", "EMA 200", "SMA 20", "SMA 50", "SMA 100", "SMA 200")
         _fe = array.from(show_e8, show_e20, show_e50, show_e100, show_e200, show_s20, show_s50, show_s100, show_s200)
@@ -542,6 +560,48 @@ if show_lines and barstate.islast
                     _fbw    := array.get(_fw, _fi)
                     _fbsty  := array.get(_fy, _fi)
         queue_ma(_fbest, _fbnm + " (nearest, out of range)", _fbcol, _fbw, _fbsty, not na(_fbest))
+
+    // ── LEVELS into the SAME queue — so the merge pass below collapses a level sitting on an
+    //    MA/EMA (or two levels at one price) into ONE tag that names every member. PDH/PDL and
+    //    premarket H/L always queue; the weekly/monthly pair is gated to the nearest above +
+    //    nearest below price. All share the MAs' merge + right-side draw.
+    if show_levels
+        queue_ma(pdh,   "PDH",   c_pd,  w_pd,  y_pd,  not na(pdh))
+        queue_ma(pdl,   "PDL",   c_pd,  w_pd,  y_pd,  not na(pdl))
+        queue_ma(premH, "Pre-H", c_pre, w_pre, y_pre, not na(premH))
+        queue_ma(premL, "Pre-L", c_pre, w_pre, y_pre, not na(premL))
+        _hv = array.from(pwh, pwl, pmh, pml)
+        _hn = array.from("PWH", "PWL", "PMH", "PML")
+        _hc = array.from(c_pw, c_pw, c_pm, c_pm)
+        _hw = array.from(w_pw, w_pw, w_pm, w_pm)
+        _hy = array.from(y_pw, y_pw, y_pm, y_pm)
+        float  _luV = na
+        string _luN = ""
+        color  _luC = c_pw
+        int    _luW = 1
+        string _luY = "dashed"
+        float  _ldV = na
+        string _ldN = ""
+        color  _ldC = c_pw
+        int    _ldW = 1
+        string _ldY = "dashed"
+        for _li = 0 to array.size(_hv) - 1
+            _lv = array.get(_hv, _li)
+            if not na(_lv)
+                if _lv > close and (na(_luV) or _lv < _luV)
+                    _luV := _lv
+                    _luN := array.get(_hn, _li)
+                    _luC := array.get(_hc, _li)
+                    _luW := array.get(_hw, _li)
+                    _luY := array.get(_hy, _li)
+                if _lv < close and (na(_ldV) or _lv > _ldV)
+                    _ldV := _lv
+                    _ldN := array.get(_hn, _li)
+                    _ldC := array.get(_hc, _li)
+                    _ldW := array.get(_hw, _li)
+                    _ldY := array.get(_hy, _li)
+        queue_ma(_luV, _luN, _luC, _luW, _luY, not na(_luV))
+        queue_ma(_ldV, _ldN, _ldC, _ldW, _ldY, not na(_ldV))
 
     // ── MERGE + DRAW — MAs stacked within merge_pct collapse into ONE line that NAMES every
     //    member. The merged line sits on the member NEAREST price — a real level, never a
@@ -586,66 +646,6 @@ if show_lines and barstate.islast
             array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
             array.push(_lb, label.new(bar_index + 6, _near, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
-
-// ── prior D/W/M LEVELS — PDH/PDL always; W/M gated to the nearest above + below price ───────
-// Labels sit on the RIGHT, same as the MA ribbon, so every tag reads from one edge. Each level
-// group (daily / weekly / monthly) carries its own colour, width and line style.
-var line[]  _lvLn = array.new_line()
-var label[] _lvLb = array.new_label()
-f_lvl(float v, string nm, color col, int wid, string sty) =>
-    if show_levels and not na(v)
-        float  _p = close > 0 ? (v - close) / close * 100.0 : float(na)
-        string _t = nm + "  " + str.tostring(v, format.mintick) + (na(_p) ? "" : "  (" + (_p >= 0 ? "+" : "") + str.tostring(_p, "#.#") + "%)")
-        array.push(_lvLn, line.new(bar_index - flat_len, v, bar_index + 6, v, color = col, width = wid, style = f_style(sty)))
-        array.push(_lvLb, label.new(bar_index + 6, v, _t, style = label.style_label_left, color = col, textcolor = f_txtcol(col), size = size.small))
-
-if show_levels and barstate.islast
-    if array.size(_lvLn) > 0
-        for i = 0 to array.size(_lvLn) - 1
-            line.delete(array.get(_lvLn, i))
-        array.clear(_lvLn)
-    if array.size(_lvLb) > 0
-        for i = 0 to array.size(_lvLb) - 1
-            label.delete(array.get(_lvLb, i))
-        array.clear(_lvLb)
-    // always on — yesterday's range
-    f_lvl(pdh, "PDH", c_pd, w_pd, y_pd)
-    f_lvl(pdl, "PDL", c_pd, w_pd, y_pd)
-    // weekly + monthly → keep only the nearest ABOVE and nearest BELOW price
-    _hv = array.from(pwh, pwl, pmh, pml)
-    _hn = array.from("PWH", "PWL", "PMH", "PML")
-    _hc = array.from(c_pw,  c_pw,  c_pm,  c_pm)
-    _hw = array.from(w_pw,  w_pw,  w_pm,  w_pm)
-    _hy = array.from(y_pw,  y_pw,  y_pm,  y_pm)
-    float  _upV = na
-    string _upN = ""
-    color  _upC = c_pw
-    int    _upW = 1
-    string _upY = "dashed"
-    float  _dnV = na
-    string _dnN = ""
-    color  _dnC = c_pw
-    int    _dnW = 1
-    string _dnY = "dashed"
-    for _li = 0 to array.size(_hv) - 1
-        _lv = array.get(_hv, _li)
-        if not na(_lv)
-            if _lv > close and (na(_upV) or _lv < _upV)
-                _upV := _lv
-                _upN := array.get(_hn, _li)
-                _upC := array.get(_hc, _li)
-                _upW := array.get(_hw, _li)
-                _upY := array.get(_hy, _li)
-            if _lv < close and (na(_dnV) or _lv > _dnV)
-                _dnV := _lv
-                _dnN := array.get(_hn, _li)
-                _dnC := array.get(_hc, _li)
-                _dnW := array.get(_hw, _li)
-                _dnY := array.get(_hy, _li)
-    if not na(_upV)
-        f_lvl(_upV, _upN, _upC, _upW, _upY)
-    if not na(_dnV)
-        f_lvl(_dnV, _dnN, _dnC, _dnW, _dnY)
 
 // ── TBA + pattern stop lines ────────────────────────────────────────────────────
 // Horizontal, so a fixed lookback is used for x1 (a daily bar_index cannot map onto a 5m chart).
