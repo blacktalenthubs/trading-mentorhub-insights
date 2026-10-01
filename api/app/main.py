@@ -246,6 +246,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS real_outcome VARCHAR(20)",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_r REAL",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_r REAL",
+            # Timing of the post-signal excursion (when the high/low landed + minutes to peak).
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_at TIMESTAMP",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_at TIMESTAMP",
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS minutes_to_mfe INTEGER",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS outcome_computed_at TIMESTAMP",
             # Strategy Analysis — real close-to-close forward returns (EOD + EOW).
             # Computed by analytics/forward_returns.py; baseline is the fire price.
