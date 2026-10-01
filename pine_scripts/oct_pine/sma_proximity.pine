@@ -132,12 +132,9 @@ y_pw         = input.string("dashed", "", options = ["solid", "dashed", "dotted"
 c_pm         = input.color(#FF7043, "PMH / PML", group = gLv, inline = "lv3")
 w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
 y_pm         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
-c_pre        = input.color(#00BCD4, "Pre-H / Pre-L (today)", group = gLv, inline = "lv4")
+c_pre        = input.color(#00BCD4, "Pre-H / Pre-L", group = gLv, inline = "lv4")
 w_pre        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv4")
 y_pre        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv4")
-c_prep       = input.color(#4DD0E1, "Pre-H / Pre-L (prior)", group = gLv, inline = "lv5")
-w_prep       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv5")
-y_prep       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv5")
 
 // ── HUD ─────────────────────────────────────────────────────────────────────────
 gHd        = "HUD"
@@ -211,31 +208,27 @@ pwl = f_plo("W")
 pmh = f_phi("M")
 pml = f_plo("M")
 
-// ── premarket high/low — TODAY's and PRIOR day's — pulled from the EXTENDED-HOURS intraday
-// series so they populate on ANY chart timeframe, including a regular-session DAILY chart (which
-// has no premarket bars of its own). The calc tracks the 0400-0930 ET session high/low on a 5m
-// extended series and ROLLS today's range into the "prior" slot when the next premarket begins,
-// so every new day shifts the window forward. lookahead_off = historically honest: Replay /
-// backtest shows the premarket that was known AT each bar, never future data. The whole point —
-// what price did before the open is a map for what it does after it, today and in every backtest.
+// ── premarket high/low — the MOST RECENT premarket (0400-0930 ET), pulled from the
+// EXTENDED-HOURS intraday series so it populates on ANY chart timeframe, including a
+// regular-session DAILY chart (which has no premarket bars of its own). The level ROLLS
+// forward like PDL: each new premarket resets it, so it always reflects the latest one and
+// holds through the session. lookahead_off = historically honest, so Replay / backtest shows
+// the premarket known AT each bar, never future data — what price did before the open, as a
+// map for what it does after.
 _tExt = ticker.modify(syminfo.tickerid, session = session.extended)
 f_preCalc() =>
     _inP  = not na(time("5", "0400-0930", "America/New_York"))
     _newP = _inP and not nz(_inP[1], false)
-    var float _h  = na
-    var float _l  = na
-    var float _hP = na
-    var float _lP = na
+    var float _h = na
+    var float _l = na
     if _newP
-        _hP := _h
-        _lP := _l
-        _h  := high
-        _l  := low
+        _h := high
+        _l := low
     else if _inP
         _h := math.max(nz(_h, high), high)
         _l := math.min(nz(_l, low),  low)
-    [_h, _l, _hP, _lP]
-[premH, premL, premHp, premLp] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
+    [_h, _l]
+[premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
 
 // signed % distance: positive = MA is ABOVE price (resistance overhead), negative = below (support under).
 sdist(float v) => na(v) or close <= 0 ? float(na) : (v - close) / close * 100.0
@@ -582,10 +575,8 @@ if (show_lines or show_levels) and barstate.islast
     if show_levels
         queue_ma(pdh,   "PDH",   c_pd,  w_pd,  y_pd,  not na(pdh))
         queue_ma(pdl,   "PDL",   c_pd,  w_pd,  y_pd,  not na(pdl))
-        queue_ma(premH,  "Pre-H",  c_pre,  w_pre,  y_pre,  not na(premH))
-        queue_ma(premL,  "Pre-L",  c_pre,  w_pre,  y_pre,  not na(premL))
-        queue_ma(premHp, "yPre-H", c_prep, w_prep, y_prep, not na(premHp))
-        queue_ma(premLp, "yPre-L", c_prep, w_prep, y_prep, not na(premLp))
+        queue_ma(premH, "Pre-H", c_pre, w_pre, y_pre, not na(premH))
+        queue_ma(premL, "Pre-L", c_pre, w_pre, y_pre, not na(premL))
         _hv = array.from(pwh, pwl, pmh, pml)
         _hn = array.from("PWH", "PWL", "PMH", "PML")
         _hc = array.from(c_pw, c_pw, c_pm, c_pm)
