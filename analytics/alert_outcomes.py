@@ -57,20 +57,27 @@ def _classify_long(bars, entry: float, stop: float, fired_at: datetime) -> dict:
     fired_naive = fired_at.replace(tzinfo=None) if fired_at.tzinfo else fired_at
     forward = bars[bars.index > fired_naive]
     if len(forward) == 0:
-        return {"real_outcome": "inconclusive", "mfe_r": 0.0, "mae_r": 0.0}
+        return {"real_outcome": "inconclusive", "mfe_r": 0.0, "mae_r": 0.0,
+                "mfe_at": None, "mae_at": None, "minutes_to_mfe": None}
 
     mfe_r = 0.0
     mae_r = 0.0
+    mfe_at = None   # bar timestamp when the max favorable excursion was set
+    mae_at = None   # bar timestamp when the max adverse excursion was set
     outcome: Optional[str] = None
 
-    for _, row in forward.iterrows():
-        # Per-bar high and low both contribute to MFE/MAE.
+    for idx, row in forward.iterrows():
+        # Per-bar high and low both contribute to MFE/MAE. Capture WHEN each
+        # extreme was set so the report can show how long after the signal the
+        # high/low landed (trader: "capture intraday high/low … with a timestamp").
         bar_high_r = (row["High"] - entry) / risk
         bar_low_r = (row["Low"] - entry) / risk
         if bar_high_r > mfe_r:
             mfe_r = bar_high_r
+            mfe_at = idx
         if bar_low_r < mae_r:
             mae_r = bar_low_r
+            mae_at = idx
 
         # First-cross logic: whichever threshold the bar touches first wins.
         # Within the same bar we don't know intra-bar order, so use the rule:
@@ -87,10 +94,31 @@ def _classify_long(bars, entry: float, stop: float, fired_at: datetime) -> dict:
     if outcome is None:
         outcome = "inconclusive"
 
+    # CRITICAL: cast out of numpy — pandas arithmetic yields numpy.float64, which
+    # psycopg2 under numpy 2.x renders as the literal `np.float64(…)` in the UPDATE
+    # (→ "schema np does not exist"), silently killing the whole nightly write. Native
+    # float()/to_pydatetime() keep the SQLAlchemy bulk-update valid.
+    def _dt(v):
+        if v is None:
+            return None
+        return v.to_pydatetime() if hasattr(v, "to_pydatetime") else v
+
+    minutes_to_mfe = None
+    if mfe_at is not None:
+        try:
+            minutes_to_mfe = int(round((_dt(mfe_at) - fired_naive).total_seconds() / 60.0))
+            if minutes_to_mfe < 0:
+                minutes_to_mfe = 0
+        except Exception:
+            minutes_to_mfe = None
+
     return {
         "real_outcome": outcome,
-        "mfe_r": round(mfe_r, 3),
-        "mae_r": round(mae_r, 3),
+        "mfe_r": float(round(mfe_r, 3)),
+        "mae_r": float(round(mae_r, 3)),
+        "mfe_at": _dt(mfe_at),
+        "mae_at": _dt(mae_at),
+        "minutes_to_mfe": minutes_to_mfe,
     }
 
 
@@ -156,6 +184,10 @@ def compute_outcomes_for_session(session_factory, session_date: date,
                 a.real_outcome = result["real_outcome"]
                 a.mfe_r = result["mfe_r"]
                 a.mae_r = result["mae_r"]
+                # Timing of the post-signal high/low (set where the columns exist).
+                for _f in ("mfe_at", "mae_at", "minutes_to_mfe"):
+                    if hasattr(a, _f) and result.get(_f) is not None:
+                        setattr(a, _f, result[_f])
                 a.outcome_computed_at = datetime.utcnow()
                 summary["alerts_updated"] += 1
 

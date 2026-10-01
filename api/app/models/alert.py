@@ -97,6 +97,11 @@ class Alert(Base):
     real_outcome: Mapped[Optional[str]] = mapped_column(String(20))
     mfe_r: Mapped[Optional[float]] = mapped_column(Float)   # max favorable excursion in R
     mae_r: Mapped[Optional[float]] = mapped_column(Float)   # max adverse excursion in R
+    # Timing of the post-signal excursion — when the high/low landed, and how many minutes
+    # after the signal the peak (MFE) came. Powers "did the signal lead the move?" analytics.
+    mfe_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    mae_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    minutes_to_mfe: Mapped[Optional[int]] = mapped_column(Integer)
     outcome_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     # Strategy Analysis — REAL forward % return from the alert price to a later
     # close. Populated by analytics/forward_returns.py. Baseline is `price` (the
