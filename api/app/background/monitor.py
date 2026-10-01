@@ -54,7 +54,7 @@ _HTF_BIAS_ENABLED = _os_htf.environ.get("HTF_BIAS_GATE_ENABLED", "true").strip()
 _NOTICE_ONLY_RULES_ENABLED = _os_htf.environ.get("NOTICE_ONLY_RULES_ENABLED", "true").strip().lower() not in ("false", "0", "no", "off")
 
 # Burst cooldown: prevent rapid BUY notification spam (in-memory, resets on restart)
-_last_buy_notify: Dict[str, "datetime"] = {}  # {symbol: datetime}
+_last_buy_notify: Dict[str, dict] = {}  # {symbol: {"at": datetime, "entry": float|None, "dir": str}}
 _last_buy_session: str = ""
 
 # Track SPY inside day notice (one per session)
@@ -1287,21 +1287,52 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
                                     user_id, symbol, _at_val)
 
-                    # Burst cooldown: suppress rapid entry notification spam
+                    # Burst cooldown: suppress rapid entry notification spam on the same name
+                    # within COOLDOWN_MINUTES — EXCEPT a genuinely BETTER entry (lower for a
+                    # long / higher for a short) is worth re-alerting: the technical level held
+                    # and you can get in cheaper with tighter risk (trader 2026-10-01: "if a
+                    # lower entry presents we shouldn't suppress — the level still held").
+                    # Same-level re-fires are already merged by the confluence step, so require
+                    # the improvement to clear the confluence tolerance; we track the BEST entry
+                    # delivered so a steady drift doesn't cascade (only a NEW better level fires).
                     if _send_notification and _is_entry:
                         _prev = _last_buy_notify.get(symbol)
                         _now = datetime.utcnow()
-                        if _prev and (_now - _prev).total_seconds() < COOLDOWN_MINUTES * 60:
-                            _send_notification = False
-                            _suppressed = "dedup_cooldown"
-                            logger.info(
-                                "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last entry)",
-                                user_id, symbol, _at_val, (_now - _prev).total_seconds(),
-                            )
+                        _dir = (signal.direction or "").upper()
+                        if _prev and (_now - _prev["at"]).total_seconds() < COOLDOWN_MINUTES * 60:
+                            _better_entry = False
+                            _pe, _ce = _prev.get("entry"), signal.entry
+                            if _pe and _ce and _prev.get("dir") == _dir:
+                                _tol = _pe * _CONFLUENCE_PCT
+                                if _dir == "BUY" and _ce < _pe - _tol:
+                                    _better_entry = True
+                                elif _dir == "SHORT" and _ce > _pe + _tol:
+                                    _better_entry = True
+                            if not _better_entry:
+                                _send_notification = False
+                                _suppressed = "dedup_cooldown"
+                                logger.info(
+                                    "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last entry)",
+                                    user_id, symbol, _at_val, (_now - _prev["at"]).total_seconds(),
+                                )
+                            else:
+                                logger.info(
+                                    "BURST COOLDOWN BYPASS: user=%d %s %s — better entry %.4f vs prior %.4f",
+                                    user_id, symbol, _at_val, _ce, _pe,
+                                )
 
-                    # Track entry notification time for burst cooldown
+                    # Track entry notification time + the BEST (most favorable) delivered entry.
                     if _send_notification and _is_entry:
-                        _last_buy_notify[symbol] = datetime.utcnow()
+                        _dir2 = (signal.direction or "").upper()
+                        _ce2 = signal.entry
+                        _prev2 = _last_buy_notify.get(symbol)
+                        if (_prev2 and _prev2.get("dir") == _dir2
+                                and _prev2.get("entry") is not None and _ce2 is not None):
+                            _best = min(_prev2["entry"], _ce2) if _dir2 == "BUY" else (
+                                max(_prev2["entry"], _ce2) if _dir2 == "SHORT" else _ce2)
+                        else:
+                            _best = _ce2
+                        _last_buy_notify[symbol] = {"at": datetime.utcnow(), "entry": _best, "dir": _dir2}
 
                     # Zone clustering: suppress redundant directional signals at same price zone
                     if _send_notification and signal.direction in ("SHORT", "BUY"):
