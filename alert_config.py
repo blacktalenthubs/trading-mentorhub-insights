@@ -698,7 +698,10 @@ ENABLED_RULES: set[str] = {
     # (sma_proximity.pine draws EMA 8/20/50/100/200). Values come from prior_day.ema8/21/50/100/200.
     # These fast EMAs fire more often (that was the earlier noise concern) — dedup + cooldown
     # manage overlap; trade them on the chart with the usual discretion.
-    "ma_bounce_20", "ma_bounce_50", "ma_bounce_200",
+    # 100/150 added 2026-10-01 (trader): they were computed but rule_not_enabled while scoring
+    # well (ma_bounce_150: 100% / +4.29R in the outcome leaderboard). The 100/150/200 SMAs are
+    # the structural long-term levels — a bounce there is higher-conviction, not noise.
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_150", "ma_bounce_200",
     "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
