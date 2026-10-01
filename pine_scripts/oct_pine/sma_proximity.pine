@@ -124,16 +124,25 @@ f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.1
 // colour, width and style; all tags sit on the RIGHT, aligned with the MA ribbon's labels.
 gLv          = "Levels · prior D / W / M"
 show_levels  = input.bool(true, "Show prior-period levels", group = gLv, tooltip = "PDH/PDL (yesterday's high & low) ALWAYS draw. The weekly (PWH/PWL) and monthly (PMH/PML) levels are gated to the single nearest one above price and the single nearest one below — the next higher-timeframe magnet on each side, instead of all six at once.")
-c_pd         = input.color(#787B86, "PDH / PDL", group = gLv, inline = "lv1")
+// Each level has its OWN checkbox (toggle any one on/off); the H+L of a group share colour/width/style.
+show_pdh     = input.bool(true, "PDH", group = gLv, inline = "lv1")
+show_pdl     = input.bool(true, "PDL", group = gLv, inline = "lv1")
+c_pd         = input.color(#787B86, "", group = gLv, inline = "lv1")
 w_pd         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv1")
 y_pd         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv1")
-c_pw         = input.color(#AB47BC, "PWH / PWL", group = gLv, inline = "lv2")
+show_pwh     = input.bool(true, "PWH", group = gLv, inline = "lv2")
+show_pwl     = input.bool(true, "PWL", group = gLv, inline = "lv2")
+c_pw         = input.color(#AB47BC, "", group = gLv, inline = "lv2")
 w_pw         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2")
 y_pw         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
-c_pm         = input.color(#FF7043, "PMH / PML", group = gLv, inline = "lv3")
+show_pmh     = input.bool(true, "PMH", group = gLv, inline = "lv3")
+show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
+c_pm         = input.color(#FF7043, "", group = gLv, inline = "lv3")
 w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
 y_pm         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
-c_pre        = input.color(#00BCD4, "Pre-H / Pre-L", group = gLv, inline = "lv4")
+show_preh    = input.bool(true, "Pre-H", group = gLv, inline = "lv4")
+show_prel    = input.bool(true, "Pre-L", group = gLv, inline = "lv4")
+c_pre        = input.color(#00BCD4, "", group = gLv, inline = "lv4")
 w_pre        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv4")
 y_pre        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv4")
 
@@ -574,15 +583,16 @@ if (show_lines or show_levels) and barstate.islast
     //    premarket H/L always queue; the weekly/monthly pair is gated to the nearest above +
     //    nearest below price. All share the MAs' merge + right-side draw.
     if show_levels
-        queue_ma(pdh,   "PDH",   c_pd,  w_pd,  y_pd,  not na(pdh))
-        queue_ma(pdl,   "PDL",   c_pd,  w_pd,  y_pd,  not na(pdl))
-        queue_ma(premH, "Pre-H", c_pre, w_pre, y_pre, not na(premH))
-        queue_ma(premL, "Pre-L", c_pre, w_pre, y_pre, not na(premL))
+        queue_ma(pdh,   "PDH",   c_pd,  w_pd,  y_pd,  show_pdh  and not na(pdh))
+        queue_ma(pdl,   "PDL",   c_pd,  w_pd,  y_pd,  show_pdl  and not na(pdl))
+        queue_ma(premH, "Pre-H", c_pre, w_pre, y_pre, show_preh and not na(premH))
+        queue_ma(premL, "Pre-L", c_pre, w_pre, y_pre, show_prel and not na(premL))
         _hv = array.from(pwh, pwl, pmh, pml)
         _hn = array.from("PWH", "PWL", "PMH", "PML")
         _hc = array.from(c_pw, c_pw, c_pm, c_pm)
         _hw = array.from(w_pw, w_pw, w_pm, w_pm)
         _hy = array.from(y_pw, y_pw, y_pm, y_pm)
+        _he = array.from(show_pwh, show_pwl, show_pmh, show_pml)   // per-level on/off
         float  _luV = na
         string _luN = ""
         color  _luC = c_pw
@@ -595,7 +605,7 @@ if (show_lines or show_levels) and barstate.islast
         string _ldY = "dashed"
         for _li = 0 to array.size(_hv) - 1
             _lv = array.get(_hv, _li)
-            if not na(_lv)
+            if array.get(_he, _li) and not na(_lv)
                 if _lv > close and (na(_luV) or _lv < _luV)
                     _luV := _lv
                     _luN := array.get(_hn, _li)
