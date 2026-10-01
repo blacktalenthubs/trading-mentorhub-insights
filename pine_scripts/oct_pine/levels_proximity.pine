@@ -33,6 +33,11 @@ show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
 c_pm         = input.color(#FF7043, "", group = gLv, inline = "lv3")
 w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
 y_pm         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
+show_pqh     = input.bool(true, "PQH", group = gLv, inline = "lvq")
+show_pql     = input.bool(true, "PQL", group = gLv, inline = "lvq")
+c_pq         = input.color(#EC407A, "", group = gLv, inline = "lvq")
+w_pq         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvq")
+y_pq         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvq")
 show_preh    = input.bool(true, "Pre-H", group = gLv, inline = "lv4")
 show_prel    = input.bool(true, "Pre-L", group = gLv, inline = "lv4")
 c_pre        = input.color(#00BCD4, "", group = gLv, inline = "lv4")
@@ -69,6 +74,8 @@ pwh = f_phi("W")
 pwl = f_plo("W")
 pmh = f_phi("M")
 pml = f_plo("M")
+pqh = f_phi("3M")
+pql = f_plo("3M")
 
 // ── premarket high/low — the MOST RECENT premarket (0400-0930 ET), from the EXTENDED-HOURS
 // series so it shows on ANY chart TF incl. a regular-session daily; rolls forward like PDL,
@@ -126,12 +133,12 @@ if show_levels and barstate.islast
     queue(premH, "Pre-H", c_pre, w_pre, y_pre, show_preh and not na(premH))
     queue(premL, "Pre-L", c_pre, w_pre, y_pre, show_prel and not na(premL))
     // weekly + monthly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
-    _hv = array.from(pwh, pwl, pmh, pml)
-    _hn = array.from("PWH", "PWL", "PMH", "PML")
-    _hc = array.from(c_pw, c_pw, c_pm, c_pm)
-    _hw = array.from(w_pw, w_pw, w_pm, w_pm)
-    _hy = array.from(y_pw, y_pw, y_pm, y_pm)
-    _he = array.from(show_pwh, show_pwl, show_pmh, show_pml)
+    _hv = array.from(pwh, pwl, pmh, pml, pqh, pql)
+    _hn = array.from("PWH", "PWL", "PMH", "PML", "PQH", "PQL")
+    _hc = array.from(c_pw, c_pw, c_pm, c_pm, c_pq, c_pq)
+    _hw = array.from(w_pw, w_pw, w_pm, w_pm, w_pq, w_pq)
+    _hy = array.from(y_pw, y_pw, y_pm, y_pm, y_pq, y_pq)
+    _he = array.from(show_pwh, show_pwl, show_pmh, show_pml, show_pqh, show_pql)
     float  _luV = na
     string _luN = ""
     color  _luC = c_pw
@@ -214,9 +221,9 @@ f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _av = array.from(pdh, pdl, pwh, pwl, pmh, pml, premH, premL)
-    _an = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "Pre-H", "Pre-L")
-    _ae = array.from(show_pdh, show_pdl, show_pwh, show_pwl, show_pmh, show_pml, show_preh, show_prel)
+    _av = array.from(pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL)
+    _an = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L")
+    _ae = array.from(show_pdh, show_pdl, show_pwh, show_pwl, show_pmh, show_pml, show_pqh, show_pql, show_preh, show_prel)
     float  _uV = na
     string _uN = "—"
     float  _dV = na
