@@ -1,0 +1,76 @@
+//@version=5
+// Weekly 20 / 50 SMA on any timeframe (daily, 4H, 1H, 5m ...). The levels are pulled from the
+// weekly series via request.security, so they match what the weekly chart shows without switching.
+//   Live mode (default): includes the current, still-forming week = the weekly chart's value right now.
+//   Confirmed mode: last CLOSED week only — never changes intraweek (non-repainting).
+indicator("Weekly 20/50 SMA", overlay=true, max_labels_count=10)
+
+g1 = "Weekly SMAs"
+len1    = input.int(20, "Fast weekly SMA", minval=1, group=g1)
+len2    = input.int(50, "Slow weekly SMA", minval=1, group=g1)
+useLive = input.bool(true, "Include current (forming) week", group=g1, tooltip="On = matches the weekly chart right now. Off = last closed week only, fixed until the week closes.")
+
+g2 = "Display"
+col1     = input.color(color.new(#2196F3, 0), "Fast color", group=g2)
+col2     = input.color(color.new(#FF9800, 0), "Slow color", group=g2)
+showLine = input.bool(true, "Plot lines", group=g2)
+showLbl  = input.bool(true, "Right-edge labels", group=g2)
+showHUD  = input.bool(true, "Show table", group=g2)
+hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g2)
+
+// [value, value one week earlier] — the prior-week value gives the slope (rising / falling).
+wSma(len) =>
+    s = ta.sma(close, len)
+    [s, s[1]]
+
+[l1, l1p] = request.security(syminfo.tickerid, "W", wSma(len1), lookahead=barmerge.lookahead_off)
+[l2, l2p] = request.security(syminfo.tickerid, "W", wSma(len2), lookahead=barmerge.lookahead_off)
+// Confirmed: last closed week (shift by one + lookahead_on is the standard non-repainting form).
+[c1, c1p] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[2]], lookahead=barmerge.lookahead_on)
+[c2, c2p] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[2]], lookahead=barmerge.lookahead_on)
+
+w1  = useLive ? l1  : c1
+w1p = useLive ? l1p : c1p
+w2  = useLive ? l2  : c2
+w2p = useLive ? l2p : c2p
+
+plot(showLine ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
+plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
+
+distPct(lvl) => na(lvl) ? na : (close - lvl) / lvl * 100
+slopeTxt(v, vp) => na(v) or na(vp) ? "" : v > vp ? "rising" : v < vp ? "falling" : "flat"
+slopeArrow(v, vp) => na(v) or na(vp) ? "" : v > vp ? " ↑" : v < vp ? " ↓" : " →"
+fmtPct(p) => na(p) ? "—" : (p >= 0 ? "+" : "") + str.tostring(p, "#.##") + "%"
+
+// ── Right-edge labels ──
+var label lb1 = na
+var label lb2 = na
+if barstate.islast and showLbl
+    label.delete(lb1)
+    label.delete(lb2)
+    if not na(w1)
+        lb1 := label.new(bar_index + 3, w1, "W" + str.tostring(len1) + " " + str.tostring(w1, format.mintick) + slopeArrow(w1, w1p) + "  " + fmtPct(distPct(w1)), style=label.style_label_left, color=col1, textcolor=color.white, size=size.small)
+    if not na(w2)
+        lb2 := label.new(bar_index + 3, w2, "W" + str.tostring(len2) + " " + str.tostring(w2, format.mintick) + slopeArrow(w2, w2p) + "  " + fmtPct(distPct(w2)), style=label.style_label_left, color=col2, textcolor=color.white, size=size.small)
+
+// ── Table ──
+posT = hudPos == "Top Right" ? position.top_right : hudPos == "Middle Right" ? position.middle_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.bottom_right
+var table hud = table.new(posT, 5, 3, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+
+hudRow(r, name, v, vp, c) =>
+    d = distPct(v)
+    side = na(v) ? "—" : close >= v ? "above" : "below"
+    table.cell(hud, 0, r, name, text_color=c, text_halign=text.align_left, text_size=size.small)
+    table.cell(hud, 1, r, na(v) ? "—" : str.tostring(v, format.mintick), text_color=color.white, text_size=size.small)
+    table.cell(hud, 2, r, slopeTxt(v, vp), text_color=v > vp ? color.lime : v < vp ? color.red : color.gray, text_size=size.small)
+    table.cell(hud, 3, r, side, text_color=side == "above" ? color.lime : color.red, text_size=size.small)
+    table.cell(hud, 4, r, fmtPct(d), text_color=color.white, text_size=size.small)
+
+if barstate.islast and showHUD
+    table.cell(hud, 0, 0, "Weekly" + (useLive ? "" : " (closed)"), text_color=color.gray, text_halign=text.align_left, text_size=size.small)
+    table.cell(hud, 1, 0, "level", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 2, 0, "slope", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 3, 0, "price", text_color=color.gray, text_size=size.small)
+    table.cell(hud, 4, 0, "dist", text_color=color.gray, text_size=size.small)
+    hudRow(1, "W" + str.tostring(len1) + " SMA", w1, w1p, col1)
+    hudRow(2, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
