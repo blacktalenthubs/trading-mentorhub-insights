@@ -14,7 +14,7 @@
 // All four come from request.security on fixed 60/240 resolutions, so they're correct on ANY
 // chart TF (even a 5m shows the 1h/4h levels); lookahead_off = non-repainting.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Intraday SMA 20/200 · 1h+4h", overlay = true, max_labels_count = 40, max_lines_count = 30, max_bars_back = 800)
+indicator("Intraday SMA 20/200 · 1h+4h", overlay = true, max_labels_count = 60, max_lines_count = 30, max_boxes_count = 30, max_bars_back = 800)
 
 // ── which SMAs (each toggles on its own; its own colour / width / style) ──
 gMa         = "SMA 20 / 200 · 1h + 4h"
@@ -38,6 +38,16 @@ show_open   = input.bool(true, "Today's open", group = gMa, inline = "mo")
 c_open      = input.color(#FFB300, "", group = gMa, inline = "mo")
 w_open      = input.int(1, "w", minval = 1, maxval = 10, group = gMa, inline = "mo")
 y_open      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "mo")
+
+// ── most-recent daily gaps (untraded zone between a day's prior close and its open — magnets price revisits) ──
+gGp          = "Gaps (daily)"
+show_gaps    = input.bool(true, "Show recent daily gaps", group = gGp)
+gap_unfilled = input.bool(true, "Unfilled gaps only", group = gGp, tooltip = "A gap is 'filled' once price trades back through its zone. ON = hide gaps price has already closed, so only the still-open magnets show.")
+gap_n        = input.int(3, "How many most-recent gaps", minval = 1, maxval = 10, group = gGp)
+gap_min      = input.float(0.3, "Ignore gaps smaller than (%)", minval = 0.0, maxval = 10, step = 0.1, group = gGp)
+gap_look     = input.int(40, "Scan window (daily bars back)", minval = 5, maxval = 200, group = gGp)
+c_gap_up     = input.color(color.new(#26A69A, 82), "Gap-up fill",   group = gGp, inline = "gc")
+c_gap_dn     = input.color(color.new(#EF5350, 82), "Gap-down fill", group = gGp, inline = "gc")
 
 // ── proximity gate — the 200s only (the 20s are always on) ──
 gPx       = "Proximity gate (200 SMAs)"
@@ -75,6 +85,25 @@ s200_4h = f_sma("240", 200)
 // Today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
 // is safe here: a day's open is fixed at the bar's start, so it's known, not future data.
 d_open  = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
+
+// ── daily O/H/L/C history (last gap_look sessions) for gap detection — the var arrays persist in the
+// DAILY context, so one security call hands back trailing windows we scan for gaps in the chart context ──
+f_dHist() =>
+    var float[] _O = array.new_float()
+    var float[] _H = array.new_float()
+    var float[] _L = array.new_float()
+    var float[] _C = array.new_float()
+    array.push(_O, open)
+    array.push(_H, high)
+    array.push(_L, low)
+    array.push(_C, close)
+    if array.size(_O) > gap_look
+        array.shift(_O)
+        array.shift(_H)
+        array.shift(_L)
+        array.shift(_C)
+    [_O, _H, _L, _C]
+[dO, dH, dL, dC] = request.security(tid, "D", f_dHist(), lookahead = barmerge.lookahead_off)
 
 // the gate — absolute % distance, so a far 200 hides whichever side it sits on
 prox_ok(float v) =>
@@ -166,6 +195,50 @@ if barstate.islast
             array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty, extend = line_full ? extend.left : extend.none))
             array.push(_lb, label.new(bar_index + 6, _lblY, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
+
+// ── most-recent DAILY gaps drawn as zones — walk back from today, draw the N newest (unfilled) gaps ──
+var box[]   _gbx = array.new_box()
+var label[] _glb = array.new_label()
+if barstate.islast
+    if array.size(_gbx) > 0
+        for i = 0 to array.size(_gbx) - 1
+            box.delete(array.get(_gbx, i))
+        array.clear(_gbx)
+    if array.size(_glb) > 0
+        for i = 0 to array.size(_glb) - 1
+            label.delete(array.get(_glb, i))
+        array.clear(_glb)
+    if show_gaps
+        _sz    = array.size(dC)
+        _drawn = 0
+        _gi    = _sz - 1
+        while _gi >= 1 and _drawn < gap_n
+            _pc = array.get(dC, _gi - 1)   // prior session close
+            _o  = array.get(dO, _gi)       // this session open
+            if not na(_pc) and not na(_o) and _pc > 0 and math.abs((_o - _pc) / _pc * 100.0) >= gap_min
+                _up  = _o > _pc
+                _top = math.max(_o, _pc)
+                _bot = math.min(_o, _pc)
+                // fill = price trades back INTO the zone on/after the day it formed
+                _filled = false
+                if gap_unfilled
+                    _fj = _gi
+                    while _fj <= _sz - 1 and not _filled
+                        _lo = array.get(dL, _fj)
+                        _hi = array.get(dH, _fj)
+                        if _up and not na(_lo) and _lo <= _bot
+                            _filled := true
+                        if (not _up) and not na(_hi) and _hi >= _top
+                            _filled := true
+                        _fj := _fj + 1
+                if not (gap_unfilled and _filled)
+                    _gcol = _up ? c_gap_up : c_gap_dn
+                    _gbrd = color.new(_gcol, 30)
+                    array.push(_gbx, box.new(bar_index - flat_len, _top, bar_index + 6, _bot, border_color = _gbrd, bgcolor = _gcol, extend = line_full ? extend.left : extend.none))
+                    _gtxt = (_up ? "Gap ▲ " : "Gap ▼ ") + str.tostring(_bot, format.mintick) + "–" + str.tostring(_top, format.mintick)
+                    array.push(_glb, label.new(bar_index + 6, _bot, _gtxt, style = label.style_label_left, color = _gbrd, textcolor = f_txtcol(_gbrd), size = size.small))
+                    _drawn := _drawn + 1
+            _gi := _gi - 1
 
 // ── HUD — RSI 14 (chart TF) + nearest SMA above / below price ──
 h_rsi = ta.rsi(close, 14)
