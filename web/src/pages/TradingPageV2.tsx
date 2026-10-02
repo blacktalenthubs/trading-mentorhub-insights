@@ -1407,17 +1407,17 @@ export default function TradingPageV2() {
 
   // Focus filter — visual-only toggle for the sidebar. Persists in localStorage.
   // Default OFF so the full list shows; user explicitly opts in to focus view.
-  const [focusOnly, setFocusOnly] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("watchlist_focus_only") === "1";
+  // Sidebar view: all watchlist · Core (focus tier A) · Watch (focus tier B). Matches the feed +
+  // the per-row pill, so the whole app speaks one language — Core/Watch, not A/B.
+  const [wlView, setWlViewState] = useState<"all" | "core" | "watch">(() => {
+    if (typeof window === "undefined") return "all";
+    return (localStorage.getItem("watchlist_view") as "all" | "core" | "watch") || "all";
   });
   const [masterView, setMasterView] = useState(false);  // admin: show the master watchlist as the list
-  function toggleFocusOnly() {
+  function setWlView(v: "all" | "core" | "watch") {
     setMasterView(false);
-    setFocusOnly((v) => {
-      try { localStorage.setItem("watchlist_focus_only", v ? "0" : "1"); } catch {}
-      return !v;
-    });
+    setWlViewState(v);
+    try { localStorage.setItem("watchlist_view", v); } catch { /* ignore */ }
   }
 
   /* ── Editor's Picks (admin's public watchlist) ── */
@@ -1606,7 +1606,7 @@ export default function TradingPageV2() {
     ?.filter(
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
-    ?.filter((s) => !focusOnly || focusSymbols.has(s.symbol))
+    ?.filter((s) => wlView === "all" || tierBySymbol.get(s.symbol) === (wlView === "core" ? 1 : 2))
     ?.filter((s) => s.source === "watchlist")   // watchlist only — scanner "ideas" live on the Trade Ideas tab
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
@@ -1702,19 +1702,19 @@ export default function TradingPageV2() {
                   <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
                 </button>
                 {isFocused && (() => {
-                  const _tier = tierBySymbol.get(sy) ?? 1;
+                  const _core = (tierBySymbol.get(sy) ?? 1) === 1;
                   return (
                     <button
-                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: _tier === 1 ? 2 : 1 }); }}
-                      title={_tier === 1
-                        ? `${sy} is Tier A (core → Telegram) — tap to move to B (app only)`
-                        : `${sy} is Tier B (watch → app only) — tap to move to A (Telegram)`}
-                      className={`text-[8px] font-bold leading-none px-1 py-0.5 rounded border transition-colors ${
-                        _tier === 1
-                          ? "bg-bullish/15 text-bullish-text border-bullish/30"
-                          : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary"}`}
+                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: _core ? 2 : 1 }); }}
+                      title={_core
+                        ? `${sy} is CORE — pings Telegram. Tap to move to WATCH (app feed only).`
+                        : `${sy} is WATCH — app feed only, no ping. Tap to move to CORE (Telegram).`}
+                      className={`text-[9px] font-bold uppercase tracking-wide leading-none px-1.5 py-0.5 rounded border transition-colors ${
+                        _core
+                          ? "bg-bullish/15 text-bullish-text border-bullish/40 hover:bg-bullish/25"
+                          : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary hover:border-text-faint"}`}
                     >
-                      {_tier === 1 ? "A" : "B"}
+                      {_core ? "Core" : "Watch"}
                     </button>
                   );
                 })()}
@@ -1838,9 +1838,9 @@ export default function TradingPageV2() {
         {watchlistExpanded && (
           <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1 flex-wrap">
             <button
-              onClick={toggleFocusOnly}
+              onClick={() => setWlView("all")}
               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
-                !focusOnly
+                !masterView && wlView === "all"
                   ? "bg-accent/15 text-accent border-accent/40"
                   : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
               }`}
@@ -1849,22 +1849,30 @@ export default function TradingPageV2() {
               All <span className="opacity-70 font-normal">{watchlistItems?.length ?? 0}</span>
             </button>
             <button
-              onClick={toggleFocusOnly}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
-                focusOnly
+              onClick={() => setWlView("core")}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                !masterView && wlView === "core"
+                  ? "bg-bullish/15 text-bullish-text border-bullish/40"
+                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
+              }`}
+              title="Core — the names that ping Telegram (focus tier A)"
+            >
+              Core <span className="opacity-70 font-normal">{[...tierBySymbol.values()].filter((t) => t === 1).length}</span>
+            </button>
+            <button
+              onClick={() => setWlView("watch")}
+              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+                !masterView && wlView === "watch"
                   ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
                   : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
               }`}
-              title="Show today's focus only (visual filter — alerts still fire on every symbol)"
+              title="Watch — app feed only, no ping (focus tier B)"
             >
-              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-              </svg>
-              Focus <span className="opacity-70 font-normal">{focusSymbols.size}</span>
+              Watch <span className="opacity-70 font-normal">{[...tierBySymbol.values()].filter((t) => t === 2).length}</span>
             </button>
             {isAdmin && (
               <button
-                onClick={() => { setMasterView((v) => !v); setFocusOnly(false); }}
+                onClick={() => { setMasterView((v) => !v); setWlViewState("all"); }}
                 className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
                   masterView
                     ? "bg-accent/15 text-accent border-accent/40"
