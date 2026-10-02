@@ -38,6 +38,8 @@ from analytics.intraday_rules import (
     check_ma_bounce_100,
     check_ma_bounce_200,
     check_weekly_sma20_support,
+    check_weekly_sma50_support,
+    check_weekly_sma200_support,
     check_opening_range_breakout,
     check_orb_breakdown,
     check_opening_low_base,
@@ -8092,6 +8094,23 @@ class TestWeeklySma20Support:
     def test_no_fire_without_wsma20(self):
         assert check_weekly_sma20_support("AMAT", self._bars(1020.0, 1034.0), None, True, today_open=1020.0) is None
 
+    def test_fires_weekly_50(self):
+        # Opened above a rising weekly 50 SMA and holding → wsma50_support.
+        sig = check_weekly_sma50_support("SMH", self._bars(1020.0, 1034.0), 1000.0, True, today_open=1020.0)
+        assert sig is not None and sig.alert_type.value == "wsma50_support"
+        assert "Weekly 50 SMA" in sig.message
+
+    def test_fires_weekly_200(self):
+        # Opened above a rising weekly 200 SMA and holding → wsma200_support.
+        sig = check_weekly_sma200_support("SMH", self._bars(1020.0, 1034.0), 1000.0, True, today_open=1020.0)
+        assert sig is not None and sig.alert_type.value == "wsma200_support"
+        assert "Weekly 200 SMA" in sig.message
+
+    def test_weekly_50_opened_below_no_fire(self):
+        assert check_weekly_sma50_support("SMH", self._bars(990.0, 1034.0), 1000.0, True, today_open=990.0) is None
+
     def test_enabled_and_swing(self):
         from alert_config import ENABLED_RULES
         assert "wsma20_support" in ENABLED_RULES
+        assert "wsma50_support" in ENABLED_RULES
+        assert "wsma200_support" in ENABLED_RULES

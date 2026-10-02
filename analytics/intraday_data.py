@@ -988,6 +988,40 @@ def _compute_daily_trend(hist: pd.DataFrame, market_open: bool) -> dict:
     return result
 
 
+def _weekly_sma_family(symbol: str) -> dict:
+    """Weekly 20/50/200 SMA + a 'rising' flag for each, off a DEEP (5y) weekly series.
+
+    The daily prior_day history is only ~1y — enough for a weekly 20 SMA but not a 50- or
+    200-week SMA — so the weekly SMA family is computed from its own fetch_ohlc(5y, 1wk) pull
+    (Robinhood→Alpaca→yfinance for equities, Coinbase→yfinance for crypto). Rising = above the
+    SMA's value ~4 completed weeks ago, so a flat/rolling-over line doesn't qualify. The current
+    partial week is dropped (completed weeks only) so a live week can't move the level intraday.
+    Returns all six keys always (None / False when there isn't enough history); never raises.
+    """
+    out = {
+        "wsma20": None, "wsma20_rising": False,
+        "wsma50": None, "wsma50_rising": False,
+        "wsma200": None, "wsma200_rising": False,
+    }
+    try:
+        from analytics.market_data import fetch_ohlc
+        wk = fetch_ohlc(symbol, period="5y", interval="1wk")
+        if wk is None or wk.empty or "Close" not in wk:
+            return out
+        wkc = wk["Close"].dropna()
+        done = wkc.iloc[:-1] if len(wkc) >= 2 else wkc   # drop the partial current week
+        for n, key in ((20, "wsma20"), (50, "wsma50"), (200, "wsma200")):
+            if len(done) >= n:
+                s = done.rolling(n).mean()
+                val = float(s.iloc[-1])
+                out[key] = val
+                if len(s.dropna()) >= 5 and pd.notna(s.iloc[-5]):
+                    out[key + "_rising"] = bool(val > float(s.iloc[-5]))
+    except Exception:
+        pass
+    return out
+
+
 def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     """Fetch the PRIOR COMPLETED trading day's data.
 
@@ -1003,6 +1037,9 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
     Returns None on failure.
     """
     try:
+        # Weekly 20/50/200 SMA family (off a deep 5y weekly series) — used by the wsma*_support
+        # swing rules. Computed once here so BOTH the crypto and equity return paths carry it.
+        _wk_fam = _weekly_sma_family(symbol)
         # Crypto: use Coinbase daily candles (yfinance drops bars, causes wrong PDH/PDL)
         if is_crypto:
             coinbase_hist = _fetch_coinbase_candles(symbol, granularity=86400, num_candles=250)
@@ -1102,8 +1139,6 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 wema21 = None
                 wema50 = None
                 w30 = None
-                wsma20 = None
-                wsma20_rising = False
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
                     if len(weekly) >= 2:
@@ -1127,14 +1162,6 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                             wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
                         if len(_done_wk) >= 30:
                             w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
-                        # Weekly 20 SMA + a "rising" flag — the swing line trending names ride
-                        # (wsma20_support signal). Rising = above its value ~4 completed weeks
-                        # ago, so a flat/rolling-over weekly 20 doesn't qualify.
-                        if len(_done_wk) >= 20:
-                            _w20s = _done_wk.rolling(20).mean()
-                            wsma20 = float(_w20s.iloc[-1])
-                            if len(_w20s.dropna()) >= 5 and pd.notna(_w20s.iloc[-5]):
-                                wsma20_rising = bool(wsma20 > float(_w20s.iloc[-5]))
                 except Exception:
                     pass
 
@@ -1181,7 +1208,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
                     "wema8": wema8, "wema21": wema21, "wema50": wema50, "w30": w30,
-                    "wsma20": wsma20, "wsma20_rising": wsma20_rising,
+                    **_wk_fam,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma150": ma150, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),
@@ -1444,6 +1471,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
             "wema21": wema21,
             "wema50": wema50,
             "w30": w30,
+            **_wk_fam,
             "ma20": ma20,
             "ma50": ma50,
             "ma100": ma100,

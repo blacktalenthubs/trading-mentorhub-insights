@@ -195,9 +195,11 @@ class AlertType(str, Enum):
     MA_BOUNCE_100 = "ma_bounce_100"
     MA_BOUNCE_150 = "ma_bounce_150"
     MA_BOUNCE_200 = "ma_bounce_200"
-    # Weekly rising 20 SMA support — the swing line trending names ride (SNDK/SPY). Price above
-    # and near a RISING weekly 20 SMA = at weekly support in a weekly uptrend.
+    # Weekly rising 20/50/200 SMA support — the swing lines trending names ride (SNDK/SPY/SMH).
+    # Daily opens above a RISING weekly SMA = at weekly support in a weekly uptrend.
     WSMA20_SUPPORT = "wsma20_support"
+    WSMA50_SUPPORT = "wsma50_support"
+    WSMA200_SUPPORT = "wsma200_support"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
@@ -1236,55 +1238,53 @@ def check_ma_bounce_200(
 # SWING: Weekly rising 20 SMA support
 # ---------------------------------------------------------------------------
 
-def check_weekly_sma20_support(
+def _check_weekly_sma_support(
     symbol: str,
     bars: pd.DataFrame,
-    wsma20: float | None,
-    wsma20_rising: bool,
+    wsma: float | None,
+    wsma_rising: bool,
+    period_label: str,
+    alert_type: "AlertType",
     today_open: float = 0,
-    prior_close: float | None = None,
 ) -> AlertSignal | None:
-    """Daily OPENED ABOVE a RISING weekly 20 SMA = at weekly swing support in a weekly uptrend.
+    """Daily OPENED ABOVE a RISING weekly SMA (20/50/200) = at weekly swing support in a weekly uptrend.
 
-    The swing line trending names ride (SNDK bounced off it; SPY rides it; AMAT reclaimed + opened
-    back above it). Per the open-above rule, the weekly 20 SMA is SUPPORT only when the day OPENS
-    above it (held) — a day that opens below and ramps up through it is a breakout, not a hold.
-    Fires when:
-      - the weekly 20 SMA is RISING (wsma20_rising — up over ~the last month), AND
-      - the day OPENED ABOVE it (today_open >= wsma20) and opened WITHIN
+    The swing lines trending names ride (SNDK bounced the weekly 20; SMH opened back above it;
+    many names bounce/reclaim the weekly 50). Per the open-above rule, the weekly SMA is SUPPORT
+    only when the day OPENS above it (held) — a day that opens below and ramps up through it is a
+    breakout, not a hold. Fires when:
+      - the weekly SMA is RISING (up over ~the last month), AND
+      - the day OPENED ABOVE it (today_open >= wsma) and opened WITHIN
         WSMA20_SUPPORT_MAX_DISTANCE_PCT of it (at the line, a fresh support test, not extended), AND
       - price is STILL above it now (holding).
-    A SWING signal (style_for → swing feed); stop sits a weekly width below the line. Dedup +
-    cooldown keep it from re-firing while price sits on the line. Level-based stop, not _cap_risk.
+    A SWING signal (style_for → swing feed); stop a weekly width below the line; level-based, not _cap_risk.
     """
-    if wsma20 is None or wsma20 <= 0 or not wsma20_rising:
+    if wsma is None or wsma <= 0 or not wsma_rising:
         return None
     if bars is None or bars.empty:
         return None
-    # OPEN-ABOVE support: the day opened above the rising weekly 20 SMA (held as support), not
-    # ramped up through it from below (that's a breakout). Mirrors check_ma_reclaim's open-above gate.
-    if today_open is None or today_open <= 0 or today_open < wsma20:
+    # OPEN-ABOVE support: the day opened above the rising weekly SMA (held as support), not ramped
+    # up through it from below (that's a breakout). Mirrors check_ma_reclaim's open-above gate.
+    if today_open is None or today_open <= 0 or today_open < wsma:
         return None
     # Opened AT the line (a fresh support test), not already extended far above it.
-    open_dist = (today_open - wsma20) / wsma20
-    if open_dist > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
+    if (today_open - wsma) / wsma > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
         return None
 
-    last_bar = bars.iloc[-1]
-    price = float(last_bar["Close"])
+    price = float(bars.iloc[-1]["Close"])
     # Still holding above the line now.
-    if price <= wsma20:
+    if price <= wsma:
         return None
 
-    entry = round(wsma20, 2)
-    stop = round(wsma20 * (1 - WSMA20_STOP_OFFSET_PCT), 2)
+    entry = round(wsma, 2)
+    stop = round(wsma * (1 - WSMA20_STOP_OFFSET_PCT), 2)
     risk = entry - stop
     if risk <= 0:
         return None
 
     return AlertSignal(
         symbol=symbol,
-        alert_type=AlertType.WSMA20_SUPPORT,
+        alert_type=alert_type,
         direction="BUY",
         price=price,
         entry=entry,
@@ -1293,10 +1293,22 @@ def check_weekly_sma20_support(
         target_2=round(entry + 3 * risk, 2),
         confidence="high",
         message=(
-            f"Weekly 20 SMA support — opened above the RISING weekly 20 SMA ${wsma20:.2f} "
-            f"(support), holding at ${price:.2f} — weekly swing support, buy the line"
+            f"Weekly {period_label} SMA support — opened above the RISING weekly {period_label} SMA "
+            f"${wsma:.2f} (support), holding at ${price:.2f} — weekly swing support, buy the line"
         ),
     )
+
+
+def check_weekly_sma20_support(symbol, bars, wsma20, wsma20_rising, today_open=0, prior_close=None):
+    return _check_weekly_sma_support(symbol, bars, wsma20, wsma20_rising, "20", AlertType.WSMA20_SUPPORT, today_open)
+
+
+def check_weekly_sma50_support(symbol, bars, wsma50, wsma50_rising, today_open=0, prior_close=None):
+    return _check_weekly_sma_support(symbol, bars, wsma50, wsma50_rising, "50", AlertType.WSMA50_SUPPORT, today_open)
+
+
+def check_weekly_sma200_support(symbol, bars, wsma200, wsma200_rising, today_open=0, prior_close=None):
+    return _check_weekly_sma_support(symbol, bars, wsma200, wsma200_rising, "200", AlertType.WSMA200_SUPPORT, today_open)
 
 
 # ---------------------------------------------------------------------------
@@ -8927,15 +8939,20 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        # --- Weekly rising 20 SMA support (swing) ---
-        if AlertType.WSMA20_SUPPORT.value in ENABLED_RULES:
-            sig = check_weekly_sma20_support(
-                symbol, intraday_bars,
-                prior_day.get("wsma20"), bool(prior_day.get("wsma20_rising")),
-                today_open=today_open, prior_close=prior_close,
-            )
-            if sig:
-                signals.append(sig)
+        # --- Weekly rising 20 / 50 / 200 SMA support (swing) ---
+        for _wk_at, _wk_fn, _wk_val, _wk_rise in (
+            (AlertType.WSMA20_SUPPORT, check_weekly_sma20_support, "wsma20", "wsma20_rising"),
+            (AlertType.WSMA50_SUPPORT, check_weekly_sma50_support, "wsma50", "wsma50_rising"),
+            (AlertType.WSMA200_SUPPORT, check_weekly_sma200_support, "wsma200", "wsma200_rising"),
+        ):
+            if _wk_at.value in ENABLED_RULES:
+                sig = _wk_fn(
+                    symbol, intraday_bars,
+                    prior_day.get(_wk_val), bool(prior_day.get(_wk_rise)),
+                    today_open=today_open, prior_close=prior_close,
+                )
+                if sig:
+                    signals.append(sig)
 
         # --- EMA Bounces ---
         # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.

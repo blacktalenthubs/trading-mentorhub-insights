@@ -323,7 +323,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
     ("staged_pml", "long_term"),
-    ("wsma20_support", "swing"),       # weekly rising 20 SMA support — a multi-day swing hold
+    ("wsma", "swing"),                 # weekly rising 20/50/200 SMA support — multi-day swing holds
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
     ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
@@ -361,7 +361,9 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "ma_bounce_long_v3_ema100": "Intraday price pulled back to the 100 EMA in an uptrend and bounced — wider trend support.",
     "ma_bounce_long_v3_ema200": "Intraday price pulled back to the 200 EMA in an uptrend and bounced — major trend support.",
     "ma_bounce_long_v3_sma":    "Intraday price pulled back to a major SMA (50/100/200) and bounced — institutional level support.",
-    "wsma20_support":           "Price is holding above a RISING weekly 20 SMA — the swing line a trending name rides. A pullback to (or reclaim of) the weekly 20 SMA in a weekly uptrend; buy the line, stop a weekly width below. Multi-day swing hold.",
+    "wsma20_support":           "The day OPENED above a RISING weekly 20 SMA — the fast swing line a trending name rides. Weekly uptrend support; buy the line, stop a weekly width below. Multi-day swing hold.",
+    "wsma50_support":           "The day OPENED above a RISING weekly 50 SMA — the intermediate weekly swing line. A deeper pullback/reclaim in a weekly uptrend; buy the line, stop a weekly width below. Multi-day swing hold.",
+    "wsma200_support":          "The day OPENED above a RISING weekly 200 SMA — the major long-term weekly trend line. A rare deep pullback to primary support in a bull trend; buy the line, stop a weekly width below. Multi-day swing hold.",
 
     # MA rejection short — the mirror: an MA acting as resistance from below.
     "ma_rejection_short_v3_ema8":   "Price rallied up into the 8 EMA from below, tagged it and closed back below on a red bar — rejected at tightest trend resistance.",
