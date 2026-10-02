@@ -57,6 +57,8 @@ class AlertResponse(BaseModel):
     cvd_delta: Optional[float] = None
     cvd_diverging: Optional[int] = None
     suppressed_reason: Optional[str] = None
+    # Delivery channel (focus tiers): 'telegram' = tier-A (pushed) · 'app' = tier-B (feed-only).
+    channel: Optional[str] = None
     # Feed split (2026-06-29): every alert is filed in a STYLE panel regardless of
     # delivery. style = day_trade | swing | long_term; delivered = was it pushed
     # (Telegram/in-app) vs recorded-only (suppressed_reason set → not delivered).
@@ -116,6 +118,7 @@ class AlertResponse(BaseModel):
             cvd_delta=getattr(alert, "cvd_delta", None),
             cvd_diverging=getattr(alert, "cvd_diverging", None),
             suppressed_reason=getattr(alert, "suppressed_reason", None),
+            channel=getattr(alert, "channel", None),
             exit_price=getattr(alert, "exit_price", None),
             r_multiple=_compute_r(alert),
         )

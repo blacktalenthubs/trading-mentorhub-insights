@@ -1397,6 +1397,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         "target_1": _py(signal.target_1),
                         "confluence_label": getattr(signal, "_confluence_label", None),
                         "message": signal.message,
+                        "channel": getattr(alert, "channel", None),   # 'app' = tier-B (feed-only) · 'telegram' = tier-A
                     }
                     if _send_notification:
                         try:
