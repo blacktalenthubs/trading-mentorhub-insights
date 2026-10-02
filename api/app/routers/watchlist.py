@@ -401,13 +401,15 @@ async def toggle_focus(
         )
     )).scalar_one_or_none()
     if item is None:
-        # New focus star lands in tier B (watch / app-feed-only). Promote to A deliberately.
-        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True, focus_tier=2)
+        # New focus star lands in tier A (core → Telegram + feed). 2026-10-02 trader directive:
+        # now that the daily EMA/MA set is trimmed to genuine structural signals, everything
+        # routes to Core by default. Demote to Watch (tier B, app-only) deliberately to mute.
+        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True, focus_tier=1)
         db.add(item)
     else:
         item.focus = not item.focus
         if item.focus and item.focus_tier is None:
-            item.focus_tier = 2                 # re-focused with no tier → default B
+            item.focus_tier = 1                 # re-focused with no tier → default A (core)
     await db.flush()
     return item
 
