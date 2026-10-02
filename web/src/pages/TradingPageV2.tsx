@@ -43,7 +43,7 @@ import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
-import { formatSetup, isFeedSignal, isVolumeSignal, isBreakoutSignal, isExitAlert, setupBlurb } from "../lib/alertFormat";
+import { formatSetup, isFeedSignal, isVolumeSignal, isExitAlert, setupBlurb } from "../lib/alertFormat";
 import { DisclaimerFooter } from "../components/DisclaimerModal";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
@@ -492,14 +492,14 @@ function SignalFeedTab({
     });
   }
   // Sort options — persisted to localStorage so refresh doesn't reset.
-  type FeedSort = "time" | "grade" | "vol" | "slope" | "symbol" | "rr";
+  type FeedSort = "time" | "grade" | "symbol" | "rr";
   const SORT_LABELS: Record<FeedSort, string> = {
-    time: "Newest", grade: "Grade A→C", vol: "Volume ×",
-    slope: "Slope %", symbol: "Symbol", rr: "R:R (reward:risk)",
+    time: "Newest", grade: "Grade A→C", symbol: "Symbol", rr: "R:R (reward:risk)",
   };
   const [sortBy, setSortBy] = useState<FeedSort>(() => {
     if (typeof window === "undefined") return "time";
-    return (localStorage.getItem("signal_feed_sort") as FeedSort) || "time";
+    const s = localStorage.getItem("signal_feed_sort") as FeedSort;
+    return s && s in { time: 1, grade: 1, symbol: 1, rr: 1 } ? s : "time";  // drop retired vol/slope
   });
   const [sortOpen, setSortOpen] = useState(false);
   function changeSort(s: FeedSort) {
@@ -534,7 +534,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing" | "volume" | "breakout">("day");
+  const [view, setView] = useState<"day" | "swing">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -625,19 +625,17 @@ function SignalFeedTab({
   // from the Day/Swing read they belong to. Off-hours signals that DO route (the RTH-exempt
   // symbols, plus 24/7 crypto) now fall into Day or Swing by their own style, like any other alert.
   // Anything held back by the gate keeps its suppressed_reason and stays reviewable in Not-routed.
-  // Volume-profile signals get their OWN book (2026-09-24) — value-area levels
-  // (POC / VAL / VAH) + anchored VWAP, split out of Day/Swing so they can be
-  // evaluated over days on wider data without diluting the trade feeds.
-  const volumeAlerts = feedAllRaw.filter((a) => isVolumeSignal(a.alert_type));
-  const breakoutAlerts = feedAllRaw.filter((a) => isBreakoutSignal(a.alert_type));
-  const _special = (t?: string) => isVolumeSignal(t) || isBreakoutSignal(t);   // kept out of Day/Swing
+  // Two feeds only (2026-10-02): Day vs Swing. Volume-profile is dropped (unreliable on yfinance);
+  // breakouts FOLD into Day/Swing by their own style instead of a separate book. Only VP signals
+  // are held out (they shouldn't dilute the trade feeds, and the tab is gone).
+  const _special = (t?: string) => isVolumeSignal(t);
   const dayAlerts = feedAllRaw.filter(
     (a) => !_special(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") === "day_trade",
   );
   const swingAlerts = feedAllRaw.filter(
     (a) => !_special(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
   );
-  const feedAlerts = view === "day" ? dayAlerts : view === "volume" ? volumeAlerts : view === "breakout" ? breakoutAlerts : swingAlerts;
+  const feedAlerts = view === "day" ? dayAlerts : swingAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -684,18 +682,6 @@ function SignalFeedTab({
       const gb = GRADE_RANK[b.grade ?? "C"] ?? 0;
       if (ga !== gb) return gb - ga;
       // Tie-break by time desc.
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    }
-    if (sortBy === "vol") {
-      const va = a.volume_ratio ?? -1;
-      const vb = b.volume_ratio ?? -1;
-      if (va !== vb) return vb - va;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    }
-    if (sortBy === "slope") {
-      const sa = a.vwap_slope_pct ?? -999;
-      const sb = b.vwap_slope_pct ?? -999;
-      if (sa !== sb) return sb - sa;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     }
     if (sortBy === "symbol") {
@@ -753,22 +739,18 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"], ["volume", "Volume"], ["breakout", "Breakout"]] as const).map(([id, label], i) => (
+          {([["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
               title={id === "day"
-                ? "Day trades — you must SELL the same day at some point (out by the close). 4H reactions (reclaim / rejection / break, 15m-confirmed) + gap-and-go."
-                : id === "volume"
-                  ? "Volume profile — value-area levels (POC / VAL / VAH) + anchored VWAP. 1h value area held/reclaimed/broken. On trial over wider data."
-                  : id === "breakout"
-                    ? "Momentum breakouts — price crossed a pattern trigger (TBA) on the daily chart: cup&handle, flat base, ascending triangle, bull flag, TBA/horizontal, trendline break. Fires during the session."
-                    : "Swing trades — HOLD multiple days as long as the thesis holds. SMA 50/100/200 reclaim, RSI-30 buy, 5/20 cross, weekly/monthly level reclaims."}
+                ? "Day trades — out by the close. 4H reactions + gap-and-go + breakouts (folded in by style)."
+                : "Swing trades — held multiple days while the thesis holds. SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims, breakouts."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
               {label}{" "}
               <span className="opacity-70 font-normal">
-                {id === "day" ? dayAlerts.length : id === "volume" ? volumeAlerts.length : id === "breakout" ? breakoutAlerts.length : swingAlerts.length}
+                {id === "day" ? dayAlerts.length : swingAlerts.length}
               </span>
             </button>
           ))}
@@ -789,7 +771,7 @@ function SignalFeedTab({
             <>
               <button className="fixed inset-0 z-30 cursor-default" onClick={() => setSortOpen(false)} aria-label="Close sort menu" />
               <div className="absolute right-0 top-full mt-1 z-40 bg-surface-1 border border-border-subtle rounded-md shadow-lg overflow-hidden min-w-[140px]">
-                {(["time", "grade", "vol", "slope", "symbol", "rr"] as const).map((opt) => (
+                {(["time", "grade", "symbol", "rr"] as const).map((opt) => (
                   <button
                     key={opt}
                     onClick={() => changeSort(opt)}
@@ -805,16 +787,6 @@ function SignalFeedTab({
       </div>
 
       {/* Subtle meaning of the selected book — what "day" vs "swing" actually asks of you. */}
-      <div className="px-3 pb-1 -mt-0.5 text-[10px] text-text-faint shrink-0">
-        {view === "day"
-          ? "Day trade — sell it the same session at some point (out by the close)."
-          : view === "swing"
-            ? "Swing — hold multiple days, as long as the thesis stays good."
-            : view === "breakout"
-              ? "Breakout — price crossed a pattern trigger (TBA) on the daily chart. Entry = the trigger, stop = the pattern low. Fires during the session."
-              : "Volume profile — where price is trading vs the 1h value area (POC / VAL / VAH) and anchored VWAP. On trial."}
-      </div>
-
       {/* Focus-mode banner — makes an active Focus filter UNMISTAKABLE (it's a sticky,
           persisted filter, so without this a user can forget it's on and think signals
           are missing). Tappable to clear. Also warns if Focus is on but there are no
@@ -1024,7 +996,7 @@ function SignalFeedTab({
               : focusOnly && !hasFocus
                 ? "No Focus symbols yet — star symbols in your watchlist to build a Focus list"
                 : focusOnly
-                  ? `No ${view === "day" ? "day-trade" : view === "volume" ? "volume" : view === "breakout" ? "breakout" : "swing"} signals for your Focus symbols this session`
+                  ? `No ${view === "day" ? "day-trade" : "swing"} signals for your Focus symbols this session`
                   : `No alerts this session`}
           </p>
         </div>
@@ -1052,8 +1024,10 @@ function SignalFeedTab({
         // Strip the prefix by PATTERN (robust to the exact separator char); "" if there's no note beyond the prefix.
         // This is what gives structural_breakout its "reclaim of PDL 76525 · LONG · stop…" instead of a bare label.
         const levelNote = (a.message || "")
-          .replace(/^\[TV\]\s+(?:SWING\s+)?\S+\s*(?:\([^)]*\))?\s*/, "")
+          .replace(/^\[TV\]\s+(?:SWING\s+)?\S+\s*(?:\([^)]*\))?\s*/, "")  // strip the [TV] rule prefix
+          .replace(/\s*\([^)]*\)/g, "")                                   // drop metadata noise: (vol 1.9× avg)(prime_time)(asia)…
           .replace(/^[·•|:\-\s]+/, "")
+          .replace(/\s{2,}/g, " ")
           .trim();
         // Fired but not routed to Telegram (e.g. SPY < PDL) — show greyed +
         // badged so it's reviewable without reading as a live, delivered call.
@@ -1139,9 +1113,9 @@ function SignalFeedTab({
             {/* the SPECIFIC context first — the pine note names the level + trigger ("reclaim of PDL 76525 ·
                 LONG · stop below…"). Falls back to the curated per-type blurb when there's no note. */}
             {levelNote ? (
-              <p className="mt-1 text-[11px] leading-snug text-text-secondary line-clamp-2">{levelNote}</p>
+              <p className="mt-1 text-[11px] leading-snug text-text-secondary line-clamp-1" title={a.message || ""}>{levelNote}</p>
             ) : setupBlurb(a.alert_type) ? (
-              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-2">{setupBlurb(a.alert_type)}</p>
+              <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-1">{setupBlurb(a.alert_type)}</p>
             ) : null}
 
             {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
@@ -2663,13 +2637,6 @@ export default function TradingPageV2() {
                 className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${rightTab === "levels" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
               >
                 Levels
-              </button>
-              <button
-                onClick={() => setRightTab("log")}
-                title="Running tape of every alert that fired this session"
-                className={`px-2.5 py-1 border-l border-border-subtle transition-colors ${rightTab === "log" ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-              >
-                Log
               </button>
             </div>
             {rightTab !== "levels" && (
