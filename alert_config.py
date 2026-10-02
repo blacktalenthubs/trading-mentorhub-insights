@@ -693,16 +693,14 @@ ENABLED_RULES: set[str] = {
     # Everything else is OFF. See scanner_ma20_support_spec.md.
     # ============================================================================
 
-    # ── Daily MAs — SMA 20/50/200 + the FULL EMA cluster 8/21/50/100/200 (2026-09-30) ──
-    # Re-added the daily EMA 8/21/50/100 bounces so the ALERTS match the chart's EMA cluster
-    # (sma_proximity.pine draws EMA 8/20/50/100/200). Values come from prior_day.ema8/21/50/100/200.
-    # These fast EMAs fire more often (that was the earlier noise concern) — dedup + cooldown
-    # manage overlap; trade them on the chart with the usual discretion.
-    # 100/150 added 2026-10-01 (trader): they were computed but rule_not_enabled while scoring
-    # well (ma_bounce_150: 100% / +4.29R in the outcome leaderboard). The 100/150/200 SMAs are
-    # the structural long-term levels — a bounce there is higher-conviction, not noise.
-    "ma_bounce_20", "ma_bounce_50", "ma_bounce_100", "ma_bounce_150", "ma_bounce_200",
-    "ema_bounce_8", "ema_bounce_21", "ema_bounce_50", "ema_bounce_100", "ema_bounce_200",
+    # ── Daily MAs — SMA 20/50/150/200 + EMA 200 ONLY (2026-10-02, trader directive) ──
+    # Trimmed from the full daily cluster to cut noise: the fast daily EMAs (8/21/50/100) were
+    # firing on nearly every polled name without adding edge. Keep the STRUCTURAL levels — the
+    # 20/50/150/200 SMAs (long-term support) + the 200 EMA (the one EMA the trader trusts as a
+    # structural line). Dropped: ma_bounce_100, ema_bounce_8/21/50/100. These still compute in
+    # evaluate_rules(); this gate just stops delivering them. Re-add a line here to turn one back on.
+    "ma_bounce_20", "ma_bounce_50", "ma_bounce_150", "ma_bounce_200",
+    "ema_bounce_200",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
