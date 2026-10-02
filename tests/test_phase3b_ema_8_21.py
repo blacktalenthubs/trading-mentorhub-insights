@@ -233,13 +233,16 @@ class TestNewAlertTypeEnums:
 
 
 class TestEnabledRulesPhase3b:
-    def test_ema_bounce_8_in_enabled_rules(self):
+    # 2026-10-02 trader directive: daily EMA/MA trimmed to 20/50/150/200 SMA + 200 EMA.
+    # The fast daily EMAs (8/21/50/100) were noise and are now OFF (8 EMA = noise, 20 EMA
+    # covered by 20 SMA, 50 SMA preferred over 50 EMA, no 100 on either).
+    def test_ema_bounce_8_disabled(self):
         from alert_config import ENABLED_RULES
-        assert "ema_bounce_8" in ENABLED_RULES
+        assert "ema_bounce_8" not in ENABLED_RULES
 
-    def test_ema_bounce_21_in_enabled_rules(self):
+    def test_ema_bounce_21_disabled(self):
         from alert_config import ENABLED_RULES
-        assert "ema_bounce_21" in ENABLED_RULES
+        assert "ema_bounce_21" not in ENABLED_RULES
 
     def test_ema_reclaim_8_in_enabled_rules(self):
         from alert_config import ENABLED_RULES
@@ -257,8 +260,16 @@ class TestEnabledRulesPhase3b:
         from alert_config import ENABLED_RULES
         assert "ema_reclaim_20" not in ENABLED_RULES
 
-    def test_ema_bounce_50_100_200_kept(self):
+    def test_only_ema_200_kept(self):
+        # 2026-10-02: 200 EMA is the one daily EMA kept (structural); 50/100 dropped.
         from alert_config import ENABLED_RULES
-        assert "ema_bounce_50" in ENABLED_RULES
-        assert "ema_bounce_100" in ENABLED_RULES
         assert "ema_bounce_200" in ENABLED_RULES
+        assert "ema_bounce_50" not in ENABLED_RULES
+        assert "ema_bounce_100" not in ENABLED_RULES
+
+    def test_daily_sma_set_kept(self):
+        # 2026-10-02: structural SMAs 20/50/150/200 kept; 100 dropped.
+        from alert_config import ENABLED_RULES
+        for r in ("ma_bounce_20", "ma_bounce_50", "ma_bounce_150", "ma_bounce_200"):
+            assert r in ENABLED_RULES
+        assert "ma_bounce_100" not in ENABLED_RULES
