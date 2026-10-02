@@ -1102,6 +1102,8 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                 wema21 = None
                 wema50 = None
                 w30 = None
+                wsma20 = None
+                wsma20_rising = False
                 try:
                     weekly = hist[["High", "Low"]].resample("W-FRI").agg({"High": "max", "Low": "min"}).dropna()
                     if len(weekly) >= 2:
@@ -1125,6 +1127,14 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                             wema50 = float(_done_wk.ewm(span=50, adjust=False).mean().iloc[-1])   # 50 EMA weekly
                         if len(_done_wk) >= 30:
                             w30 = float(_done_wk.rolling(30).mean().iloc[-1])   # 30-week MA
+                        # Weekly 20 SMA + a "rising" flag — the swing line trending names ride
+                        # (wsma20_support signal). Rising = above its value ~4 completed weeks
+                        # ago, so a flat/rolling-over weekly 20 doesn't qualify.
+                        if len(_done_wk) >= 20:
+                            _w20s = _done_wk.rolling(20).mean()
+                            wsma20 = float(_w20s.iloc[-1])
+                            if len(_w20s.dropna()) >= 5 and pd.notna(_w20s.iloc[-5]):
+                                wsma20_rising = bool(wsma20 > float(_w20s.iloc[-5]))
                 except Exception:
                     pass
 
@@ -1171,6 +1181,7 @@ def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:
                     "volume": last["Volume"],
                     "ma8": ma8, "ma21": ma21,
                     "wema8": wema8, "wema21": wema21, "wema50": wema50, "w30": w30,
+                    "wsma20": wsma20, "wsma20_rising": wsma20_rising,
                     "ma20": ma20, "ma50": ma50, "ma100": ma100, "ma150": ma150, "ma200": ma200,
                     "ema5": ema5, "ema5_prev": prev.get("EMA5"),
                     "ema8": ema8, "ema8_prev": prev.get("EMA8"),

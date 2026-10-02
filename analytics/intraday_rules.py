@@ -60,6 +60,8 @@ from alert_config import (
     MA_BOUNCE_LOOKBACK_BARS,
     MA_BOUNCE_MAX_DISTANCE_PCT,
     MA_BOUNCE_PROXIMITY_PCT,
+    WSMA20_SUPPORT_MAX_DISTANCE_PCT,
+    WSMA20_STOP_OFFSET_PCT,
     MA_BOUNCE_SESSION_STOP_PCT,
     MA_STOP_OFFSET_PCT,
     MA100_BOUNCE_PROXIMITY_PCT,
@@ -193,6 +195,9 @@ class AlertType(str, Enum):
     MA_BOUNCE_100 = "ma_bounce_100"
     MA_BOUNCE_150 = "ma_bounce_150"
     MA_BOUNCE_200 = "ma_bounce_200"
+    # Weekly rising 20 SMA support — the swing line trending names ride (SNDK/SPY). Price above
+    # and near a RISING weekly 20 SMA = at weekly support in a weekly uptrend.
+    WSMA20_SUPPORT = "wsma20_support"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
@@ -1223,6 +1228,64 @@ def check_ma_bounce_200(
         message=(
             f"MA bounce 200MA — price pulled back to ${ma200:.2f} "
             f"and closed above at ${last_bar['Close']:.2f}"
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# SWING: Weekly rising 20 SMA support
+# ---------------------------------------------------------------------------
+
+def check_weekly_sma20_support(
+    symbol: str,
+    bars: pd.DataFrame,
+    wsma20: float | None,
+    wsma20_rising: bool,
+    prior_close: float | None = None,
+) -> AlertSignal | None:
+    """Price holding ABOVE a RISING weekly 20 SMA = at weekly swing support in a weekly uptrend.
+
+    The swing line trending names ride (SNDK bounced off it; SPY rides just above it). Fires when:
+      - the weekly 20 SMA is RISING (wsma20_rising — up over ~the last month), AND
+      - price is ABOVE it (held after a tag, or reclaimed from just below), AND
+      - price is WITHIN WSMA20_SUPPORT_MAX_DISTANCE_PCT of it (at the line, not extended).
+    A SWING signal (style_for → swing feed); stop sits a weekly width below the line. Dedup +
+    cooldown keep it from re-firing while price sits on the line. Level-based stop, not _cap_risk.
+    """
+    if wsma20 is None or wsma20 <= 0 or not wsma20_rising:
+        return None
+    if bars is None or bars.empty:
+        return None
+
+    last_bar = bars.iloc[-1]
+    price = float(last_bar["Close"])
+    # Must be holding above the rising weekly line (held or reclaimed from below → both end above).
+    if price <= wsma20:
+        return None
+    # Must be AT the line, not already extended away from it.
+    distance = (price - wsma20) / wsma20
+    if distance > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
+        return None
+
+    entry = round(wsma20, 2)
+    stop = round(wsma20 * (1 - WSMA20_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WSMA20_SUPPORT,
+        direction="BUY",
+        price=price,
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + 2 * risk, 2),
+        target_2=round(entry + 3 * risk, 2),
+        confidence="high",
+        message=(
+            f"Weekly 20 SMA support — price is holding the RISING weekly 20 SMA ${wsma20:.2f} "
+            f"(now ${price:.2f}, +{distance * 100:.1f}%) — weekly swing support, buy the line"
         ),
     )
 
@@ -8854,6 +8917,16 @@ def evaluate_rules(
                 sig.message += f" — price {vwap_pos}"
             sig.message += caution_suffix
             signals.append(sig)
+
+        # --- Weekly rising 20 SMA support (swing) ---
+        if AlertType.WSMA20_SUPPORT.value in ENABLED_RULES:
+            sig = check_weekly_sma20_support(
+                symbol, intraday_bars,
+                prior_day.get("wsma20"), bool(prior_day.get("wsma20_rising")),
+                prior_close=prior_close,
+            )
+            if sig:
+                signals.append(sig)
 
         # --- EMA Bounces ---
         # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.

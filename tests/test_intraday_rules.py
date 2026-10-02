@@ -37,6 +37,7 @@ from analytics.intraday_rules import (
     check_ma_bounce_50,
     check_ma_bounce_100,
     check_ma_bounce_200,
+    check_weekly_sma20_support,
     check_opening_range_breakout,
     check_orb_breakdown,
     check_opening_low_base,
@@ -8052,3 +8053,39 @@ class TestHourlyResistanceRejectionShort:
             "ETH-USD", bars, hourly_resistance=[100.0], prior_close=95.0,
         )
         assert sig is None
+
+
+class TestWeeklySma20Support:
+    """Weekly rising 20 SMA support (wsma20_support) — swing line trending names ride."""
+
+    @staticmethod
+    def _bars(close):
+        return pd.DataFrame([{"Open": close, "High": close + 1, "Low": close - 1,
+                              "Close": close, "Volume": 1_000_000}])
+
+    def test_fires_rising_and_near(self):
+        # Price +3.4% above a rising weekly 20 SMA (SNDK-like) → fires.
+        sig = check_weekly_sma20_support("SNDK", self._bars(1034.0), 1000.0, True)
+        assert sig is not None
+        assert sig.alert_type.value == "wsma20_support"
+        assert sig.direction == "BUY"
+        assert sig.entry == 1000.0            # entry at the line
+        assert sig.stop == 960.0              # 4% below
+        assert sig.target_1 == 1080.0 and sig.target_2 == 1120.0  # 2R / 3R
+
+    def test_no_fire_when_not_rising(self):
+        assert check_weekly_sma20_support("SNDK", self._bars(1034.0), 1000.0, False) is None
+
+    def test_no_fire_when_extended(self):
+        # +8% above the line = not at support anymore.
+        assert check_weekly_sma20_support("SNDK", self._bars(1080.0), 1000.0, True) is None
+
+    def test_no_fire_when_below_line(self):
+        assert check_weekly_sma20_support("SNDK", self._bars(990.0), 1000.0, True) is None
+
+    def test_no_fire_without_wsma20(self):
+        assert check_weekly_sma20_support("SNDK", self._bars(1034.0), None, True) is None
+
+    def test_enabled_and_swing(self):
+        from alert_config import ENABLED_RULES
+        assert "wsma20_support" in ENABLED_RULES

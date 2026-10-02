@@ -561,6 +561,12 @@ SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "DRAM"}  # 2026-09-14 (user): index/proxy
 # per-name entry. Mirrors SHORT_UNIVERSE: the rule is in ENABLED_RULES, symbol-gated at generation.
 MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
 
+# Weekly rising 20 SMA support (wsma20_support) — a swing signal. Price above and within
+# WSMA20_SUPPORT_MAX_DISTANCE_PCT of a RISING weekly 20 SMA = at weekly support in a weekly
+# uptrend (captures SNDK's bounce and SPY riding the line). Stop sits a weekly-width below.
+WSMA20_SUPPORT_MAX_DISTANCE_PCT = 0.04   # price no more than 4% above the weekly 20 SMA
+WSMA20_STOP_OFFSET_PCT = 0.04            # swing stop 4% below the weekly 20 SMA
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
@@ -711,6 +717,9 @@ ENABLED_RULES: set[str] = {
     # time in intraday_rules.py — a broad-market momentum read, NOT a per-name entry. Enabled
     # here so it delivers; it will only ever fire for those four gauges.
     "ema_bounce_8",
+    # Weekly rising 20 SMA support (2026-10-02) — the swing line trending names ride (SNDK/SPY).
+    # Price above + near a RISING weekly 20 SMA = weekly swing support. Swing feed.
+    "wsma20_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
