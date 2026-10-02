@@ -34,6 +34,10 @@ show_200_4h = input.bool(true, "SMA 200 · 4h",  group = gMa, inline = "m4")
 c_200_4h    = input.color(#1565C0, "", group = gMa, inline = "m4")
 w_200_4h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m4")
 y_200_4h    = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4")
+show_open   = input.bool(true, "Today's open", group = gMa, inline = "mo")
+c_open      = input.color(#FFB300, "", group = gMa, inline = "mo")
+w_open      = input.int(1, "w", minval = 1, maxval = 10, group = gMa, inline = "mo")
+y_open      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "mo")
 
 // ── proximity gate — the 200s only (the 20s are always on) ──
 gPx       = "Proximity gate (200 SMAs)"
@@ -68,6 +72,9 @@ s20_1h  = f_sma("60", 20)
 s200_1h = f_sma("60", 200)
 s20_4h  = f_sma("240", 20)
 s200_4h = f_sma("240", 200)
+// Today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
+// is safe here: a day's open is fixed at the bar's start, so it's known, not future data.
+d_open  = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
 
 // the gate — absolute % distance, so a far 200 hides whichever side it sits on
 prox_ok(float v) =>
@@ -111,6 +118,7 @@ if barstate.islast
     queue(s20_4h,  "SMA 20 (4h)",  c_20_4h,  w_20_4h,  y_20_4h,  show_20_4h)
     queue(s200_1h, "SMA 200 (1h)", c_200_1h, w_200_1h, y_200_1h, show_200_1h and prox_ok(s200_1h))
     queue(s200_4h, "SMA 200 (4h)", c_200_4h, w_200_4h, y_200_4h, show_200_4h and prox_ok(s200_4h))
+    queue(d_open,  "Open",         c_open,   w_open,   y_open,   show_open and not na(d_open))
 
     // ── MERGE + DE-OVERLAP + DRAW ──
     _n = array.size(_qv)
@@ -166,9 +174,9 @@ f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _av = array.from(s20_1h, s200_1h, s20_4h, s200_4h)
-    _an = array.from("SMA 20 (1h)", "SMA 200 (1h)", "SMA 20 (4h)", "SMA 200 (4h)")
-    _ae = array.from(show_20_1h, show_200_1h, show_20_4h, show_200_4h)
+    _av = array.from(s20_1h, s200_1h, s20_4h, s200_4h, d_open)
+    _an = array.from("SMA 20 (1h)", "SMA 200 (1h)", "SMA 20 (4h)", "SMA 200 (4h)", "Open")
+    _ae = array.from(show_20_1h, show_200_1h, show_20_4h, show_200_4h, show_open)
     float  _uV = na
     string _uN = "—"
     float  _dV = na

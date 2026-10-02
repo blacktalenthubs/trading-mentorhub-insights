@@ -43,6 +43,10 @@ show_prel    = input.bool(true, "Pre-L", group = gLv, inline = "lv4")
 c_pre        = input.color(#00BCD4, "", group = gLv, inline = "lv4")
 w_pre        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv4")
 y_pre        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv4")
+show_open    = input.bool(true, "Today's open", group = gLv, inline = "lvo")
+c_open       = input.color(#FFB300, "", group = gLv, inline = "lvo")
+w_open       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvo")
+y_open       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvo")
 
 // ── style ──
 gSt        = "Style"
@@ -95,6 +99,10 @@ f_preCalc() =>
     [_h, _l]
 [premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
 
+// ── today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
+// is safe: a day's open is fixed at the bar's start, so it's known, not future data. ──
+d_open = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
+
 // ── queue machinery — everything that survives its gate is QUEUED, then merged + drawn in ONE pass ──
 var line[]   _ln = array.new_line()
 var label[]  _lb = array.new_label()
@@ -132,6 +140,7 @@ if show_levels and barstate.islast
     queue(pdl,   "PDL",   c_pd,  w_pd,  y_pd,  show_pdl  and not na(pdl))
     queue(premH, "Pre-H", c_pre, w_pre, y_pre, show_preh and not na(premH))
     queue(premL, "Pre-L", c_pre, w_pre, y_pre, show_prel and not na(premL))
+    queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open))
     // weekly + monthly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
     _hv = array.from(pwh, pwl, pmh, pml, pqh, pql)
     _hn = array.from("PWH", "PWL", "PMH", "PML", "PQH", "PQL")
@@ -221,9 +230,9 @@ f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _av = array.from(pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL)
-    _an = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L")
-    _ae = array.from(show_pdh, show_pdl, show_pwh, show_pwl, show_pmh, show_pml, show_pqh, show_pql, show_preh, show_prel)
+    _av = array.from(pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL, d_open)
+    _an = array.from("PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L", "Open")
+    _ae = array.from(show_pdh, show_pdl, show_pwh, show_pwl, show_pmh, show_pml, show_pqh, show_pql, show_preh, show_prel, show_open)
     float  _uV = na
     string _uN = "—"
     float  _dV = na
