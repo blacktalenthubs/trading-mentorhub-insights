@@ -50,6 +50,7 @@ from analytics.intraday_rules import (
     check_ema_resistance,
     check_prior_day_low_bounce,
     check_prior_day_low_reclaim,
+    check_prior_low_recovered,
     check_trailing_stop_hit,
     check_weekly_level_touch,
     check_monthly_level_touch,
@@ -405,6 +406,46 @@ class TestMABounceLookback:
 
 
 # ===== PDL Reclaim Distance Tests =====
+
+class TestPriorLowRecoveredFromBelow:
+    """check_prior_low_recovered — a prior LOW lost (opened at/below it) then reclaimed from below.
+    The open-below mirror of the defend reclaim, for weekly/monthly/quarterly lows."""
+
+    def test_fires_when_opened_below_then_reclaims(self):
+        # IWM 2026-10-01: opened 277.36 UNDER the PML 277.41, dipped to 275.45, closed back above.
+        level = 277.41
+        bars = _bars([
+            {"Open": 277.36, "High": 277.5, "Low": 277.0, "Close": 276.2, "Volume": 5000},   # opened below, closes below
+            {"Open": 276.0, "High": 276.8, "Low": 275.45, "Close": 276.4, "Volume": 6000},    # dips lower
+            {"Open": 276.5, "High": 278.2, "Low": 276.2, "Close": 278.1, "Volume": 6000},     # reclaims
+            {"Open": 278.0, "High": 278.6, "Low": 277.6, "Close": 278.4, "Volume": 5000},     # hold
+        ])
+        sig = check_prior_low_recovered("IWM", bars, level, "PML", AlertType.PML_RECLAIM, today_open=277.36)
+        assert sig is not None
+        assert sig.alert_type == AlertType.PML_RECLAIM
+        assert sig.direction == "BUY"
+        assert sig.stop < level  # stop sits below the reclaimed level (not risk-capped above it)
+
+    def test_no_fire_when_opened_above(self):
+        # Opened ABOVE the level → that's the defend path (check_ma_reclaim), not this one.
+        level = 1030.02
+        bars = _bars([
+            {"Open": 1031.0, "High": 1032, "Low": 1023.72, "Close": 1030.8, "Volume": 1000},
+            {"Open": 1030.8, "High": 1032, "Low": 1030.5, "Close": 1031.9, "Volume": 1200},
+            {"Open": 1031.9, "High": 1033, "Low": 1031.0, "Close": 1031.97, "Volume": 1100},
+        ])
+        sig = check_prior_low_recovered("MU", bars, level, "PWL", AlertType.PWL_RECLAIM, today_open=1031.0)
+        assert sig is None
+
+    def test_no_fire_if_not_back_above(self):
+        level = 277.41
+        bars = _bars([
+            {"Open": 277.0, "High": 277.3, "Low": 275.0, "Close": 276.0, "Volume": 5000},
+            {"Open": 276.0, "High": 277.2, "Low": 275.5, "Close": 276.8, "Volume": 5000},
+        ])
+        sig = check_prior_low_recovered("IWM", bars, level, "PML", AlertType.PML_RECLAIM, today_open=277.0)
+        assert sig is None
+
 
 class TestPDLReclaimWidenedDistance:
     """Verify PDL reclaim fires within the widened 2% max distance."""

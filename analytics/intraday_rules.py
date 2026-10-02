@@ -5814,6 +5814,74 @@ def check_ma_reclaim(
     )
 
 
+def check_prior_low_recovered(
+    symbol: str,
+    bars: pd.DataFrame,
+    level: float | None,
+    label: str,
+    alert_type: "AlertType",
+    today_open: float,
+    prior_day: dict | None = None,
+    other_levels: dict[str, float | None] | None = None,
+) -> AlertSignal | None:
+    """Prior LOW reclaimed FROM BELOW — the mirror of the high breakout-retest, for a lost
+    support. Price OPENED AT/BELOW the prior low (it had lost the level — a gap-down or a slide
+    through it), traded lower, then CLOSED back above it and is holding. This is the open-BELOW
+    recovery the trader wanted (IWM 2026-10-01: opened 277.36 under the PML 277.41, dipped to
+    275.45, recovered to 279). It is DELIBERATELY mutually exclusive with check_ma_reclaim (the
+    open-ABOVE defend): that one needs today_open > level, this one needs today_open <= level —
+    so the same level never double-fires. Long only; same stop/target discipline as the PDL reclaim."""
+    if level is None or level <= 0 or bars.empty:
+        return None
+    if today_open is None or today_open <= 0:
+        return None
+    # OPEN AT/BELOW the level — the "lost it" case. (Open ABOVE is the defend path, check_ma_reclaim.)
+    if today_open > level:
+        return None
+    # must actually have been below (session traded under the level)
+    session_low = float(bars["Low"].min())
+    if session_low > level:
+        return None
+    last_close = float(bars.iloc[-1]["Close"])
+    # back above now
+    if last_close <= level:
+        return None
+    # hold confirmation — 2 of the last 3 bars close above the level (not a single wick through)
+    recent = bars.tail(3)
+    if int((recent["Close"] > level).sum()) < 2:
+        return None
+    # staleness — don't chase a level price already ran well past
+    distance = (last_close - level) / level
+    if distance > PDL_RECLAIM_MAX_DISTANCE_PCT:
+        return None
+    entry = round(last_close, 2)
+    # Level-based stop, SAME as the proven PDL reclaim (check_prior_day_low_reclaim) — the
+    # reclaimed level IS the thesis, so the stop sits just below it. Deliberately NOT _cap_risk'd:
+    # the 0.3% day-trade cap would pull the stop back above the level on these bigger structural
+    # reclaims and kill the signal (that's exactly why IWM's PML never fired). A weekly/monthly
+    # reclaim is a wider, higher-conviction trade; the staleness guard above bounds how far it chases.
+    stop = round(level * (1 - PDL_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    t1, t2 = _targets_for_long(entry, stop, prior_day, emas_above=other_levels)
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=alert_type,
+        direction="BUY",
+        price=last_close,
+        entry=entry,
+        stop=stop,
+        target_1=t1,
+        target_2=t2,
+        confidence="medium",
+        message=(
+            f"{label} reclaimed from below — opened under ${level:.2f}, lost it "
+            f"(low ${session_low:.2f}), closed back above at ${last_close:.2f}"
+        ),
+    )
+
+
 def check_ma_rejection(
     symbol: str,
     bars: pd.DataFrame,
@@ -8969,10 +9037,21 @@ def evaluate_rules(
             # Weekly/monthly/quarterly LEVEL reclaims fire on ALL polled names (2026-09-28) —
             # the poll universe IS the curated fixed set, so no separate focus gate.
             if _lv_at.value in ENABLED_RULES and _lv_lvl:
+                # 1. Open-ABOVE defend (level held as support, wicked + closed back above).
                 sig = check_ma_reclaim(
                     symbol, intraday_bars, _lv_lvl, _lv_lbl, _lv_at, today_open,
                     prior_day=prior_day, other_levels=_other_emas_br,
                 )
+                # 2. For the structural LOWS only: open-BELOW recovery (lost the level, reclaimed
+                #    it from below). Trader 2026-10-02: "the open-above shouldn't be strict for
+                #    monthly and weekly" — a lost prior-low that's reclaimed is a real long
+                #    (IWM gapped under its PML, recovered). Mutually exclusive with the defend
+                #    above (open-above vs open-below), so no double-fire. Highs keep defend-only.
+                if not sig and _lv_at in (AlertType.PWL_RECLAIM, AlertType.PML_RECLAIM, AlertType.PQL_RECLAIM):
+                    sig = check_prior_low_recovered(
+                        symbol, intraday_bars, _lv_lvl, _lv_lbl, _lv_at, today_open,
+                        prior_day=prior_day, other_levels=_other_emas_br,
+                    )
                 if sig:
                     sig.message += f" ({phase})"
                     if vwap_pos:
