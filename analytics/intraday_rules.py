@@ -1241,14 +1241,19 @@ def check_weekly_sma20_support(
     bars: pd.DataFrame,
     wsma20: float | None,
     wsma20_rising: bool,
+    today_open: float = 0,
     prior_close: float | None = None,
 ) -> AlertSignal | None:
-    """Price holding ABOVE a RISING weekly 20 SMA = at weekly swing support in a weekly uptrend.
+    """Daily OPENED ABOVE a RISING weekly 20 SMA = at weekly swing support in a weekly uptrend.
 
-    The swing line trending names ride (SNDK bounced off it; SPY rides just above it). Fires when:
+    The swing line trending names ride (SNDK bounced off it; SPY rides it; AMAT reclaimed + opened
+    back above it). Per the open-above rule, the weekly 20 SMA is SUPPORT only when the day OPENS
+    above it (held) — a day that opens below and ramps up through it is a breakout, not a hold.
+    Fires when:
       - the weekly 20 SMA is RISING (wsma20_rising — up over ~the last month), AND
-      - price is ABOVE it (held after a tag, or reclaimed from just below), AND
-      - price is WITHIN WSMA20_SUPPORT_MAX_DISTANCE_PCT of it (at the line, not extended).
+      - the day OPENED ABOVE it (today_open >= wsma20) and opened WITHIN
+        WSMA20_SUPPORT_MAX_DISTANCE_PCT of it (at the line, a fresh support test, not extended), AND
+      - price is STILL above it now (holding).
     A SWING signal (style_for → swing feed); stop sits a weekly width below the line. Dedup +
     cooldown keep it from re-firing while price sits on the line. Level-based stop, not _cap_risk.
     """
@@ -1256,15 +1261,19 @@ def check_weekly_sma20_support(
         return None
     if bars is None or bars.empty:
         return None
+    # OPEN-ABOVE support: the day opened above the rising weekly 20 SMA (held as support), not
+    # ramped up through it from below (that's a breakout). Mirrors check_ma_reclaim's open-above gate.
+    if today_open is None or today_open <= 0 or today_open < wsma20:
+        return None
+    # Opened AT the line (a fresh support test), not already extended far above it.
+    open_dist = (today_open - wsma20) / wsma20
+    if open_dist > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
+        return None
 
     last_bar = bars.iloc[-1]
     price = float(last_bar["Close"])
-    # Must be holding above the rising weekly line (held or reclaimed from below → both end above).
+    # Still holding above the line now.
     if price <= wsma20:
-        return None
-    # Must be AT the line, not already extended away from it.
-    distance = (price - wsma20) / wsma20
-    if distance > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
         return None
 
     entry = round(wsma20, 2)
@@ -1284,8 +1293,8 @@ def check_weekly_sma20_support(
         target_2=round(entry + 3 * risk, 2),
         confidence="high",
         message=(
-            f"Weekly 20 SMA support — price is holding the RISING weekly 20 SMA ${wsma20:.2f} "
-            f"(now ${price:.2f}, +{distance * 100:.1f}%) — weekly swing support, buy the line"
+            f"Weekly 20 SMA support — opened above the RISING weekly 20 SMA ${wsma20:.2f} "
+            f"(support), holding at ${price:.2f} — weekly swing support, buy the line"
         ),
     )
 
@@ -8923,7 +8932,7 @@ def evaluate_rules(
             sig = check_weekly_sma20_support(
                 symbol, intraday_bars,
                 prior_day.get("wsma20"), bool(prior_day.get("wsma20_rising")),
-                prior_close=prior_close,
+                today_open=today_open, prior_close=prior_close,
             )
             if sig:
                 signals.append(sig)
