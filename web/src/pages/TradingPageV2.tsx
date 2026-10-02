@@ -232,6 +232,8 @@ function CompactWatchlistRow({
   onRemove,
   onToggleFocus,
   focused,
+  tier,
+  onSetTier,
   livePrice,
   rankItem,
   collapsed,
@@ -243,6 +245,8 @@ function CompactWatchlistRow({
   onRemove?: () => void;
   onToggleFocus?: () => void;
   focused?: boolean;
+  tier?: number;                       // 1 = Core (Telegram), 2 = Watch (app only)
+  onSetTier?: (tier: 1 | 2) => void;
   livePrice?: { price: number; change_pct: number };
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
@@ -297,6 +301,35 @@ function CompactWatchlistRow({
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
           </svg>
         </button>
+      )}
+      {/* Tier control — focused: Core/Watch pill (tap to flip). Not focused: a direct
+          "Core | Watch" add so you choose the lane up front instead of defaulting to Watch. */}
+      {onSetTier && signal.source === "watchlist" && (
+        focused ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetTier((tier ?? 1) === 1 ? 2 : 1); }}
+            title={(tier ?? 1) === 1 ? "CORE — pings Telegram. Tap → Watch (app only)." : "WATCH — app feed only. Tap → Core (Telegram)."}
+            className={`shrink-0 mr-1 text-[8px] font-bold uppercase tracking-wide leading-none px-1 py-0.5 rounded border transition-colors ${
+              (tier ?? 1) === 1
+                ? "bg-bullish/15 text-bullish-text border-bullish/40 hover:bg-bullish/25"
+                : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary"}`}
+          >
+            {(tier ?? 1) === 1 ? "Core" : "Watch"}
+          </button>
+        ) : (
+          <span className={`shrink-0 mr-1 flex items-center gap-0.5 ${reveal}`}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSetTier(1); }}
+              title={`Add ${signal.symbol} to CORE (pings Telegram)`}
+              className="text-[8px] font-bold uppercase leading-none px-1 py-0.5 rounded border border-bullish/30 text-bullish-text hover:bg-bullish/15"
+            >Core</button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSetTier(2); }}
+              title={`Add ${signal.symbol} to WATCH (app feed only)`}
+              className="text-[8px] font-bold uppercase leading-none px-1 py-0.5 rounded border border-border-subtle text-text-muted hover:text-text-secondary"
+            >Watch</button>
+          </span>
+        )
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -1701,7 +1734,7 @@ export default function TradingPageV2() {
                 >
                   <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
                 </button>
-                {isFocused && (() => {
+                {isFocused ? (() => {
                   const _core = (tierBySymbol.get(sy) ?? 1) === 1;
                   return (
                     <button
@@ -1717,7 +1750,20 @@ export default function TradingPageV2() {
                       {_core ? "Core" : "Watch"}
                     </button>
                   );
-                })()}
+                })() : (
+                  <span className="flex items-center gap-0.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: 1 }); }}
+                      title={`Add ${sy} to CORE (pings Telegram)`}
+                      className="text-[9px] font-bold uppercase leading-none px-1.5 py-0.5 rounded border border-bullish/30 text-bullish-text hover:bg-bullish/15 transition-colors"
+                    >Core</button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: 2 }); }}
+                      title={`Add ${sy} to WATCH (app feed only)`}
+                      className="text-[9px] font-bold uppercase leading-none px-1.5 py-0.5 rounded border border-border-subtle text-text-muted hover:text-text-secondary transition-colors"
+                    >Watch</button>
+                  </span>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); inWl ? _removeSymbol.mutate(sy) : addSymbol.mutate(sy); }}
                   title={inWl ? `Remove ${sy} from your watchlist` : `Add ${sy} to your watchlist`}
@@ -1750,6 +1796,8 @@ export default function TradingPageV2() {
       onRemove={() => _removeSymbol.mutate(s.symbol)}
       onToggleFocus={() => toggleFocusMut.mutate(s.symbol)}
       focused={focusSymbols.has(s.symbol)}
+      tier={tierBySymbol.get(s.symbol)}
+      onSetTier={(t) => setTierMut.mutate({ symbol: s.symbol, tier: t })}
       livePrice={livePrices[s.symbol]}
       rankItem={rankMap.get(s.symbol)}
       collapsed={!watchlistExpanded}
