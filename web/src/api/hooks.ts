@@ -596,6 +596,8 @@ export interface WatchlistItem {
   symbol: string;
   group_id?: number | null;
   focus?: boolean;
+  // 1 = A (core → Telegram + feed) · 2 = B (watch → app feed only) · null = non-focus
+  focus_tier?: number | null;
 }
 
 export interface WatchlistGroup {
@@ -1251,6 +1253,31 @@ export function useToggleWatchlistFocus() {
     onError: (_err, _sym, ctx) => {
       if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
       toast.error("Couldn't update focus");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
+  });
+}
+
+// Set a focus name's delivery tier — 1 = A (core → Telegram), 2 = B (watch → app feed only).
+// Optimistic so the pill flips instantly; rollback on error.
+export function useSetFocusTier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ symbol, tier }: { symbol: string; tier: 1 | 2 }) =>
+      api.post<WatchlistItem>(`/watchlist/focus/${symbol}/tier/${tier}`, {}),
+    onMutate: async ({ symbol, tier }) => {
+      await qc.cancelQueries({ queryKey: ["watchlist"] });
+      const prev = qc.getQueryData<WatchlistItem[]>(["watchlist"]);
+      qc.setQueryData<WatchlistItem[]>(["watchlist"], (old) =>
+        (old ?? []).map((w) =>
+          w.symbol === symbol ? { ...w, focus: true, focus_tier: tier } : w,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["watchlist"], ctx.prev);
+      toast.error("Couldn't update tier");
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["watchlist"] }),
   });

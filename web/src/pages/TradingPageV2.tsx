@@ -26,6 +26,7 @@ import {
   useCopySectorsWatchlist,
   useRemoveSymbol,
   useToggleWatchlistFocus,
+  useSetFocusTier,
   useClearWatchlistFocus,
   useLivePrices,
   useWatchlistRank,
@@ -1013,6 +1014,14 @@ function SignalFeedTab({
               {isAIScan && (
                 <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
               )}
+              {a.channel === "app" && (
+                <span
+                  title={`Tier B (watch) — ${a.symbol} is a Focus-B name, so this was recorded to the feed but NOT pushed to Telegram.`}
+                  className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+                >
+                  App-only
+                </span>
+              )}
               {colLabel && (
                 <span
                   title={`Collapsed by dedup — ${a.suppressed_reason}. Recorded, not delivered (one alert per price level).`}
@@ -1337,9 +1346,14 @@ export default function TradingPageV2() {
   const _removeSymbol = useRemoveSymbol(); void _removeSymbol;
   const toggleFocusMut = useToggleWatchlistFocus();
   const clearFocusMut = useClearWatchlistFocus();
+  const setTierMut = useSetFocusTier();
   const watchlistSymbols = new Set(watchlistItems?.map((w) => w.symbol) ?? []);
   const focusSymbols = new Set(
     (watchlistItems ?? []).filter((w) => w.focus).map((w) => w.symbol),
+  );
+  // symbol → delivery tier (1=A Telegram, 2=B app-only). Default A if a focus row has no tier.
+  const tierBySymbol = new Map<string, number>(
+    (watchlistItems ?? []).filter((w) => w.focus).map((w) => [w.symbol, w.focus_tier ?? 1]),
   );
   // Signals-feed Focus filter — driven by the SETTING, not a feed tab. When the
   // user's "Focus only" alert setting (server-side daytrade_focus_only) is ON, the
@@ -1659,6 +1673,23 @@ export default function TradingPageV2() {
                 >
                   <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
                 </button>
+                {isFocused && (() => {
+                  const _tier = tierBySymbol.get(sy) ?? 1;
+                  return (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: _tier === 1 ? 2 : 1 }); }}
+                      title={_tier === 1
+                        ? `${sy} is Tier A (core → Telegram) — tap to move to B (app only)`
+                        : `${sy} is Tier B (watch → app only) — tap to move to A (Telegram)`}
+                      className={`text-[8px] font-bold leading-none px-1 py-0.5 rounded border transition-colors ${
+                        _tier === 1
+                          ? "bg-bullish/15 text-bullish-text border-bullish/30"
+                          : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary"}`}
+                    >
+                      {_tier === 1 ? "A" : "B"}
+                    </button>
+                  );
+                })()}
                 <button
                   onClick={(e) => { e.stopPropagation(); inWl ? _removeSymbol.mutate(sy) : addSymbol.mutate(sy); }}
                   title={inWl ? `Remove ${sy} from your watchlist` : `Add ${sy} to your watchlist`}
