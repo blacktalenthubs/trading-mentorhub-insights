@@ -234,11 +234,12 @@ class TestNewAlertTypeEnums:
 
 class TestEnabledRulesPhase3b:
     # 2026-10-02 trader directive: daily EMA/MA trimmed to 20/50/150/200 SMA + 200 EMA.
-    # The fast daily EMAs (8/21/50/100) were noise and are now OFF (8 EMA = noise, 20 EMA
-    # covered by 20 SMA, 50 SMA preferred over 50 EMA, no 100 on either).
-    def test_ema_bounce_8_disabled(self):
-        from alert_config import ENABLED_RULES
-        assert "ema_bounce_8" not in ENABLED_RULES
+    # The fast daily EMAs (21/50/100) are OFF. The 8 EMA is a special case: OFF for single
+    # names but RE-ENABLED as a market-gauge read, symbol-gated to SPY/QQQ/DRAM/IWM.
+    def test_ema_bounce_8_enabled_for_gauge(self):
+        from alert_config import ENABLED_RULES, MARKET_GAUGE_SYMBOLS
+        assert "ema_bounce_8" in ENABLED_RULES
+        assert MARKET_GAUGE_SYMBOLS == {"SPY", "QQQ", "DRAM", "IWM"}
 
     def test_ema_bounce_21_disabled(self):
         from alert_config import ENABLED_RULES

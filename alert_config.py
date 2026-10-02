@@ -555,6 +555,12 @@ SPY_SHORT_SYMBOLS = {"SPY", "QQQ", "AIQ", "NDX"}    # index/index-style symbols 
 # weekend). Every other symbol in SCANNER_UNIVERSE is long-only.
 SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "DRAM"}  # 2026-09-14 (user): index/proxy shorts
 
+# 2026-10-02 (trader): the daily 8-EMA bounce is noise on single names, but on the broad-market
+# proxies it's a useful read on overall-market momentum (is the tape bouncing off its fast line?).
+# So ema_bounce_8 is RE-ENABLED but gated to these gauges ONLY — a market-breadth signal, not a
+# per-name entry. Mirrors SHORT_UNIVERSE: the rule is in ENABLED_RULES, symbol-gated at generation.
+MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
+
 # Wick rejection: demote confidence when touch was wick-only (no body involvement)
 # In choppy markets, wicks create false touches at support levels
 WICK_REJECTION_CLOSE_PCT = 0.005  # 0.5% — close must be within this of entry level
@@ -701,6 +707,10 @@ ENABLED_RULES: set[str] = {
     # evaluate_rules(); this gate just stops delivering them. Re-add a line here to turn one back on.
     "ma_bounce_20", "ma_bounce_50", "ma_bounce_150", "ma_bounce_200",
     "ema_bounce_200",
+    # ema_bounce_8 is SYMBOL-GATED to MARKET_GAUGE_SYMBOLS (SPY/QQQ/DRAM/IWM) at generation
+    # time in intraday_rules.py — a broad-market momentum read, NOT a per-name entry. Enabled
+    # here so it delivers; it will only ever fire for those four gauges.
+    "ema_bounce_8",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds

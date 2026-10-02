@@ -26,6 +26,7 @@ from analytics.focus_gate import focus_symbols  # focus-driven gate for level al
 
 from alert_config import (
     SHORT_UNIVERSE,
+    MARKET_GAUGE_SYMBOLS,
     BOUNCE_ALERT_TYPES,
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
@@ -8857,7 +8858,9 @@ def evaluate_rules(
         # --- EMA Bounces ---
         # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.
         # EMA20 retained for backwards compat but disabled in ENABLED_RULES.
-        if AlertType.EMA_BOUNCE_8.value in ENABLED_RULES:
+        # 8-EMA bounce is a MARKET-GAUGE read only — gated to SPY/QQQ/DRAM/IWM (broad-market
+        # momentum, not a per-name entry). Noise on single names; useful on the indices.
+        if AlertType.EMA_BOUNCE_8.value in ENABLED_RULES and symbol.upper() in MARKET_GAUGE_SYMBOLS:
             sig = check_ema_bounce_8(
                 symbol, intraday_bars, ema8, ema21,
                 prior_day=prior_day, ema50=ema50, ema100=ema100, ema200=ema200,
