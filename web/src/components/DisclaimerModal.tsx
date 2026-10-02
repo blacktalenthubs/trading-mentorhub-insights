@@ -46,8 +46,8 @@ export default function DisclaimerModal() {
 /** Subtle, always-present reminder — drop at the bottom of a feed/page. */
 export function DisclaimerFooter() {
   return (
-    <p className="px-4 py-3 text-center text-[10px] leading-relaxed text-text-faint">
-      Educational purposes only — not financial advice. New to these setups? Paper trade them first.
+    <p className="px-3 py-1.5 text-center text-[9px] text-text-faint">
+      Educational only — not financial advice.
     </p>
   );
 }
