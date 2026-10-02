@@ -91,6 +91,7 @@ export interface Alert {
   cvd_delta?: number | null;
   cvd_diverging?: number | null;
   suppressed_reason?: string | null;
+  channel?: string | null;          // 'telegram' = tier-A (pushed) · 'app' = tier-B (feed-only)
   style?: "day_trade" | "swing" | "long_term";  // which feed panel it's filed in
   delivered?: boolean;              // was it pushed (Telegram/in-app) vs recorded-only
   exit_price?: number | null;       // user-entered actual close price (Trades page)
