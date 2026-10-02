@@ -401,10 +401,41 @@ async def toggle_focus(
         )
     )).scalar_one_or_none()
     if item is None:
-        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True)
+        # New focus star lands in tier B (watch / app-feed-only). Promote to A deliberately.
+        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True, focus_tier=2)
         db.add(item)
     else:
         item.focus = not item.focus
+        if item.focus and item.focus_tier is None:
+            item.focus_tier = 2                 # re-focused with no tier → default B
+    await db.flush()
+    return item
+
+
+@router.post("/focus/{symbol}/tier/{tier}", response_model=WatchlistItemResponse)
+async def set_focus_tier(
+    symbol: str,
+    tier: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set a focus name's delivery tier: 1 = A (core → Telegram + feed), 2 = B (watch → app
+    feed only). Setting a tier implies focus ON. Adds the symbol if it isn't on the watchlist."""
+    if tier not in (1, 2):
+        raise HTTPException(status_code=400, detail="tier must be 1 (A) or 2 (B)")
+    sym = symbol.upper().strip()
+    item = (await db.execute(
+        select(WatchlistItem).where(
+            WatchlistItem.user_id == user.id,
+            WatchlistItem.symbol == sym,
+        )
+    )).scalar_one_or_none()
+    if item is None:
+        item = WatchlistItem(user_id=user.id, symbol=sym, focus=True, focus_tier=tier)
+        db.add(item)
+    else:
+        item.focus = True
+        item.focus_tier = tier
     await db.flush()
     return item
 

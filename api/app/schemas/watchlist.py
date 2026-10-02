@@ -12,6 +12,8 @@ class WatchlistItemResponse(BaseModel):
     symbol: str
     group_id: Optional[int] = None
     focus: bool = False
+    # 1 = A (core → Telegram + feed) · 2 = B (watch → app feed only) · None = non-focus
+    focus_tier: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
