@@ -717,9 +717,9 @@ ENABLED_RULES: set[str] = {
     # time in intraday_rules.py — a broad-market momentum read, NOT a per-name entry. Enabled
     # here so it delivers; it will only ever fire for those four gauges.
     "ema_bounce_8",
-    # Weekly rising 20 SMA support (2026-10-02) — the swing line trending names ride (SNDK/SPY).
-    # Price above + near a RISING weekly 20 SMA = weekly swing support. Swing feed.
-    "wsma20_support",
+    # Weekly rising 20/50/200 SMA support (2026-10-02) — the swing lines trending names ride
+    # (SNDK/SPY/SMH). Daily opens above a RISING weekly SMA = weekly swing support. Swing feed.
+    "wsma20_support", "wsma50_support", "wsma200_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
