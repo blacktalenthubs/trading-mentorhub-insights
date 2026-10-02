@@ -218,35 +218,29 @@ SCANNER_UNIVERSE: list[str] = [
     "PLTR", "MRNA", "NOW", "USO", "SPY", "NBIS", "MU", "META", "SMH", "NVDA",
     "CRDO", "GOOGL", "DRAM", "ABNB",
     "TSLA", "ARM", "SPOT", "SPCX",   # added 2026-09-30 (trader)
-    # Crypto (internal -USD form → is_crypto + 24/7 crypto data path via Coinbase). Widened
-    # 2026-09-30 — 24/7 coverage + a live canary to verify the scanner outside market hours.
-    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD", "AVAX-USD", "LINK-USD", "LTC-USD",
+    # Crypto (internal -USD form → is_crypto + 24/7 crypto data path via Coinbase). 2026-10-02
+    # (trader): ONLY BTC/ETH — the rest (SOL/XRP/DOGE/…) aren't wanted, and the trader curates
+    # any crypto they DO want via focus + tiers. BTC/ETH stay the always-on 24/7 heartbeat.
+    "BTC-USD", "ETH-USD",
 ]
 
-# Crypto canary — always scanned regardless of focus, so the 24/7 data path gives us a
-# live heartbeat that the scanner is firing even when the equity market is closed.
-_CRYPTO_CANARY: list[str] = [s for s in SCANNER_UNIVERSE if s.endswith("-USD")]
-
-
 def scan_universe() -> list[str]:
-    """The symbols the scanner polls = the trader's FOCUS stars (user 3, managed in the
-    app — star a name to add it, no code edit) UNION the crypto canary (always on for the
-    24/7 heartbeat). Falls back to the hardcoded SCANNER_UNIVERSE if the focus read yields
-    nothing usable, so the money path is never left with an empty or tiny universe.
+    """The symbols the scanner polls = the trader's FOCUS stars, PERIOD — managed entirely in
+    the app (star a name to add it, no code edit). Crypto is no hardcoded special case: BTC/ETH
+    scan 24/7 because they're starred, like anything else. The hardcoded SCANNER_UNIVERSE is only
+    a last-resort fallback for when the focus read fails or comes back empty, so the money path
+    is never left with nothing.
 
-    2026-09-30 (trader): "drive this using the focus items so i can easily add more to
-    focus." focus_symbols() is DB-backed with a 5-min cache + a static fallback of its own,
-    so this adds no new hard dependency to the hot poll loop."""
+    2026-10-02 (trader): "i thought these are managed from the focus tab?" — yes; removed the
+    crypto canary so the universe is purely focus-driven. focus_symbols() is DB-backed with a
+    5-min cache + a static fallback of its own, so this adds no new hard dependency to the poll."""
     try:
         focus = {s.upper() for s in _focus_symbols()}
     except Exception:
         focus = set()
-    syms = focus | {s.upper() for s in _CRYPTO_CANARY}
-    # Safety net: if focus somehow collapsed to just the crypto canary (DB down AND a tiny
-    # static fallback), fall back to the full hardcoded universe rather than scan crypto-only.
-    if len(syms) <= len(_CRYPTO_CANARY):
-        return list(SCANNER_UNIVERSE)
-    return sorted(syms)
+    if not focus:
+        return list(SCANNER_UNIVERSE)      # focus read failed/empty → emergency fallback only
+    return sorted(focus)
 
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
