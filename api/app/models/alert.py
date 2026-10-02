@@ -103,6 +103,9 @@ class Alert(Base):
     mae_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     minutes_to_mfe: Mapped[Optional[int]] = mapped_column(Integer)
     outcome_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # Delivery channel (2026-10-01, focus tiers): 'telegram' = tier-A, pushed; 'app' = tier-B,
+    # recorded to the live feed but NOT pushed to Telegram/APNs. NULL on legacy/suppressed rows.
+    channel: Mapped[Optional[str]] = mapped_column(String(10))
     # Strategy Analysis — REAL forward % return from the alert price to a later
     # close. Populated by analytics/forward_returns.py. Baseline is `price` (the
     # fire price), NOT entry. Measures whether the move actually held:

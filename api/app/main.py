@@ -84,6 +84,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Migration ALTER TABLE watchlist.group_id: %s", e)
 
+        # Focus TIER (2026-10-01): 1 = A (core → Telegram), 2 = B (watch → app feed only).
+        # Backfill every EXISTING focus name to A so delivery is unchanged until the trader
+        # deliberately demotes names to B; new focus stars default to B in the API.
+        try:
+            await conn.execute(text(
+                "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS focus_tier SMALLINT"
+            ))
+            await conn.execute(text(
+                "UPDATE watchlist SET focus_tier = 1 WHERE focus = TRUE AND focus_tier IS NULL"
+            ))
+            logger.info("Migration: watchlist.focus_tier column ensured + existing focus→A")
+        except Exception as e:
+            logger.warning("Migration ALTER TABLE watchlist.focus_tier: %s", e)
+
         # Give existing free users a 3-day trial (one-time migration)
         try:
             result = await conn.execute(text(
@@ -250,6 +264,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mfe_at TIMESTAMP",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS mae_at TIMESTAMP",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS minutes_to_mfe INTEGER",
+            # Delivery channel for focus tiers: 'telegram' (tier-A) | 'app' (tier-B, feed-only).
+            "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS channel VARCHAR(10)",
             "ALTER TABLE alerts ADD COLUMN IF NOT EXISTS outcome_computed_at TIMESTAMP",
             # Strategy Analysis — real close-to-close forward returns (EOD + EOW).
             # Computed by analytics/forward_returns.py; baseline is the fire price.

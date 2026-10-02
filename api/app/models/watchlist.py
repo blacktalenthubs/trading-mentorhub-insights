@@ -45,4 +45,8 @@ class WatchlistItem(Base):
     # the full firehose so they can catch unexpected fires on non-focus names.
     # Sticky until user clears (no nightly reset).
     focus: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
+    # Focus TIER (2026-10-01) — among focus names, which delivery lane:
+    #   1 = A (core)  → Telegram + app feed    ·    2 = B (watch) → app feed only (no ping)
+    # NULL for a non-focus row. New focus stars default to B; existing focus backfilled to A.
+    focus_tier: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
