@@ -35,6 +35,7 @@ from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
 from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
 from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
+from analytics.focus_gate import focus_tier_of as _focus_tier_of  # noqa: E402  # A/B delivery tier
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
 
 logger = logging.getLogger("monitor")
@@ -1354,6 +1355,26 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     if _send_notification and _is_entry:
                         _entry_type_day.add(_etd_key)
 
+                    # ── Focus TIER delivery gate (2026-10-01) — A = Telegram + feed, B = feed
+                    # ONLY (no ping), not-in-focus = held back. `_deliver_push` splits the
+                    # Telegram/APNs push from the clean-feed record: a tier-B name still records
+                    # clean + hits the live feed (SSE) but never pings; a non-focus name (e.g. a
+                    # canary crypto like XRP that's SCANNED for the heartbeat but unstarred) is
+                    # suppressed entirely. On a tier-read miss, focus_tier_of() defaults a focus
+                    # name to A, so Telegram delivery can't silently break.
+                    _deliver_push = _send_notification
+                    if _send_notification:
+                        _tier = _focus_tier_of(symbol)
+                        if _tier is None:                      # not in focus → don't deliver
+                            _send_notification = False
+                            _deliver_push = False
+                            _suppressed = "not_in_focus"
+                        elif _tier == 2:                       # B (watch) → app feed only
+                            _deliver_push = False
+                            alert.channel = "app"
+                        else:                                  # A (core) → ping everywhere
+                            alert.channel = "telegram"
+
                     # Stamp WHY it didn't send on the row itself. The feed's clean
                     # view shows suppressed_reason IS NULL — i.e. what actually
                     # delivered — and the "Show collapsed" toggle reveals the rest.
@@ -1390,8 +1411,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         except Exception:
                             pass
 
-                    # Telegram notification (per-user)
-                    if _send_notification:
+                    # Telegram notification (per-user) — gated on _deliver_push so a tier-B
+                    # (app-feed-only) alert records + SSEs but never pings Telegram.
+                    if _deliver_push:
                         _user = user_rows.get(user_id)
                         if not _user:
                             logger.warning("NOTIFY SKIP: user=%d — not in user_rows", user_id)
@@ -1445,8 +1467,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 getattr(_user, 'telegram_chat_id', None),
                             )
 
-                    # Push notification (APNs) — only if preference allows
-                    if _send_notification:
+                    # Push notification (APNs) — only if preference allows; tier-B is feed-only
+                    # so it's gated on _deliver_push too (no phone push for a watch-tier name).
+                    if _deliver_push:
                         try:
                             from app.models.device_token import DeviceToken
                             from app.services.push_service import send_push_sync
