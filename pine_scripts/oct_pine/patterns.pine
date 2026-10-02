@@ -571,7 +571,7 @@ vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ?
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 14, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 9, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -581,22 +581,26 @@ f_row(t, r, key, val, c) =>
 if showHUD and barstate.islast
     // Interpretive context ONLY — the prices (support / resistance / recent low / TBA /
     // inner TBA / pattern stop) are drawn as lines on the chart, so they're not repeated here.
-    heldTxt = na(LsupL) ? "-" : LheldN > 0 ? "held " + str.tostring(LheldN) + "x / 10d" : "untested"
     tfTag   = lockLevels ? " (" + levelTf + ")" : ""
     rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
     rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
+    // Extension from the 20 SMA — how stretched price is from its fast line (mean-reversion /
+    // "don't chase" context). Reads the plotted 20 SMA (sma20v) vs price, so it tracks the line
+    // you see. white = at the line (actionable), orange = extended, red = stretched, blue = below.
+    ext20   = na(sma20v) or sma20v <= 0 ? float(na) : (close - sma20v) / sma20v * 100
+    ext20A  = math.abs(ext20)
+    extTxt  = na(ext20) ? "-" : (ext20 >= 0 ? "+" : "") + str.tostring(ext20, "#.#") + "%  " + (ext20A < 4 ? "at the line" : ext20 >= 10 ? "stretched · don't chase" : ext20 <= -10 ? "deep below" : ext20 > 0 ? "extended" : "below")
+    extCol  = na(ext20) ? color.gray : ext20A < 4 ? color.white : ext20 >= 10 ? color.red : ext20 <= -10 ? color.aqua : ext20 > 0 ? color.orange : #4FC3F7
+    // Lean HUD (trader directive): the essentials only — pattern (if any), its status, how
+    // extended price is from the 20 SMA, volume, RSI. Stage/Playbook/50-SMA-trend/support-tested
+    // and the duplicate volume rows were cut. The Zanger volume-ratio block stays behind showVR.
     f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
-    f_row(hud, 1, "Stage", Lstg, LsgC)
-    f_row(hud, 2, "Playbook", Lplay, LsgC)
-    f_row(hud, 3, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
-    f_row(hud, 4, "Status", Lstat, LstC)
-    f_row(hud, 5, "Support tested", heldTxt, LheldN > 0 ? color.lime : color.gray)
-    f_row(hud, 6, "Breakout day vol", LbrkT, LbrkC)
-    f_row(hud, 7, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
-    f_row(hud, 8, "5-day volume", LvolT, LvolT == "Drying up" ? color.lime : color.white)
-    f_row(hud, 9, "50 SMA trend", LtrOK ? "Above & rising" : "Weak", LtrOK ? color.lime : color.orange)
-    f_row(hud, 10, "RSI 14", rsiTxt, rsiCol)
+    f_row(hud, 1, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
+    f_row(hud, 2, "Status", La ? Lstat : "-", La ? LstC : color.gray)
+    f_row(hud, 3, "Ext · 20 SMA", extTxt, extCol)
+    f_row(hud, 4, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
+    f_row(hud, 5, "RSI 14", rsiTxt, rsiCol)
     if showVR
-        f_row(hud, 11, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
-        f_row(hud, 12, "Vol pace", vrPaceTxt, vrPaceCol)
-        f_row(hud, 13, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
+        f_row(hud, 6, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
+        f_row(hud, 7, "Vol pace", vrPaceTxt, vrPaceCol)
+        f_row(hud, 8, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
