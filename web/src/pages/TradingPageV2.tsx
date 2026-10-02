@@ -442,6 +442,15 @@ function SignalFeedTab({
   const [showCollapsed, setShowCollapsed] = useState<boolean>(
     () => typeof window !== "undefined" && localStorage.getItem("show_collapsed") === "1",
   );
+  // Focus-tier feed filter: all · core (A, pinged Telegram) · watch (B, app-only). Lets the
+  // trader isolate the Core names at the open and the Watch names when they have eyes on the app.
+  const [tierFilter, setTierFilter] = useState<"all" | "core" | "watch">(
+    () => (typeof window !== "undefined" && (localStorage.getItem("feed_tier") as "all" | "core" | "watch")) || "all",
+  );
+  function setTierFilterPersist(v: "all" | "core" | "watch") {
+    setTierFilter(v);
+    try { localStorage.setItem("feed_tier", v); } catch { /* ignore */ }
+  }
   function toggleShowCollapsed() {
     setShowCollapsed((p) => {
       const next = !p;
@@ -564,7 +573,9 @@ function SignalFeedTab({
   // (2026-09-30 trader: "why send these notice when there's no buy signal … not needed").
   // isExitAlert kept as an explicit belt-and-suspenders guard. Only the clean set ever pings.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => !isExitAlert(a.alert_type) && isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason),
+    (a) => !isExitAlert(a.alert_type) && isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason)
+      && (tierFilter === "all"
+          || (tierFilter === "watch" ? a.channel === "app" : a.channel !== "app")),
   );
   // Count of suppressed ENTRY candidates hidden from the clean feed (not-sent + deduped) — toggle badge.
   const collapsedCount = (alerts ?? []).filter(
@@ -807,6 +818,23 @@ function SignalFeedTab({
               <X className="h-3 w-3" />
             </button>
           )}
+        </div>
+        {/* Focus-tier filter — Core (A, Telegram) vs Watch (B, app-only). */}
+        <div className="shrink-0 flex items-center rounded border border-border-subtle overflow-hidden">
+          {(["all", "core", "watch"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTierFilterPersist(t)}
+              title={t === "core" ? "Core (Tier A) — the names that ping Telegram"
+                : t === "watch" ? "Watch (Tier B) — app-only, never pinged" : "All tiers"}
+              className={`text-[10px] px-2 py-1 transition-colors ${
+                tierFilter === t
+                  ? "bg-accent/15 text-accent font-semibold"
+                  : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+            >
+              {t === "all" ? "All" : t === "core" ? "Core" : "Watch"}
+            </button>
+          ))}
         </div>
         <button
           onClick={() => setFiltersOpen((v) => !v)}
