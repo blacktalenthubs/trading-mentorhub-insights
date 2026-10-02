@@ -46,6 +46,7 @@ color_mode = input.string("per-line", "Line color", options = ["per-line", "role
 sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int(60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
+line_full  = input.bool(true, "Extend lines across the whole chart", group = gSt, tooltip = "ON: each line runs edge-to-edge (extends left from the tag) so it covers the chart on ANY timeframe, even 1m — the bars-back length above is then just where the solid segment starts. OFF: the line is only the fixed bars-back length, which looks short when you zoom into 1m/5m.")
 merge_pct  = input.float(0.25, "Merge SMAs within (%) into ONE line", minval = 0.0, maxval = 3, step = 0.05, group = gSt) / 100.0
 lbl_gap    = input.float(0.08, "De-overlap labels within (%)", minval = 0.0, maxval = 1, step = 0.02, group = gSt, tooltip = "Two SMAs too close to MERGE but close enough that their right-edge tags would collide get nudged apart vertically — the LINE stays on its true price, only the text box shifts. 0 = off.") / 100.0
 by_role    = color_mode != "per-line"
@@ -154,7 +155,7 @@ if barstate.islast
             if lbl_gap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
                 _lblY := _lastLbl + _gap
             _lastLbl := _lblY
-            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty))
+            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty, extend = line_full ? extend.left : extend.none))
             array.push(_lb, label.new(bar_index + 6, _lblY, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
             _i := _j
 
