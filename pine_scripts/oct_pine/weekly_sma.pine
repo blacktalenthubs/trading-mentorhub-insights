@@ -18,6 +18,10 @@ showLbl  = input.bool(true, "Right-edge labels", group=g2)
 showHUD  = input.bool(true, "Show table", group=g2)
 hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g2)
 
+g3 = "Scanner support markers (wsma20_support / wsma50_support)"
+showSig = input.bool(true, "Mark scanner support days", group=g3)
+maxDist = input.float(4.0, "Open within % above the line", step=0.5, group=g3, tooltip="alert_config.WSMA20_SUPPORT_MAX_DISTANCE_PCT") / 100
+
 // [value, value one week earlier] — the prior-week value gives the slope (rising / falling).
 wSma(len) =>
     s = ta.sma(close, len)
@@ -36,6 +40,31 @@ w2p = useLive ? l2p : c2p
 
 plot(showLine ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
 plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
+
+// ── Scanner support markers ──
+// Mirrors analytics/intraday_rules.py _check_weekly_sma_support + intraday_data._weekly_sma_family:
+//   level  = SMA of COMPLETED weeks only (current partial week dropped)
+//   rising = level > its value 4 completed weeks earlier
+//   fire   = the day OPENS at/above the level and within maxDist above it
+// Always uses completed weeks, regardless of the live/closed display toggle. Daily chart: marker on
+// the day's bar; intraday: on the first bar of the day. Line color = day closed above the line (held),
+// gray = it fired at the open but closed back below.
+[s1, s1r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[5]], lookahead=barmerge.lookahead_on)
+[s2, s2r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[5]], lookahead=barmerge.lookahead_on)
+
+sigTf  = timeframe.isdaily or timeframe.isintraday
+dayBar = timeframe.isintraday ? timeframe.change("D") : true
+wkSup(lvl, lvlPrev) => showSig and sigTf and dayBar and not na(lvl) and not na(lvlPrev) and lvl > lvlPrev and open >= lvl and (open - lvl) / lvl <= maxDist
+sig1 = wkSup(s1, s1r)
+sig2 = wkSup(s2, s2r)
+held(lvl) => timeframe.isdaily ? close > lvl : true
+
+plotshape(sig1 and held(s1), "W20 support (held)", shape.triangleup, location.belowbar, col1, text="W20", textcolor=col1, size=size.small)
+plotshape(sig1 and not held(s1), "W20 support (closed below)", shape.triangleup, location.belowbar, color.gray, text="W20", textcolor=color.gray, size=size.small)
+plotshape(sig2 and held(s2), "W50 support (held)", shape.diamond, location.belowbar, col2, text="W50", textcolor=col2, size=size.small)
+plotshape(sig2 and not held(s2), "W50 support (closed below)", shape.diamond, location.belowbar, color.gray, text="W50", textcolor=color.gray, size=size.small)
+alertcondition(sig1, "Weekly 20 SMA support", "{{ticker}} opened above rising weekly 20 SMA")
+alertcondition(sig2, "Weekly 50 SMA support", "{{ticker}} opened above rising weekly 50 SMA")
 
 distPct(lvl) => na(lvl) ? na : (close - lvl) / lvl * 100
 slopeTxt(v, vp) => na(v) or na(vp) ? "" : v > vp ? "rising" : v < vp ? "falling" : "flat"
