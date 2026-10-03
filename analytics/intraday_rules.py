@@ -195,8 +195,9 @@ class AlertType(str, Enum):
     MA_BOUNCE_100 = "ma_bounce_100"
     MA_BOUNCE_150 = "ma_bounce_150"
     MA_BOUNCE_200 = "ma_bounce_200"
-    # Weekly rising 20/50/200 SMA support — the swing lines trending names ride (SNDK/SPY/SMH).
-    # Daily opens above a RISING weekly SMA = at weekly support in a weekly uptrend.
+    # Weekly rising 8/20/50/200 SMA support — the swing lines trending names ride (SPCX rides the
+    # W8, SNDK the W20, SMH opens back above it). Daily opens above a RISING weekly SMA = support.
+    WSMA8_SUPPORT = "wsma8_support"
     WSMA20_SUPPORT = "wsma20_support"
     WSMA50_SUPPORT = "wsma50_support"
     WSMA200_SUPPORT = "wsma200_support"
@@ -1297,6 +1298,10 @@ def _check_weekly_sma_support(
             f"${wsma:.2f} (support), holding at ${price:.2f} — weekly swing support, buy the line"
         ),
     )
+
+
+def check_weekly_sma8_support(symbol, bars, wsma8, wsma8_rising, today_open=0, prior_close=None):
+    return _check_weekly_sma_support(symbol, bars, wsma8, wsma8_rising, "8", AlertType.WSMA8_SUPPORT, today_open)
 
 
 def check_weekly_sma20_support(symbol, bars, wsma20, wsma20_rising, today_open=0, prior_close=None):
@@ -8939,8 +8944,9 @@ def evaluate_rules(
             sig.message += caution_suffix
             signals.append(sig)
 
-        # --- Weekly rising 20 / 50 / 200 SMA support (swing) ---
+        # --- Weekly rising 8 / 20 / 50 / 200 SMA support (swing) ---
         for _wk_at, _wk_fn, _wk_val, _wk_rise in (
+            (AlertType.WSMA8_SUPPORT, check_weekly_sma8_support, "wsma8", "wsma8_rising"),
             (AlertType.WSMA20_SUPPORT, check_weekly_sma20_support, "wsma20", "wsma20_rising"),
             (AlertType.WSMA50_SUPPORT, check_weekly_sma50_support, "wsma50", "wsma50_rising"),
             (AlertType.WSMA200_SUPPORT, check_weekly_sma200_support, "wsma200", "wsma200_rising"),

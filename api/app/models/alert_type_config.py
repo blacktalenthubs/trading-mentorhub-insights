@@ -361,6 +361,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "ma_bounce_long_v3_ema100": "Intraday price pulled back to the 100 EMA in an uptrend and bounced — wider trend support.",
     "ma_bounce_long_v3_ema200": "Intraday price pulled back to the 200 EMA in an uptrend and bounced — major trend support.",
     "ma_bounce_long_v3_sma":    "Intraday price pulled back to a major SMA (50/100/200) and bounced — institutional level support.",
+    "wsma8_support":            "The day OPENED above a RISING weekly 8 SMA — the fastest weekly line a strong trend rides (names in powerful uptrends never pull back to the 20). Weekly uptrend support; buy the line, stop a weekly width below. Multi-day swing hold.",
     "wsma20_support":           "The day OPENED above a RISING weekly 20 SMA — the fast swing line a trending name rides. Weekly uptrend support; buy the line, stop a weekly width below. Multi-day swing hold.",
     "wsma50_support":           "The day OPENED above a RISING weekly 50 SMA — the intermediate weekly swing line. A deeper pullback/reclaim in a weekly uptrend; buy the line, stop a weekly width below. Multi-day swing hold.",
     "wsma200_support":          "The day OPENED above a RISING weekly 200 SMA — the major long-term weekly trend line. A rare deep pullback to primary support in a bull trend; buy the line, stop a weekly width below. Multi-day swing hold.",
