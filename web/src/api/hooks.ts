@@ -1987,6 +1987,16 @@ export function useAlertsForDate(date: string) {
   });
 }
 
+// All alerts for the Mon-Sun week containing `anchor` (any YYYY-MM-DD in that week),
+// oldest-first — powers the weekend "Week view" review. Server-side filtered like for-date.
+export function useAlertsForWeek(anchor: string) {
+  return useQuery({
+    queryKey: ["alerts-week", anchor],
+    queryFn: () => api.get<Alert[]>(`/alerts/for-week/${anchor}`),
+    enabled: !!anchor,
+  });
+}
+
 // --- Performance Breakdown ---
 
 export function usePerformanceBreakdown() {

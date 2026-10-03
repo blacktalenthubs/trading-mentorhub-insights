@@ -8,7 +8,7 @@
  *  Mobile: full-width chart + bottom tabs for AI/Signals
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   useScanner,
@@ -17,6 +17,7 @@ import {
   useAlertsToday,
   useAlertSessionDates,
   useAlertsForDate,
+  useAlertsForWeek,
   useWatchlist,
   useWatchlistGroups,
   useSectorsWatchlist,
@@ -383,6 +384,23 @@ function formatSessionDate(iso: string): string {
     : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** Day-header label for the Week view, e.g. "Mon Sep 29". */
+function formatDayHeader(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  return isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** Monday (ISO date) of the week containing `iso`, for the "Week of …" hint. */
+function weekOfLabel(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (isNaN(d.getTime())) return iso;
+  const dow = (d.getDay() + 6) % 7; // Mon=0
+  d.setDate(d.getDate() - dow);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 const fmtPrice = (v: number | null | undefined) =>
   v != null ? `$${v.toFixed(2)}` : "—";
 
@@ -454,11 +472,14 @@ function SignalFeedTab({
   focusSymbols,
   focusOnly = false,
   onFocusOnlyChange,
+  weekMode = false,
 }: {
   alerts?: Alert[];
   alertsError: unknown;
   onSelectSymbol: (sym: string) => void;
   signalDate?: string;
+  // Week view: the feed holds a whole week's alerts (oldest-first); insert day headers.
+  weekMode?: boolean;
   assetFilter?: "all" | "stocks" | "crypto";
   onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
   // The user's starred Focus symbols (from the watchlist). Drives the
@@ -1002,7 +1023,13 @@ function SignalFeedTab({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-          {listAlerts.map((a) => {
+          {listAlerts.map((a, _wkIdx) => {
+        // Week view: emit a day header before the first card of each new day.
+        const wkDay = a.session_date || a.created_at.slice(0, 10);
+        const wkPrevDay = _wkIdx > 0
+          ? (listAlerts[_wkIdx - 1].session_date || listAlerts[_wkIdx - 1].created_at.slice(0, 10))
+          : "";
+        const showDayHeader = weekMode && wkDay !== wkPrevDay;
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
@@ -1037,8 +1064,13 @@ function SignalFeedTab({
           : null;
 
         return (
+          <Fragment key={a.id}>
+          {showDayHeader && (
+            <div className="text-[10px] uppercase tracking-wide text-text-faint px-1 pt-2 pb-1 font-semibold">
+              {formatDayHeader(wkDay)}
+            </div>
+          )}
           <div
-            key={a.id}
             className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-3 hover:border-accent/40 transition-colors cursor-pointer${colLabel ? " opacity-40" : nrLabel ? " opacity-55" : ""}`}
             onClick={() => onSelectSymbol(a.symbol)}
           >
@@ -1159,6 +1191,7 @@ function SignalFeedTab({
               )
             )}
           </div>
+          </Fragment>
         );
       })}
           <DisclaimerFooter />
@@ -1352,8 +1385,13 @@ export default function TradingPageV2() {
 
   // Signals feed — which session to view ("" = today/latest)
   const [signalDate, setSignalDate] = useState<string>("");
+  // Week view (weekend review): show the whole week's signals grouped by day for the
+  // selected symbol, rather than a single session. Anchored on the picked date (or latest).
+  const [weekMode, setWeekMode] = useState<boolean>(false);
   const { data: sessionDates } = useAlertSessionDates();
   const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
+  const weekAnchor = signalDate || (sessionDates?.[0] ?? "");
+  const { data: weekAlerts, error: weekAlertsError } = useAlertsForWeek(weekMode ? weekAnchor : "");
 
   // Asset class filter for AI Signals + AI Updates tabs (persists in localStorage)
   type AssetFilter = "all" | "stocks" | "crypto";
@@ -1631,7 +1669,7 @@ export default function TradingPageV2() {
     });
 
   // The signals shown in the right panel — today/latest, or a chosen past session.
-  const activeAlerts = signalDate ? (pastAlerts ?? []) : todayAlerts;
+  const activeAlerts = weekMode ? (weekAlerts ?? []) : signalDate ? (pastAlerts ?? []) : todayAlerts;
   // Alert markers for the charted symbol (memoized so the chart doesn't redraw every render).
   const symbolAlertMarkers = useMemo(
     () => (activeAlerts ?? [])
@@ -1639,7 +1677,7 @@ export default function TradingPageV2() {
       .map((a) => ({ created_at: a.created_at, direction: a.direction, grade: a.grade })),
     [activeAlerts, selectedSymbol],
   );
-  const activeAlertsError = signalDate ? pastAlertsError : alertsError;
+  const activeAlertsError = weekMode ? weekAlertsError : signalDate ? pastAlertsError : alertsError;
   const feedCount = (activeAlerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled",
   ).length;
@@ -2640,17 +2678,32 @@ export default function TradingPageV2() {
               </button>
             </div>
             {rightTab !== "levels" && (
-              <select
-                value={signalDate}
-                onChange={(e) => setSignalDate(e.target.value)}
-                title="Review a past session"
-                className="ml-auto bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
-              >
-                <option value="">Today</option>
-                {(sessionDates ?? []).slice(1).map((d) => (
-                  <option key={d} value={d}>{formatSessionDate(d)}</option>
-                ))}
-              </select>
+              <div className="ml-auto flex items-center gap-1.5">
+                {/* Day | Week — Week shows the selected symbol's whole week, grouped by day. */}
+                <div className="flex items-center rounded border border-border-subtle overflow-hidden text-[11px]">
+                  {([["day", "Day"], ["week", "Week"]] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setWeekMode(id === "week")}
+                      title={id === "week" ? "Review a whole week, grouped by day" : "A single session"}
+                      className={`px-2 py-1 transition-colors ${(id === "week") === weekMode ? "bg-accent text-bg-base font-semibold" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={signalDate}
+                  onChange={(e) => setSignalDate(e.target.value)}
+                  title={weekMode ? "Pick any day in the week to review" : "Review a past session"}
+                  className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
+                >
+                  <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
+                  {(sessionDates ?? []).slice(1).map((d) => (
+                    <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
+                  ))}
+                </select>
+              </div>
             )}
           </div>
 
@@ -2669,6 +2722,7 @@ export default function TradingPageV2() {
                 alertsError={activeAlertsError}
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
+                weekMode={weekMode}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
                 focusSymbols={focusSymbols}
@@ -2716,16 +2770,29 @@ export default function TradingPageV2() {
             {/* Focus is driven by the "Focus only" alert setting now (not a header toggle);
                 the Day feed's banner shows when it's active. */}
             {rightTab !== "levels" && !mobileSignalsCollapsed && (
-              <select
-                value={signalDate}
-                onChange={(e) => setSignalDate(e.target.value)}
-                className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
-              >
-                <option value="">Today</option>
-                {(sessionDates ?? []).slice(1).map((d) => (
-                  <option key={d} value={d}>{formatSessionDate(d)}</option>
-                ))}
-              </select>
+              <>
+                <div className="flex items-center rounded border border-border-subtle overflow-hidden text-[11px]">
+                  {([["day", "Day"], ["week", "Week"]] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      onClick={() => setWeekMode(id === "week")}
+                      className={`px-1.5 py-0.5 transition-colors ${(id === "week") === weekMode ? "bg-accent text-bg-base font-semibold" : "bg-surface-0 text-text-muted"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <select
+                  value={signalDate}
+                  onChange={(e) => setSignalDate(e.target.value)}
+                  className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+                >
+                  <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
+                  {(sessionDates ?? []).slice(1).map((d) => (
+                    <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
+                  ))}
+                </select>
+              </>
             )}
             <button onClick={toggleMobileSignals} aria-label={mobileSignalsCollapsed ? "Expand panel" : "Collapse panel"} className="p-0.5 text-text-muted">
               {mobileSignalsCollapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -2744,6 +2811,7 @@ export default function TradingPageV2() {
                 alertsError={activeAlertsError}
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
+                weekMode={weekMode}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
                 focusSymbols={focusSymbols}

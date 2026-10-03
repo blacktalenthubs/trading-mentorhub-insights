@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 from functools import partial
 from typing import List, Optional
 
@@ -184,6 +184,38 @@ async def alerts_for_date(
     if grade_clause is not None:
         q = q.where(grade_clause)
     result = await db.execute(q.order_by(Alert.created_at.desc()).limit(3000))
+    return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
+
+
+@router.get("/for-week/{anchor}", response_model=List[AlertResponse])
+async def alerts_for_week(
+    anchor: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """All alerts (delivered + suppressed) for the Mon-Sun WEEK containing `anchor`.
+
+    `anchor` is any YYYY-MM-DD date in the target week — the weekend-review view picks
+    one week and this returns every session's rows for it, server-side filtered the same
+    way as /for-date (own user, obsolete + grade clauses). Ordered OLDEST-first so the
+    feed can group by day chronologically. Capped at 10000 (a full week of a heavy book)."""
+    try:
+        d = datetime.strptime(anchor, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="anchor must be YYYY-MM-DD")
+    monday = d - timedelta(days=d.weekday())
+    sunday = monday + timedelta(days=6)
+    grade_clause = _grade_filter_clause(user)
+    scope_uid = await _history_user_id(user, db)
+    q = select(Alert).where(
+        Alert.user_id == scope_uid,
+        Alert.session_date >= monday.isoformat(),
+        Alert.session_date <= sunday.isoformat(),
+        _exclude_obsolete_clause(),
+    )
+    if grade_clause is not None:
+        q = q.where(grade_clause)
+    result = await db.execute(q.order_by(Alert.created_at.asc()).limit(10000))
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 
 
