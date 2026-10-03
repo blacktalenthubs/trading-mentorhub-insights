@@ -755,6 +755,183 @@ function SignalFeedTab({
     renderAlerts = ordered;
   }
 
+  // Week by-stock: pre-group the (symbol-contiguous) ordered list into per-symbol blocks,
+  // each rendered as its own bordered container below.
+  const stockGroups = stockGroupMode
+    ? (() => {
+        const gs: { sym: string; items: Alert[]; latestTime: string }[] = [];
+        for (const a of renderAlerts) {
+          const last = gs[gs.length - 1];
+          if (last && last.sym === a.symbol) last.items.push(a);
+          else gs.push({ sym: a.symbol, items: [a], latestTime: "" });
+        }
+        for (const g of gs) {
+          const latest = g.items.reduce(
+            (m, x) => (new Date(x.created_at) > new Date(m.created_at) ? x : m),
+            g.items[0],
+          );
+          g.latestTime = new Date(latest.created_at).toLocaleTimeString("en-US", {
+            hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago",
+          });
+        }
+        return gs;
+      })()
+    : [];
+
+  // One signal card — shared by the flat (day / non-week) render and the by-stock containers,
+  // so the card design stays in one place. In stock mode the time carries the weekday+date.
+  const renderSignalCard = (a: Alert) => {
+    const wkDay = a.session_date || a.created_at.slice(0, 10);
+    const time = new Date(a.created_at).toLocaleTimeString("en-US", {
+      hour: "2-digit", minute: "2-digit", timeZone: "America/Chicago",
+    });
+    const timeLabel = stockGroupMode ? `${formatDayHeader(wkDay)} · ${time}` : time;
+    const isAIScan = a.alert_type?.startsWith("ai_");
+    const dirText = a.direction === "BUY" ? "LONG"
+      : a.direction === "SHORT" ? "SHORT"
+      : a.direction === "NOTICE" ? "NOTICE" : (a.direction || "—");
+    const dirCls = a.direction === "BUY"
+      ? "bg-bullish/10 text-bullish-text border-bullish/20"
+      : a.direction === "SHORT"
+        ? "bg-orange-500/10 text-orange-400 border-orange-500/20"
+        : "bg-warning/10 text-warning-text border-warning/20";
+    const colLabel = collapsedLabel(a.suppressed_reason);
+    const levelNote = (a.message || "")
+      .replace(/^\[TV\]\s+(?:SWING\s+)?\S+\s*(?:\([^)]*\))?\s*/, "")
+      .replace(/\s*\([^)]*\)/g, "")
+      .replace(/^[·•|:\-\s]+/, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    const nrLabel = colLabel ? null : notRoutedLabel(a.suppressed_reason);
+    const rr = a.entry != null && a.target_1 != null && a.stop != null && a.entry !== a.stop
+      ? Math.abs((a.target_1 - a.entry) / (a.entry - a.stop))
+      : null;
+    return (
+      <div
+        key={a.id}
+        className={`bg-surface-2/40 border border-border-subtle/60 rounded-lg p-3 hover:border-accent/40 transition-colors cursor-pointer${colLabel ? " opacity-40" : nrLabel ? " opacity-55" : ""}`}
+        onClick={() => onSelectSymbol(a.symbol)}
+      >
+        {/* row 1 — symbol · direction · (AI · NOT SENT) ··· R:R · time */}
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[15px] font-bold text-text-primary">{a.symbol}</span>
+          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${dirCls}`}>{dirText}</span>
+          {isAIScan && (
+            <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-accent/15 text-accent">AI</span>
+          )}
+          {a.channel === "app" && (
+            <span
+              title={`Tier B (watch) — ${a.symbol} is a Focus-B name, so this was recorded to the feed but NOT pushed to Telegram.`}
+              className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+            >
+              App-only
+            </span>
+          )}
+          {colLabel && (
+            <span
+              title={`Collapsed by dedup — ${a.suppressed_reason}. Recorded, not delivered (one alert per price level).`}
+              className="text-[8px] font-bold px-1 py-0.5 rounded bg-surface-4 text-text-muted border border-border-subtle cursor-help"
+            >
+              ⋯ {colLabel}
+            </span>
+          )}
+          {nrLabel && (
+            <span
+              title={`Not sent to Telegram — ${a.suppressed_reason}. Recorded for review.`}
+              className="text-[8px] font-bold px-1 py-0.5 rounded bg-bearish/15 text-bearish-text border border-bearish/30 cursor-help"
+            >
+              NOT SENT · {nrLabel}
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            {rr != null && (
+              <span
+                className={`font-mono text-[15px] font-bold ${rr >= 2 ? "text-bullish-text" : "text-text-muted"}`}
+                title={rr >= 2 ? "Reward ≥ 2× the risk" : "Reward-to-risk"}
+              >
+                {rr.toFixed(1)}R
+              </span>
+            )}
+            <span className="font-mono text-[10px] text-text-faint">{timeLabel}</span>
+          </div>
+        </div>
+
+        {/* row 2 — setup name · grade */}
+        <div className="mt-1.5 flex items-center gap-2">
+          <span
+            className="text-[13px] font-semibold text-text-primary truncate cursor-help"
+            title={a.description || formatSetup(a.alert_type)}
+          >
+            {formatSetup(a.alert_type)}
+          </span>
+          {a.grade && (() => {
+            const g = a.grade;
+            const gCls = g === "A" ? "bg-bullish text-white border-bullish"
+              : g === "B" ? "bg-warning/80 text-white border-warning"
+              : "bg-surface-4 text-text-faint border-border-subtle";
+            const slope = a.vwap_slope_pct != null ? ` · slope ${a.vwap_slope_pct > 0 ? "+" : ""}${a.vwap_slope_pct.toFixed(2)}%` : "";
+            const vol = a.volume_ratio != null ? ` · vol ${a.volume_ratio.toFixed(2)}×` : "";
+            const gTitle = (g === "A" ? "Grade A — high conviction (vol ≥ 2× AND slope ≥ +0.05%)"
+              : g === "B" ? "Grade B — partial gate (one of vol/slope passes)"
+              : "Grade C — no quality gate passed") + vol + slope;
+            return (
+              <span title={gTitle} className={`ml-auto shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-help ${gCls}`}>{g}</span>
+            );
+          })()}
+        </div>
+
+        {/* the SPECIFIC context first — the pine note names the level + trigger ("reclaim of PDL 76525 ·
+            LONG · stop below…"). Falls back to the curated per-type blurb when there's no note. */}
+        {levelNote ? (
+          <p className="mt-1 text-[11px] leading-snug text-text-secondary line-clamp-1" title={a.message || ""}>{levelNote}</p>
+        ) : setupBlurb(a.alert_type) ? (
+          <p className="mt-1 text-[11px] leading-snug text-text-muted line-clamp-1">{setupBlurb(a.alert_type)}</p>
+        ) : null}
+
+        {/* the plan — entry / target / stop as a clean 3-col grid (mono numbers) */}
+        {a.entry != null ? (
+          <>
+            <div className="mt-2 grid grid-cols-3 gap-px rounded-md overflow-hidden bg-surface-3">
+              <div className="bg-surface-1 px-2 py-1.5">
+                <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Entry</div>
+                <div className="font-mono text-[12px] font-bold text-accent">{fmtPrice(a.entry)}</div>
+              </div>
+              <div className="bg-surface-1 px-2 py-1.5">
+                <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Target</div>
+                <div className="font-mono text-[12px] font-bold text-bullish-text">{fmtPrice(a.target_1)}</div>
+                {a.target_1_label && <div className="font-mono text-[7px] text-text-faint leading-tight truncate">{a.target_1_label}</div>}
+              </div>
+              <div className="bg-surface-1 px-2 py-1.5">
+                <div className="font-mono text-[8px] uppercase tracking-wide text-text-faint">Stop</div>
+                <div className="font-mono text-[12px] font-bold text-bearish-text">{fmtPrice(a.stop)}</div>
+              </div>
+            </div>
+            {a.target_2 != null && (
+              <p className="mt-1 font-mono text-[10px] text-text-faint">
+                → T2 {fmtPrice(a.target_2)}{a.target_2_label ? ` · ${a.target_2_label}` : ""}
+              </p>
+            )}
+            {/* invalidation kill-line — parsed from the pine note ("invalid on a 15m close
+                above/below X"). Only 4h alerts emit it, so it self-scopes. Close-based, not a
+                wick touch: a poke that closes back does NOT invalidate. */}
+            {(() => {
+              const m = a.message?.match(/invalid on a 15m close (above|below) ([\d.,]+)/i);
+              return m ? (
+                <p className="mt-1 font-mono text-[10px] text-text-faint">
+                  ⛔ Invalid on 15m close {m[1]} {m[2]}
+                </p>
+              ) : null;
+            })()}
+          </>
+        ) : (
+          a.message && (
+            <p className="mt-2 text-[11px] text-text-muted leading-relaxed line-clamp-2">{a.message}</p>
+          )
+        )}
+      </div>
+    );
+  };
+
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
     all: {
@@ -1073,10 +1250,18 @@ function SignalFeedTab({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-          {renderAlerts.map((a, _wkIdx) => {
-        // Week view headers. By-day: a day header before each new day. By-stock: a symbol
-        // header before each new ticker (ticker + its count that week), and the day shown on
-        // each card since a name's signals span the week.
+          {stockGroupMode ? stockGroups.map((g) => (
+            <div key={g.sym} className="rounded-xl border border-border-subtle bg-surface-1/40 p-2 mb-2.5">
+              {/* per-ticker container — all of this name's week sits inside its own box */}
+              <div className="flex items-baseline gap-1.5 px-1 pb-1.5">
+                <span className="text-[13px] font-bold text-text-primary">{g.sym}</span>
+                <span className="text-[10px] text-text-faint">· {g.items.length} signal{g.items.length === 1 ? "" : "s"}</span>
+                <span className="ml-auto font-mono text-[9px] text-text-faint">{g.latestTime}</span>
+              </div>
+              <div className="space-y-2">{g.items.map((a) => renderSignalCard(a))}</div>
+            </div>
+          )) : renderAlerts.map((a, _wkIdx) => {
+        // Week view headers (by-day mode). By-stock mode renders containers above instead.
         const wkPrev = _wkIdx > 0 ? renderAlerts[_wkIdx - 1] : null;
         const wkDay = a.session_date || a.created_at.slice(0, 10);
         const wkPrevDay = wkPrev ? (wkPrev.session_date || wkPrev.created_at.slice(0, 10)) : "";
