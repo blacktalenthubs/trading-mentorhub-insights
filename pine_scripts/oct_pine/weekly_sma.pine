@@ -1,16 +1,18 @@
 //@version=5
-// Weekly 20 / 50 SMA on any timeframe (daily, 4H, 1H, 5m ...). The levels are pulled from the
+// Weekly 8 / 20 / 50 SMA on any timeframe (daily, 4H, 1H, 5m ...). The levels are pulled from the
 // weekly series via request.security, so they match what the weekly chart shows without switching.
 //   Live mode (default): includes the current, still-forming week = the weekly chart's value right now.
 //   Confirmed mode: last CLOSED week only — never changes intraweek (non-repainting).
-indicator("Weekly 20/50 SMA", overlay=true, max_labels_count=10)
+indicator("Weekly 8/20/50 SMA", overlay=true, max_labels_count=10)
 
 g1 = "Weekly SMAs"
+len0    = input.int(8, "Momentum weekly SMA", minval=1, group=g1)
 len1    = input.int(20, "Fast weekly SMA", minval=1, group=g1)
 len2    = input.int(50, "Slow weekly SMA", minval=1, group=g1)
 useLive = input.bool(true, "Include current (forming) week", group=g1, tooltip="On = matches the weekly chart right now. Off = last closed week only, fixed until the week closes.")
 
 g2 = "Display"
+col0     = input.color(color.new(#AB47BC, 0), "Momentum color", group=g2)
 col1     = input.color(color.new(#2196F3, 0), "Fast color", group=g2)
 col2     = input.color(color.new(#FF9800, 0), "Slow color", group=g2)
 showLine = input.bool(true, "Plot lines", group=g2)
@@ -18,7 +20,7 @@ showLbl  = input.bool(true, "Right-edge labels", group=g2)
 showHUD  = input.bool(true, "Show table", group=g2)
 hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g2)
 
-g3 = "Scanner support markers (wsma20_support / wsma50_support)"
+g3 = "Support markers (W20/W50 = scanner wsma20/50_support; W8 = pine only)"
 showSig = input.bool(true, "Mark scanner support days", group=g3)
 maxDist = input.float(4.0, "Open within % above the line", step=0.5, group=g3, tooltip="alert_config.WSMA20_SUPPORT_MAX_DISTANCE_PCT") / 100
 
@@ -27,17 +29,22 @@ wSma(len) =>
     s = ta.sma(close, len)
     [s, s[1]]
 
+[l0, l0p] = request.security(syminfo.tickerid, "W", wSma(len0), lookahead=barmerge.lookahead_off)
 [l1, l1p] = request.security(syminfo.tickerid, "W", wSma(len1), lookahead=barmerge.lookahead_off)
 [l2, l2p] = request.security(syminfo.tickerid, "W", wSma(len2), lookahead=barmerge.lookahead_off)
 // Confirmed: last closed week (shift by one + lookahead_on is the standard non-repainting form).
+[c0, c0p] = request.security(syminfo.tickerid, "W", [ta.sma(close, len0)[1], ta.sma(close, len0)[2]], lookahead=barmerge.lookahead_on)
 [c1, c1p] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[2]], lookahead=barmerge.lookahead_on)
 [c2, c2p] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[2]], lookahead=barmerge.lookahead_on)
 
+w0  = useLive ? l0  : c0
+w0p = useLive ? l0p : c0p
 w1  = useLive ? l1  : c1
 w1p = useLive ? l1p : c1p
 w2  = useLive ? l2  : c2
 w2p = useLive ? l2p : c2p
 
+plot(showLine ? w0 : na, "Weekly momentum SMA", color=col0, linewidth=2, style=plot.style_stepline)
 plot(showLine ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
 plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
 
@@ -46,23 +53,30 @@ plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.
 //   level  = SMA of COMPLETED weeks only (current partial week dropped)
 //   rising = level > its value 4 completed weeks earlier
 //   fire   = the day OPENS at/above the level and within maxDist above it
+// W8 uses the same rule but has NO scanner counterpart — chart-only, for momentum names that ride the
+// 8 and never dip to the 20.
 // Always uses completed weeks, regardless of the live/closed display toggle. Daily chart: marker on
 // the day's bar; intraday: on the first bar of the day. Line color = day closed above the line (held),
 // gray = it fired at the open but closed back below.
+[s0, s0r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len0)[1], ta.sma(close, len0)[5]], lookahead=barmerge.lookahead_on)
 [s1, s1r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[5]], lookahead=barmerge.lookahead_on)
 [s2, s2r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[5]], lookahead=barmerge.lookahead_on)
 
 sigTf  = timeframe.isdaily or timeframe.isintraday
 dayBar = timeframe.isintraday ? timeframe.change("D") : true
 wkSup(lvl, lvlPrev) => showSig and sigTf and dayBar and not na(lvl) and not na(lvlPrev) and lvl > lvlPrev and open >= lvl and (open - lvl) / lvl <= maxDist
+sig0 = wkSup(s0, s0r)
 sig1 = wkSup(s1, s1r)
 sig2 = wkSup(s2, s2r)
 held(lvl) => timeframe.isdaily ? close > lvl : true
 
+plotshape(sig0 and held(s0), "W8 support (held)", shape.circle, location.belowbar, col0, text="W8", textcolor=col0, size=size.tiny)
+plotshape(sig0 and not held(s0), "W8 support (closed below)", shape.circle, location.belowbar, color.gray, text="W8", textcolor=color.gray, size=size.tiny)
 plotshape(sig1 and held(s1), "W20 support (held)", shape.triangleup, location.belowbar, col1, text="W20", textcolor=col1, size=size.small)
 plotshape(sig1 and not held(s1), "W20 support (closed below)", shape.triangleup, location.belowbar, color.gray, text="W20", textcolor=color.gray, size=size.small)
 plotshape(sig2 and held(s2), "W50 support (held)", shape.diamond, location.belowbar, col2, text="W50", textcolor=col2, size=size.small)
 plotshape(sig2 and not held(s2), "W50 support (closed below)", shape.diamond, location.belowbar, color.gray, text="W50", textcolor=color.gray, size=size.small)
+alertcondition(sig0, "Weekly 8 SMA support", "{{ticker}} opened above rising weekly 8 SMA")
 alertcondition(sig1, "Weekly 20 SMA support", "{{ticker}} opened above rising weekly 20 SMA")
 alertcondition(sig2, "Weekly 50 SMA support", "{{ticker}} opened above rising weekly 50 SMA")
 
@@ -72,11 +86,15 @@ slopeArrow(v, vp) => na(v) or na(vp) ? "" : v > vp ? " ↑" : v < vp ? " ↓" : 
 fmtPct(p) => na(p) ? "—" : (p >= 0 ? "+" : "") + str.tostring(p, "#.##") + "%"
 
 // ── Right-edge labels ──
+var label lb0 = na
 var label lb1 = na
 var label lb2 = na
 if barstate.islast and showLbl
+    label.delete(lb0)
     label.delete(lb1)
     label.delete(lb2)
+    if not na(w0)
+        lb0 := label.new(bar_index + 3, w0, "W" + str.tostring(len0) + " " + str.tostring(w0, format.mintick) + slopeArrow(w0, w0p) + "  " + fmtPct(distPct(w0)), style=label.style_label_left, color=col0, textcolor=color.white, size=size.small)
     if not na(w1)
         lb1 := label.new(bar_index + 3, w1, "W" + str.tostring(len1) + " " + str.tostring(w1, format.mintick) + slopeArrow(w1, w1p) + "  " + fmtPct(distPct(w1)), style=label.style_label_left, color=col1, textcolor=color.white, size=size.small)
     if not na(w2)
@@ -84,7 +102,7 @@ if barstate.islast and showLbl
 
 // ── Table ──
 posT = hudPos == "Top Right" ? position.top_right : hudPos == "Middle Right" ? position.middle_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.bottom_right
-var table hud = table.new(posT, 5, 3, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 5, 4, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudRow(r, name, v, vp, c) =>
     d = distPct(v)
@@ -101,5 +119,6 @@ if barstate.islast and showHUD
     table.cell(hud, 2, 0, "slope", text_color=color.gray, text_size=size.small)
     table.cell(hud, 3, 0, "price", text_color=color.gray, text_size=size.small)
     table.cell(hud, 4, 0, "dist", text_color=color.gray, text_size=size.small)
-    hudRow(1, "W" + str.tostring(len1) + " SMA", w1, w1p, col1)
-    hudRow(2, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
+    hudRow(1, "W" + str.tostring(len0) + " SMA", w0, w0p, col0)
+    hudRow(2, "W" + str.tostring(len1) + " SMA", w1, w1p, col1)
+    hudRow(3, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
