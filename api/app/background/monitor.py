@@ -22,7 +22,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES  # noqa: E402
+from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES, PRICE_AREA_DEDUP_PCT  # noqa: E402
 from analytics.htf_bias import (  # noqa: E402
     HTFBias,
     compute_htf_bias,
@@ -1343,6 +1343,23 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         else:
                             _zone_cooldown[_zone_key] = _now_ts
                             _poll_all_users_inner._zone_cooldown = _zone_cooldown
+
+                    # Session-wide price-area dedup: ONE delivered BUY per price area per name per
+                    # SESSION. The burst + zone cooldowns above are in-memory and short-window
+                    # (<=30 min), so same-level signals hours apart still got through — AAPL fired
+                    # PDH 09:06 / 8EMA 09:45 / PWL 01:49, all ~$333 (0.27% spread) => 3 cards. If a
+                    # BUY was already DELIVERED today within PRICE_AREA_DEDUP_PCT of this entry, this
+                    # is the same trade at the same level (just a different trigger) -> collapse it.
+                    # A materially different entry is outside the band and still fires.
+                    if _send_notification and signal.direction == "BUY" and signal.entry:
+                        from alerting.alert_store import was_price_area_alerted
+                        if was_price_area_alerted(symbol, float(signal.entry), PRICE_AREA_DEDUP_PCT,
+                                                  user_id=user_id):
+                            _send_notification = False
+                            _suppressed = "dedup_zone"
+                            logger.info(
+                                "PRICE-AREA DEDUP: user=%d %s %s entry=%.2f — already delivered this area today",
+                                user_id, symbol, _at_val, float(signal.entry))
 
                     # Record the per-day entry-type fire so it can't repeat today
                     # (1 alert / stock / type / day).

@@ -442,6 +442,13 @@ OVERHEAD_MA_RESISTANCE_PCT = 0.005  # 0.5%
 # MA Confluence: MA within this % of entry = confluence with horizontal level
 CONFLUENCE_BAND_PCT = 0.005  # 0.5%
 
+# Price-area dedup: ONE delivered BUY per price area per name per SESSION. If a BUY already
+# delivered today with an entry within this % of a new BUY's entry, the new one is the SAME
+# trade at the SAME level (just a different trigger) and is collapsed. 2026-10-03: AAPL fired
+# PDH/8EMA/PWL hours apart at ~$333 (0.27% spread) → 3 cards; this collapses them to one. A
+# materially different entry is outside the band and still fires.
+PRICE_AREA_DEDUP_PCT = 0.006  # 0.6%
+
 # VWAP alerts: only fire for these symbols (SPY for market structure, NVDA for AI
 # sentiment, crypto for 24h VWAP relevance).  Other equities get noise from
 # bounce-then-fade behaviour around VWAP.

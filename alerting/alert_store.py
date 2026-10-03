@@ -57,6 +57,42 @@ def was_alert_fired(
         return row is not None
 
 
+def was_price_area_alerted(
+    symbol: str,
+    entry: float,
+    band_pct: float,
+    session_date: str | None = None,
+    user_id: int | None = None,
+) -> bool:
+    """True if a DELIVERED BUY alert already fired today on this symbol with an entry within
+    band_pct of *entry*.
+
+    "Delivered" = suppressed_reason IS NULL (what actually reached the feed/Telegram), so a
+    collapsed/suppressed row never anchors the dedup. Used to collapse same-price-area restatements
+    (different alert types stacking at one level) into the first genuine alert — one BUY per price
+    area per name per session. A materially different entry falls outside the band and still fires.
+    """
+    if not entry or entry <= 0:
+        return False
+    session = session_date or today_session()
+    lo, hi = entry * (1 - band_pct), entry * (1 + band_pct)
+    with get_db() as conn:
+        if user_id is not None:
+            row = conn.execute(
+                "SELECT 1 FROM alerts WHERE symbol=? AND direction=? AND session_date=? "
+                "AND suppressed_reason IS NULL AND entry IS NOT NULL AND entry BETWEEN ? AND ? "
+                "AND (user_id=? OR user_id IS NULL) LIMIT 1",
+                (symbol, "BUY", session, lo, hi, user_id),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT 1 FROM alerts WHERE symbol=? AND direction=? AND session_date=? "
+                "AND suppressed_reason IS NULL AND entry IS NOT NULL AND entry BETWEEN ? AND ? LIMIT 1",
+                (symbol, "BUY", session, lo, hi),
+            ).fetchone()
+        return row is not None
+
+
 def record_alert(
     signal: AlertSignal,
     session_date: str | None = None,

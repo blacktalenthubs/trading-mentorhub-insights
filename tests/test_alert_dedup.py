@@ -77,7 +77,8 @@ def tmp_db(tmp_path):
             refreshed_stop REAL,
             refreshed_at TIMESTAMP,
             gap_invalidated INTEGER DEFAULT 0,
-            gap_pct REAL
+            gap_pct REAL,
+            suppressed_reason TEXT
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_dedup ON alerts(symbol, alert_type, session_date, user_id);
 
@@ -444,3 +445,44 @@ def _make_signal(symbol, alert_type, direction, price):
         confidence="high",
         message="Test signal",
     )
+
+
+class TestPriceAreaDedup:
+    """Session-wide price-area dedup — one delivered BUY per price area per name per session."""
+
+    @staticmethod
+    def _ins(get_db, symbol, entry, direction="BUY", suppressed=None, session="2026-10-02", user_id=3):
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO alerts (symbol, alert_type, direction, price, entry, session_date, "
+                "user_id, suppressed_reason) VALUES (?,?,?,?,?,?,?,?)",
+                (symbol, "pwl_reclaim", direction, entry, entry, session, user_id, suppressed),
+            )
+
+    def test_delivered_buy_in_band_dedups(self, tmp_db):
+        from alerting.alert_store import was_price_area_alerted
+        self._ins(tmp_db, "AAPL", 333.00)  # PDH breakout delivered at 333.00
+        # 8 EMA bounce at 333.79 (0.24% away) and PWL at 333.91 (0.27%) → within 0.6% band
+        assert was_price_area_alerted("AAPL", 333.79, 0.006, session_date="2026-10-02", user_id=3) is True
+        assert was_price_area_alerted("AAPL", 333.91, 0.006, session_date="2026-10-02", user_id=3) is True
+
+    def test_different_level_still_fires(self, tmp_db):
+        from alerting.alert_store import was_price_area_alerted
+        self._ins(tmp_db, "AAPL", 333.00)
+        # 325 is ~2.4% below → outside the band → not a dup, fires
+        assert was_price_area_alerted("AAPL", 325.00, 0.006, session_date="2026-10-02", user_id=3) is False
+
+    def test_suppressed_prior_does_not_anchor(self, tmp_db):
+        from alerting.alert_store import was_price_area_alerted
+        self._ins(tmp_db, "AAPL", 333.00, suppressed="dedup_zone")  # a collapsed row, not delivered
+        assert was_price_area_alerted("AAPL", 333.50, 0.006, session_date="2026-10-02", user_id=3) is False
+
+    def test_short_prior_does_not_dedup_buy(self, tmp_db):
+        from alerting.alert_store import was_price_area_alerted
+        self._ins(tmp_db, "AAPL", 333.00, direction="SHORT")
+        assert was_price_area_alerted("AAPL", 333.50, 0.006, session_date="2026-10-02", user_id=3) is False
+
+    def test_other_session_does_not_dedup(self, tmp_db):
+        from alerting.alert_store import was_price_area_alerted
+        self._ins(tmp_db, "AAPL", 333.00, session="2026-10-01")
+        assert was_price_area_alerted("AAPL", 333.50, 0.006, session_date="2026-10-02", user_id=3) is False
