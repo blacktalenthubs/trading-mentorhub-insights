@@ -47,12 +47,23 @@ _STOCKS = [
     Instrument("ORCL", "ORCL", "Oracle", 1.0, "stock"),
     Instrument("MU", "MU", "Micron", 1.0, "stock"),
     Instrument("PLTR", "PLTR", "Palantir", 1.0, "stock"),
+    # Strong, options-LIQUID semis / memory from the focus list (2026-10-03). Memory/semi IV is
+    # already fat + the chains are deep, so sell the put on the stock itself — no leveraged wrapper.
+    Instrument("LRCX", "LRCX", "Lam Research", 1.0, "stock"),
+    Instrument("MRVL", "MRVL", "Marvell", 1.0, "stock"),
+    Instrument("AMAT", "AMAT", "Applied Materials", 1.0, "stock"),
+    Instrument("TSM", "TSM", "Taiwan Semi", 1.0, "stock"),
+    Instrument("ARM", "ARM", "Arm Holdings", 1.0, "stock"),
+    Instrument("TXN", "TXN", "Texas Instruments", 1.0, "stock"),
+    Instrument("ASML", "ASML", "ASML", 1.0, "stock"),
+    Instrument("SNDK", "SNDK", "SanDisk (memory)", 1.0, "stock"),
 ]
 
 # --- Direct broad index ETFs (leverage 1×) — classic CSP underlyings ------------------
 _INDEX = [
     Instrument("SPY", "SPX", "S&P 500", 1.0, "index", "State Street"),
     Instrument("QQQ", "NDX", "Nasdaq-100", 1.0, "index", "Invesco"),
+    Instrument("SMH", "SMH", "Semis (SMH)", 1.0, "sector", "VanEck"),
 ]
 
 # --- Single-stock leveraged ETFs (2×) -------------------------------------------------
