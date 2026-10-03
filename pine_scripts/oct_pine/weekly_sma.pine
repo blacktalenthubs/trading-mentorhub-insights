@@ -46,6 +46,7 @@ showSup  = input.bool(true, "Weekly support (nearest below)", group=g4, tooltip=
 scanWin  = input.int(26, "Scan window (weeks)", minval=6, maxval=104, group=g4, tooltip="Recent completed weeks scanned for tested clusters. We always pick the cluster NEAREST price on each side, so a longer window only adds candidates — far ones are ignored.")
 tolPct   = input.float(3.0, "Cluster width (± %)", minval=0.5, maxval=10, step=0.5, group=g4, tooltip="How close two weekly highs/lows must sit to count as the same level.") / 100
 minTouch = input.int(3, "Min weeks in the cluster", minval=2, maxval=10, group=g4, tooltip="A level must be tagged by at least this many weekly highs/lows within the width — tested, not a spike. Raise it (4-5) to keep only the major multi-week bases/ceilings; lower it (2) to catch shallower ones.")
+maxLvlDist = input.float(20.0, "Max distance from price (%)", minval=5, maxval=60, step=1, group=g4, tooltip="Ignore clusters farther than this from price so the level stays actionable. On a name that ran up (MRNA/PLTR) the only tested base is often far below — beyond this it's dropped and the weekly SMAs carry the trend support instead.") / 100
 colRes   = input.color(color.new(#EF5350, 0), "resistance", inline="cc", group=g4)
 colSup   = input.color(color.new(#26A69A, 0), "support", inline="cc", group=g4)
 
@@ -96,7 +97,9 @@ plot(showLine and on2 and isWk ? w2 : na, "Weekly slow SMA (curve)", color=col2,
 // forming week can't move them). For each candidate week's high (resistance) / low (support) we
 // count how many weeks in the window tag that price within tolPct; a cluster is VALID at >=minTouch.
 // Then: resistance = the LOWEST valid high-cluster above price (first wall to break); support =
-// the MOST-TESTED valid low-cluster at/below price (significant base). px = weekly close ~ price. ──
+// the MOST-TESTED valid low-cluster at/below price (significant base). Only clusters WITHIN
+// maxLvlDist of price count, so a ran-up name (MRNA/PLTR) doesn't anchor to a base 40%+ away —
+// it shows nothing there and the weekly SMAs carry the support. px = weekly close ~ price. ──
 f_zones() =>
     float _res = na
     int   _resC = 0
@@ -106,7 +109,7 @@ f_zones() =>
     for i = 1 to scanWin
         ch = high[i]
         cl = low[i]
-        if not na(ch) and ch >= px and (na(_res) or ch < _res)
+        if not na(ch) and ch >= px and (ch - px) / px <= maxLvlDist and (na(_res) or ch < _res)
             int c = 0
             for j = 1 to scanWin
                 hj = high[j]
@@ -115,7 +118,7 @@ f_zones() =>
             if c >= minTouch
                 _res := ch
                 _resC := c
-        if not na(cl) and cl <= px
+        if not na(cl) and cl <= px and (px - cl) / px <= maxLvlDist
             int c2 = 0
             for j = 1 to scanWin
                 lj = low[j]
