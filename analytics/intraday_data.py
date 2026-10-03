@@ -989,7 +989,7 @@ def _compute_daily_trend(hist: pd.DataFrame, market_open: bool) -> dict:
 
 
 def _weekly_sma_family(symbol: str) -> dict:
-    """Weekly 20/50/200 SMA + a 'rising' flag for each, off a DEEP (5y) weekly series.
+    """Weekly 8/20/50/200 SMA + a 'rising' flag for each, off a DEEP (5y) weekly series.
 
     The daily prior_day history is only ~1y — enough for a weekly 20 SMA but not a 50- or
     200-week SMA — so the weekly SMA family is computed from its own fetch_ohlc(5y, 1wk) pull
@@ -999,6 +999,7 @@ def _weekly_sma_family(symbol: str) -> dict:
     Returns all six keys always (None / False when there isn't enough history); never raises.
     """
     out = {
+        "wsma8": None, "wsma8_rising": False,
         "wsma20": None, "wsma20_rising": False,
         "wsma50": None, "wsma50_rising": False,
         "wsma200": None, "wsma200_rising": False,
@@ -1010,7 +1011,7 @@ def _weekly_sma_family(symbol: str) -> dict:
             return out
         wkc = wk["Close"].dropna()
         done = wkc.iloc[:-1] if len(wkc) >= 2 else wkc   # drop the partial current week
-        for n, key in ((20, "wsma20"), (50, "wsma50"), (200, "wsma200")):
+        for n, key in ((8, "wsma8"), (20, "wsma20"), (50, "wsma50"), (200, "wsma200")):
             if len(done) >= n:
                 s = done.rolling(n).mean()
                 val = float(s.iloc[-1])

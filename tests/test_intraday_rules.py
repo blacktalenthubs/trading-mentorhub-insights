@@ -37,6 +37,7 @@ from analytics.intraday_rules import (
     check_ma_bounce_50,
     check_ma_bounce_100,
     check_ma_bounce_200,
+    check_weekly_sma8_support,
     check_weekly_sma20_support,
     check_weekly_sma50_support,
     check_weekly_sma200_support,
@@ -8094,6 +8095,12 @@ class TestWeeklySma20Support:
     def test_no_fire_without_wsma20(self):
         assert check_weekly_sma20_support("AMAT", self._bars(1020.0, 1034.0), None, True, today_open=1020.0) is None
 
+    def test_fires_weekly_8(self):
+        # Strong-uptrend fast line: opened above a rising weekly 8 SMA and holding (SPCX-like).
+        sig = check_weekly_sma8_support("SPCX", self._bars(1020.0, 1034.0), 1000.0, True, today_open=1020.0)
+        assert sig is not None and sig.alert_type.value == "wsma8_support"
+        assert "Weekly 8 SMA" in sig.message
+
     def test_fires_weekly_50(self):
         # Opened above a rising weekly 50 SMA and holding → wsma50_support.
         sig = check_weekly_sma50_support("SMH", self._bars(1020.0, 1034.0), 1000.0, True, today_open=1020.0)
@@ -8111,6 +8118,7 @@ class TestWeeklySma20Support:
 
     def test_enabled_and_swing(self):
         from alert_config import ENABLED_RULES
+        assert "wsma8_support" in ENABLED_RULES
         assert "wsma20_support" in ENABLED_RULES
         assert "wsma50_support" in ENABLED_RULES
         assert "wsma200_support" in ENABLED_RULES

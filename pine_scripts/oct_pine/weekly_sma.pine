@@ -24,7 +24,7 @@ showLbl  = input.bool(true, "Right-edge labels", group=g2)
 showHUD  = input.bool(true, "Show table", group=g2)
 hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g2)
 
-g3 = "Support alerts (W20/W50 = scanner wsma20/50_support; W8 = pine only)"
+g3 = "Support alerts (W8/W20/W50 = scanner wsma8/20/50_support)"
 maxDist = input.float(4.0, "Open within % above the line", step=0.5, group=g3, tooltip="alert_config.WSMA20_SUPPORT_MAX_DISTANCE_PCT") / 100
 
 // [value, value one week earlier] — the prior-week value gives the slope (rising / falling).
@@ -62,8 +62,8 @@ plot(showLine and on2 and isWk ? w2 : na, "Weekly slow SMA (curve)", color=col2,
 //   level  = SMA of COMPLETED weeks only (current partial week dropped)
 //   rising = level > its value 4 completed weeks earlier
 //   fire   = the day OPENS at/above the level and within maxDist above it
-// W8 uses the same rule but has NO scanner counterpart — chart-only, for momentum names that ride the
-// 8 and never dip to the 20.
+// W8 uses the same rule and now HAS a scanner counterpart too (wsma8_support, 2026-10-03) — for
+// momentum names that ride the 8 and never dip to the 20.
 // Always uses completed weeks, regardless of the live/closed display toggle. Daily chart: fires on
 // the day's bar; intraday: on the first bar of the day.
 [s0, s0r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len0)[1], ta.sma(close, len0)[5]], lookahead=barmerge.lookahead_on)
