@@ -1,0 +1,6 @@
+###Mega 2x pairs (stock, then its 2x ETF)
+NVDA,NVDL,AAPL,AAPU,MSFT,MSFU,GOOGL,GGLL,META,METU,AMZN,AMZU,TSLA,TSLL,AMD,AMDL,NFLX,NFXL
+###Index and sector leveraged
+SPY,SSO,UPRO,SPXL,QQQ,QLD,TQQQ,SOXL,FNGU
+###Other mega underlyings (direct CSP)
+AVGO,QCOM,ORCL,CRM,MU,PLTR
