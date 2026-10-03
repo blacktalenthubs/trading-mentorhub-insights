@@ -1003,6 +1003,9 @@ def _weekly_sma_family(symbol: str) -> dict:
         "wsma20": None, "wsma20_rising": False,
         "wsma50": None, "wsma50_rising": False,
         "wsma200": None, "wsma200_rising": False,
+        # Weekly congestion support — the most-tested recent weekly-low cluster at/below price
+        # (mirrors weekly_sma.pine's S line). Feeds the wcluster_support swing signal.
+        "wsup_cluster": None, "wsup_cluster_touch": 0,
     }
     try:
         from analytics.market_data import fetch_ohlc
@@ -1018,9 +1021,35 @@ def _weekly_sma_family(symbol: str) -> dict:
                 out[key] = val
                 if len(s.dropna()) >= 5 and pd.notna(s.iloc[-5]):
                     out[key + "_rising"] = bool(val > float(s.iloc[-5]))
+        # Congestion support: scan the last 26 completed weekly LOWS, keep the MOST-TESTED cluster
+        # at/below the last weekly close and within 20% of it (same math as weekly_sma.pine).
+        if "Low" in wk:
+            lows = [float(x) for x in wk["Low"].dropna().iloc[:-1].tail(26).tolist()]
+            ref = float(done.iloc[-1]) if len(done) else 0.0
+            lvl, touch = _tested_support(lows, ref, tol=0.03, min_touch=2, max_dist=0.20)
+            out["wsup_cluster"], out["wsup_cluster_touch"] = lvl, touch
     except Exception:
         pass
     return out
+
+
+def _tested_support(lows: list, ref_price: float, tol: float = 0.03,
+                    min_touch: int = 2, max_dist: float = 0.20) -> tuple:
+    """Most-tested weekly-low cluster at/below ref_price (the significant base). Mirrors
+    weekly_sma.pine: a level needs >=min_touch lows within tol of it and within max_dist of
+    price; among those, pick the one with the most touches (tiebreak the higher/nearer).
+    Returns (level, touches) or (None, 0)."""
+    if not lows or ref_price <= 0:
+        return (None, 0)
+    best_lvl = None
+    best_cnt = 0
+    for cl in lows:
+        if cl <= 0 or cl > ref_price or (ref_price - cl) / ref_price > max_dist:
+            continue
+        cnt = sum(1 for lj in lows if abs(lj - cl) <= cl * tol)
+        if cnt >= min_touch and (best_lvl is None or cnt > best_cnt or (cnt == best_cnt and cl > best_lvl)):
+            best_lvl, best_cnt = cl, cnt
+    return (round(best_lvl, 2), best_cnt) if best_lvl is not None else (None, 0)
 
 
 def fetch_prior_day(symbol: str, is_crypto: bool = False) -> dict | None:

@@ -201,6 +201,10 @@ class AlertType(str, Enum):
     WSMA20_SUPPORT = "wsma20_support"
     WSMA50_SUPPORT = "wsma50_support"
     WSMA200_SUPPORT = "wsma200_support"
+    # Weekly congestion support — the most-tested recent weekly-low cluster (weekly_sma.pine's S
+    # line). Opens above it = at a tested multi-week floor. Confluences with a weekly SMA at the
+    # same price via the existing _confluence_collapse (VRT ~248 = tested ×4 + W50).
+    WCLUSTER_SUPPORT = "wcluster_support"
     PRIOR_DAY_LOW_RECLAIM = "prior_day_low_reclaim"
     PRIOR_DAY_LOW_BOUNCE = "prior_day_low_bounce"
     PRIOR_DAY_HIGH_BREAKOUT = "prior_day_high_breakout"
@@ -1314,6 +1318,46 @@ def check_weekly_sma50_support(symbol, bars, wsma50, wsma50_rising, today_open=0
 
 def check_weekly_sma200_support(symbol, bars, wsma200, wsma200_rising, today_open=0, prior_close=None):
     return _check_weekly_sma_support(symbol, bars, wsma200, wsma200_rising, "200", AlertType.WSMA200_SUPPORT, today_open)
+
+
+def check_weekly_cluster_support(symbol, bars, wsup_cluster, wsup_touch, today_open=0, prior_close=None):
+    """Daily OPENED ABOVE a tested weekly congestion support (the most-tested recent weekly-low
+    cluster — weekly_sma.pine's S line). Same open-above rule as the wsma signals; the label
+    carries the ×N touch count. Swing. When this sits at the same price as a weekly SMA signal
+    (VRT ~248 = tested ×4 + W50), the existing _confluence_collapse merges them into one
+    confluence alert — handled exactly like every other same-price signal."""
+    if wsup_cluster is None or wsup_cluster <= 0 or (wsup_touch or 0) < 2:
+        return None
+    if bars is None or bars.empty:
+        return None
+    if today_open is None or today_open <= 0 or today_open < wsup_cluster:
+        return None
+    if (today_open - wsup_cluster) / wsup_cluster > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
+        return None
+    price = float(bars.iloc[-1]["Close"])
+    if price <= wsup_cluster:
+        return None
+    entry = round(wsup_cluster, 2)
+    stop = round(wsup_cluster * (1 - WSMA20_STOP_OFFSET_PCT), 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    _n = int(wsup_touch)
+    return AlertSignal(
+        symbol=symbol,
+        alert_type=AlertType.WCLUSTER_SUPPORT,
+        direction="BUY",
+        price=price,
+        entry=entry,
+        stop=stop,
+        target_1=round(entry + 2 * risk, 2),
+        target_2=round(entry + 3 * risk, 2),
+        confidence="high",
+        message=(
+            f"Weekly tested support ×{_n} — opened above a multi-week floor ${wsup_cluster:.2f} "
+            f"(tested {_n}×), holding at ${price:.2f} — weekly swing support"
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -8959,6 +9003,16 @@ def evaluate_rules(
                 )
                 if sig:
                     signals.append(sig)
+
+        # --- Weekly congestion support (tested multi-week floor — swing) ---
+        if AlertType.WCLUSTER_SUPPORT.value in ENABLED_RULES:
+            sig = check_weekly_cluster_support(
+                symbol, intraday_bars,
+                prior_day.get("wsup_cluster"), prior_day.get("wsup_cluster_touch"),
+                today_open=today_open, prior_close=prior_close,
+            )
+            if sig:
+                signals.append(sig)
 
         # --- EMA Bounces ---
         # Phase 3b — EMA8 (fast pullback) and EMA21 (medium-trend) added.

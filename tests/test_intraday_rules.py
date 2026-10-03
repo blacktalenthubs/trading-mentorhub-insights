@@ -41,6 +41,7 @@ from analytics.intraday_rules import (
     check_weekly_sma20_support,
     check_weekly_sma50_support,
     check_weekly_sma200_support,
+    check_weekly_cluster_support,
     check_opening_range_breakout,
     check_orb_breakdown,
     check_opening_low_base,
@@ -8122,3 +8123,32 @@ class TestWeeklySma20Support:
         assert "wsma20_support" in ENABLED_RULES
         assert "wsma50_support" in ENABLED_RULES
         assert "wsma200_support" in ENABLED_RULES
+
+
+class TestWeeklyClusterSupport:
+    """Weekly congestion support (wcluster_support) — opened above a tested multi-week floor."""
+
+    @staticmethod
+    def _bars(open_, close):
+        return pd.DataFrame([{"Open": open_, "High": max(open_, close) + 1,
+                              "Low": min(open_, close) - 1, "Close": close, "Volume": 1_000_000}])
+
+    def test_fires_opened_above_tested_floor(self):
+        sig = check_weekly_cluster_support("VRT", self._bars(250.0, 252.0), 248.37, 4, today_open=250.0)
+        assert sig is not None and sig.alert_type.value == "wcluster_support"
+        assert sig.entry == 248.37 and sig.stop == 238.44
+        assert "\u00d74" in sig.message  # shows the ×4 touch count
+
+    def test_no_fire_opened_below(self):
+        assert check_weekly_cluster_support("VRT", self._bars(247.0, 252.0), 248.37, 4, today_open=247.0) is None
+
+    def test_no_fire_untested(self):
+        # a single-touch "cluster" is a spike, not a tested floor
+        assert check_weekly_cluster_support("VRT", self._bars(250.0, 252.0), 248.37, 1, today_open=250.0) is None
+
+    def test_no_fire_without_cluster(self):
+        assert check_weekly_cluster_support("VRT", self._bars(250.0, 252.0), None, 0, today_open=250.0) is None
+
+    def test_enabled(self):
+        from alert_config import ENABLED_RULES
+        assert "wcluster_support" in ENABLED_RULES

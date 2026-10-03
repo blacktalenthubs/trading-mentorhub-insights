@@ -324,6 +324,7 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
     ("staged_pml", "long_term"),
     ("wsma", "swing"),                 # weekly rising 20/50/200 SMA support — multi-day swing holds
+    ("wcluster", "swing"),             # weekly congestion support (tested multi-week floor) — swing
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
     ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
@@ -361,6 +362,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "ma_bounce_long_v3_ema100": "Intraday price pulled back to the 100 EMA in an uptrend and bounced — wider trend support.",
     "ma_bounce_long_v3_ema200": "Intraday price pulled back to the 200 EMA in an uptrend and bounced — major trend support.",
     "ma_bounce_long_v3_sma":    "Intraday price pulled back to a major SMA (50/100/200) and bounced — institutional level support.",
+    "wcluster_support":         "The day OPENED above a tested weekly congestion support — the most-tested recent weekly-low cluster (a multi-week floor price keeps bouncing from). Weekly swing support; buy the line, stop a weekly width below. When it lines up with a weekly SMA at the same price, the two merge into one confluence alert.",
     "wsma8_support":            "The day OPENED above a RISING weekly 8 SMA — the fastest weekly line a strong trend rides (names in powerful uptrends never pull back to the 20). Weekly uptrend support; buy the line, stop a weekly width below. Multi-day swing hold.",
     "wsma20_support":           "The day OPENED above a RISING weekly 20 SMA — the fast swing line a trending name rides. Weekly uptrend support; buy the line, stop a weekly width below. Multi-day swing hold.",
     "wsma50_support":           "The day OPENED above a RISING weekly 50 SMA — the intermediate weekly swing line. A deeper pullback/reclaim in a weekly uptrend; buy the line, stop a weekly width below. Multi-day swing hold.",
