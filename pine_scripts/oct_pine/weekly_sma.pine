@@ -47,9 +47,15 @@ w1p = useLive ? l1p : c1p
 w2  = useLive ? l2  : c2
 w2p = useLive ? l2p : c2p
 
-plot(showLine and on0 ? w0 : na, "Weekly momentum SMA", color=col0, linewidth=2, style=plot.style_stepline)
-plot(showLine and on1 ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
-plot(showLine and on2 ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
+// Below weekly: step line (the level holds flat for the week). Weekly and up: a normal smooth MA curve.
+// plot style can't be a series, so each SMA has a step plot and a curve plot; only one is non-na.
+isWk = timeframe.isweekly or timeframe.ismonthly
+plot(showLine and on0 and not isWk ? w0 : na, "Weekly momentum SMA", color=col0, linewidth=2, style=plot.style_stepline)
+plot(showLine and on1 and not isWk ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
+plot(showLine and on2 and not isWk ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
+plot(showLine and on0 and isWk ? w0 : na, "Weekly momentum SMA (curve)", color=col0, linewidth=2)
+plot(showLine and on1 and isWk ? w1 : na, "Weekly fast SMA (curve)", color=col1, linewidth=2)
+plot(showLine and on2 and isWk ? w2 : na, "Weekly slow SMA (curve)", color=col2, linewidth=2)
 
 // ── Scanner support alerts (alertcondition only — no chart markers) ──
 // Mirrors analytics/intraday_rules.py _check_weekly_sma_support + intraday_data._weekly_sma_family:
