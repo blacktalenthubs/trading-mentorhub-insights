@@ -3,6 +3,12 @@
 // weekly series via request.security, so they match what the weekly chart shows without switching.
 //   Live mode (default): includes the current, still-forming week = the weekly chart's value right now.
 //   Confirmed mode: last CLOSED week only — never changes intraweek (non-repainting).
+// Also draws two MULTI-WEEK structure levels (VISUAL for now; scanner signals to follow once
+// validated), each a RECENT TESTED level — the extreme high/low over a short base window that
+// several weekly bars cluster at (so it stays near price, not a far-off spike): a weekly TBA =
+// the tested ceiling (turns green + BROKE when a close takes it out) and a multi-week support =
+// the tested floor a name keeps bouncing from (HOLDING above, LOST once a close breaks below).
+// The label shows ×N = how many recent weeks tagged the level.
 indicator("Weekly 8/20/50 SMA", overlay=true, max_labels_count=10)
 
 g1 = "Weekly SMAs"
@@ -26,6 +32,21 @@ hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", 
 
 g3 = "Support alerts (W8/W20/W50 = scanner wsma8/20/50_support)"
 maxDist = input.float(4.0, "Open within % above the line", step=0.5, group=g3, tooltip="alert_config.WSMA20_SUPPORT_MAX_DISTANCE_PCT") / 100
+
+// ── Multi-week structure (VISUAL for now — wire scanner signals later once validated) ──
+// A RECENT TESTED level, not a 20-week extreme: the old window grabbed a far-off spike (a floor
+// 80%+ below price). The level only counts when several weekly highs/lows CLUSTER there within a
+// tolerance — e.g. BE's last ~4 weeks at nearly the same low — so it stays proximate + meaningful.
+g4 = "Multi-week TBA / support (recent tested levels)"
+showTba  = input.bool(true, "Weekly TBA — recent tested resistance", group=g4, tooltip="The recent ceiling: highest weekly HIGH over the base window that's been TESTED (minTouch weekly highs cluster within the tolerance). Turns green + BROKE when a close takes it out.")
+showSup  = input.bool(true, "Multi-week support — recent tested floor", group=g4, tooltip="The recent floor: lowest weekly LOW over the base window that's been TESTED (minTouch weekly lows at nearly the same price, like BE's last 4 weeks). HOLDING while weekly close stays above, LOST once it closes below.")
+baseWin  = input.int(8, "Base window (weeks)", minval=3, maxval=60, group=g4, tooltip="Recent completed weeks that define the base. Shorter = closer to price. The old 20+ window pulled the level far away on trending names.")
+tolPct   = input.float(3.0, "'Nearly same' tolerance %", minval=0.5, maxval=15, step=0.5, group=g4) / 100
+minTouch = input.int(2, "Min weeks tested at the level", minval=1, maxval=10, group=g4, tooltip="The level must be touched by at least this many weekly highs/lows within the tolerance — tested, not a single spike. BE's 'nearly same low for 4 weeks' = 4.")
+colTbaR  = input.color(color.new(#EF5350, 0), "ceiling (unbroken)", inline="tc", group=g4)
+colTbaG  = input.color(color.new(#26A69A, 0), "broken", inline="tc", group=g4)
+colSupH  = input.color(color.new(#26A69A, 0), "floor (holding)", inline="sc", group=g4)
+colSupL  = input.color(color.new(#EF5350, 0), "lost", inline="sc", group=g4)
 
 // [value, value one week earlier] — the prior-week value gives the slope (rising / falling).
 wSma(len) =>
@@ -70,6 +91,27 @@ plot(showLine and on2 and isWk ? w2 : na, "Weekly slow SMA (curve)", color=col2,
 [s1, s1r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[5]], lookahead=barmerge.lookahead_on)
 [s2, s2r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[5]], lookahead=barmerge.lookahead_on)
 
+// ── Multi-week TBA (ceiling) + support (floor) as RECENT TESTED levels. Computed on COMPLETED
+// weeks ([1]-shifted) so the forming week can't move them. The ceiling is the highest high over
+// baseWin weeks and the floor the lowest low; each is only VALID when minTouch of those weeks'
+// highs/lows cluster within tolPct of it (tested, not a single spike). ──
+f_mwLvls() =>
+    _hi = ta.highest(high[1], baseWin)
+    _lo = ta.lowest(low[1],  baseWin)
+    int _hiT = 0
+    int _loT = 0
+    for i = 1 to baseWin
+        if not na(high[i]) and high[i] >= _hi * (1 - tolPct)
+            _hiT += 1
+        if not na(low[i]) and low[i] <= _lo * (1 + tolPct)
+            _loT += 1
+    [_hi, _hiT, _lo, _loT]
+[tbaLvl, tbaTouch, supLvl, supTouch] = request.security(syminfo.tickerid, "W", f_mwLvls(), lookahead=barmerge.lookahead_on)
+tbaValid   = not na(tbaLvl) and tbaTouch >= minTouch
+supValid   = not na(supLvl) and supTouch >= minTouch
+tbaBroke   = tbaValid and close > tbaLvl    // a close has taken out the tested ceiling
+supHolding = supValid and close >= supLvl   // price still above the tested floor
+
 sigTf  = timeframe.isdaily or timeframe.isintraday
 dayBar = timeframe.isintraday ? timeframe.change("D") : true
 wkSup(lvl, lvlPrev) => sigTf and dayBar and not na(lvl) and not na(lvlPrev) and lvl > lvlPrev and open >= lvl and (open - lvl) / lvl <= maxDist
@@ -100,9 +142,29 @@ if barstate.islast and showLbl
     if on2 and not na(w2)
         lb2 := label.new(bar_index + 3, w2, "W" + str.tostring(len2) + " " + str.tostring(w2, format.mintick) + "  " + fmtPct(distPct(w2)), style=label.style_label_left, color=col2, textcolor=color.white, size=size.small)
 
+// ── Multi-week TBA / support — full-chart rays + right-edge labels. Colour + label text carry the
+// state: TBA red=unbroken / green=BROKE (a close took the ceiling); support green=holding / red=LOST. ──
+var line  tbaLn = na
+var label tbaLb = na
+var line  supLn = na
+var label supLb = na
+if barstate.islast
+    line.delete(tbaLn)
+    label.delete(tbaLb)
+    line.delete(supLn)
+    label.delete(supLb)
+    if showTba and tbaValid
+        _tc = tbaBroke ? colTbaG : colTbaR
+        tbaLn := line.new(bar_index - 2, tbaLvl, bar_index + 10, tbaLvl, color=_tc, width=2, style=line.style_dashed, extend=extend.left)
+        tbaLb := label.new(bar_index + 10, tbaLvl, "W-TBA " + str.tostring(tbaLvl, format.mintick) + "  " + fmtPct(distPct(tbaLvl)) + "  ×" + str.tostring(tbaTouch) + (tbaBroke ? "  BROKE" : "  resist"), style=label.style_label_left, color=_tc, textcolor=color.white, size=size.small)
+    if showSup and supValid
+        _sc = supHolding ? colSupH : colSupL
+        supLn := line.new(bar_index - 2, supLvl, bar_index + 10, supLvl, color=_sc, width=2, style=line.style_dashed, extend=extend.left)
+        supLb := label.new(bar_index + 10, supLvl, "W-Sup " + str.tostring(supLvl, format.mintick) + "  " + fmtPct(distPct(supLvl)) + "  ×" + str.tostring(supTouch) + (supHolding ? "  holding" : "  LOST"), style=label.style_label_left, color=_sc, textcolor=color.white, size=size.small)
+
 // ── Table ──
 posT = hudPos == "Top Right" ? position.top_right : hudPos == "Middle Right" ? position.middle_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.bottom_right
-var table hud = table.new(posT, 5, 4, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 5, 6, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudRow(r, name, v, vp, c) =>
     d = distPct(v)
@@ -113,7 +175,7 @@ hudRow(r, name, v, vp, c) =>
     table.cell(hud, 3, r, side, text_color=side == "above" ? color.lime : color.red, text_size=size.small)
     table.cell(hud, 4, r, fmtPct(d), text_color=color.white, text_size=size.small)
 
-if barstate.islast and showHUD and (on0 or on1 or on2)
+if barstate.islast and showHUD and (on0 or on1 or on2 or showTba or showSup)
     table.cell(hud, 0, 0, "Weekly" + (useLive ? "" : " (closed)"), text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(hud, 1, 0, "level", text_color=color.gray, text_size=size.small)
     table.cell(hud, 2, 0, "slope", text_color=color.gray, text_size=size.small)
@@ -128,3 +190,17 @@ if barstate.islast and showHUD and (on0 or on1 or on2)
         row += 1
     if on2
         hudRow(row, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
+        row += 1
+    if showTba and tbaValid
+        table.cell(hud, 0, row, "W-TBA ×" + str.tostring(tbaTouch), text_color=tbaBroke ? colTbaG : colTbaR, text_halign=text.align_left, text_size=size.small)
+        table.cell(hud, 1, row, str.tostring(tbaLvl, format.mintick), text_color=color.white, text_size=size.small)
+        table.cell(hud, 2, row, tbaBroke ? "broke" : "resist", text_color=tbaBroke ? color.lime : color.red, text_size=size.small)
+        table.cell(hud, 3, row, close >= tbaLvl ? "above" : "below", text_color=close >= tbaLvl ? color.lime : color.red, text_size=size.small)
+        table.cell(hud, 4, row, fmtPct(distPct(tbaLvl)), text_color=color.white, text_size=size.small)
+        row += 1
+    if showSup and supValid
+        table.cell(hud, 0, row, "W-Sup ×" + str.tostring(supTouch), text_color=supHolding ? colSupH : colSupL, text_halign=text.align_left, text_size=size.small)
+        table.cell(hud, 1, row, str.tostring(supLvl, format.mintick), text_color=color.white, text_size=size.small)
+        table.cell(hud, 2, row, supHolding ? "holding" : "lost", text_color=supHolding ? color.lime : color.red, text_size=size.small)
+        table.cell(hud, 3, row, close >= supLvl ? "above" : "below", text_color=close >= supLvl ? color.lime : color.red, text_size=size.small)
+        table.cell(hud, 4, row, fmtPct(distPct(supLvl)), text_color=color.white, text_size=size.small)
