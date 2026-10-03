@@ -6,9 +6,13 @@
 indicator("Weekly 8/20/50 SMA", overlay=true, max_labels_count=10)
 
 g1 = "Weekly SMAs"
-len0    = input.int(8, "Momentum weekly SMA", minval=1, group=g1)
-len1    = input.int(20, "Fast weekly SMA", minval=1, group=g1)
-len2    = input.int(50, "Slow weekly SMA", minval=1, group=g1)
+// Checkbox per SMA: unchecked hides its line, label, table row, markers and alert.
+on0     = input.bool(true, "", inline="m0", group=g1)
+len0    = input.int(8, "Momentum weekly SMA", minval=1, inline="m0", group=g1)
+on1     = input.bool(true, "", inline="m1", group=g1)
+len1    = input.int(20, "Fast weekly SMA", minval=1, inline="m1", group=g1)
+on2     = input.bool(true, "", inline="m2", group=g1)
+len2    = input.int(50, "Slow weekly SMA", minval=1, inline="m2", group=g1)
 useLive = input.bool(true, "Include current (forming) week", group=g1, tooltip="On = matches the weekly chart right now. Off = last closed week only, fixed until the week closes.")
 
 g2 = "Display"
@@ -44,9 +48,9 @@ w1p = useLive ? l1p : c1p
 w2  = useLive ? l2  : c2
 w2p = useLive ? l2p : c2p
 
-plot(showLine ? w0 : na, "Weekly momentum SMA", color=col0, linewidth=2, style=plot.style_stepline)
-plot(showLine ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
-plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
+plot(showLine and on0 ? w0 : na, "Weekly momentum SMA", color=col0, linewidth=2, style=plot.style_stepline)
+plot(showLine and on1 ? w1 : na, "Weekly fast SMA", color=col1, linewidth=2, style=plot.style_stepline)
+plot(showLine and on2 ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.style_stepline)
 
 // ── Scanner support markers ──
 // Mirrors analytics/intraday_rules.py _check_weekly_sma_support + intraday_data._weekly_sma_family:
@@ -65,9 +69,9 @@ plot(showLine ? w2 : na, "Weekly slow SMA", color=col2, linewidth=2, style=plot.
 sigTf  = timeframe.isdaily or timeframe.isintraday
 dayBar = timeframe.isintraday ? timeframe.change("D") : true
 wkSup(lvl, lvlPrev) => showSig and sigTf and dayBar and not na(lvl) and not na(lvlPrev) and lvl > lvlPrev and open >= lvl and (open - lvl) / lvl <= maxDist
-sig0 = wkSup(s0, s0r)
-sig1 = wkSup(s1, s1r)
-sig2 = wkSup(s2, s2r)
+sig0 = on0 and wkSup(s0, s0r)
+sig1 = on1 and wkSup(s1, s1r)
+sig2 = on2 and wkSup(s2, s2r)
 held(lvl) => timeframe.isdaily ? close > lvl : true
 
 plotshape(sig0 and held(s0), "W8 support (held)", shape.circle, location.belowbar, col0, text="W8", textcolor=col0, size=size.tiny)
@@ -93,11 +97,11 @@ if barstate.islast and showLbl
     label.delete(lb0)
     label.delete(lb1)
     label.delete(lb2)
-    if not na(w0)
+    if on0 and not na(w0)
         lb0 := label.new(bar_index + 3, w0, "W" + str.tostring(len0) + " " + str.tostring(w0, format.mintick) + slopeArrow(w0, w0p) + "  " + fmtPct(distPct(w0)), style=label.style_label_left, color=col0, textcolor=color.white, size=size.small)
-    if not na(w1)
+    if on1 and not na(w1)
         lb1 := label.new(bar_index + 3, w1, "W" + str.tostring(len1) + " " + str.tostring(w1, format.mintick) + slopeArrow(w1, w1p) + "  " + fmtPct(distPct(w1)), style=label.style_label_left, color=col1, textcolor=color.white, size=size.small)
-    if not na(w2)
+    if on2 and not na(w2)
         lb2 := label.new(bar_index + 3, w2, "W" + str.tostring(len2) + " " + str.tostring(w2, format.mintick) + slopeArrow(w2, w2p) + "  " + fmtPct(distPct(w2)), style=label.style_label_left, color=col2, textcolor=color.white, size=size.small)
 
 // ── Table ──
@@ -113,12 +117,18 @@ hudRow(r, name, v, vp, c) =>
     table.cell(hud, 3, r, side, text_color=side == "above" ? color.lime : color.red, text_size=size.small)
     table.cell(hud, 4, r, fmtPct(d), text_color=color.white, text_size=size.small)
 
-if barstate.islast and showHUD
+if barstate.islast and showHUD and (on0 or on1 or on2)
     table.cell(hud, 0, 0, "Weekly" + (useLive ? "" : " (closed)"), text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(hud, 1, 0, "level", text_color=color.gray, text_size=size.small)
     table.cell(hud, 2, 0, "slope", text_color=color.gray, text_size=size.small)
     table.cell(hud, 3, 0, "price", text_color=color.gray, text_size=size.small)
     table.cell(hud, 4, 0, "dist", text_color=color.gray, text_size=size.small)
-    hudRow(1, "W" + str.tostring(len0) + " SMA", w0, w0p, col0)
-    hudRow(2, "W" + str.tostring(len1) + " SMA", w1, w1p, col1)
-    hudRow(3, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
+    row = 1
+    if on0
+        hudRow(row, "W" + str.tostring(len0) + " SMA", w0, w0p, col0)
+        row += 1
+    if on1
+        hudRow(row, "W" + str.tostring(len1) + " SMA", w1, w1p, col1)
+        row += 1
+    if on2
+        hudRow(row, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
