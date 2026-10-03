@@ -728,6 +728,9 @@ ENABLED_RULES: set[str] = {
     # (SPCX rides the W8, SNDK the W20, SMH opens back above it). Strong uptrends never pull back
     # to the W20 — the W8 catches them. Daily opens above a RISING weekly SMA = swing support.
     "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
+    # Weekly congestion support — tested multi-week low cluster (weekly_sma.pine S line); opens
+    # above it = at a tested floor. Confluences with a weekly SMA at the same price automatically.
+    "wcluster_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
