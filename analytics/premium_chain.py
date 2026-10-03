@@ -30,10 +30,13 @@ _LOCK = threading.Lock()
 
 # Keep this many strikes each side of the money — enough to pick a comfortable OTM put.
 NEAR = 8
-# ~30-DTE window the Premium Desk sells in.
+# The Premium Desk sells ~30 DTE, but we request a WIDE expiration band and then pick the
+# expiration nearest DTE_TARGET. A tight 21-45 band missed monthly-only ETFs (e.g. on Oct 3 the
+# nearest AMZU expirations were ~14d and ~49d — both outside 21-45 → empty chain). 7-70 catches
+# weeklies and the surrounding monthlies so there's always something to pick from.
 DTE_TARGET = 30
-DTE_LO = 21
-DTE_HI = 45
+DTE_LO = 7
+DTE_HI = 70
 
 
 def fetch_put_chain(symbol: str, client=None) -> dict:  # pragma: no cover - network
@@ -141,8 +144,8 @@ def _fetch_alpaca(sym: str) -> dict:  # pragma: no cover - network
             underlying_symbol=sym,
             feed=_feed,
             type=ContractType.PUT,
-            strike_price_gte=round(price * 0.80, 2),
-            strike_price_lte=round(price * 1.02, 2),
+            strike_price_gte=round(price * 0.75, 2),
+            strike_price_lte=round(price * 1.05, 2),
             expiration_date_gte=today + _dt.timedelta(days=DTE_LO),
             expiration_date_lte=today + _dt.timedelta(days=DTE_HI),
         )
@@ -162,6 +165,7 @@ def _build_from_chain(raw: dict, price: float, today: "_dt.date | None" = None) 
     Separated from the network call so the parsing is unit-testable against fake snapshots.
     """
     today = today or _dt.date.today()
+    n_raw = len(raw or {})
     by_exp: dict[str, list] = {}
     for occ, snap in (raw or {}).items():
         parsed = _occ_parse(occ)
@@ -172,7 +176,10 @@ def _build_from_chain(raw: dict, price: float, today: "_dt.date | None" = None) 
             continue
         by_exp.setdefault(exp, []).append((strike, snap))
     if not by_exp:
-        return {"available": False, "reason": "empty chain", "rows": []}
+        # Distinguish a window miss (contracts came back but no usable puts) from genuine
+        # no-coverage (0 contracts) so the UI message tells us which it is.
+        reason = "empty chain" if n_raw == 0 else f"no ~30d puts ({n_raw} contracts in window)"
+        return {"available": False, "reason": reason, "rows": []}
 
     def _dte(exp_iso: str) -> int:
         try:
