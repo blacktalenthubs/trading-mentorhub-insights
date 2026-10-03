@@ -3,13 +3,13 @@
 // weekly series via request.security, so they match what the weekly chart shows without switching.
 //   Live mode (default): includes the current, still-forming week = the weekly chart's value right now.
 //   Confirmed mode: last CLOSED week only — never changes intraweek (non-repainting).
-// Also draws two MULTI-WEEK structure levels (VISUAL for now; scanner signals to follow once
-// validated): W-TBA = the first weekly resistance to break (NEAREST tested high-cluster ABOVE
-// price) and W-Sup = the significant base (MOST-TESTED low-cluster AT/BELOW price). A cluster
-// counts only when >=minTouch weekly highs/lows sit within a tolerance of it (tested, not a spike);
-// ×N on the label = how many weeks tagged it. This avoids the far range extremes and shallow blips
-// (BE's real base ~250 not 185; WDC's first ceiling ~474 not the 564 range high).
-indicator("Weekly 8/20/50 SMA", overlay=true, max_labels_count=10)
+// Also draws RECENT WEEKLY CONGESTION lines (VISUAL for now; scanner signals to follow once
+// validated): over the last clWin weeks, wherever >=clMin weekly WICKS sit NEAR each other in
+// price (within clTol — they need not be the exact same price, just close), it drops a line —
+// high-clusters = resistance (red), low-clusters = support (green). ×N on the label = how many
+// weeks tagged that level. Clusters farther than clMax% from price are skipped (a ran-up name
+// has no nearby base), and near-duplicate levels are merged so each zone draws once.
+indicator("Weekly 8/20/50 SMA", overlay=true, max_labels_count=30, max_lines_count=30)
 
 g1 = "Weekly SMAs"
 // Checkbox per SMA: unchecked hides its line, label, table row and alert.
@@ -33,22 +33,20 @@ hudPos   = input.string("Bottom Right", "Table position", options=["Top Right", 
 g3 = "Support alerts (W8/W20/W50 = scanner wsma8/20/50_support)"
 maxDist = input.float(4.0, "Open within % above the line", step=0.5, group=g3, tooltip="alert_config.WSMA20_SUPPORT_MAX_DISTANCE_PCT") / 100
 
-// ── Multi-week structure (VISUAL for now — wire scanner signals later once validated) ──
-// NEAREST tested cluster on each side of price — not the window extreme (that grabbed a far spike:
-// BE's floor landed at 185 when the real base is ~250; WDC's ceiling at the 564 range high when the
-// first resistance to break is ~474). A level counts only when minTouch weekly highs/lows CLUSTER
-// within tolPct of it (tested, not a spike); then:
-//   W-TBA = the LOWEST tested high-cluster ABOVE price  → the first weekly resistance to break
-//   W-Sup = the HIGHEST tested low-cluster AT/BELOW price → the recent base price bounces from
-g4 = "Multi-week resistance / support (nearest tested clusters)"
-showTba  = input.bool(true, "Weekly resistance (first overhead)", group=g4, tooltip="The NEAREST tested weekly high-cluster ABOVE price — the first weekly resistance to break, not a far range high. ×N = weeks that tagged it.")
-showSup  = input.bool(true, "Weekly support (nearest below)", group=g4, tooltip="The NEAREST tested weekly low-cluster AT/BELOW price — the recent base price bounces from, not a far range low.")
-scanWin  = input.int(26, "Scan window (weeks)", minval=6, maxval=104, group=g4, tooltip="Recent completed weeks scanned for tested clusters. We always pick the cluster NEAREST price on each side, so a longer window only adds candidates — far ones are ignored.")
-tolPct   = input.float(3.0, "Cluster width (± %)", minval=0.5, maxval=10, step=0.5, group=g4, tooltip="How close two weekly highs/lows must sit to count as the same level.") / 100
-minTouch = input.int(3, "Min weeks in the cluster", minval=2, maxval=10, group=g4, tooltip="A level must be tagged by at least this many weekly highs/lows within the width — tested, not a spike. Raise it (4-5) to keep only the major multi-week bases/ceilings; lower it (2) to catch shallower ones.")
-maxLvlDist = input.float(20.0, "Max distance from price (%)", minval=5, maxval=60, step=1, group=g4, tooltip="Ignore clusters farther than this from price so the level stays actionable. On a name that ran up (MRNA/PLTR) the only tested base is often far below — beyond this it's dropped and the weekly SMAs carry the trend support instead.") / 100
-colRes   = input.color(color.new(#EF5350, 0), "resistance", inline="cc", group=g4)
-colSup   = input.color(color.new(#26A69A, 0), "support", inline="cc", group=g4)
+// ── Recent weekly congestion lines (VISUAL for now — wire scanner signals later once validated) ──
+// Over the last clWin weeks, draw a line at every price level where >=clMin weekly WICKS cluster
+// near each other (within clTol): high-clusters = resistance (red), low-clusters = support (green).
+// Wicks need not match exactly — clTol is the "near each other" width. Clusters farther than clMax%
+// from price are skipped; near-duplicate levels merge so each zone draws once. Multiple lines/side OK.
+g4 = "Recent weekly congestion levels"
+showRes = input.bool(true, "Resistance (clustered weekly highs)", group=g4)
+showSup = input.bool(true, "Support (clustered weekly lows)", group=g4)
+clWin   = input.int(6, "Recent weeks to scan", minval=2, maxval=52, group=g4, tooltip="How many recent completed weeks to look across for clustered wicks.")
+clTol   = input.float(3.0, "'Near each other' width (± %)", minval=0.3, maxval=10, step=0.5, group=g4, tooltip="Two weekly wicks within this % count as the same level — they don't have to be the exact same price, just close.") / 100
+clMin   = input.int(2, "Min weeks at the level", minval=2, maxval=10, group=g4, tooltip="Draw a line only where at least this many weekly highs (or lows) cluster. 2 = a double-tap.")
+clMax   = input.float(20.0, "Max distance from price (%)", minval=5, maxval=60, step=1, group=g4, tooltip="Skip clusters farther than this from price so the lines stay actionable (a ran-up name has no nearby base).") / 100
+colRes  = input.color(color.new(#EF5350, 0), "resistance", inline="cc", group=g4)
+colSup  = input.color(color.new(#26A69A, 0), "support", inline="cc", group=g4)
 
 // [value, value one week earlier] — the prior-week value gives the slope (rising / falling).
 wSma(len) =>
@@ -93,46 +91,43 @@ plot(showLine and on2 and isWk ? w2 : na, "Weekly slow SMA (curve)", color=col2,
 [s1, s1r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len1)[1], ta.sma(close, len1)[5]], lookahead=barmerge.lookahead_on)
 [s2, s2r] = request.security(syminfo.tickerid, "W", [ta.sma(close, len2)[1], ta.sma(close, len2)[5]], lookahead=barmerge.lookahead_on)
 
-// ── Nearest tested clusters above/below price, scanned on COMPLETED weeks ([i], i>=1, so the
-// forming week can't move them). For each candidate week's high (resistance) / low (support) we
-// count how many weeks in the window tag that price within tolPct; a cluster is VALID at >=minTouch.
-// Then: resistance = the LOWEST valid high-cluster above price (first wall to break); support =
-// the MOST-TESTED valid low-cluster at/below price (significant base). Only clusters WITHIN
-// maxLvlDist of price count, so a ran-up name (MRNA/PLTR) doesn't anchor to a base 40%+ away —
-// it shows nothing there and the weekly SMAs carry the support. px = weekly close ~ price. ──
-f_zones() =>
-    float _res = na
-    int   _resC = 0
-    float _sup = na
-    int   _supC = 0
-    px = close
-    for i = 1 to scanWin
-        ch = high[i]
-        cl = low[i]
-        if not na(ch) and ch >= px and (ch - px) / px <= maxLvlDist and (na(_res) or ch < _res)
-            int c = 0
-            for j = 1 to scanWin
-                hj = high[j]
-                if not na(hj) and hj <= ch * (1 + tolPct) and hj >= ch * (1 - tolPct)
-                    c += 1
-            if c >= minTouch
-                _res := ch
-                _resC := c
-        if not na(cl) and cl <= px and (px - cl) / px <= maxLvlDist
-            int c2 = 0
-            for j = 1 to scanWin
-                lj = low[j]
-                if not na(lj) and lj <= cl * (1 + tolPct) and lj >= cl * (1 - tolPct)
-                    c2 += 1
-            // support = the MOST-TESTED floor below price (the significant base, e.g. BE ~250),
-            // not merely the nearest minor pullback low; tiebreak = the higher (nearer) one.
-            if c2 >= minTouch and (na(_sup) or c2 > _supC or (c2 == _supC and cl > _sup))
-                _sup := cl
-                _supC := c2
-    [_res, _resC, _sup, _supC]
-[tbaLvl, tbaTouch, supLvl, supTouch] = request.security(syminfo.tickerid, "W", f_zones(), lookahead=barmerge.lookahead_on)
-tbaValid = not na(tbaLvl)
-supValid = not na(supLvl)
+// ── Recent weekly congestion lines ──
+// The last clWin COMPLETED weekly wicks ([i], i>=1), pulled into the chart context as arrays so we
+// can cluster them below. lookahead_on + the [1] shift is the standard non-repainting form.
+f_wkArr(src) =>
+    a = array.new_float()
+    for i = 1 to clWin
+        array.push(a, src[i])
+    a
+whiArr = request.security(syminfo.tickerid, "W", f_wkArr(high), lookahead=barmerge.lookahead_on)
+wloArr = request.security(syminfo.tickerid, "W", f_wkArr(low),  lookahead=barmerge.lookahead_on)
+
+// Collapse an array of weekly wicks into congestion levels: a value is a level when >=clMin of the
+// wicks sit within clTol of it AND it's within clMax of price; near-duplicate levels are merged so
+// each zone appears once. Returns [levels, touch-counts]. Array reads are all bounds-guarded.
+f_clusters(arr) =>
+    lv = array.new_float()
+    ct = array.new_int()
+    n = array.size(arr)
+    if n > 0 and close > 0
+        for i = 0 to n - 1
+            v = array.get(arr, i)
+            if not na(v) and v > 0 and math.abs(v - close) / close <= clMax
+                int c = 0
+                for j = 0 to n - 1
+                    vj = array.get(arr, j)
+                    if not na(vj) and vj <= v * (1 + clTol) and vj >= v * (1 - clTol)
+                        c += 1
+                if c >= clMin
+                    bool dup = false
+                    if array.size(lv) > 0
+                        for k = 0 to array.size(lv) - 1
+                            if math.abs(array.get(lv, k) - v) <= v * clTol
+                                dup := true
+                    if not dup
+                        array.push(lv, v)
+                        array.push(ct, c)
+    [lv, ct]
 
 sigTf  = timeframe.isdaily or timeframe.isintraday
 dayBar = timeframe.isintraday ? timeframe.change("D") : true
@@ -164,27 +159,36 @@ if barstate.islast and showLbl
     if on2 and not na(w2)
         lb2 := label.new(bar_index + 3, w2, "W" + str.tostring(len2) + " " + str.tostring(w2, format.mintick) + "  " + fmtPct(distPct(w2)), style=label.style_label_left, color=col2, textcolor=color.white, size=size.small)
 
-// ── Multi-week TBA / support — full-chart rays + right-edge labels. Colour + label text carry the
-// state: TBA red=unbroken / green=BROKE (a close took the ceiling); support green=holding / red=LOST. ──
-var line  tbaLn = na
-var label tbaLb = na
-var line  supLn = na
-var label supLb = na
+// ── Congestion lines — one full-chart ray + right-edge label per clustered level (R red / S green). ──
+var line[]  _clLn = array.new_line()
+var label[] _clLb = array.new_label()
 if barstate.islast
-    line.delete(tbaLn)
-    label.delete(tbaLb)
-    line.delete(supLn)
-    label.delete(supLb)
-    if showTba and tbaValid
-        tbaLn := line.new(bar_index - 2, tbaLvl, bar_index + 10, tbaLvl, color=colRes, width=2, style=line.style_dashed, extend=extend.left)
-        tbaLb := label.new(bar_index + 10, tbaLvl, "W-TBA " + str.tostring(tbaLvl, format.mintick) + "  " + fmtPct(distPct(tbaLvl)) + "  ×" + str.tostring(tbaTouch) + "  resist", style=label.style_label_left, color=colRes, textcolor=color.white, size=size.small)
-    if showSup and supValid
-        supLn := line.new(bar_index - 2, supLvl, bar_index + 10, supLvl, color=colSup, width=2, style=line.style_dashed, extend=extend.left)
-        supLb := label.new(bar_index + 10, supLvl, "W-Sup " + str.tostring(supLvl, format.mintick) + "  " + fmtPct(distPct(supLvl)) + "  ×" + str.tostring(supTouch) + "  support", style=label.style_label_left, color=colSup, textcolor=color.white, size=size.small)
+    if array.size(_clLn) > 0
+        for i = 0 to array.size(_clLn) - 1
+            line.delete(array.get(_clLn, i))
+        array.clear(_clLn)
+    if array.size(_clLb) > 0
+        for i = 0 to array.size(_clLb) - 1
+            label.delete(array.get(_clLb, i))
+        array.clear(_clLb)
+    if showRes
+        [rlv, rct] = f_clusters(whiArr)
+        if array.size(rlv) > 0
+            for i = 0 to array.size(rlv) - 1
+                _v = array.get(rlv, i)
+                array.push(_clLn, line.new(bar_index - 2, _v, bar_index + 10, _v, color=colRes, width=2, style=line.style_dashed, extend=extend.left))
+                array.push(_clLb, label.new(bar_index + 10, _v, "R " + str.tostring(_v, format.mintick) + "  " + fmtPct(distPct(_v)) + "  ×" + str.tostring(array.get(rct, i)), style=label.style_label_left, color=colRes, textcolor=color.white, size=size.small))
+    if showSup
+        [slv, sct] = f_clusters(wloArr)
+        if array.size(slv) > 0
+            for i = 0 to array.size(slv) - 1
+                _v = array.get(slv, i)
+                array.push(_clLn, line.new(bar_index - 2, _v, bar_index + 10, _v, color=colSup, width=2, style=line.style_dashed, extend=extend.left))
+                array.push(_clLb, label.new(bar_index + 10, _v, "S " + str.tostring(_v, format.mintick) + "  " + fmtPct(distPct(_v)) + "  ×" + str.tostring(array.get(sct, i)), style=label.style_label_left, color=colSup, textcolor=color.white, size=size.small))
 
 // ── Table ──
 posT = hudPos == "Top Right" ? position.top_right : hudPos == "Middle Right" ? position.middle_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.bottom_right
-var table hud = table.new(posT, 5, 6, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 5, 4, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudRow(r, name, v, vp, c) =>
     d = distPct(v)
@@ -195,7 +199,7 @@ hudRow(r, name, v, vp, c) =>
     table.cell(hud, 3, r, side, text_color=side == "above" ? color.lime : color.red, text_size=size.small)
     table.cell(hud, 4, r, fmtPct(d), text_color=color.white, text_size=size.small)
 
-if barstate.islast and showHUD and (on0 or on1 or on2 or showTba or showSup)
+if barstate.islast and showHUD and (on0 or on1 or on2)
     table.cell(hud, 0, 0, "Weekly" + (useLive ? "" : " (closed)"), text_color=color.gray, text_halign=text.align_left, text_size=size.small)
     table.cell(hud, 1, 0, "level", text_color=color.gray, text_size=size.small)
     table.cell(hud, 2, 0, "slope", text_color=color.gray, text_size=size.small)
@@ -210,17 +214,3 @@ if barstate.islast and showHUD and (on0 or on1 or on2 or showTba or showSup)
         row += 1
     if on2
         hudRow(row, "W" + str.tostring(len2) + " SMA", w2, w2p, col2)
-        row += 1
-    if showTba and tbaValid
-        table.cell(hud, 0, row, "W-TBA ×" + str.tostring(tbaTouch), text_color=colRes, text_halign=text.align_left, text_size=size.small)
-        table.cell(hud, 1, row, str.tostring(tbaLvl, format.mintick), text_color=color.white, text_size=size.small)
-        table.cell(hud, 2, row, "resist", text_color=color.red, text_size=size.small)
-        table.cell(hud, 3, row, "above", text_color=color.red, text_size=size.small)
-        table.cell(hud, 4, row, fmtPct(distPct(tbaLvl)), text_color=color.white, text_size=size.small)
-        row += 1
-    if showSup and supValid
-        table.cell(hud, 0, row, "W-Sup ×" + str.tostring(supTouch), text_color=colSup, text_halign=text.align_left, text_size=size.small)
-        table.cell(hud, 1, row, str.tostring(supLvl, format.mintick), text_color=color.white, text_size=size.small)
-        table.cell(hud, 2, row, "support", text_color=color.lime, text_size=size.small)
-        table.cell(hud, 3, row, "below", text_color=color.lime, text_size=size.small)
-        table.cell(hud, 4, row, fmtPct(distPct(supLvl)), text_color=color.white, text_size=size.small)
