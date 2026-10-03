@@ -529,6 +529,16 @@ function SignalFeedTab({
     try { localStorage.setItem("signal_feed_sort", s); } catch {}
   }
 
+  // Week view grouping: "stock" (per-name weekly review, default) or "day". Week mode only.
+  const [weekGroup, setWeekGroup] = useState<"stock" | "day">(() => {
+    if (typeof window === "undefined") return "stock";
+    return localStorage.getItem("week_group") === "day" ? "day" : "stock";
+  });
+  function changeWeekGroup(g: "stock" | "day") {
+    setWeekGroup(g);
+    try { localStorage.setItem("week_group", g); } catch {}
+  }
+
   // Grade chip filter — view-only, doesn't affect Telegram routing.
   // "all" → show every grade. "A"/"B"/"C" → only that grade.
   type GradeFilter = "all" | "A" | "B" | "C";
@@ -720,6 +730,31 @@ function SignalFeedTab({
 
   const listAlerts = visible;
 
+  // Week view "by stock": reorder the (already sorted) list into per-symbol groups, symbols
+  // ordered by their most-recent signal (freshest names on top); within a symbol the current
+  // sort order is kept. Only active in Week mode + grouping=stock; otherwise render as-is.
+  const stockGroupMode = weekMode && weekGroup === "stock";
+  const symCounts = new Map<string, number>();
+  let renderAlerts = listAlerts;
+  if (stockGroupMode) {
+    const bySym = new Map<string, Alert[]>();
+    for (const a of listAlerts) {
+      const arr = bySym.get(a.symbol) ?? [];
+      arr.push(a);
+      bySym.set(a.symbol, arr);
+    }
+    const recency = (s: string) =>
+      Math.max(...(bySym.get(s) ?? []).map((x) => new Date(x.created_at).getTime()));
+    const syms = [...bySym.keys()].sort((s1, s2) => recency(s2) - recency(s1));
+    const ordered: Alert[] = [];
+    for (const s of syms) {
+      const grp = bySym.get(s) ?? [];
+      symCounts.set(s, grp.length);
+      ordered.push(...grp);
+    }
+    renderAlerts = ordered;
+  }
+
   // Grade chip — visual style per letter.
   const CHIP_STYLES: Record<GradeFilter, { active: string; inactive: string }> = {
     all: {
@@ -776,6 +811,21 @@ function SignalFeedTab({
             </button>
           ))}
         </div>
+        {/* Week view grouping — per-name review (default) vs by-day. Week mode only. */}
+        {weekMode && (
+          <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
+            {([["stock", "By stock"], ["day", "By day"]] as const).map(([id, label], i) => (
+              <button
+                key={id}
+                onClick={() => changeWeekGroup(id)}
+                title={id === "stock" ? "Group the week by ticker — see what each name got" : "Group the week by day"}
+                className={`px-2 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${weekGroup === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Focus is no longer a tab — it's driven by the "Focus only" alert setting and
             applies to the DAY feed. The banner below appears when it's active. */}
         <div className="ml-auto relative">
@@ -1023,18 +1073,21 @@ function SignalFeedTab({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-          {listAlerts.map((a, _wkIdx) => {
-        // Week view: emit a day header before the first card of each new day.
+          {renderAlerts.map((a, _wkIdx) => {
+        // Week view headers. By-day: a day header before each new day. By-stock: a symbol
+        // header before each new ticker (ticker + its count that week), and the day shown on
+        // each card since a name's signals span the week.
+        const wkPrev = _wkIdx > 0 ? renderAlerts[_wkIdx - 1] : null;
         const wkDay = a.session_date || a.created_at.slice(0, 10);
-        const wkPrevDay = _wkIdx > 0
-          ? (listAlerts[_wkIdx - 1].session_date || listAlerts[_wkIdx - 1].created_at.slice(0, 10))
-          : "";
-        const showDayHeader = weekMode && wkDay !== wkPrevDay;
+        const wkPrevDay = wkPrev ? (wkPrev.session_date || wkPrev.created_at.slice(0, 10)) : "";
+        const showDayHeader = weekMode && !stockGroupMode && wkDay !== wkPrevDay;
+        const showStockHeader = stockGroupMode && (!wkPrev || wkPrev.symbol !== a.symbol);
         const time = new Date(a.created_at).toLocaleTimeString("en-US", {
           hour: "2-digit",
           minute: "2-digit",
           timeZone: "America/Chicago",
         });
+        const timeLabel = stockGroupMode ? `${formatDayHeader(wkDay)} · ${time}` : time;
         const isAIScan = a.alert_type?.startsWith("ai_");
         const dirText = a.direction === "BUY" ? "LONG"
           : a.direction === "SHORT" ? "SHORT"
@@ -1068,6 +1121,12 @@ function SignalFeedTab({
           {showDayHeader && (
             <div className="text-[10px] uppercase tracking-wide text-text-faint px-1 pt-2 pb-1 font-semibold">
               {formatDayHeader(wkDay)}
+            </div>
+          )}
+          {showStockHeader && (
+            <div className="flex items-baseline gap-1.5 px-1 pt-2 pb-1">
+              <span className="text-[12px] font-bold text-text-primary">{a.symbol}</span>
+              <span className="text-[10px] text-text-faint">· {symCounts.get(a.symbol) ?? 1}</span>
             </div>
           )}
           <div
@@ -1114,7 +1173,7 @@ function SignalFeedTab({
                     {rr.toFixed(1)}R
                   </span>
                 )}
-                <span className="font-mono text-[10px] text-text-faint">{time}</span>
+                <span className="font-mono text-[10px] text-text-faint">{timeLabel}</span>
               </div>
             </div>
 
