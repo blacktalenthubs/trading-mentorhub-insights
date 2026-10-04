@@ -60,6 +60,7 @@ wPr = input.int(1, "w", minval = 1, maxval = 6, inline = "sp", group = g4)
 yPr = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "sp", group = g4)
 boxCol = input.color(color.new(color.teal, 92), "OR box fill", group = g4)
 boxBrd = input.color(color.new(color.teal, 40), "OR box border", group = g4)
+cRcl   = input.color(color.new(#00E676, 0), "ORL-reclaim arrow", group = g4, tooltip = "Fires when price closes back ABOVE the ORL from below — the lower bound holding / reclaimed. Often your better long entry (tight risk at the low edge) than chasing the ORH breakout.")
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 
 // ── HUD ──
@@ -149,8 +150,10 @@ orDone = _sessBar >= orBarsChart
 // ── breakout / breakdown — a close beyond the OR after the window has formed ──
 brkUp = showBrk and orDone and not na(orh) and close > orh and close[1] <= orh
 brkDn = showBrk and orDone and not na(orl) and close < orl and close[1] >= orl
-plotshape(brkUp, "Breakout",  style = shape.triangleup,   location = location.belowbar, color = cH, size = size.small)
-plotshape(brkDn, "Breakdown", style = shape.triangledown, location = location.abovebar, color = cL, size = size.small)
+rclUp = showBrk and orDone and not na(orl) and close > orl and close[1] <= orl   // reclaim of the lower bound from below — the tight-risk long entry
+plotshape(brkUp, "Breakout",    style = shape.triangleup,   location = location.belowbar, color = cH,   size = size.small)
+plotshape(brkDn, "Breakdown",   style = shape.triangledown, location = location.abovebar, color = cL,   size = size.small)
+plotshape(rclUp, "ORL reclaim", style = shape.arrowup,      location = location.belowbar, color = cRcl, size = size.normal)
 
 // ── OR box — one per session, drawn when the OR completes, spanning the RTH day ──
 var bool _boxDrawn = false
