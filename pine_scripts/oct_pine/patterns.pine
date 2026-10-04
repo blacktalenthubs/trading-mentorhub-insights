@@ -468,6 +468,11 @@ _ltf = lockLevels ? levelTf : timeframe.period
 [La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0], lookahead=barmerge.lookahead_off)
 [LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
 
+// YTD % — this calendar year's return. The yearly ("12M") bar's OPEN is the first trading day of
+// the year, fixed at the year's start, so lookahead_on is safe (known, not future).
+_ytdOpen = request.security(syminfo.tickerid, "12M", open, lookahead=barmerge.lookahead_on)
+_ytdPct  = not na(_ytdOpen) and _ytdOpen > 0 and not na(close) ? (close - _ytdOpen) / _ytdOpen * 100.0 : na
+
 brk   = crossUp and rvol >= volMult
 brkIn = crossIn and rvol >= volMult
 plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.lime, size=size.small)
@@ -571,7 +576,7 @@ vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ?
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 9, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 10, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -600,7 +605,8 @@ if showHUD and barstate.islast
     f_row(hud, 3, "Ext · 20 SMA", extTxt, extCol)
     f_row(hud, 4, "Volume today", str.tostring(Lrv, "#.0") + "x avg", Lrv >= volMult ? color.lime : color.white)
     f_row(hud, 5, "RSI 14", rsiTxt, rsiCol)
+    f_row(hud, 6, "YTD", na(_ytdPct) ? "-" : (_ytdPct >= 0 ? "+" : "") + str.tostring(_ytdPct, "#.#") + "%", na(_ytdPct) ? color.gray : _ytdPct >= 0 ? color.lime : color.red)
     if showVR
-        f_row(hud, 6, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
-        f_row(hud, 7, "Vol pace", vrPaceTxt, vrPaceCol)
-        f_row(hud, 8, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
+        f_row(hud, 7, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
+        f_row(hud, 8, "Vol pace", vrPaceTxt, vrPaceCol)
+        f_row(hud, 9, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
