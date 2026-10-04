@@ -34,6 +34,10 @@ show_200_4h = input.bool(true, "SMA 200 · 4h",  group = gMa, inline = "m4")
 c_200_4h    = input.color(#1565C0, "", group = gMa, inline = "m4")
 w_200_4h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m4")
 y_200_4h    = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4")
+show_20_d   = input.bool(true, "SMA 20 · Daily", group = gMa, inline = "md")
+c_20_d      = input.color(#AB47BC, "", group = gMa, inline = "md")
+w_20_d      = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "md")
+y_20_d      = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "md")
 
 // ── Prior levels (D / W / M / Q) + today's Open (H+L of a group share colour / width / style) ──
 gLv          = "Prior levels (D/W/M/Q)"
@@ -115,6 +119,7 @@ s20_1h  = f_sma("60", 20)
 s200_1h = f_sma("60", 200)
 s20_4h  = f_sma("240", 20)
 s200_4h = f_sma("240", 200)
+s20_d   = f_sma("D", 20)   // daily 20 SMA — locked to the daily, non-repainting, on any chart TF
 // Today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
 // is safe here: a day's open is fixed at the bar's start, so it's known, not future data.
 d_open  = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
@@ -209,6 +214,7 @@ if barstate.islast
     queue(s20_4h,  "SMA 20 (4h)",  c_20_4h,  w_20_4h,  y_20_4h,  show_20_4h)
     queue(s200_1h, "SMA 200 (1h)", c_200_1h, w_200_1h, y_200_1h, show_200_1h and prox_ok(s200_1h))
     queue(s200_4h, "SMA 200 (4h)", c_200_4h, w_200_4h, y_200_4h, show_200_4h and prox_ok(s200_4h))
+    queue(s20_d,   "SMA 20 (D)",   c_20_d,   w_20_d,   y_20_d,   show_20_d)
     // always-on: today's open + yesterday's range + the most-recent premarket (levels gated by master)
     queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open))
     queue(pdh,    "PDH",   c_pd,   w_pd,   y_pd,   show_levels and show_pdh  and not na(pdh))
@@ -349,9 +355,9 @@ f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _av = array.from(s20_1h, s200_1h, s20_4h, s200_4h, pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL, d_open)
-    _an = array.from("SMA 20 (1h)", "SMA 200 (1h)", "SMA 20 (4h)", "SMA 200 (4h)", "PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L", "Open")
-    _ae = array.from(show_20_1h, show_200_1h, show_20_4h, show_200_4h, show_levels and show_pdh, show_levels and show_pdl, show_levels and show_pwh, show_levels and show_pwl, show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql, show_levels and show_preh, show_levels and show_prel, show_open)
+    _av = array.from(s20_1h, s200_1h, s20_4h, s200_4h, s20_d, pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL, d_open)
+    _an = array.from("SMA 20 (1h)", "SMA 200 (1h)", "SMA 20 (4h)", "SMA 200 (4h)", "SMA 20 (D)", "PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L", "Open")
+    _ae = array.from(show_20_1h, show_200_1h, show_20_4h, show_200_4h, show_20_d, show_levels and show_pdh, show_levels and show_pdl, show_levels and show_pwh, show_levels and show_pwl, show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql, show_levels and show_preh, show_levels and show_prel, show_open)
     float  _uV = na
     string _uN = "—"
     float  _dV = na
