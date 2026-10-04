@@ -1,0 +1,222 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// OPENING RANGE BREAKOUT — ADR-gauged. VISUAL ONLY. Load on a REGULAR-SESSION (RTH) chart.
+//
+// The opening range = the HIGH / LOW of the first N minutes of the RTH session (from 9:30 ET).
+// N is a TIME window you pick (15 / 30 / 60); the RANGE is whatever price does in that window.
+// The first 15m digests the overnight/auction flow — the edge is WAITING for it to form, not
+// FOMO-ing the first 5-10m.
+//
+// The real signal is the WIDTH, not the box: narrow opening ranges break out far more often and
+// extend further; a WIDE OR (one that's already eaten the stock's average daily range) rarely
+// breaks cleanly. So this gauges the OR against:
+//   • ADR  — the stock's average daily range. OR ÷ ADR → NARROW / normal / WIDE.
+//   • its own 10-day OR distribution — bottom 25% (tighter than most recent days) = highest odds.
+// Draws ORH / ORL / midpoint + the box, a measured-move target, breakout/breakdown markers, and a
+// HUD reading the width, the ADR comparison and the verdict. Locked to a base TF so it's identical
+// on any chart TF. Every line has its own colour / width / style.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Opening Range Breakout · ADR-gauged", "ORB", overlay = true, max_boxes_count = 10, max_labels_count = 60, max_lines_count = 40)
+
+// ── Opening range window ──
+g1     = "Opening range"
+orSel  = input.string("15", "Opening-range window (min)", options = ["15", "30", "60"], group = g1, tooltip = "First N minutes of the RTH session from 9:30 ET. 15 = 9:30-9:45, 30 = 9:30-10:00, 60 = 9:30-10:30. This is the TIME window; the range is whatever price does in it.")
+baseTf = input.string("5", "Lock OR to base TF (min)", options = ["1", "3", "5", "15"], group = g1, tooltip = "Build the OR from this base timeframe so it's IDENTICAL on any chart TF (flip 5m ↔ 15m ↔ 1h and it stays put).")
+orMin   = math.round(str.tonumber(orSel))
+_baseMin = str.tonumber(baseTf)
+
+// ── Range quality — the edge: narrow vs the stock's own range ──
+g2        = "Range quality (narrow = higher odds)"
+adrLen    = input.int(14, "Average daily range lookback (days)", minval = 3, maxval = 60, group = g2)
+narrowPct = input.float(50.0, "NARROW if OR ≤ this % of ADR", minval = 10, maxval = 100, step = 5, group = g2, tooltip = "OR width as a % of the average daily range. A small OR relative to ADR means most of the day's expected move is still ahead → high breakout odds + bigger extension.")
+widePct   = input.float(90.0, "WIDE if OR ≥ this % of ADR", minval = 50, maxval = 200, step = 5, group = g2, tooltip = "An OR that's already near/over the stock's average daily range has little room left → breakouts rarely run.")
+distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval = 40, group = g2, tooltip = "Where today's OR width sits vs the last N sessions. Tighter than ≥75% of them = bottom-25% = the highest-odds tape.")
+
+// ── Target (measured move) ──
+g3      = "Target (measured move)"
+showTgt = input.bool(true, "Project a measured-move target", group = g3)
+tgtMult = input.float(1.0, "Target = range ×", minval = 0.5, maxval = 3.0, step = 0.1, group = g3, tooltip = "Project the OR height beyond the broken side. Median extension on narrow ranges runs ~0.75-1× the range.")
+
+// ── Display / style (each line: colour · width · solid/dashed/dotted) ──
+g4      = "Display / style"
+showBox = input.bool(true, "OR box", group = g4)
+showMid = input.bool(true, "Midpoint line", group = g4)
+showBrk = input.bool(true, "Breakout / breakdown markers", group = g4)
+cH = input.color(color.new(#26A69A, 0), "ORH",      inline = "sh", group = g4)
+wH = input.int(2, "w", minval = 1, maxval = 6, inline = "sh", group = g4)
+yH = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "sh", group = g4)
+cL = input.color(color.new(#EF5350, 0), "ORL",      inline = "sl", group = g4)
+wL = input.int(2, "w", minval = 1, maxval = 6, inline = "sl", group = g4)
+yL = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "sl", group = g4)
+cM = input.color(color.new(color.gray, 0), "Mid",   inline = "sm", group = g4)
+wM = input.int(1, "w", minval = 1, maxval = 6, inline = "sm", group = g4)
+yM = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "sm", group = g4)
+cT = input.color(color.new(#2962FF, 0), "Target",   inline = "st", group = g4)
+wT = input.int(1, "w", minval = 1, maxval = 6, inline = "st", group = g4)
+yT = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "st", group = g4)
+showPrem = input.bool(true, "Premarket H/L (profit-taking zones)", group = g4, tooltip = "The 04:00-09:30 ET premarket high/low — where early breakouts tend to stall and take profit. Natural ORB targets.")
+cPr = input.color(color.new(#AB47BC, 0), "Premkt",  inline = "sp", group = g4)
+wPr = input.int(1, "w", minval = 1, maxval = 6, inline = "sp", group = g4)
+yPr = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "sp", group = g4)
+boxCol = input.color(color.new(color.teal, 92), "OR box fill", group = g4)
+boxBrd = input.color(color.new(color.teal, 40), "OR box border", group = g4)
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+
+// ── HUD ──
+g5      = "HUD"
+showHud = input.bool(true, "Show HUD", group = g5)
+hudPos  = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = g5)
+_pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? position.bottom_right : hudPos == "bottom_left" ? position.bottom_left : hudPos == "middle_right" ? position.middle_right : position.top_right
+
+tid = syminfo.tickerid
+
+// ── OR high / low — locked to the base TF so it's identical on any chart TF ──
+f_or() =>
+    var float _h = na
+    var float _l = na
+    var int   _sb = 0
+    _new = ta.change(time("D")) != 0
+    _sb := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(orMin / _baseMin))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    [_h, _l]
+[orh, orl] = request.security(tid, baseTf, f_or(), lookahead = barmerge.lookahead_on)
+orMid  = na(orh) or na(orl) ? na : (orh + orl) / 2.0
+orW    = na(orh) or na(orl) ? na : orh - orl                         // range height (price)
+orWpct = na(orW) or close <= 0 ? na : orW / close * 100.0            // range as % of price
+
+// ── ADR (avg daily high-low) as % of price, and OR as % of ADR ──
+adr     = request.security(tid, "D", ta.sma(high - low, adrLen), lookahead = barmerge.lookahead_off)
+adrPct  = na(adr) or close <= 0 ? na : adr / close * 100.0
+orVsAdr = na(orWpct) or na(adrPct) or adrPct <= 0 ? na : orWpct / adrPct * 100.0   // OR as % of ADR
+
+// ── Premarket H/L (04:00-09:30 ET) from the extended-hours series — natural ORB profit zones ──
+_tExt = ticker.modify(syminfo.tickerid, session = session.extended)
+f_preCalc() =>
+    _inP  = not na(time("5", "0400-0930", "America/New_York"))
+    _newP = _inP and not nz(_inP[1], false)
+    var float _h = na
+    var float _l = na
+    if _newP
+        _h := high
+        _l := low
+    else if _inP
+        _h := math.max(nz(_h, high), high)
+        _l := math.min(nz(_l, low),  low)
+    [_h, _l]
+[premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
+
+// ── 10-day OR-width distribution → is today's OR tighter than most recent days? ──
+var float[] _orHist = array.new_float()
+var float   _dayOR  = na
+nD = ta.change(time("D")) != 0
+if nD
+    if not na(_dayOR)
+        array.push(_orHist, _dayOR)
+        if array.size(_orHist) > distLen
+            array.shift(_orHist)
+    _dayOR := na
+if not na(orW)
+    _dayOR := orW
+f_pctile() =>
+    float _p = na
+    _nn = array.size(_orHist)
+    if _nn > 0 and not na(orW)
+        int _bigger = 0
+        for _i = 0 to _nn - 1
+            if array.get(_orHist, _i) > orW
+                _bigger += 1
+        _p := _bigger / _nn * 100.0    // % of recent days that were WIDER than today
+    _p
+orPctile   = f_pctile()                                   // high = today is tighter than most
+isNarrow   = not na(orVsAdr) and orVsAdr <= narrowPct
+isWide     = not na(orVsAdr) and orVsAdr >= widePct
+isBottom25 = not na(orPctile) and orPctile >= 75.0        // tighter than ≥75% of recent days
+
+// ── session bar-count on the CHART TF → when the OR window is complete ──
+_cf        = math.max(1.0, timeframe.in_seconds() / 60.0)
+orBarsChart = math.max(1, math.round(orMin / _cf))
+barsPerDay  = math.max(1, math.round(390.0 / _cf))
+var int _sessBar = 0
+_sessBar := nD ? 0 : _sessBar + 1
+orDone = _sessBar >= orBarsChart
+
+// ── breakout / breakdown — a close beyond the OR after the window has formed ──
+brkUp = showBrk and orDone and not na(orh) and close > orh and close[1] <= orh
+brkDn = showBrk and orDone and not na(orl) and close < orl and close[1] >= orl
+plotshape(brkUp, "Breakout",  style = shape.triangleup,   location = location.belowbar, color = cH, size = size.small)
+plotshape(brkDn, "Breakdown", style = shape.triangledown, location = location.abovebar, color = cL, size = size.small)
+
+// ── OR box — one per session, drawn when the OR completes, spanning the RTH day ──
+var bool _boxDrawn = false
+if nD
+    _boxDrawn := false
+if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
+    box.new(bar_index - orBarsChart, orh, bar_index + barsPerDay - orBarsChart, orl, border_color = boxBrd, bgcolor = boxCol)
+    _boxDrawn := true
+
+// ── current-session rays: ORH / ORL / midpoint / measured-move target ──
+f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
+var line lH = na
+var line lL = na
+var line lM = na
+var line lTu = na
+var line lTd = na
+var line lPh = na
+var line lPl = na
+var label bH = na
+var label bL = na
+var label bM = na
+var label bTu = na
+var label bTd = na
+var label bPh = na
+var label bPl = na
+if barstate.islast
+    line.delete(lH), line.delete(lL), line.delete(lM), line.delete(lTu), line.delete(lTd), line.delete(lPh), line.delete(lPl)
+    label.delete(bH), label.delete(bL), label.delete(bM), label.delete(bTu), label.delete(bTd), label.delete(bPh), label.delete(bPl)
+    _x = bar_index - math.min(_sessBar, barsPerDay)
+    if not na(orh)
+        lH := line.new(_x, orh, bar_index + 8, orh, color = cH, width = wH, style = f_style(yH))
+        bH := label.new(bar_index + 8, orh, "ORH " + str.tostring(orh, format.mintick) + f_pct(orh), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
+    if not na(orl)
+        lL := line.new(_x, orl, bar_index + 8, orl, color = cL, width = wL, style = f_style(yL))
+        bL := label.new(bar_index + 8, orl, "ORL " + str.tostring(orl, format.mintick) + f_pct(orl), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
+    if showMid and not na(orMid)
+        lM := line.new(_x, orMid, bar_index + 8, orMid, color = cM, width = wM, style = f_style(yM))
+        bM := label.new(bar_index + 8, orMid, "Mid " + str.tostring(orMid, format.mintick), style = label.style_label_left, color = cM, textcolor = color.white, size = size.small)
+    if showTgt and not na(orW) and orW > 0
+        _tu = orh + orW * tgtMult
+        _td = orl - orW * tgtMult
+        lTu := line.new(_x, _tu, bar_index + 8, _tu, color = cT, width = wT, style = f_style(yT))
+        bTu := label.new(bar_index + 8, _tu, "T↑ " + str.tostring(_tu, format.mintick) + f_pct(_tu), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
+        lTd := line.new(_x, _td, bar_index + 8, _td, color = cT, width = wT, style = f_style(yT))
+        bTd := label.new(bar_index + 8, _td, "T↓ " + str.tostring(_td, format.mintick) + f_pct(_td), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
+    if showPrem and not na(premH)
+        lPh := line.new(_x, premH, bar_index + 8, premH, color = cPr, width = wPr, style = f_style(yPr))
+        bPh := label.new(bar_index + 8, premH, "Pre-H " + str.tostring(premH, format.mintick) + f_pct(premH) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
+    if showPrem and not na(premL)
+        lPl := line.new(_x, premL, bar_index + 8, premL, color = cPr, width = wPr, style = f_style(yPr))
+        bPl := label.new(bar_index + 8, premL, "Pre-L " + str.tostring(premL, format.mintick) + f_pct(premL) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
+
+// ── HUD ──
+var table hud = showHud ? table.new(_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
+f_row(int r, string k, string v, color c) =>
+    table.cell(hud, 0, r, k, text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(hud, 1, r, v, text_color = c, text_size = size.small, text_halign = text.align_right)
+if showHud and barstate.islast
+    _status = not orDone ? "forming — wait" : brkUp ? "▲ broke OUT" : brkDn ? "▼ broke DOWN" : na(orh) or na(orl) ? "—" : close > orh ? "above ORH" : close < orl ? "below ORL" : "inside range"
+    _statCol = brkUp ? color.lime : brkDn ? color.red : not orDone ? color.gray : color.white
+    _verdict = isNarrow and isBottom25 ? "NARROW + bottom-25% ★" : isNarrow ? "NARROW" : isWide ? "WIDE" : na(orVsAdr) ? "—" : "normal"
+    _vCol = (isNarrow and isBottom25) ? color.lime : isNarrow ? #8BC34A : isWide ? color.red : color.white
+    f_row(0, "ORB  " + str.tostring(orMin) + "m  " + syminfo.ticker, _status, _statCol)
+    f_row(1, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
+    f_row(2, "ADR " + str.tostring(adrLen) + "d", na(adrPct) ? "—" : str.tostring(adrPct, "#.##") + "%", color.white)
+    f_row(3, "OR ÷ ADR", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _vCol)
+    f_row(4, "Verdict", _verdict, _vCol)
+    f_row(5, "vs 10-day", na(orPctile) ? "—" : "tighter than " + str.tostring(orPctile, "#") + "% of days", isBottom25 ? color.lime : color.white)
+    f_row(6, "Midpoint", na(orMid) ? "—" : str.tostring(orMid, format.mintick), color.white)
