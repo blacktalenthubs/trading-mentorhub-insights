@@ -473,6 +473,10 @@ _ltf = lockLevels ? levelTf : timeframe.period
 _ytdOpen = request.security(syminfo.tickerid, "12M", open, lookahead=barmerge.lookahead_on)
 _ytdPct  = not na(_ytdOpen) and _ytdOpen > 0 and not na(close) ? (close - _ytdOpen) / _ytdOpen * 100.0 : na
 
+// Today's OPEN — the daily open (= 09:30 RTH open on a regular-session chart). lookahead_on is
+// safe: a day's open is fixed at the bar's start, so it's known, not future data.
+Lopen = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
+
 brk   = crossUp and rvol >= volMult
 brkIn = crossIn and rvol >= volMult
 plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.lime, size=size.small)
@@ -501,6 +505,10 @@ yRes = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inlin
 cInn = input.color(color.yellow, "Inner TBA", inline = "L6", group = gLn)
 wInn = input.int(1, "w", minval = 1, maxval = 6, inline = "L6", group = gLn)
 yInn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L6", group = gLn)
+shOpn = input.bool(true, "Today's open", inline = "L7", group = gLn)
+cOpn = input.color(#FFB300, "", inline = "L7", group = gLn)
+wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "L7", group = gLn)
+yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L7", group = gLn)
 // Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
 lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
 lnFwd  = input.int(20, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
@@ -512,12 +520,14 @@ var line  inLn  = na
 var line  supLn = na
 var line  recLn = na
 var line  resLn = na
+var line  opnLn = na
 var label tbaLb = na
 var label stpLb = na
 var label inLb  = na
 var label supLb = na
 var label recLb = na
 var label resLb = na
+var label opnLb = na
 if barstate.islast
     line.delete(tbaLn)
     line.delete(stpLn)
@@ -525,12 +535,14 @@ if barstate.islast
     line.delete(supLn)
     line.delete(recLn)
     line.delete(resLn)
+    line.delete(opnLn)
     label.delete(tbaLb)
     label.delete(stpLb)
     label.delete(inLb)
     label.delete(supLb)
     label.delete(recLb)
     label.delete(resLb)
+    label.delete(opnLb)
     // Locked levels are horizontal; every line shares ONE extent so they all draw equal length.
     xL = bar_index - lnBack
     xR = bar_index + lnFwd
@@ -551,6 +563,9 @@ if barstate.islast
     if showSR and not na(LresL)
         resLn := line.new(xL, LresL, xR, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
         resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
+    if shOpn and not na(Lopen)
+        opnLn := line.new(xL, Lopen, xR, Lopen, color=cOpn, width=wOpn, style=f_lstyle(yOpn))
+        opnLb := label.new(xR, Lopen, "Open " + str.tostring(Lopen, format.mintick), style=label.style_label_left, color=cOpn, textcolor=color.black, size=size.small)
 
 // ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
 // Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
