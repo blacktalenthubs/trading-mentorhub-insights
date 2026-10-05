@@ -501,6 +501,9 @@ yRes = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inlin
 cInn = input.color(color.yellow, "Inner TBA", inline = "L6", group = gLn)
 wInn = input.int(1, "w", minval = 1, maxval = 6, inline = "L6", group = gLn)
 yInn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L6", group = gLn)
+// Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
+lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
+lnFwd  = input.int(20, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
 
 // Lines
 var line  tbaLn = na
@@ -528,25 +531,26 @@ if barstate.islast
     label.delete(supLb)
     label.delete(recLb)
     label.delete(resLb)
-    // Locked levels are horizontal, so line x-start is a fixed lookback (daily bar_index can't map to a lower TF).
+    // Locked levels are horizontal; every line shares ONE extent so they all draw equal length.
+    xL = bar_index - lnBack
+    xR = bar_index + lnFwd
     if La
-        x1 = bar_index - 60
-        tbaLn := line.new(x1, Ltba, bar_index + 10, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
-        stpLn := line.new(x1, Lstop, bar_index + 10, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
-        tbaLb := label.new(bar_index + 10, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
-        stpLb := label.new(bar_index + 10, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
+        tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
+        stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
+        tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
+        stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
     if LinOK
-        inLn := line.new(bar_index - 60, LinC, bar_index + 10, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
-        inLb := label.new(bar_index + 10, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
+        inLn := line.new(xL, LinC, xR, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
+        inLb := label.new(xR, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
     if showSR and not na(LsupL)
-        supLn := line.new(bar_index - 40, LsupL, bar_index + 25, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
-        supLb := label.new(bar_index + 25, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
+        supLn := line.new(xL, LsupL, xR, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
+        supLb := label.new(xR, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
     if showSR and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
-        recLn := line.new(bar_index - 10, LrecL, bar_index + 25, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
-        recLb := label.new(bar_index + 25, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
+        recLn := line.new(xL, LrecL, xR, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
+        recLb := label.new(xR, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
     if showSR and not na(LresL)
-        resLn := line.new(bar_index - 40, LresL, bar_index + 25, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
-        resLb := label.new(bar_index + 25, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
+        resLn := line.new(xL, LresL, xR, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
+        resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
 
 // ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
 // Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
