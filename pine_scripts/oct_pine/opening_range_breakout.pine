@@ -237,10 +237,40 @@ if barstate.islast
     queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL), true)
     queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh), true)
     queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl) and f_prox(pdl), true)
-    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh) and f_prox(pwh), true)
-    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl) and f_prox(pwl), true)
-    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh) and f_prox(pmh), true)
-    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml) and f_prox(pml), true)
+    // Weekly + monthly → keep only the NEAREST one ABOVE price + the nearest BELOW (not a stack).
+    _wv = array.from(pwh, pwl, pmh, pml)
+    _wn = array.from("PWH", "PWL", "PMH", "PML")
+    _wc = array.from(cW, cW, cMo, cMo)
+    _ww = array.from(wW, wW, wMo, wMo)
+    _wy = array.from(yW, yW, yMo, yMo)
+    _we = array.from(showW, showW, showM, showM)
+    float  _uV = na
+    string _uN = ""
+    color  _uC = cW
+    int    _uW = 1
+    string _uY = "dashed"
+    float  _dV = na
+    string _dN = ""
+    color  _dC = cW
+    int    _dW = 1
+    string _dY = "dashed"
+    for _wi = 0 to array.size(_wv) - 1
+        _lv = array.get(_wv, _wi)
+        if array.get(_we, _wi) and not na(_lv) and f_prox(_lv)
+            if _lv >= close and (na(_uV) or _lv < _uV)
+                _uV := _lv
+                _uN := array.get(_wn, _wi)
+                _uC := array.get(_wc, _wi)
+                _uW := array.get(_ww, _wi)
+                _uY := array.get(_wy, _wi)
+            if _lv < close and (na(_dV) or _lv > _dV)
+                _dV := _lv
+                _dN := array.get(_wn, _wi)
+                _dC := array.get(_wc, _wi)
+                _dW := array.get(_ww, _wi)
+                _dY := array.get(_wy, _wi)
+    queue(_uV, _uN, _uC, _uW, f_style(_uY), not na(_uV), true)
+    queue(_dV, _dN, _dC, _dW, f_style(_dY), not na(_dV), true)
 
     // sort ascending, fuse members within mergePct (line sits on the member nearest price), nudge tags
     _n = array.size(_qv)
