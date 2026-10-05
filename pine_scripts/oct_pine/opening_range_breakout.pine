@@ -305,4 +305,6 @@ if showHud and barstate.islast
     f_row(3, "OR ÷ ADR", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _vCol)
     f_row(4, "Verdict", _verdict, _vCol)
     f_row(5, "vs 10-day", na(orPctile) ? "—" : "tighter than " + str.tostring(orPctile, "#") + "% of days", isBottom25 ? color.lime : color.white)
-    f_row(6, "Midpoint", na(orMid) ? "—" : str.tostring(orMid, format.mintick), color.white)
+    _midTxt = na(orMid) ? "—" : (close >= orMid ? "above " : "below ") + str.tostring(orMid, format.mintick)
+    _midCol = na(orMid) ? color.gray : close >= orMid ? color.lime : color.red
+    f_row(6, "Price vs mid", _midTxt, _midCol)
