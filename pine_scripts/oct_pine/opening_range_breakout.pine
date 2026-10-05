@@ -21,7 +21,7 @@ indicator("Opening Range Breakout · ADR-gauged", "ORB", overlay = true, max_box
 // ── Opening range window ──
 g1     = "Opening range"
 orSel  = input.string("15", "Opening-range window (min)", options = ["15", "30", "60"], group = g1, tooltip = "First N minutes of the RTH session from 9:30 ET. 15 = 9:30-9:45, 30 = 9:30-10:00, 60 = 9:30-10:30. This is the TIME window; the range is whatever price does in it.")
-baseTf = input.string("5", "Lock OR to base TF (min)", options = ["1", "3", "5", "15"], group = g1, tooltip = "Build the OR from this base timeframe so it's IDENTICAL on any chart TF (flip 5m ↔ 15m ↔ 1h and it stays put).")
+baseTf = input.string("15", "Lock OR to this TF (min)", options = ["1", "3", "5", "15"], group = g1, tooltip = "The OR is BUILT from this timeframe via request.security, so it's IDENTICAL on any chart TF — flip the chart to 5m / 1h / D and the 15-min opening range stays put. Default 15 = the 15-minute opening range, locked.")
 orMin   = math.round(str.tonumber(orSel))
 _baseMin = str.tonumber(baseTf)
 
@@ -40,7 +40,7 @@ tgtMult = input.float(1.0, "Target = range ×", minval = 0.5, maxval = 3.0, step
 // ── Display / style (each line: colour · width · solid/dashed/dotted) ──
 g4      = "Display / style"
 showBox = input.bool(true, "OR box", group = g4)
-showMid = input.bool(false, "Midpoint line", group = g4)
+showMid = input.bool(true, "Midpoint line", group = g4)
 showBrk = input.bool(true, "Breakout / breakdown markers", group = g4)
 cH = input.color(color.new(#26A69A, 0), "ORH",      inline = "sh", group = g4)
 wH = input.int(2, "w", minval = 1, maxval = 6, inline = "sh", group = g4)
