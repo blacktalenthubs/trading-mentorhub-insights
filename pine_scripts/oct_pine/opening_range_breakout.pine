@@ -40,7 +40,7 @@ tgtMult = input.float(1.0, "Target = range ×", minval = 0.5, maxval = 3.0, step
 // ── Display / style (each line: colour · width · solid/dashed/dotted) ──
 g4      = "Display / style"
 showBox = input.bool(true, "OR box", group = g4)
-showMid = input.bool(true, "Midpoint line", group = g4)
+showMid = input.bool(false, "Midpoint line", group = g4)
 showBrk = input.bool(true, "Breakout / breakdown markers", group = g4)
 cH = input.color(color.new(#26A69A, 0), "ORH",      inline = "sh", group = g4)
 wH = input.int(2, "w", minval = 1, maxval = 6, inline = "sh", group = g4)
@@ -187,7 +187,7 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
 //    close to merge are nudged apart so none hides behind another (ported from day_proximity). ──
 g6       = "Confluence"
 mergePct = input.float(0.10, "Fuse levels within %", minval = 0.0, maxval = 2.0, step = 0.05, group = g6, tooltip = "Two levels closer than this (as % of price) are treated as the SAME level — one line, one tag naming both (e.g. 'ORH · PWH'). 0 = never fuse.") / 100.0
-lblGap   = input.float(0.35, "Min label spacing %",  minval = 0.0, maxval = 3.0, step = 0.05, group = g6, tooltip = "Minimum vertical gap between tags (as % of price). Tags closer than this are pushed up so every one stays readable. 0 = no nudging.") / 100.0
+lblGap   = input.float(0.12, "Min label spacing %",  minval = 0.0, maxval = 3.0, step = 0.02, group = g6, tooltip = "Minimum vertical gap between tags (as % of price). Tags closer than this are pushed up so every one stays readable. Kept small so labels stay ON their lines; a label never drifts more than ~0.4% above its own line. 0 = no nudging.") / 100.0
 gateProx = input.bool(true,  "Hide levels beyond max distance", group = g6, tooltip = "Drop prior D/W/M + premarket levels that sit further than 'Max distance' from price — the deep, not-in-play ones. The OR itself (ORH/ORL/Mid/targets) always draws.")
 maxDist  = input.float(5.0,  "Max distance from price %", minval = 0.5, maxval = 50.0, step = 0.5, group = g6, tooltip = "A context level further than this % from price is hidden when the gate is on.") / 100.0
 
@@ -279,9 +279,11 @@ if barstate.islast
                     break
             _w   = _cnt > 1 and _wid < 6 ? _wid + 1 : _wid
             _txt = _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + f_pct(_near)
+            // nudge up to clear the previous tag, but NEVER float a label far from its own line
             float _lblY = _near
             if lblGap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
-                _lblY := _lastLbl + _gap
+                _cand = _lastLbl + _gap
+                _lblY := _cand <= _near * (1.0 + 0.004) ? _cand : _near
             _lastLbl := _lblY
             array.push(_ln, line.new(_x, _near, bar_index + 8, _near, color = _col, width = _w, style = _sty))
             array.push(_lb, label.new(bar_index + 8, _lblY, _txt, style = label.style_label_left, color = _col, textcolor = f_txtcol(_col), size = size.small))
