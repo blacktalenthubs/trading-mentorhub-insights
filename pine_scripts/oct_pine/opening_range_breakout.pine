@@ -183,80 +183,102 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
     box.new(bar_index - orBarsChart, orh, bar_index + barsPerDay - orBarsChart, orl, border_color = boxBrd, bgcolor = boxCol)
     _boxDrawn := true
 
-// ── current-session rays: ORH / ORL / midpoint / measured-move target ──
+// ── Confluence — levels within "fuse %" collapse into ONE line + one combined tag; tags too
+//    close to merge are nudged apart so none hides behind another (ported from day_proximity). ──
+g6       = "Confluence"
+mergePct = input.float(0.10, "Fuse levels within %", minval = 0.0, maxval = 2.0, step = 0.05, group = g6, tooltip = "Two levels closer than this (as % of price) are treated as the SAME level — one line, one tag naming both (e.g. 'ORH · PWH'). 0 = never fuse.") / 100.0
+lblGap   = input.float(0.35, "Min label spacing %",  minval = 0.0, maxval = 3.0, step = 0.05, group = g6, tooltip = "Minimum vertical gap between tags (as % of price). Tags closer than this are pushed up so every one stays readable. 0 = no nudging.") / 100.0
+
 f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
-var line lH = na
-var line lL = na
-var line lM = na
-var line lTu = na
-var line lTd = na
-var line lPh = na
-var line lPl = na
-var line lDh = na
-var line lDl = na
-var line lWh = na
-var line lWl = na
-var line lMh = na
-var line lMl = na
-var label bH = na
-var label bL = na
-var label bM = na
-var label bTu = na
-var label bTd = na
-var label bPh = na
-var label bPl = na
-var label bDh = na
-var label bDl = na
-var label bWh = na
-var label bWl = na
-var label bMh = na
-var label bMl = na
+f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+
+// queue machinery — everything enabled is pushed, then sorted + fused + nudged + drawn in one pass
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var color[]  _qc = array.new_color()
+var int[]    _qw = array.new_int()
+var string[] _qy = array.new_string()
+queue(float v, string nm, color col, int wid, string sty, bool show) =>
+    if show and not na(v)
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qc, col)
+        array.push(_qw, wid > 6 ? 6 : wid < 1 ? 1 : wid)
+        array.push(_qy, sty)
+
 if barstate.islast
-    line.delete(lH), line.delete(lL), line.delete(lM), line.delete(lTu), line.delete(lTd), line.delete(lPh), line.delete(lPl)
-    label.delete(bH), label.delete(bL), label.delete(bM), label.delete(bTu), label.delete(bTd), label.delete(bPh), label.delete(bPl)
-    line.delete(lDh), line.delete(lDl), line.delete(lWh), line.delete(lWl), line.delete(lMh), line.delete(lMl)
-    label.delete(bDh), label.delete(bDl), label.delete(bWh), label.delete(bWl), label.delete(bMh), label.delete(bMl)
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    array.clear(_qv), array.clear(_qn), array.clear(_qc), array.clear(_qw), array.clear(_qy)
+
     _x = bar_index - math.min(_sessBar, barsPerDay)
-    if not na(orh)
-        lH := line.new(_x, orh, bar_index + 8, orh, color = cH, width = wH, style = f_style(yH))
-        bH := label.new(bar_index + 8, orh, "ORH " + str.tostring(orh, format.mintick) + f_pct(orh), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
-    if not na(orl)
-        lL := line.new(_x, orl, bar_index + 8, orl, color = cL, width = wL, style = f_style(yL))
-        bL := label.new(bar_index + 8, orl, "ORL " + str.tostring(orl, format.mintick) + f_pct(orl), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
-    if showMid and not na(orMid)
-        lM := line.new(_x, orMid, bar_index + 8, orMid, color = cM, width = wM, style = f_style(yM))
-        bM := label.new(bar_index + 8, orMid, "Mid " + str.tostring(orMid, format.mintick), style = label.style_label_left, color = cM, textcolor = color.white, size = size.small)
-    if showTgt and not na(orW) and orW > 0
-        _tu = orh + orW * tgtMult
-        _td = orl - orW * tgtMult
-        lTu := line.new(_x, _tu, bar_index + 8, _tu, color = cT, width = wT, style = f_style(yT))
-        bTu := label.new(bar_index + 8, _tu, "T↑ " + str.tostring(_tu, format.mintick) + f_pct(_tu), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
-        lTd := line.new(_x, _td, bar_index + 8, _td, color = cT, width = wT, style = f_style(yT))
-        bTd := label.new(bar_index + 8, _td, "T↓ " + str.tostring(_td, format.mintick) + f_pct(_td), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
-    if showPrem and not na(premH)
-        lPh := line.new(_x, premH, bar_index + 8, premH, color = cPr, width = wPr, style = f_style(yPr))
-        bPh := label.new(bar_index + 8, premH, "Pre-H " + str.tostring(premH, format.mintick) + f_pct(premH) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
-    if showPrem and not na(premL)
-        lPl := line.new(_x, premL, bar_index + 8, premL, color = cPr, width = wPr, style = f_style(yPr))
-        bPl := label.new(bar_index + 8, premL, "Pre-L " + str.tostring(premL, format.mintick) + f_pct(premL) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
-    if showD and not na(pdh)
-        lDh := line.new(_x, pdh, bar_index + 8, pdh, color = cD, width = wD, style = f_style(yD))
-        bDh := label.new(bar_index + 8, pdh, "PDH " + str.tostring(pdh, format.mintick) + f_pct(pdh), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
-    if showD and not na(pdl)
-        lDl := line.new(_x, pdl, bar_index + 8, pdl, color = cD, width = wD, style = f_style(yD))
-        bDl := label.new(bar_index + 8, pdl, "PDL " + str.tostring(pdl, format.mintick) + f_pct(pdl), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
-    if showW and not na(pwh)
-        lWh := line.new(_x, pwh, bar_index + 8, pwh, color = cW, width = wW, style = f_style(yW))
-        bWh := label.new(bar_index + 8, pwh, "PWH " + str.tostring(pwh, format.mintick) + f_pct(pwh), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
-    if showW and not na(pwl)
-        lWl := line.new(_x, pwl, bar_index + 8, pwl, color = cW, width = wW, style = f_style(yW))
-        bWl := label.new(bar_index + 8, pwl, "PWL " + str.tostring(pwl, format.mintick) + f_pct(pwl), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
-    if showM and not na(pmh)
-        lMh := line.new(_x, pmh, bar_index + 8, pmh, color = cMo, width = wMo, style = f_style(yMo))
-        bMh := label.new(bar_index + 8, pmh, "PMH " + str.tostring(pmh, format.mintick) + f_pct(pmh), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
-    if showM and not na(pml)
-        lMl := line.new(_x, pml, bar_index + 8, pml, color = cMo, width = wMo, style = f_style(yMo))
-        bMl := label.new(bar_index + 8, pml, "PML " + str.tostring(pml, format.mintick) + f_pct(pml), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
+    _tu = showTgt and not na(orW) and orW > 0 ? orh + orW * tgtMult : na
+    _td = showTgt and not na(orW) and orW > 0 ? orl - orW * tgtMult : na
+    queue(orh,   "ORH",   cH,  wH,  f_style(yH), not na(orh))
+    queue(orl,   "ORL",   cL,  wL,  f_style(yL), not na(orl))
+    queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid))
+    queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu))
+    queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td))
+    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH))
+    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL))
+    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh))
+    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl))
+    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh))
+    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl))
+    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh))
+    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml))
+
+    // sort ascending, fuse members within mergePct (line sits on the member nearest price), nudge tags
+    _n = array.size(_qv)
+    if _n > 0
+        _ord = array.sort_indices(_qv, order.ascending)
+        float _gap     = close * lblGap
+        float _lastLbl = na
+        _i = 0
+        while _i < _n
+            _s     = array.get(_ord, _i)
+            _hi    = array.get(_qv, _s)
+            _nm    = array.get(_qn, _s)
+            _cnt   = 1
+            _near  = _hi
+            _nearD = math.abs(close - _hi)
+            _col   = array.get(_qc, _s)
+            _wid   = array.get(_qw, _s)
+            _sty   = array.get(_qy, _s)
+            _j = _i + 1
+            while _j < _n
+                _k  = array.get(_ord, _j)
+                _v2 = array.get(_qv, _k)
+                if mergePct > 0 and _v2 <= _hi * (1.0 + mergePct)
+                    _hi  := _v2
+                    _nm  := _nm + " · " + array.get(_qn, _k)
+                    _cnt := _cnt + 1
+                    if math.abs(close - _v2) < _nearD
+                        _near  := _v2
+                        _nearD := math.abs(close - _v2)
+                        _col   := array.get(_qc, _k)
+                        _wid   := array.get(_qw, _k)
+                        _sty   := array.get(_qy, _k)
+                    _j := _j + 1
+                else
+                    break
+            _w   = _cnt > 1 and _wid < 6 ? _wid + 1 : _wid
+            _txt = _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + f_pct(_near)
+            float _lblY = _near
+            if lblGap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
+                _lblY := _lastLbl + _gap
+            _lastLbl := _lblY
+            array.push(_ln, line.new(_x, _near, bar_index + 8, _near, color = _col, width = _w, style = _sty))
+            array.push(_lb, label.new(bar_index + 8, _lblY, _txt, style = label.style_label_left, color = _col, textcolor = f_txtcol(_col), size = size.small))
+            _i := _j
 
 // ── HUD ──
 var table hud = showHud ? table.new(_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
