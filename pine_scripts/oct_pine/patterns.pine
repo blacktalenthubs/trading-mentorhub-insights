@@ -480,6 +480,28 @@ plotshape(brkIn, "Inner breakout on volume", shape.triangleup, location.belowbar
 alertcondition(brk, "Pattern breakout on volume", "{{ticker}} broke above its TBA on volume")
 alertcondition(brkIn, "Inner base breakout on volume", "{{ticker}} broke above its inner TBA on volume")
 
+// ── Line styles — colour · width · solid/dashed/dotted for every drawn level ──
+gLn  = "Line styles"
+f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
+cTba = input.color(color.aqua, "TBA",         inline = "L1", group = gLn)
+wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
+yTba = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "L1", group = gLn)
+cStp = input.color(color.new(color.red, 20), "Stop", inline = "L2", group = gLn)
+wStp = input.int(1, "w", minval = 1, maxval = 6, inline = "L2", group = gLn)
+yStp = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L2", group = gLn)
+cSup = input.color(color.lime, "Support",     inline = "L3", group = gLn)
+wSup = input.int(2, "w", minval = 1, maxval = 6, inline = "L3", group = gLn)
+ySup = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L3", group = gLn)
+cRec = input.color(color.new(color.lime, 30), "Recent low", inline = "L4", group = gLn)
+wRec = input.int(1, "w", minval = 1, maxval = 6, inline = "L4", group = gLn)
+yRec = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L4", group = gLn)
+cRes = input.color(color.new(color.red, 10), "Resistance", inline = "L5", group = gLn)
+wRes = input.int(2, "w", minval = 1, maxval = 6, inline = "L5", group = gLn)
+yRes = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L5", group = gLn)
+cInn = input.color(color.yellow, "Inner TBA", inline = "L6", group = gLn)
+wInn = input.int(1, "w", minval = 1, maxval = 6, inline = "L6", group = gLn)
+yInn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L6", group = gLn)
+
 // Lines
 var line  tbaLn = na
 var line  stpLn = na
@@ -509,22 +531,22 @@ if barstate.islast
     // Locked levels are horizontal, so line x-start is a fixed lookback (daily bar_index can't map to a lower TF).
     if La
         x1 = bar_index - 60
-        tbaLn := line.new(x1, Ltba, bar_index + 10, Ltba, color=color.aqua, width=2)
-        stpLn := line.new(x1, Lstop, bar_index + 10, Lstop, color=color.new(color.red, 20), width=1, style=line.style_dashed)
-        tbaLb := label.new(bar_index + 10, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=color.aqua, textcolor=color.black, size=size.small)
-        stpLb := label.new(bar_index + 10, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
+        tbaLn := line.new(x1, Ltba, bar_index + 10, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
+        stpLn := line.new(x1, Lstop, bar_index + 10, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
+        tbaLb := label.new(bar_index + 10, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
+        stpLb := label.new(bar_index + 10, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
     if LinOK
-        inLn := line.new(bar_index - 60, LinC, bar_index + 10, LinC, color=color.yellow, width=1, style=line.style_dotted)
-        inLb := label.new(bar_index + 10, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=color.yellow, textcolor=color.black, size=size.small)
+        inLn := line.new(bar_index - 60, LinC, bar_index + 10, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
+        inLb := label.new(bar_index + 10, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
     if showSR and not na(LsupL)
-        supLn := line.new(bar_index - 40, LsupL, bar_index + 25, LsupL, color=color.lime, width=2, style=line.style_dashed)
-        supLb := label.new(bar_index + 25, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=color.lime, textcolor=color.black, size=size.small)
+        supLn := line.new(bar_index - 40, LsupL, bar_index + 25, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
+        supLb := label.new(bar_index + 25, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
     if showSR and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
-        recLn := line.new(bar_index - 10, LrecL, bar_index + 25, LrecL, color=color.new(color.lime, 30), width=1, style=line.style_dotted)
-        recLb := label.new(bar_index + 25, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=color.new(color.lime, 40), textcolor=color.black, size=size.small)
+        recLn := line.new(bar_index - 10, LrecL, bar_index + 25, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
+        recLb := label.new(bar_index + 25, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
     if showSR and not na(LresL)
-        resLn := line.new(bar_index - 40, LresL, bar_index + 25, LresL, color=color.new(color.red, 10), width=2, style=line.style_dotted)
-        resLb := label.new(bar_index + 25, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=color.new(color.red, 10), textcolor=color.white, size=size.small)
+        resLn := line.new(bar_index - 40, LresL, bar_index + 25, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
+        resLb := label.new(bar_index + 25, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
 
 // ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
 // Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
