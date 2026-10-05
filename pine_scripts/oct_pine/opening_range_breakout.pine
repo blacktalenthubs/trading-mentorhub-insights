@@ -58,6 +58,10 @@ showPrem = input.bool(true, "Premarket H/L (profit-taking zones)", group = g4, t
 cPr = input.color(color.new(#AB47BC, 0), "Premkt",  inline = "sp", group = g4)
 wPr = input.int(1, "w", minval = 1, maxval = 6, inline = "sp", group = g4)
 yPr = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "sp", group = g4)
+showOpn = input.bool(true, "Today's open", inline = "so", group = g4, tooltip = "The daily open (= 09:30 RTH open). Where the day is relative to its open is a quick bias read.")
+cOpn = input.color(color.new(#FFB300, 0), "", inline = "so", group = g4)
+wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "so", group = g4)
+yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "so", group = g4)
 boxCol = input.color(color.new(color.teal, 92), "OR box fill", group = g4)
 boxBrd = input.color(color.new(color.teal, 40), "OR box border", group = g4)
 cRcl   = input.color(color.new(#00E676, 0), "ORL-reclaim arrow", group = g4, tooltip = "Fires when price closes back ABOVE the ORL from below — the lower bound holding / reclaimed. Often your better long entry (tight risk at the low edge) than chasing the ORH breakout.")
@@ -129,6 +133,8 @@ f_preCalc() =>
 
 // ── Prior D / W / M high-low — settled prior-period extremes ([1] + lookahead_on = non-repainting) ──
 [pdh, pdl] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+// Today's OPEN — the daily open (09:30 RTH open). Fixed at the bar's start → lookahead_on is safe.
+dOpen = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
 [pwh, pwl] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
@@ -233,6 +239,7 @@ if barstate.islast
     queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid), false)
     queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu), false)
     queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td), false)
+    queue(dOpen, "Open",  cOpn, wOpn, f_style(yOpn), showOpn and not na(dOpen), true)
     queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH) and f_prox(premH), true)
     queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL), true)
     queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh), true)
