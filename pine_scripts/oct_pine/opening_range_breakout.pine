@@ -188,8 +188,11 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
 g6       = "Confluence"
 mergePct = input.float(0.10, "Fuse levels within %", minval = 0.0, maxval = 2.0, step = 0.05, group = g6, tooltip = "Two levels closer than this (as % of price) are treated as the SAME level — one line, one tag naming both (e.g. 'ORH · PWH'). 0 = never fuse.") / 100.0
 lblGap   = input.float(0.35, "Min label spacing %",  minval = 0.0, maxval = 3.0, step = 0.05, group = g6, tooltip = "Minimum vertical gap between tags (as % of price). Tags closer than this are pushed up so every one stays readable. 0 = no nudging.") / 100.0
+gateProx = input.bool(true,  "Hide levels beyond max distance", group = g6, tooltip = "Drop prior D/W/M + premarket levels that sit further than 'Max distance' from price — the deep, not-in-play ones. The OR itself (ORH/ORL/Mid/targets) always draws.")
+maxDist  = input.float(5.0,  "Max distance from price %", minval = 0.5, maxval = 50.0, step = 0.5, group = g6, tooltip = "A context level further than this % from price is hidden when the gate is on.") / 100.0
 
 f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
+f_prox(float v) => not gateProx or (not na(v) and close > 0 and math.abs(v - close) / close <= maxDist)
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 
 // queue machinery — everything enabled is pushed, then sorted + fused + nudged + drawn in one pass
@@ -227,14 +230,14 @@ if barstate.islast
     queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid))
     queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu))
     queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td))
-    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH))
-    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL))
-    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh))
-    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl))
-    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh))
-    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl))
-    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh))
-    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml))
+    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH) and f_prox(premH))
+    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL))
+    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh))
+    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl) and f_prox(pdl))
+    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh) and f_prox(pwh))
+    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl) and f_prox(pwl))
+    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh) and f_prox(pmh))
+    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml) and f_prox(pml))
 
     // sort ascending, fuse members within mergePct (line sits on the member nearest price), nudge tags
     _n = array.size(_qv)
