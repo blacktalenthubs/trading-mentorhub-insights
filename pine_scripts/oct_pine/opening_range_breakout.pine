@@ -203,13 +203,16 @@ var string[] _qn = array.new_string()
 var color[]  _qc = array.new_color()
 var int[]    _qw = array.new_int()
 var string[] _qy = array.new_string()
-queue(float v, string nm, color col, int wid, string sty, bool show) =>
+var bool[]   _qf = array.new_bool()
+// fusable = may merge with a coincident level. ORH/ORL + prior/premarket fuse; Mid + targets never do.
+queue(float v, string nm, color col, int wid, string sty, bool show, bool fusable) =>
     if show and not na(v)
         array.push(_qv, v)
         array.push(_qn, nm)
         array.push(_qc, col)
         array.push(_qw, wid > 6 ? 6 : wid < 1 ? 1 : wid)
         array.push(_qy, sty)
+        array.push(_qf, fusable)
 
 if barstate.islast
     if array.size(_ln) > 0
@@ -220,24 +223,24 @@ if barstate.islast
         for i = 0 to array.size(_lb) - 1
             label.delete(array.get(_lb, i))
         array.clear(_lb)
-    array.clear(_qv), array.clear(_qn), array.clear(_qc), array.clear(_qw), array.clear(_qy)
+    array.clear(_qv), array.clear(_qn), array.clear(_qc), array.clear(_qw), array.clear(_qy), array.clear(_qf)
 
     _x = bar_index - math.min(_sessBar, barsPerDay)
     _tu = showTgt and not na(orW) and orW > 0 ? orh + orW * tgtMult : na
     _td = showTgt and not na(orW) and orW > 0 ? orl - orW * tgtMult : na
-    queue(orh,   "ORH",   cH,  wH,  f_style(yH), not na(orh))
-    queue(orl,   "ORL",   cL,  wL,  f_style(yL), not na(orl))
-    queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid))
-    queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu))
-    queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td))
-    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH) and f_prox(premH))
-    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL))
-    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh))
-    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl) and f_prox(pdl))
-    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh) and f_prox(pwh))
-    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl) and f_prox(pwl))
-    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh) and f_prox(pmh))
-    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml) and f_prox(pml))
+    queue(orh,   "ORH",   cH,  wH,  f_style(yH), not na(orh), true)
+    queue(orl,   "ORL",   cL,  wL,  f_style(yL), not na(orl), true)
+    queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid), false)
+    queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu), false)
+    queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td), false)
+    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH) and f_prox(premH), true)
+    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL), true)
+    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh), true)
+    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl) and f_prox(pdl), true)
+    queue(pwh,   "PWH",   cW,  wW,  f_style(yW), showW and not na(pwh) and f_prox(pwh), true)
+    queue(pwl,   "PWL",   cW,  wW,  f_style(yW), showW and not na(pwl) and f_prox(pwl), true)
+    queue(pmh,   "PMH",   cMo, wMo, f_style(yMo), showM and not na(pmh) and f_prox(pmh), true)
+    queue(pml,   "PML",   cMo, wMo, f_style(yMo), showM and not na(pml) and f_prox(pml), true)
 
     // sort ascending, fuse members within mergePct (line sits on the member nearest price), nudge tags
     _n = array.size(_qv)
@@ -256,11 +259,12 @@ if barstate.islast
             _col   = array.get(_qc, _s)
             _wid   = array.get(_qw, _s)
             _sty   = array.get(_qy, _s)
+            _fus = array.get(_qf, _s)
             _j = _i + 1
             while _j < _n
                 _k  = array.get(_ord, _j)
                 _v2 = array.get(_qv, _k)
-                if mergePct > 0 and _v2 <= _hi * (1.0 + mergePct)
+                if mergePct > 0 and _fus and array.get(_qf, _k) and _v2 <= _hi * (1.0 + mergePct)
                     _hi  := _v2
                     _nm  := _nm + " · " + array.get(_qn, _k)
                     _cnt := _cnt + 1
