@@ -34,7 +34,7 @@ distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval 
 
 // ── Target (measured move) ──
 g3      = "Target (measured move)"
-showTgt = input.bool(true, "Project a measured-move target", group = g3)
+showTgt = input.bool(true, "Show targets (T↑ / T↓)", group = g3, tooltip = "Uncheck to hide both measured-move targets.")
 tgtMult = input.float(1.0, "Target = range ×", minval = 0.5, maxval = 3.0, step = 0.1, group = g3, tooltip = "Project the OR height beyond the broken side. Median extension on narrow ranges runs ~0.75-1× the range.")
 
 // ── Display / style (each line: colour · width · solid/dashed/dotted) ──
