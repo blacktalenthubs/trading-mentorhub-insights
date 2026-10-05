@@ -63,6 +63,21 @@ boxBrd = input.color(color.new(color.teal, 40), "OR box border", group = g4)
 cRcl   = input.color(color.new(#00E676, 0), "ORL-reclaim arrow", group = g4, tooltip = "Fires when price closes back ABOVE the ORL from below — the lower bound holding / reclaimed. Often your better long entry (tight risk at the low edge) than chasing the ORH breakout.")
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 
+// ── Prior levels — settled prior Daily / Weekly / Monthly high & low (natural ORB targets + risk) ──
+g4b    = "Prior levels (D / W / M)"
+showD  = input.bool(true,  "Prior day  H/L (PDH/PDL)",   inline = "pd", group = g4b)
+cD     = input.color(color.new(#42A5F5, 0), "", inline = "pd", group = g4b)
+wD     = input.int(1, "w", minval = 1, maxval = 6, inline = "pd", group = g4b)
+yD     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "pd", group = g4b)
+showW  = input.bool(true,  "Prior week  H/L (PWH/PWL)",  inline = "pw", group = g4b)
+cW     = input.color(color.new(#FFA726, 0), "", inline = "pw", group = g4b)
+wW     = input.int(1, "w", minval = 1, maxval = 6, inline = "pw", group = g4b)
+yW     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "pw", group = g4b)
+showM  = input.bool(false, "Prior month H/L (PMH/PML)",  inline = "pm", group = g4b)
+cMo    = input.color(color.new(#EC407A, 0), "", inline = "pm", group = g4b)
+wMo    = input.int(1, "w", minval = 1, maxval = 6, inline = "pm", group = g4b)
+yMo    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "pm", group = g4b)
+
 // ── HUD ──
 g5      = "HUD"
 showHud = input.bool(true, "Show HUD", group = g5)
@@ -111,6 +126,11 @@ f_preCalc() =>
         _l := math.min(nz(_l, low),  low)
     [_h, _l]
 [premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
+
+// ── Prior D / W / M high-low — settled prior-period extremes ([1] + lookahead_on = non-repainting) ──
+[pdh, pdl] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pmh, pml] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 
 // ── 10-day OR-width distribution → is today's OR tighter than most recent days? ──
 var float[] _orHist = array.new_float()
@@ -172,6 +192,12 @@ var line lTu = na
 var line lTd = na
 var line lPh = na
 var line lPl = na
+var line lDh = na
+var line lDl = na
+var line lWh = na
+var line lWl = na
+var line lMh = na
+var line lMl = na
 var label bH = na
 var label bL = na
 var label bM = na
@@ -179,9 +205,17 @@ var label bTu = na
 var label bTd = na
 var label bPh = na
 var label bPl = na
+var label bDh = na
+var label bDl = na
+var label bWh = na
+var label bWl = na
+var label bMh = na
+var label bMl = na
 if barstate.islast
     line.delete(lH), line.delete(lL), line.delete(lM), line.delete(lTu), line.delete(lTd), line.delete(lPh), line.delete(lPl)
     label.delete(bH), label.delete(bL), label.delete(bM), label.delete(bTu), label.delete(bTd), label.delete(bPh), label.delete(bPl)
+    line.delete(lDh), line.delete(lDl), line.delete(lWh), line.delete(lWl), line.delete(lMh), line.delete(lMl)
+    label.delete(bDh), label.delete(bDl), label.delete(bWh), label.delete(bWl), label.delete(bMh), label.delete(bMl)
     _x = bar_index - math.min(_sessBar, barsPerDay)
     if not na(orh)
         lH := line.new(_x, orh, bar_index + 8, orh, color = cH, width = wH, style = f_style(yH))
@@ -205,6 +239,24 @@ if barstate.islast
     if showPrem and not na(premL)
         lPl := line.new(_x, premL, bar_index + 8, premL, color = cPr, width = wPr, style = f_style(yPr))
         bPl := label.new(bar_index + 8, premL, "Pre-L " + str.tostring(premL, format.mintick) + f_pct(premL) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
+    if showD and not na(pdh)
+        lDh := line.new(_x, pdh, bar_index + 8, pdh, color = cD, width = wD, style = f_style(yD))
+        bDh := label.new(bar_index + 8, pdh, "PDH " + str.tostring(pdh, format.mintick) + f_pct(pdh), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
+    if showD and not na(pdl)
+        lDl := line.new(_x, pdl, bar_index + 8, pdl, color = cD, width = wD, style = f_style(yD))
+        bDl := label.new(bar_index + 8, pdl, "PDL " + str.tostring(pdl, format.mintick) + f_pct(pdl), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
+    if showW and not na(pwh)
+        lWh := line.new(_x, pwh, bar_index + 8, pwh, color = cW, width = wW, style = f_style(yW))
+        bWh := label.new(bar_index + 8, pwh, "PWH " + str.tostring(pwh, format.mintick) + f_pct(pwh), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
+    if showW and not na(pwl)
+        lWl := line.new(_x, pwl, bar_index + 8, pwl, color = cW, width = wW, style = f_style(yW))
+        bWl := label.new(bar_index + 8, pwl, "PWL " + str.tostring(pwl, format.mintick) + f_pct(pwl), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
+    if showM and not na(pmh)
+        lMh := line.new(_x, pmh, bar_index + 8, pmh, color = cMo, width = wMo, style = f_style(yMo))
+        bMh := label.new(bar_index + 8, pmh, "PMH " + str.tostring(pmh, format.mintick) + f_pct(pmh), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
+    if showM and not na(pml)
+        lMl := line.new(_x, pml, bar_index + 8, pml, color = cMo, width = wMo, style = f_style(yMo))
+        bMl := label.new(bar_index + 8, pml, "PML " + str.tostring(pml, format.mintick) + f_pct(pml), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
 
 // ── HUD ──
 var table hud = showHud ? table.new(_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
