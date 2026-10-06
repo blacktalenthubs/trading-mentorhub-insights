@@ -65,11 +65,11 @@ vrLtf  = input.timeframe("5", "Intraday resolution", group=gVR)
 vrPace = input.int(3, "Pace lookback (intraday bars)", minval=1, group=gVR)
 
 gE = "EMAs (8 / 21 / 50)"
-showE8   = input.bool(true,  "8 EMA",   inline="e",  group=gE)
-showE21  = input.bool(true,  "21 EMA",  inline="e",  group=gE)
-showE50  = input.bool(true,  "50 EMA",  inline="e",  group=gE)
+showE8   = input.bool(false, "8 EMA",   inline="e",  group=gE)
+showE21  = input.bool(false, "21 EMA",  inline="e",  group=gE)
+showE50  = input.bool(false, "50 EMA",  inline="e",  group=gE)
 showE100 = input.bool(false, "100 EMA", inline="e2", group=gE)
-showE200 = input.bool(true,  "200 EMA", inline="e2", group=gE)
+showE200 = input.bool(false, "200 EMA", inline="e2", group=gE)
 emaLock  = input.bool(false, "Lock EMAs/MAs to a timeframe (UNCHECK = follow chart / unlock)", group=gE)
 emaTf    = input.timeframe("D", "…lock to this timeframe (only when locked above)", group=gE)
 colE8    = input.color(#00BCD4,      "8",   inline="ec", group=gE)
@@ -507,7 +507,8 @@ f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.sty
 cTba = input.color(color.aqua, "TBA",         inline = "L1", group = gLn)
 wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
 yTba = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "L1", group = gLn)
-cStp = input.color(color.new(color.red, 20), "Stop", inline = "L2", group = gLn)
+shStp = input.bool(true, "Stop", inline = "L2", group = gLn)
+cStp = input.color(color.new(color.red, 20), "", inline = "L2", group = gLn)
 wStp = input.int(1, "w", minval = 1, maxval = 6, inline = "L2", group = gLn)
 yStp = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L2", group = gLn)
 cSup = input.color(color.lime, "Support",     inline = "L3", group = gLn)
@@ -533,10 +534,10 @@ lnFwd  = input.int(20, "→ bars", minval = 0, maxval = 100, inline = "LX", grou
 // ── Weekly SMAs — locked to the WEEKLY timeframe, so they show on any chart TF (catches the
 // strong-trend names that ride the weekly 8 and never dip to the 20, e.g. today's SPY). ──
 gWk   = "Weekly SMAs"
-shW8  = input.bool(true, "Weekly 8 SMA",  inline = "W8", group = gWk)
+shW8  = input.bool(false, "Weekly 8 SMA",  inline = "W8", group = gWk)
 cW8   = input.color(#AB47BC, "", inline = "W8", group = gWk)
 wW8   = input.int(2, "w", minval = 1, maxval = 6, inline = "W8", group = gWk)
-shW20 = input.bool(true, "Weekly 20 SMA", inline = "W20", group = gWk)
+shW20 = input.bool(false, "Weekly 20 SMA", inline = "W20", group = gWk)
 cW20  = input.color(#42A5F5, "", inline = "W20", group = gWk)
 wW20  = input.int(2, "w", minval = 1, maxval = 6, inline = "W20", group = gWk)
 plot(shW8  and not na(wSma8)  ? wSma8  : na, "Weekly 8 SMA",  color = cW8,  linewidth = wW8)
@@ -577,9 +578,10 @@ if barstate.islast
     xR = bar_index + lnFwd
     if La
         tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
-        stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
         tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
-        stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
+        if shStp
+            stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
+            stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
     if LinOK
         inLn := line.new(xL, LinC, xR, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
         inLb := label.new(xR, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
