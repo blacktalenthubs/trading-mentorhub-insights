@@ -515,11 +515,14 @@ f_openLoc(float o, float s8, float s20, float s50, float s200) =>
     string belowN = ""
     int nBelow = 0
     int nTot   = 0
+    // The open counts as ABOVE a SMA (support) only when it CLEARS it by >0.1% — opening right AT
+    // the line means the SMA is still resistance, so it counts as below/overhead.
+    _buf = 0.001
     for _i = 0 to 3
         _x = array.get(_v, _i)
         if not na(_x) and not na(o)
             nTot += 1
-            if o > _x
+            if o > _x * (1 + _buf)
                 nBelow += 1
                 if na(belowV) or _x > belowV
                     belowV := _x
