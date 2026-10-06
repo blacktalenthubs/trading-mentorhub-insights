@@ -777,6 +777,9 @@ ENABLED_RULES: set[str] = {
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
+    "pdh_retest_hold",           # PDH breakout → pullback → retest/hold (2026-10-05). The breakout
+                                 # rule SKIPS gap-ups above PDH and defers the pullback case here, so
+                                 # with this off there was no PDH-retest alert at all (trader flagged SPY).
     "prior_day_low_reclaim",     # PDL reclaim
     "pwh_breakout_retest",       # PWH breakout + retest (weekly)
     "pwl_reclaim",               # PWL reclaim (weekly)
