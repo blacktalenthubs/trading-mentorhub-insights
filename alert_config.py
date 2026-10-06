@@ -745,10 +745,11 @@ ENABLED_RULES: set[str] = {
     # (SPCX rides the W8, SNDK the W20, SMH opens back above it). Strong uptrends never pull back
     # to the W20 — the W8 catches them. Daily opens above a RISING weekly SMA = swing support.
     "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
-    # Weekly congestion support (wcluster_support) — DISABLED 2026-10-05 (trader: "weekly clusters
-    # are a bunch of supports, use only the MA"). The tested-low cluster was too noisy/ambiguous
-    # vs the clean weekly SMA lines. Still computed; just not delivered. Re-add here to re-enable.
-    # "wcluster_support",
+    # Weekly congestion support — tested multi-week low cluster (weekly_sma.pine S line). RE-ENABLED
+    # 2026-10-05 but ONLY for SPY/QQQ/SMH (WEEKLY_SIGNAL_SYMBOLS gate in evaluate_rules) — on a single
+    # name the cluster sprawled into a fuzzy zone ("a bunch of supports"); on the index/sector proxies
+    # it's a clean macro floor (a level the proxy has defended repeatedly). ×N touches on the label.
+    "wcluster_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
