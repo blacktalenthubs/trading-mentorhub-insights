@@ -149,7 +149,7 @@ def scan(symbols, cfg: PatternConfig = CONFIG, earnings_filter: bool = False, fe
                 logger.info("skip %s: only %d bars (< %d)", sym, len(df), cfg.min_bars)
                 continue
             df = add_indicators(df, cfg)
-            gate = prefilter(df, cfg)
+            gate = prefilter(df, cfg, sym)
             if gate:
                 funnel[gate] += 1
                 continue

@@ -14,9 +14,13 @@ from patterns.config import PatternConfig
 PREFILTER_GATES = ("price", "liquidity", "above_200", "above_50", "rising_200", "near_52w_high", "off_52w_low")
 
 
-def prefilter(df: pd.DataFrame, cfg: PatternConfig) -> str:
+def prefilter(df: pd.DataFrame, cfg: PatternConfig, symbol: str = "") -> str:
     """Return "" if the last bar passes every pre-filter, else the name of the first gate it
-    fails (for the funnel counts). Assumes add_indicators() has run."""
+    fails (for the funnel counts). Assumes add_indicators() has run.
+
+    `symbol`: index / low-vol proxies (cfg.index_proxies) are exempt from the off-52w-low momentum
+    gate — they base and break TBAs but never run 30% off their low in a year."""
+    _is_index = bool(symbol) and symbol.upper() in getattr(cfg, "index_proxies", ())
     r = df.iloc[-1]
     if not (r["Close"] > cfg.min_close):
         return "price"
@@ -31,7 +35,7 @@ def prefilter(df: pd.DataFrame, cfg: PatternConfig) -> str:
     hi, lo, c = r["hi_52w"], r["lo_52w"], r["Close"]
     if not (hi > 0 and (hi - c) / hi <= cfg.max_pct_below_52w_high):
         return "near_52w_high"
-    if not (lo > 0 and (c - lo) / lo >= cfg.min_pct_above_52w_low):
+    if not _is_index and not (lo > 0 and (c - lo) / lo >= cfg.min_pct_above_52w_low):
         return "off_52w_low"
     return ""
 

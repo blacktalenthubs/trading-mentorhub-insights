@@ -26,6 +26,12 @@ class PatternConfig:
     require_rising_sma200: bool = True          # sma200_slope > 0
     max_pct_below_52w_high: float = 0.25        # close within 25% of the 52w high
     min_pct_above_52w_low: float = 0.30         # close ≥ 30% above the 52w low
+    # Index / low-vol proxies are EXEMPT from the off-the-52w-low momentum gate (2026-10-06). A
+    # low-vol index like SPY bases and breaks TBAs just like a stock, but it never runs 30% off its
+    # low in a year (SPY was 24.4% above its low at a 52w HIGH), so it was being rejected. They still
+    # must pass every other gate (near 52w high, above rising 200/50, liquidity).
+    index_proxies: tuple[str, ...] = field(
+        default_factory=lambda: ("SPY", "QQQ", "SMH", "DIA", "IWM", "IWB", "DRAM"))
 
     # ── Breakout confirmation (shared) ───────────────────────────────────────
     breakout_rvol: float = 1.8                  # rvol on the breakout bar
