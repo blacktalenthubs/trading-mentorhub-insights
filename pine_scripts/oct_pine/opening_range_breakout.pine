@@ -83,7 +83,7 @@ w20h    = input.int(2, "w", minval = 1, maxval = 6, inline = "h20", group = g4b)
 y20h    = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "h20", group = g4b)
 // Proximity gate — drop levels (D/W/M, premarket, hourly SMA) that sit too far from price.
 gateProx = input.bool(true, "Hide levels beyond max distance", group = g4b, tooltip = "Drop prior D/W/M + premarket + hourly-SMA levels further than 'Max distance' from price — e.g. a deep monthly low. The OR itself (ORH/ORL/Mid/targets) always draws.")
-maxDist  = input.float(5.0, "Max distance from price %", minval = 0.5, maxval = 50.0, step = 0.5, group = g4b) / 100.0
+maxADR   = input.float(3.0, "Max distance from price (× ADR)", minval = 0.5, maxval = 20.0, step = 0.5, group = g4b, tooltip = "Distance measured in ADR multiples, so it auto-scales to each instrument's volatility (a flat % is too loose for SPY). SPY ADR ≈ 0.7%, so 3× ≈ 2.1%; a volatile name gets a proportionally wider band.")
 
 // ── HUD ──
 g5      = "HUD"
@@ -196,7 +196,9 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
 
 // ── current-session rays: ORH / ORL / midpoint / measured-move target ──
 f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
-f_prox(float v) => not gateProx or (not na(v) and close > 0 and math.abs(v - close) / close <= maxDist)
+// Proximity gate in ADR multiples (volatility-aware; a flat % is too loose for low-vol names like SPY).
+// Fail-open when ADR isn't available yet so levels aren't hidden on a cold start.
+f_prox(float v) => not gateProx or na(adr) or adr <= 0 or (not na(v) and math.abs(v - close) <= maxADR * adr)
 var line lH = na
 var line lL = na
 var line lM = na
