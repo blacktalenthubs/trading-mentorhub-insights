@@ -21,7 +21,7 @@ indicator("Opening Range Breakout · ADR-gauged", "ORB", overlay = true, max_box
 // ── Opening range window ──
 g1     = "Opening range"
 orSel  = input.string("15", "Opening-range window (min)", options = ["15", "30", "60"], group = g1, tooltip = "First N minutes of the RTH session from 9:30 ET. 15 = 9:30-9:45, 30 = 9:30-10:00, 60 = 9:30-10:30. This is the TIME window; the range is whatever price does in it.")
-baseTf = input.string("15", "Lock OR to this TF (min)", options = ["1", "3", "5", "15"], group = g1, tooltip = "The OR is BUILT from this timeframe via request.security, so it's IDENTICAL on any chart TF — flip the chart to 5m / 1h / D and the 15-min opening range stays put. Default 15 = the 15-minute opening range, locked.")
+baseTf = input.string("5", "Lock OR to base TF (min)", options = ["1", "3", "5", "15"], group = g1, tooltip = "Build the OR from this base timeframe so it's IDENTICAL on any chart TF (flip 5m ↔ 15m ↔ 1h and it stays put).")
 orMin   = math.round(str.tonumber(orSel))
 _baseMin = str.tonumber(baseTf)
 
@@ -34,7 +34,7 @@ distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval 
 
 // ── Target (measured move) ──
 g3      = "Target (measured move)"
-showTgt = input.bool(true, "Show targets (T↑ / T↓)", group = g3, tooltip = "Uncheck to hide both measured-move targets.")
+showTgt = input.bool(true, "Project a measured-move target", group = g3)
 tgtMult = input.float(1.0, "Target = range ×", minval = 0.5, maxval = 3.0, step = 0.1, group = g3, tooltip = "Project the OR height beyond the broken side. Median extension on narrow ranges runs ~0.75-1× the range.")
 
 // ── Display / style (each line: colour · width · solid/dashed/dotted) ──
@@ -58,29 +58,9 @@ showPrem = input.bool(true, "Premarket H/L (profit-taking zones)", group = g4, t
 cPr = input.color(color.new(#AB47BC, 0), "Premkt",  inline = "sp", group = g4)
 wPr = input.int(1, "w", minval = 1, maxval = 6, inline = "sp", group = g4)
 yPr = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "sp", group = g4)
-showOpn = input.bool(true, "Today's open", inline = "so", group = g4, tooltip = "The daily open (= 09:30 RTH open). Where the day is relative to its open is a quick bias read.")
-cOpn = input.color(color.new(#FFB300, 0), "", inline = "so", group = g4)
-wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "so", group = g4)
-yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "so", group = g4)
 boxCol = input.color(color.new(color.teal, 92), "OR box fill", group = g4)
 boxBrd = input.color(color.new(color.teal, 40), "OR box border", group = g4)
-cRcl   = input.color(color.new(#00E676, 0), "ORL-reclaim arrow", group = g4, tooltip = "Fires when price closes back ABOVE the ORL from below — the lower bound holding / reclaimed. Often your better long entry (tight risk at the low edge) than chasing the ORH breakout.")
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
-
-// ── Prior levels — settled prior Daily / Weekly / Monthly high & low (natural ORB targets + risk) ──
-g4b    = "Prior levels (D / W / M)"
-showD  = input.bool(true,  "Prior day  H/L (PDH/PDL)",   inline = "pd", group = g4b)
-cD     = input.color(color.new(#42A5F5, 0), "", inline = "pd", group = g4b)
-wD     = input.int(1, "w", minval = 1, maxval = 6, inline = "pd", group = g4b)
-yD     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "pd", group = g4b)
-showW  = input.bool(true,  "Prior week  H/L (PWH/PWL)",  inline = "pw", group = g4b)
-cW     = input.color(color.new(#FFA726, 0), "", inline = "pw", group = g4b)
-wW     = input.int(1, "w", minval = 1, maxval = 6, inline = "pw", group = g4b)
-yW     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "pw", group = g4b)
-showM  = input.bool(false, "Prior month H/L (PMH/PML)",  inline = "pm", group = g4b)
-cMo    = input.color(color.new(#EC407A, 0), "", inline = "pm", group = g4b)
-wMo    = input.int(1, "w", minval = 1, maxval = 6, inline = "pm", group = g4b)
-yMo    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "pm", group = g4b)
 
 // ── HUD ──
 g5      = "HUD"
@@ -131,13 +111,6 @@ f_preCalc() =>
     [_h, _l]
 [premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
 
-// ── Prior D / W / M high-low — settled prior-period extremes ([1] + lookahead_on = non-repainting) ──
-[pdh, pdl] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-// Today's OPEN — the daily open (09:30 RTH open). Fixed at the bar's start → lookahead_on is safe.
-dOpen = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
-[pwh, pwl] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[pmh, pml] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-
 // ── 10-day OR-width distribution → is today's OR tighter than most recent days? ──
 var float[] _orHist = array.new_float()
 var float   _dayOR  = na
@@ -176,10 +149,8 @@ orDone = _sessBar >= orBarsChart
 // ── breakout / breakdown — a close beyond the OR after the window has formed ──
 brkUp = showBrk and orDone and not na(orh) and close > orh and close[1] <= orh
 brkDn = showBrk and orDone and not na(orl) and close < orl and close[1] >= orl
-rclUp = showBrk and orDone and not na(orl) and close > orl and close[1] <= orl   // reclaim of the lower bound from below — the tight-risk long entry
-plotshape(brkUp, "Breakout",    style = shape.triangleup,   location = location.belowbar, color = cH,   size = size.small)
-plotshape(brkDn, "Breakdown",   style = shape.triangledown, location = location.abovebar, color = cL,   size = size.small)
-plotshape(rclUp, "ORL reclaim", style = shape.arrowup,      location = location.belowbar, color = cRcl, size = size.normal)
+plotshape(brkUp, "Breakout",  style = shape.triangleup,   location = location.belowbar, color = cH, size = size.small)
+plotshape(brkDn, "Breakdown", style = shape.triangledown, location = location.abovebar, color = cL, size = size.small)
 
 // ── OR box — one per session, drawn when the OR completes, spanning the RTH day ──
 var bool _boxDrawn = false
@@ -189,142 +160,48 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
     box.new(bar_index - orBarsChart, orh, bar_index + barsPerDay - orBarsChart, orl, border_color = boxBrd, bgcolor = boxCol)
     _boxDrawn := true
 
-// ── Confluence — levels within "fuse %" collapse into ONE line + one combined tag; tags too
-//    close to merge are nudged apart so none hides behind another (ported from day_proximity). ──
-g6       = "Confluence"
-mergePct = input.float(0.10, "Fuse levels within %", minval = 0.0, maxval = 2.0, step = 0.05, group = g6, tooltip = "Two levels closer than this (as % of price) are treated as the SAME level — one line, one tag naming both (e.g. 'ORH · PWH'). 0 = never fuse.") / 100.0
-lblGap   = input.float(0.12, "Min label spacing %",  minval = 0.0, maxval = 3.0, step = 0.02, group = g6, tooltip = "Minimum vertical gap between tags (as % of price). Tags closer than this are pushed up so every one stays readable. Kept small so labels stay ON their lines; a label never drifts more than ~0.4% above its own line. 0 = no nudging.") / 100.0
-gateProx = input.bool(true,  "Hide levels beyond max distance", group = g6, tooltip = "Drop prior D/W/M + premarket levels that sit further than 'Max distance' from price — the deep, not-in-play ones. The OR itself (ORH/ORL/Mid/targets) always draws.")
-maxDist  = input.float(5.0,  "Max distance from price %", minval = 0.5, maxval = 50.0, step = 0.5, group = g6, tooltip = "A context level further than this % from price is hidden when the gate is on.") / 100.0
-
+// ── current-session rays: ORH / ORL / midpoint / measured-move target ──
 f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
-f_prox(float v) => not gateProx or (not na(v) and close > 0 and math.abs(v - close) / close <= maxDist)
-f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
-
-// queue machinery — everything enabled is pushed, then sorted + fused + nudged + drawn in one pass
-var line[]   _ln = array.new_line()
-var label[]  _lb = array.new_label()
-var float[]  _qv = array.new_float()
-var string[] _qn = array.new_string()
-var color[]  _qc = array.new_color()
-var int[]    _qw = array.new_int()
-var string[] _qy = array.new_string()
-var bool[]   _qf = array.new_bool()
-// fusable = may merge with a coincident level. ORH/ORL + prior/premarket fuse; Mid + targets never do.
-queue(float v, string nm, color col, int wid, string sty, bool show, bool fusable) =>
-    if show and not na(v)
-        array.push(_qv, v)
-        array.push(_qn, nm)
-        array.push(_qc, col)
-        array.push(_qw, wid > 6 ? 6 : wid < 1 ? 1 : wid)
-        array.push(_qy, sty)
-        array.push(_qf, fusable)
-
+var line lH = na
+var line lL = na
+var line lM = na
+var line lTu = na
+var line lTd = na
+var line lPh = na
+var line lPl = na
+var label bH = na
+var label bL = na
+var label bM = na
+var label bTu = na
+var label bTd = na
+var label bPh = na
+var label bPl = na
 if barstate.islast
-    if array.size(_ln) > 0
-        for i = 0 to array.size(_ln) - 1
-            line.delete(array.get(_ln, i))
-        array.clear(_ln)
-    if array.size(_lb) > 0
-        for i = 0 to array.size(_lb) - 1
-            label.delete(array.get(_lb, i))
-        array.clear(_lb)
-    array.clear(_qv), array.clear(_qn), array.clear(_qc), array.clear(_qw), array.clear(_qy), array.clear(_qf)
-
+    line.delete(lH), line.delete(lL), line.delete(lM), line.delete(lTu), line.delete(lTd), line.delete(lPh), line.delete(lPl)
+    label.delete(bH), label.delete(bL), label.delete(bM), label.delete(bTu), label.delete(bTd), label.delete(bPh), label.delete(bPl)
     _x = bar_index - math.min(_sessBar, barsPerDay)
-    _tu = showTgt and not na(orW) and orW > 0 ? orh + orW * tgtMult : na
-    _td = showTgt and not na(orW) and orW > 0 ? orl - orW * tgtMult : na
-    queue(orh,   "ORH",   cH,  wH,  f_style(yH), not na(orh), true)
-    queue(orl,   "ORL",   cL,  wL,  f_style(yL), not na(orl), true)
-    queue(orMid, "Mid",   cM,  wM,  f_style(yM), showMid and not na(orMid), false)
-    queue(_tu,   "T↑",    cT,  wT,  f_style(yT), not na(_tu), false)
-    queue(_td,   "T↓",    cT,  wT,  f_style(yT), not na(_td), false)
-    queue(dOpen, "Open",  cOpn, wOpn, f_style(yOpn), showOpn and not na(dOpen), true)
-    queue(premH, "Pre-H", cPr, wPr, f_style(yPr), showPrem and not na(premH) and f_prox(premH), true)
-    queue(premL, "Pre-L", cPr, wPr, f_style(yPr), showPrem and not na(premL) and f_prox(premL), true)
-    queue(pdh,   "PDH",   cD,  wD,  f_style(yD), showD and not na(pdh) and f_prox(pdh), true)
-    queue(pdl,   "PDL",   cD,  wD,  f_style(yD), showD and not na(pdl) and f_prox(pdl), true)
-    // Weekly + monthly → keep only the NEAREST one ABOVE price + the nearest BELOW (not a stack).
-    _wv = array.from(pwh, pwl, pmh, pml)
-    _wn = array.from("PWH", "PWL", "PMH", "PML")
-    _wc = array.from(cW, cW, cMo, cMo)
-    _ww = array.from(wW, wW, wMo, wMo)
-    _wy = array.from(yW, yW, yMo, yMo)
-    _we = array.from(showW, showW, showM, showM)
-    float  _uV = na
-    string _uN = ""
-    color  _uC = cW
-    int    _uW = 1
-    string _uY = "dashed"
-    float  _dV = na
-    string _dN = ""
-    color  _dC = cW
-    int    _dW = 1
-    string _dY = "dashed"
-    for _wi = 0 to array.size(_wv) - 1
-        _lv = array.get(_wv, _wi)
-        if array.get(_we, _wi) and not na(_lv) and f_prox(_lv)
-            if _lv >= close and (na(_uV) or _lv < _uV)
-                _uV := _lv
-                _uN := array.get(_wn, _wi)
-                _uC := array.get(_wc, _wi)
-                _uW := array.get(_ww, _wi)
-                _uY := array.get(_wy, _wi)
-            if _lv < close and (na(_dV) or _lv > _dV)
-                _dV := _lv
-                _dN := array.get(_wn, _wi)
-                _dC := array.get(_wc, _wi)
-                _dW := array.get(_ww, _wi)
-                _dY := array.get(_wy, _wi)
-    queue(_uV, _uN, _uC, _uW, f_style(_uY), not na(_uV), true)
-    queue(_dV, _dN, _dC, _dW, f_style(_dY), not na(_dV), true)
-
-    // sort ascending, fuse members within mergePct (line sits on the member nearest price), nudge tags
-    _n = array.size(_qv)
-    if _n > 0
-        _ord = array.sort_indices(_qv, order.ascending)
-        float _gap     = close * lblGap
-        float _lastLbl = na
-        _i = 0
-        while _i < _n
-            _s     = array.get(_ord, _i)
-            _hi    = array.get(_qv, _s)
-            _nm    = array.get(_qn, _s)
-            _cnt   = 1
-            _near  = _hi
-            _nearD = math.abs(close - _hi)
-            _col   = array.get(_qc, _s)
-            _wid   = array.get(_qw, _s)
-            _sty   = array.get(_qy, _s)
-            _fus = array.get(_qf, _s)
-            _j = _i + 1
-            while _j < _n
-                _k  = array.get(_ord, _j)
-                _v2 = array.get(_qv, _k)
-                if mergePct > 0 and _fus and array.get(_qf, _k) and _v2 <= _hi * (1.0 + mergePct)
-                    _hi  := _v2
-                    _nm  := _nm + " · " + array.get(_qn, _k)
-                    _cnt := _cnt + 1
-                    if math.abs(close - _v2) < _nearD
-                        _near  := _v2
-                        _nearD := math.abs(close - _v2)
-                        _col   := array.get(_qc, _k)
-                        _wid   := array.get(_qw, _k)
-                        _sty   := array.get(_qy, _k)
-                    _j := _j + 1
-                else
-                    break
-            _w   = _cnt > 1 and _wid < 6 ? _wid + 1 : _wid
-            _txt = _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "") + "  " + str.tostring(_near, format.mintick) + f_pct(_near)
-            // nudge up to clear the previous tag, but NEVER float a label far from its own line
-            float _lblY = _near
-            if lblGap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
-                _cand = _lastLbl + _gap
-                _lblY := _cand <= _near * (1.0 + 0.004) ? _cand : _near
-            _lastLbl := _lblY
-            array.push(_ln, line.new(_x, _near, bar_index + 8, _near, color = _col, width = _w, style = _sty))
-            array.push(_lb, label.new(bar_index + 8, _lblY, _txt, style = label.style_label_left, color = _col, textcolor = f_txtcol(_col), size = size.small))
-            _i := _j
+    if not na(orh)
+        lH := line.new(_x, orh, bar_index + 8, orh, color = cH, width = wH, style = f_style(yH))
+        bH := label.new(bar_index + 8, orh, "ORH " + str.tostring(orh, format.mintick) + f_pct(orh), style = label.style_label_left, color = cH, textcolor = color.white, size = size.small)
+    if not na(orl)
+        lL := line.new(_x, orl, bar_index + 8, orl, color = cL, width = wL, style = f_style(yL))
+        bL := label.new(bar_index + 8, orl, "ORL " + str.tostring(orl, format.mintick) + f_pct(orl), style = label.style_label_left, color = cL, textcolor = color.white, size = size.small)
+    if showMid and not na(orMid)
+        lM := line.new(_x, orMid, bar_index + 8, orMid, color = cM, width = wM, style = f_style(yM))
+        bM := label.new(bar_index + 8, orMid, "Mid " + str.tostring(orMid, format.mintick), style = label.style_label_left, color = cM, textcolor = color.white, size = size.small)
+    if showTgt and not na(orW) and orW > 0
+        _tu = orh + orW * tgtMult
+        _td = orl - orW * tgtMult
+        lTu := line.new(_x, _tu, bar_index + 8, _tu, color = cT, width = wT, style = f_style(yT))
+        bTu := label.new(bar_index + 8, _tu, "T↑ " + str.tostring(_tu, format.mintick) + f_pct(_tu), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
+        lTd := line.new(_x, _td, bar_index + 8, _td, color = cT, width = wT, style = f_style(yT))
+        bTd := label.new(bar_index + 8, _td, "T↓ " + str.tostring(_td, format.mintick) + f_pct(_td), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
+    if showPrem and not na(premH)
+        lPh := line.new(_x, premH, bar_index + 8, premH, color = cPr, width = wPr, style = f_style(yPr))
+        bPh := label.new(bar_index + 8, premH, "Pre-H " + str.tostring(premH, format.mintick) + f_pct(premH) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
+    if showPrem and not na(premL)
+        lPl := line.new(_x, premL, bar_index + 8, premL, color = cPr, width = wPr, style = f_style(yPr))
+        bPl := label.new(bar_index + 8, premL, "Pre-L " + str.tostring(premL, format.mintick) + f_pct(premL) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
 
 // ── HUD ──
 var table hud = showHud ? table.new(_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
@@ -342,6 +219,4 @@ if showHud and barstate.islast
     f_row(3, "OR ÷ ADR", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _vCol)
     f_row(4, "Verdict", _verdict, _vCol)
     f_row(5, "vs 10-day", na(orPctile) ? "—" : "tighter than " + str.tostring(orPctile, "#") + "% of days", isBottom25 ? color.lime : color.white)
-    _midTxt = na(orMid) ? "—" : (close >= orMid ? "above " : "below ") + str.tostring(orMid, format.mintick)
-    _midCol = na(orMid) ? color.gray : close >= orMid ? color.lime : color.red
-    f_row(6, "Price vs mid", _midTxt, _midCol)
+    f_row(6, "Midpoint", na(orMid) ? "—" : str.tostring(orMid, format.mintick), color.white)
