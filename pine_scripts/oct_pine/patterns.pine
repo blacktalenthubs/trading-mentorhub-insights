@@ -78,10 +78,12 @@ colE50   = input.color(color.green,  "50",  inline="ec", group=gE)
 colE100  = input.color(#F57F17,      "100", inline="ec", group=gE)
 colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
 
-gS = "SMAs (20 / 50 / 200)"
+gS = "SMAs (8 / 20 / 50 / 200)"
+showS8   = input.bool(true, "8 SMA",   inline="s",  group=gS)
 showS20  = input.bool(true, "20 SMA",  inline="s",  group=gS)
 showS50  = input.bool(true, "50 SMA",  inline="s",  group=gS)
 showS200 = input.bool(true, "200 SMA", inline="s",  group=gS)
+colS8    = input.color(#26A69A, "8",   inline="sc", group=gS)
 colS20   = input.color(#42A5F5, "20",  inline="sc", group=gS)
 colS50   = input.color(#FF9800, "50",  inline="sc", group=gS)
 colS200  = input.color(#787B86, "200", inline="sc", group=gS)
@@ -112,6 +114,7 @@ ema21  = f_ema(21)
 ema50  = f_ema(50)
 ema100 = f_ema(100)
 ema200 = f_ema(200)
+sma8v   = f_sma(8)
 sma20v  = f_sma(20)
 sma50v  = f_sma(50)
 sma200v = f_sma(200)
@@ -120,7 +123,8 @@ plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1
 plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
 plot(showE100 ? ema100 : na, "100 EMA", color=color.new(colE100, 0), linewidth=2)
 plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2)
-// SMAs 20 / 50 / 200 — structural levels (match the scanner). Same lock as the EMAs (emaLock).
+// SMAs 8 / 20 / 50 / 200 — structural levels (match the scanner). Same lock as the EMAs (emaLock).
+plot(showS8   ? sma8v   : na, "8 SMA",   color=color.new(colS8, 0),   linewidth=1)
 plot(showS20  ? sma20v  : na, "20 SMA",  color=color.new(colS20, 0),  linewidth=1)
 plot(showS50  ? sma50v  : na, "50 SMA",  color=color.new(colS50, 0),  linewidth=2)
 plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=2, style=plot.style_circles)
