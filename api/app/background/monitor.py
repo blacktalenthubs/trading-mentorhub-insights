@@ -36,7 +36,7 @@ from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
 from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
 from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
 from analytics.focus_gate import focus_tier_of as _focus_tier_of  # noqa: E402  # A/B delivery tier
-from analytics.market_hours import is_market_hours, is_market_hours_for_symbol  # noqa: E402
+from analytics.market_hours import is_market_hours, is_market_hours_for_symbol, in_opening_window as _in_opening_window  # noqa: E402
 
 logger = logging.getLogger("monitor")
 
@@ -1380,9 +1380,15 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _send_notification = False
                             _deliver_push = False
                             _suppressed = "not_in_focus"
-                        elif _tier == 2:                       # B (watch) → app feed only
-                            _deliver_push = False
-                            alert.channel = "app"
+                        elif _tier == 2:                       # B (watch)
+                            # First 30 min of the open (9:30-10:00 ET) is noisy — hold Watch
+                            # pings to the feed; Core still pings. After 10:00 ET, Watch pings
+                            # too. (user 2026-10-05) Crypto has no open → never restricted.
+                            if _in_opening_window(symbol):
+                                _deliver_push = False
+                                alert.channel = "app"
+                            else:
+                                alert.channel = "telegram"
                         else:                                  # A (core) → ping everywhere
                             alert.channel = "telegram"
 

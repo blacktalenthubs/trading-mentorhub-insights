@@ -68,6 +68,25 @@ def allow_new_entries() -> bool:
     return phase not in ("opening_range", "last_30", "closed")
 
 
+def in_opening_window(symbol: str | None = None, minutes: int = 30) -> bool:
+    """True on a weekday when ET time is within the first `minutes` of the 9:30 open.
+
+    Default 30 → the 9:30-10:00 ET window. Used to hold tier-B (Watch) Telegram pings
+    during the noisy open (Core still pings); after the window, Watch pings too.
+    Crypto (24h) has no opening bell, so this is always False (no restriction).
+    """
+    if symbol is not None:
+        from config import is_crypto_alert_symbol
+        if is_crypto_alert_symbol(symbol):
+            return False
+    now = datetime.now(ET)
+    if now.weekday() >= 5:
+        return False
+    cur = now.hour * 60 + now.minute
+    open_min = MARKET_OPEN_HOUR * 60 + MARKET_OPEN_MINUTE
+    return open_min <= cur < open_min + minutes
+
+
 # ---------------------------------------------------------------------------
 # Crypto 24h market helpers
 # ---------------------------------------------------------------------------
