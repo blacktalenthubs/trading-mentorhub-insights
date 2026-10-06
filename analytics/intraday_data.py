@@ -1012,8 +1012,22 @@ def _weekly_sma_family(symbol: str) -> dict:
         wk = fetch_ohlc(symbol, period="5y", interval="1wk")
         if wk is None or wk.empty or "Close" not in wk:
             return out
-        wkc = wk["Close"].dropna()
-        done = wkc.iloc[:-1] if len(wkc) >= 2 else wkc   # drop the partial current week
+        # Drop ONLY the still-forming current week. yfinance includes it as the last row;
+        # Robinhood's weekly feed already OMITS it — so a blind iloc[:-1] double-drops on RH,
+        # computing the SMA a week stale (during a rally that pulls the level too LOW, e.g. an
+        # 8-wk SMA landing ~13pts under the real value). Date-check instead: drop the last bar
+        # only when its ISO week is the current week.
+        wk_done = wk
+        if len(wk) >= 2:
+            try:
+                _last = pd.Timestamp(wk.index[-1])
+                _now = pd.Timestamp.now(tz=_last.tz) if _last.tzinfo else pd.Timestamp.now()
+                if tuple(_last.isocalendar())[:2] == tuple(_now.isocalendar())[:2]:
+                    wk_done = wk.iloc[:-1]
+            except Exception:
+                wk_done = wk.iloc[:-1]
+        wkc = wk_done["Close"].dropna()
+        done = wkc
         for n, key in ((8, "wsma8"), (20, "wsma20"), (50, "wsma50"), (200, "wsma200")):
             if len(done) >= n:
                 s = done.rolling(n).mean()
@@ -1023,8 +1037,8 @@ def _weekly_sma_family(symbol: str) -> dict:
                     out[key + "_rising"] = bool(val > float(s.iloc[-5]))
         # Congestion support: scan the last 26 completed weekly LOWS, keep the MOST-TESTED cluster
         # at/below the last weekly close and within 20% of it (same math as weekly_sma.pine).
-        if "Low" in wk:
-            lows = [float(x) for x in wk["Low"].dropna().iloc[:-1].tail(26).tolist()]
+        if "Low" in wk_done:
+            lows = [float(x) for x in wk_done["Low"].dropna().tail(26).tolist()]
             ref = float(done.iloc[-1]) if len(done) else 0.0
             lvl, touch = _tested_support(lows, ref, tol=0.03, min_touch=2, max_dist=0.20)
             out["wsup_cluster"], out["wsup_cluster_touch"] = lvl, touch
