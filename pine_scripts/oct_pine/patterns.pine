@@ -590,7 +590,9 @@ if barstate.islast
     if LinOK and shInn
         inLn := line.new(xL, LinC, xR, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
         inLb := label.new(xR, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
-    if shSup and not na(LsupL)
+    // When support coincides with the TBA (within 0.5%) and the TBA is drawn, show the TBA only.
+    _supDup = La and shTba and not na(Ltba) and not na(LsupL) and math.abs(LsupL / Ltba - 1) <= 0.005
+    if shSup and not na(LsupL) and not _supDup
         supLn := line.new(xL, LsupL, xR, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
         supLb := label.new(xR, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
     if shRec and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
