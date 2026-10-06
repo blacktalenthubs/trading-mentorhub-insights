@@ -449,6 +449,16 @@ CONFLUENCE_BAND_PCT = 0.005  # 0.5%
 # materially different entry is outside the band and still fires.
 PRICE_AREA_DEDUP_PCT = 0.006  # 0.6%
 
+# Weekly support signals are a SWING read, distinct from the day-trade entries. They are
+# EXCLUDED from the cross-timeframe dedup (confluence merge, zone cooldown, price-area dedup)
+# so a weekly cluster/SMA support neither suppresses a day entry at the same price nor gets
+# suppressed by one — both deliver (2026-10-05 trader: "shouldn't dedup based on weekly for now").
+# Re-firing is still blocked by the one-row-per-(symbol,date,alert_type) DB constraint.
+WEEKLY_SUPPORT_TYPES = {
+    "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
+    "wcluster_support",
+}
+
 # VWAP alerts: only fire for these symbols (SPY for market structure, NVDA for AI
 # sentiment, crypto for 24h VWAP relevance).  Other equities get noise from
 # bounce-then-fade behaviour around VWAP.
@@ -728,9 +738,10 @@ ENABLED_RULES: set[str] = {
     # (SPCX rides the W8, SNDK the W20, SMH opens back above it). Strong uptrends never pull back
     # to the W20 — the W8 catches them. Daily opens above a RISING weekly SMA = swing support.
     "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
-    # Weekly congestion support — tested multi-week low cluster (weekly_sma.pine S line); opens
-    # above it = at a tested floor. Confluences with a weekly SMA at the same price automatically.
-    "wcluster_support",
+    # Weekly congestion support (wcluster_support) — DISABLED 2026-10-05 (trader: "weekly clusters
+    # are a bunch of supports, use only the MA"). The tested-low cluster was too noisy/ambiguous
+    # vs the clean weekly SMA lines. Still computed; just not delivered. Re-add here to re-enable.
+    # "wcluster_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds

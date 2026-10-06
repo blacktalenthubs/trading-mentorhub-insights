@@ -22,7 +22,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES, PRICE_AREA_DEDUP_PCT  # noqa: E402
+from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES, PRICE_AREA_DEDUP_PCT, WEEKLY_SUPPORT_TYPES  # noqa: E402
 from analytics.htf_bias import (  # noqa: E402
     HTFBias,
     compute_htf_bias,
@@ -282,6 +282,14 @@ def _confluence_token(alert_type: str) -> str:
     return _setup_name(alert_type)
 
 
+def _is_weekly_signal(s) -> bool:
+    """True for a weekly SWING support signal (wsma*/wcluster). These are excluded from the
+    cross-timeframe dedup so they don't suppress / get suppressed by day entries at the same price."""
+    _t = getattr(s, "alert_type", None)
+    _tv = getattr(_t, "value", _t)
+    return _tv in WEEKLY_SUPPORT_TYPES
+
+
 def _merge_confluence(signals: list) -> list:
     """Collapse BUY entries at the SAME price level into one confluence alert.
 
@@ -298,9 +306,12 @@ def _merge_confluence(signals: list) -> list:
     as "merged", exactly as it already does for the TradingView path
     (tv_webhook.py's confluence_collapsed). Delivery is skipped for them.
     """
+    # Weekly support signals are a separate SWING stream — excluded from the merge so they
+    # neither fold into nor suppress a day entry at the same price (they pass through as "others").
     buys = [s for s in signals
             if (getattr(s, "direction", "") or "").upper() == "BUY"
-            and getattr(s, "entry", None) and s.entry > 0]
+            and getattr(s, "entry", None) and s.entry > 0
+            and not _is_weekly_signal(s)]
     if len(buys) <= 1:
         return signals
     others = [s for s in signals if s not in buys]
@@ -1329,8 +1340,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             _best = _ce2
                         _last_buy_notify[symbol] = {"at": datetime.utcnow(), "entry": _best, "dir": _dir2}
 
-                    # Zone clustering: suppress redundant directional signals at same price zone
-                    if _send_notification and signal.direction in ("SHORT", "BUY"):
+                    # Zone clustering: suppress redundant directional signals at same price zone.
+                    # Weekly SWING supports are excluded — a separate stream, not deduped vs day entries.
+                    if _send_notification and signal.direction in ("SHORT", "BUY") and not _is_weekly_signal(signal):
                         _price_bucket = round(signal.price, -1) if signal.price > 100 else round(signal.price, 0)
                         _zone_key = (symbol, signal.direction, _price_bucket)
                         _zone_cooldown = getattr(_poll_all_users_inner, "_zone_cooldown", {})
@@ -1351,10 +1363,10 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # BUY was already DELIVERED today within PRICE_AREA_DEDUP_PCT of this entry, this
                     # is the same trade at the same level (just a different trigger) -> collapse it.
                     # A materially different entry is outside the band and still fires.
-                    if _send_notification and signal.direction == "BUY" and signal.entry:
+                    if _send_notification and signal.direction == "BUY" and signal.entry and not _is_weekly_signal(signal):
                         from alerting.alert_store import was_price_area_alerted
                         if was_price_area_alerted(symbol, float(signal.entry), PRICE_AREA_DEDUP_PCT,
-                                                  user_id=user_id):
+                                                  user_id=user_id, exclude_types=WEEKLY_SUPPORT_TYPES):
                             _send_notification = False
                             _suppressed = "dedup_zone"
                             logger.info(
