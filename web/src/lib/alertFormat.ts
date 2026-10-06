@@ -155,6 +155,12 @@ export function formatSetup(alertType?: string): string {
     pdh_retest_hold: "PDH retest / hold",
     multi_day_double_bottom: "Double bottom",
     pdh_rejection: "PDH liquidity grab",
+    // Weekly rising-SMA support + weekly congestion cluster (Day feed).
+    wsma8_support: "Weekly 8 SMA support",
+    wsma20_support: "Weekly 20 SMA support",
+    wsma50_support: "Weekly 50 SMA support",
+    wsma200_support: "Weekly 200 SMA support",
+    wcluster_support: "Weekly cluster support",
     // Hourly volume-profile family (the "Volume" feed) — 1h value-area levels
     // (POC / VAL / VAH) + anchored VWAP. Named for the level + the action.
     hourly_poc_reclaim: "1h POC reclaim",
@@ -351,6 +357,11 @@ const SCANNER_ENTRY_TYPES = new Set([
   "pwh_reclaim", "pwl_reclaim",
   "pmh_reclaim", "pml_reclaim",
   "pqh_reclaim", "pql_reclaim",
+  // Weekly rising-SMA support + weekly congestion cluster (traded intraday off the
+  // daily chart → Day feed). Were missing here, so they delivered to Telegram but
+  // never showed in the app feed (2026-10-05).
+  "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
+  "wcluster_support",
 ]);
 /** ma_reclaim_50 / ema_reclaim_21 … — the open-above MA ladder, its short mirror
  *  ma_rejection_8/21/50 (open-BELOW, index-only), and (re-enabled 2026-09-10) the
