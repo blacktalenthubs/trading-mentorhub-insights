@@ -258,7 +258,13 @@ var float  mTba   = na
 var float  mStp   = na
 var int    mStart = na
 var int    mBar   = na
-if not na(pat)
+// Only anchor to a CURRENT base — one whose ceiling is still near price. During a fast rally the
+// detector keeps re-finding the OLD base (its pivot highs still dominate, no new pivot confirmed
+// yet), which refreshed mBar every bar and kept the stale TBA alive forever. Once price has
+// extended past `extPct` above the ceiling, that base is played out: stop refreshing it so `active`
+// expires (the TBA clears), and let a NEW base take over when one forms (Zanger: new base = new TBA).
+patFresh = not na(pat) and not na(tba) and close <= tba * (1 + extPct)
+if patFresh
     mPat   := pat
     mTba   := tba
     mStp   := stp
