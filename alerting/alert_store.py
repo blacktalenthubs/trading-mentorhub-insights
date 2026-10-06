@@ -63,6 +63,7 @@ def was_price_area_alerted(
     band_pct: float,
     session_date: str | None = None,
     user_id: int | None = None,
+    exclude_types: "set[str] | tuple[str, ...] | None" = None,
 ) -> bool:
     """True if a DELIVERED BUY alert already fired today on this symbol with an entry within
     band_pct of *entry*.
@@ -71,24 +72,34 @@ def was_price_area_alerted(
     collapsed/suppressed row never anchors the dedup. Used to collapse same-price-area restatements
     (different alert types stacking at one level) into the first genuine alert — one BUY per price
     area per name per session. A materially different entry falls outside the band and still fires.
+
+    `exclude_types`: alert_type values that must NOT anchor the dedup (e.g. weekly support signals,
+    which are a separate swing stream and shouldn't suppress day entries at the same price).
     """
     if not entry or entry <= 0:
         return False
     session = session_date or today_session()
     lo, hi = entry * (1 - band_pct), entry * (1 + band_pct)
+    _excl_sql = ""
+    _excl_params: list = []
+    if exclude_types:
+        _ph = ",".join("?" for _ in exclude_types)
+        _excl_sql = f" AND alert_type NOT IN ({_ph})"
+        _excl_params = list(exclude_types)
     with get_db() as conn:
         if user_id is not None:
             row = conn.execute(
                 "SELECT 1 FROM alerts WHERE symbol=? AND direction=? AND session_date=? "
                 "AND suppressed_reason IS NULL AND entry IS NOT NULL AND entry BETWEEN ? AND ? "
-                "AND (user_id=? OR user_id IS NULL) LIMIT 1",
-                (symbol, "BUY", session, lo, hi, user_id),
+                "AND (user_id=? OR user_id IS NULL)" + _excl_sql + " LIMIT 1",
+                (symbol, "BUY", session, lo, hi, user_id, *_excl_params),
             ).fetchone()
         else:
             row = conn.execute(
                 "SELECT 1 FROM alerts WHERE symbol=? AND direction=? AND session_date=? "
-                "AND suppressed_reason IS NULL AND entry IS NOT NULL AND entry BETWEEN ? AND ? LIMIT 1",
-                (symbol, "BUY", session, lo, hi),
+                "AND suppressed_reason IS NULL AND entry IS NOT NULL AND entry BETWEEN ? AND ?"
+                + _excl_sql + " LIMIT 1",
+                (symbol, "BUY", session, lo, hi, *_excl_params),
             ).fetchone()
         return row is not None
 
