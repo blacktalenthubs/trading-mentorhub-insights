@@ -1280,6 +1280,12 @@ def _check_weekly_sma_support(
     # Still holding above the line now.
     if price <= wsma:
         return None
+    # ...and still AT the line, not already run far above it. The gate above only checks the
+    # day's OPEN; without this, a name that opened near the line then rallied fires with entry
+    # pinned to the line far BELOW current price — a stale "wait for pullback", not an
+    # actionable support test. Cap current-price distance at the same MAX_DISTANCE as the open.
+    if (price - wsma) / wsma > WSMA20_SUPPORT_MAX_DISTANCE_PCT:
+        return None
 
     entry = round(wsma, 2)
     stop = round(wsma * (1 - WSMA20_STOP_OFFSET_PCT), 2)
@@ -10379,6 +10385,15 @@ def evaluate_rules(
         AlertType.MA_BOUNCE_100, AlertType.MA_BOUNCE_200,
         AlertType.EMA_BOUNCE_20, AlertType.EMA_BOUNCE_50,
     }
+    # Level-based weekly supports set their stop a weekly width BELOW the line by design
+    # (the level IS the thesis). The global per-symbol _cap_risk + ATR tightening below are
+    # day-trade safeties that would squash that stop to a tiny % (e.g. SPY 0.2%), putting the
+    # stop inside the noise above the level and making the R-multiples meaningless. Exempt them.
+    _LEVEL_STOP_RULES = {
+        AlertType.WSMA8_SUPPORT, AlertType.WSMA20_SUPPORT,
+        AlertType.WSMA50_SUPPORT, AlertType.WSMA200_SUPPORT,
+        AlertType.WCLUSTER_SUPPORT,
+    }
     for sig in signals:
         # Structural stop: use session low for MA bounce rules
         # (targets set later by _find_resistance_targets)
@@ -10389,14 +10404,16 @@ def evaluate_rules(
             )
             sig.stop = structural_stop
 
-        # Apply per-symbol risk cap to all BUY signals
-        if sig.direction == "BUY" and sig.entry and sig.stop:
+        # Apply per-symbol risk cap to all BUY signals (except level-based weekly supports,
+        # whose stop sits below the level by design — see _LEVEL_STOP_RULES).
+        if sig.direction == "BUY" and sig.entry and sig.stop and sig.alert_type not in _LEVEL_STOP_RULES:
             capped_stop = _cap_risk(sig.entry, sig.stop, symbol=symbol)
             if capped_stop != sig.stop:
                 sig.stop = capped_stop
 
-        # ATR-based dynamic stop (feature flag: USE_ATR_STOPS)
-        if sig.direction == "BUY" and sig.entry and sig.stop and current_atr:
+        # ATR-based dynamic stop (feature flag: USE_ATR_STOPS) — same level-based exemption.
+        if (sig.direction == "BUY" and sig.entry and sig.stop and current_atr
+                and sig.alert_type not in _LEVEL_STOP_RULES):
             atr_stop = atr_adjusted_stop(sig.entry, current_atr, symbol=symbol)
             # Use ATR stop only if it's tighter (higher) than current stop
             if atr_stop > sig.stop:
