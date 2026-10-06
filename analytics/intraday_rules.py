@@ -8518,7 +8518,7 @@ def check_ma_support_1h(
     alert_type: "AlertType",
     label: str,
     require_rising: bool,
-    prox_pct: float = 0.006,
+    prox_pct: float = 0.004,
     stop_off: float = 0.007,
 ):
     """HOURLY 20/200 SMA support hold — the 1h version of the daily reclaim, from raw
@@ -8538,7 +8538,12 @@ def check_ma_support_1h(
         o = float(bars["Open"].iloc[-1])
         l = float(bars["Low"].iloc[-1])
         c = float(bars["Close"].iloc[-1])
-        near = abs(l - ma) / ma <= prox_pct
+        # BOUNCE = the bar's low actually came DOWN to the line (at/below it, or within
+        # prox_pct just above), NOT price floating well ABOVE a loose band. One-sided: a low
+        # that stayed above the MA (QQQ: low 0.55% above a 745 SMA while trading 753) is NOT a
+        # bounce; a wick to or through the line is. Previously abs()-symmetric at 0.6%, which
+        # fired on price that never touched the line.
+        near = l <= ma * (1 + prox_pct)
         held = c > ma
         open_above = o >= ma
         reclaimed = l < ma and c > ma
