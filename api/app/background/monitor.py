@@ -22,7 +22,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from alert_config import COOLDOWN_MINUTES, NOTICE_ONLY_RULES, PRICE_AREA_DEDUP_PCT, WEEKLY_SUPPORT_TYPES  # noqa: E402
+from alert_config import NOTICE_ONLY_RULES, PRICE_AREA_DEDUP_PCT, WEEKLY_SUPPORT_TYPES  # noqa: E402
 from analytics.htf_bias import (  # noqa: E402
     HTFBias,
     compute_htf_bias,
@@ -1293,52 +1293,14 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
                                     user_id, symbol, _at_val)
 
-                    # Burst cooldown: suppress rapid entry notification spam on the same name
-                    # within COOLDOWN_MINUTES — EXCEPT a genuinely BETTER entry (lower for a
-                    # long / higher for a short) is worth re-alerting: the technical level held
-                    # and you can get in cheaper with tighter risk (trader 2026-10-01: "if a
-                    # lower entry presents we shouldn't suppress — the level still held").
-                    # Same-level re-fires are already merged by the confluence step, so require
-                    # the improvement to clear the confluence tolerance; we track the BEST entry
-                    # delivered so a steady drift doesn't cascade (only a NEW better level fires).
-                    if _send_notification and _is_entry:
-                        _prev = _last_buy_notify.get(symbol)
-                        _now = datetime.utcnow()
-                        _dir = (signal.direction or "").upper()
-                        if _prev and (_now - _prev["at"]).total_seconds() < COOLDOWN_MINUTES * 60:
-                            _better_entry = False
-                            _pe, _ce = _prev.get("entry"), signal.entry
-                            if _pe and _ce and _prev.get("dir") == _dir:
-                                _tol = _pe * _CONFLUENCE_PCT
-                                if _dir == "BUY" and _ce < _pe - _tol:
-                                    _better_entry = True
-                                elif _dir == "SHORT" and _ce > _pe + _tol:
-                                    _better_entry = True
-                            if not _better_entry:
-                                _send_notification = False
-                                _suppressed = "dedup_cooldown"
-                                logger.info(
-                                    "BURST COOLDOWN: user=%d %s %s — suppressed (%ds since last entry)",
-                                    user_id, symbol, _at_val, (_now - _prev["at"]).total_seconds(),
-                                )
-                            else:
-                                logger.info(
-                                    "BURST COOLDOWN BYPASS: user=%d %s %s — better entry %.4f vs prior %.4f",
-                                    user_id, symbol, _at_val, _ce, _pe,
-                                )
-
-                    # Track entry notification time + the BEST (most favorable) delivered entry.
-                    if _send_notification and _is_entry:
-                        _dir2 = (signal.direction or "").upper()
-                        _ce2 = signal.entry
-                        _prev2 = _last_buy_notify.get(symbol)
-                        if (_prev2 and _prev2.get("dir") == _dir2
-                                and _prev2.get("entry") is not None and _ce2 is not None):
-                            _best = min(_prev2["entry"], _ce2) if _dir2 == "BUY" else (
-                                max(_prev2["entry"], _ce2) if _dir2 == "SHORT" else _ce2)
-                        else:
-                            _best = _ce2
-                        _last_buy_notify[symbol] = {"at": datetime.utcnow(), "entry": _best, "dir": _dir2}
+                    # Burst cooldown REMOVED 2026-10-05 (trader). It suppressed any 2nd entry on a
+                    # name within COOLDOWN_MINUTES unless the new entry was strictly LOWER — but that
+                    # compared entry prices across UNRELATED setups and killed good distinct signals:
+                    # IWM's ma20_support_1h @ 279.76 (near price) was cut because a (false) ma_bounce_150
+                    # @ 271.11 fired 8s earlier and 279.76 isn't lower than 271.11. Spam is already
+                    # prevented without it — the one-row-per-(symbol,date,type) DB constraint stops a
+                    # type re-firing, and the price-area dedup collapses same-price (<=0.6%) restatements.
+                    # Distinct setups at distinct prices now all deliver.
 
                     # Zone clustering: suppress redundant directional signals at same price zone.
                     # Weekly SWING supports are excluded — a separate stream, not deduped vs day entries.
