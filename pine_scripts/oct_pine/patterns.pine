@@ -504,6 +504,31 @@ alertcondition(brkIn, "Inner base breakout on volume", "{{ticker}} broke above i
 // ── Line styles — colour · width · solid/dashed/dotted for every drawn level ──
 gLn  = "Line styles"
 f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
+// Where did it OPEN relative to the 8/20/50/200 SMAs — "above all SMA" / "below all SMA", or the
+// nearest SMA above (overhead) + nearest below (support) when the open sits inside the stack.
+f_openLoc(float o, float s8, float s20, float s50, float s200) =>
+    _v = array.from(s8, s20, s50, s200)
+    _n = array.from("8", "20", "50", "200")
+    float aboveV = na
+    string aboveN = ""
+    float belowV = na
+    string belowN = ""
+    int nBelow = 0
+    int nTot   = 0
+    for _i = 0 to 3
+        _x = array.get(_v, _i)
+        if not na(_x) and not na(o)
+            nTot += 1
+            if o > _x
+                nBelow += 1
+                if na(belowV) or _x > belowV
+                    belowV := _x
+                    belowN := array.get(_n, _i)
+            else
+                if na(aboveV) or _x < aboveV
+                    aboveV := _x
+                    aboveN := array.get(_n, _i)
+    nTot == 0 ? "" : nBelow == nTot ? "above all SMA" : nBelow == 0 ? "below all SMA" : "below " + aboveN + " SMA, above " + belowN + " SMA"
 shTba = input.bool(true, "TBA", inline = "L1", group = gLn)
 cTba = input.color(color.aqua, "", inline = "L1", group = gLn)
 wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
@@ -605,7 +630,8 @@ if barstate.islast
         resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
     if shOpn and not na(Lopen)
         opnLn := line.new(xL, Lopen, xR, Lopen, color=cOpn, width=wOpn, style=f_lstyle(yOpn))
-        opnLb := label.new(xR, Lopen, "Open " + str.tostring(Lopen, format.mintick), style=label.style_label_left, color=cOpn, textcolor=color.black, size=size.small)
+        _openLoc = f_openLoc(Lopen, sma8v, sma20v, sma50v, sma200v)
+        opnLb := label.new(xR, Lopen, "Open " + str.tostring(Lopen, format.mintick) + (_openLoc == "" ? "" : "  · " + _openLoc), style=label.style_label_left, color=cOpn, textcolor=color.black, size=size.small)
 
 // ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
 // Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
