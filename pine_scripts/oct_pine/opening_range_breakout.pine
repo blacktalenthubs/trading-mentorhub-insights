@@ -76,6 +76,11 @@ showM  = input.bool(false, "Prior month H/L (PMH/PML)",  inline = "pm", group = 
 cMo    = input.color(color.new(#EC407A, 0), "", inline = "pm", group = g4b)
 wMo    = input.int(1, "w", minval = 1, maxval = 6, inline = "pm", group = g4b)
 yMo    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "pm", group = g4b)
+// Hourly 20 SMA — drawn as a plain level at its current value (no confluence).
+show20h = input.bool(true, "Hourly 20 SMA", inline = "h20", group = g4b)
+c20h    = input.color(color.new(#26A69A, 0), "", inline = "h20", group = g4b)
+w20h    = input.int(2, "w", minval = 1, maxval = 6, inline = "h20", group = g4b)
+y20h    = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "h20", group = g4b)
 
 // ── HUD ──
 g5      = "HUD"
@@ -130,6 +135,9 @@ f_preCalc() =>
 [pdh, pdl] = request.security(tid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pwh, pwl] = request.security(tid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [pmh, pml] = request.security(tid, "M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+// Hourly 20 SMA — from the 60-min series so it's identical on any chart TF (non-repainting).
+s20h = request.security(tid, "60", ta.sma(close, 20), lookahead = barmerge.lookahead_off)
 
 // ── 10-day OR-width distribution → is today's OR tighter than most recent days? ──
 var float[] _orHist = array.new_float()
@@ -195,6 +203,7 @@ var line lWh = na
 var line lWl = na
 var line lMh = na
 var line lMl = na
+var line l20h = na
 var label bH = na
 var label bL = na
 var label bM = na
@@ -208,11 +217,13 @@ var label bWh = na
 var label bWl = na
 var label bMh = na
 var label bMl = na
+var label b20h = na
 if barstate.islast
     line.delete(lH), line.delete(lL), line.delete(lM), line.delete(lTu), line.delete(lTd), line.delete(lPh), line.delete(lPl)
     label.delete(bH), label.delete(bL), label.delete(bM), label.delete(bTu), label.delete(bTd), label.delete(bPh), label.delete(bPl)
     line.delete(lDh), line.delete(lDl), line.delete(lWh), line.delete(lWl), line.delete(lMh), line.delete(lMl)
     label.delete(bDh), label.delete(bDl), label.delete(bWh), label.delete(bWl), label.delete(bMh), label.delete(bMl)
+    line.delete(l20h), label.delete(b20h)
     _x = bar_index - math.min(_sessBar, barsPerDay)
     if not na(orh)
         lH := line.new(_x, orh, bar_index + 8, orh, color = cH, width = wH, style = f_style(yH))
@@ -254,6 +265,9 @@ if barstate.islast
     if showM and not na(pml)
         lMl := line.new(_x, pml, bar_index + 8, pml, color = cMo, width = wMo, style = f_style(yMo))
         bMl := label.new(bar_index + 8, pml, "PML " + str.tostring(pml, format.mintick) + f_pct(pml), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
+    if show20h and not na(s20h)
+        l20h := line.new(_x, s20h, bar_index + 8, s20h, color = c20h, width = w20h, style = f_style(y20h))
+        b20h := label.new(bar_index + 8, s20h, "20 SMA (1h) " + str.tostring(s20h, format.mintick) + f_pct(s20h), style = label.style_label_left, color = c20h, textcolor = color.white, size = size.small)
 
 // ── HUD ──
 var table hud = showHud ? table.new(_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
