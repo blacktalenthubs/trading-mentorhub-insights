@@ -323,8 +323,8 @@ _STYLE_BY_PREFIX: list[tuple[str, str]] = [
     ("monthly_", "long_term"), ("mobo_", "long_term"), ("cml_", "long_term"),
     ("pml_", "long_term"), ("weekly_10w", "long_term"), ("weekly_30w", "long_term"),
     ("staged_pml", "long_term"),
-    ("wsma", "swing"),                 # weekly rising 20/50/200 SMA support — multi-day swing holds
-    ("wcluster", "swing"),             # weekly congestion support (tested multi-week floor) — swing
+    ("wsma", "day_trade"),             # weekly rising 8/20/50/200 SMA support — traded intraday off the daily chart → Day feed (user 2026-10-05)
+    ("wcluster", "day_trade"),         # weekly congestion support (tested multi-week floor) — day-traded off the level → Day feed (user 2026-10-05)
     ("swing_", "swing"), ("rsi_oversold", "swing"),
     ("rsi_70", "swing"), ("ema_5_20", "swing"),
     ("fv_", "swing"),                  # Fair Value Swing (fv_pullback / fv_reclaim) — weekly pullback/reclaim
