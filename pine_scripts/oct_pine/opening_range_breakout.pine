@@ -81,6 +81,9 @@ show20h = input.bool(true, "Hourly 20 SMA", inline = "h20", group = g4b)
 c20h    = input.color(color.new(#26A69A, 0), "", inline = "h20", group = g4b)
 w20h    = input.int(2, "w", minval = 1, maxval = 6, inline = "h20", group = g4b)
 y20h    = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "h20", group = g4b)
+// Proximity gate — drop levels (D/W/M, premarket, hourly SMA) that sit too far from price.
+gateProx = input.bool(true, "Hide levels beyond max distance", group = g4b, tooltip = "Drop prior D/W/M + premarket + hourly-SMA levels further than 'Max distance' from price — e.g. a deep monthly low. The OR itself (ORH/ORL/Mid/targets) always draws.")
+maxDist  = input.float(5.0, "Max distance from price %", minval = 0.5, maxval = 50.0, step = 0.5, group = g4b) / 100.0
 
 // ── HUD ──
 g5      = "HUD"
@@ -190,6 +193,7 @@ if showBox and orDone and not _boxDrawn and not na(orh) and not na(orl)
 
 // ── current-session rays: ORH / ORL / midpoint / measured-move target ──
 f_pct(float lvl) => na(lvl) or close <= 0 ? "" : "  (" + (lvl >= close ? "+" : "") + str.tostring((lvl - close) / close * 100.0, "#.##") + "%)"
+f_prox(float v) => not gateProx or (not na(v) and close > 0 and math.abs(v - close) / close <= maxDist)
 var line lH = na
 var line lL = na
 var line lM = na
@@ -241,31 +245,31 @@ if barstate.islast
         bTu := label.new(bar_index + 8, _tu, "T↑ " + str.tostring(_tu, format.mintick) + f_pct(_tu), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
         lTd := line.new(_x, _td, bar_index + 8, _td, color = cT, width = wT, style = f_style(yT))
         bTd := label.new(bar_index + 8, _td, "T↓ " + str.tostring(_td, format.mintick) + f_pct(_td), style = label.style_label_left, color = cT, textcolor = color.white, size = size.small)
-    if showPrem and not na(premH)
+    if showPrem and not na(premH) and f_prox(premH)
         lPh := line.new(_x, premH, bar_index + 8, premH, color = cPr, width = wPr, style = f_style(yPr))
         bPh := label.new(bar_index + 8, premH, "Pre-H " + str.tostring(premH, format.mintick) + f_pct(premH) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
-    if showPrem and not na(premL)
+    if showPrem and not na(premL) and f_prox(premL)
         lPl := line.new(_x, premL, bar_index + 8, premL, color = cPr, width = wPr, style = f_style(yPr))
         bPl := label.new(bar_index + 8, premL, "Pre-L " + str.tostring(premL, format.mintick) + f_pct(premL) + "  · take-profit", style = label.style_label_left, color = cPr, textcolor = color.white, size = size.small)
-    if showD and not na(pdh)
+    if showD and not na(pdh) and f_prox(pdh)
         lDh := line.new(_x, pdh, bar_index + 8, pdh, color = cD, width = wD, style = f_style(yD))
         bDh := label.new(bar_index + 8, pdh, "PDH " + str.tostring(pdh, format.mintick) + f_pct(pdh), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
-    if showD and not na(pdl)
+    if showD and not na(pdl) and f_prox(pdl)
         lDl := line.new(_x, pdl, bar_index + 8, pdl, color = cD, width = wD, style = f_style(yD))
         bDl := label.new(bar_index + 8, pdl, "PDL " + str.tostring(pdl, format.mintick) + f_pct(pdl), style = label.style_label_left, color = cD, textcolor = color.white, size = size.small)
-    if showW and not na(pwh)
+    if showW and not na(pwh) and f_prox(pwh)
         lWh := line.new(_x, pwh, bar_index + 8, pwh, color = cW, width = wW, style = f_style(yW))
         bWh := label.new(bar_index + 8, pwh, "PWH " + str.tostring(pwh, format.mintick) + f_pct(pwh), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
-    if showW and not na(pwl)
+    if showW and not na(pwl) and f_prox(pwl)
         lWl := line.new(_x, pwl, bar_index + 8, pwl, color = cW, width = wW, style = f_style(yW))
         bWl := label.new(bar_index + 8, pwl, "PWL " + str.tostring(pwl, format.mintick) + f_pct(pwl), style = label.style_label_left, color = cW, textcolor = color.white, size = size.small)
-    if showM and not na(pmh)
+    if showM and not na(pmh) and f_prox(pmh)
         lMh := line.new(_x, pmh, bar_index + 8, pmh, color = cMo, width = wMo, style = f_style(yMo))
         bMh := label.new(bar_index + 8, pmh, "PMH " + str.tostring(pmh, format.mintick) + f_pct(pmh), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
-    if showM and not na(pml)
+    if showM and not na(pml) and f_prox(pml)
         lMl := line.new(_x, pml, bar_index + 8, pml, color = cMo, width = wMo, style = f_style(yMo))
         bMl := label.new(bar_index + 8, pml, "PML " + str.tostring(pml, format.mintick) + f_pct(pml), style = label.style_label_left, color = cMo, textcolor = color.white, size = size.small)
-    if show20h and not na(s20h)
+    if show20h and not na(s20h) and f_prox(s20h)
         l20h := line.new(_x, s20h, bar_index + 8, s20h, color = c20h, width = w20h, style = f_style(y20h))
         b20h := label.new(bar_index + 8, s20h, "20 SMA (1h) " + str.tostring(s20h, format.mintick) + f_pct(s20h), style = label.style_label_left, color = c20h, textcolor = color.white, size = size.small)
 
