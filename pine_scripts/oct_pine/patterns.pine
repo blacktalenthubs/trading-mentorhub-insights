@@ -477,6 +477,11 @@ _ytdPct  = not na(_ytdOpen) and _ytdOpen > 0 and not na(close) ? (close - _ytdOp
 // safe: a day's open is fixed at the bar's start, so it's known, not future data.
 Lopen = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
 
+// Weekly 8 / 20 SMA — pulled from the WEEKLY series so they're identical on any chart TF
+// (lookahead_off = non-repainting; the forming week updates the value, like a normal MA overlay).
+wSma8  = request.security(syminfo.tickerid, "W", ta.sma(close, 8),  lookahead=barmerge.lookahead_off)
+wSma20 = request.security(syminfo.tickerid, "W", ta.sma(close, 20), lookahead=barmerge.lookahead_off)
+
 brk   = crossUp and rvol >= volMult
 brkIn = crossIn and rvol >= volMult
 plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.lime, size=size.small)
@@ -512,6 +517,18 @@ yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inlin
 // Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
 lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
 lnFwd  = input.int(20, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
+
+// ── Weekly SMAs — locked to the WEEKLY timeframe, so they show on any chart TF (catches the
+// strong-trend names that ride the weekly 8 and never dip to the 20, e.g. today's SPY). ──
+gWk   = "Weekly SMAs"
+shW8  = input.bool(true, "Weekly 8 SMA",  inline = "W8", group = gWk)
+cW8   = input.color(#AB47BC, "", inline = "W8", group = gWk)
+wW8   = input.int(2, "w", minval = 1, maxval = 6, inline = "W8", group = gWk)
+shW20 = input.bool(true, "Weekly 20 SMA", inline = "W20", group = gWk)
+cW20  = input.color(#42A5F5, "", inline = "W20", group = gWk)
+wW20  = input.int(2, "w", minval = 1, maxval = 6, inline = "W20", group = gWk)
+plot(shW8  and not na(wSma8)  ? wSma8  : na, "Weekly 8 SMA",  color = cW8,  linewidth = wW8)
+plot(shW20 and not na(wSma20) ? wSma20 : na, "Weekly 20 SMA", color = cW20, linewidth = wW20)
 
 // Lines
 var line  tbaLn = na
