@@ -90,18 +90,23 @@ _pos = hudPos == "top_left" ? position.top_left : hudPos == "bottom_right" ? pos
 
 tid = syminfo.tickerid
 
-// ── OR high / low — locked to the base TF so it's identical on any chart TF ──
+// ── OR high / low — locked to the base TF, built from the 09:30 ET RTH OPEN only ──
+// The OR must start at the regular-session open, NOT the calendar-day / extended-session start.
+// ta.change(time("D")) fires at the premarket/overnight start when the feed has extended hours, so
+// the OR was picking PREMARKET bars (ORH/ORL/Mid clustered pre-open, far from RTH price). Gate to
+// the 09:30-16:00 ET session and detect the FIRST RTH bar as the OR start.
 f_or() =>
     var float _h = na
     var float _l = na
     var int   _sb = 0
-    _new = ta.change(time("D")) != 0
-    _sb := _new ? 0 : _sb + 1
-    _bars = math.max(1, math.round(orMin / _baseMin))
-    if _new
+    _inRTH  = not na(time(timeframe.period, "0930-1600", "America/New_York"))
+    _newRTH = _inRTH and not _inRTH[1]          // first bar of the regular session
+    _sb    := _newRTH ? 0 : _sb + 1
+    _bars   = math.max(1, math.round(orMin / _baseMin))
+    if _newRTH
         _h := high
         _l := low
-    else if _sb < _bars
+    else if _inRTH and _sb < _bars
         _h := math.max(_h, high)
         _l := math.min(_l, low)
     [_h, _l]
