@@ -562,7 +562,7 @@ wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "L7", group = gLn)
 yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L7", group = gLn)
 // Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
 lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
-lnFwd  = input.int(20, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
+lnFwd  = input.int(3, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
 
 // ── Weekly SMAs — locked to the WEEKLY timeframe, so they show on any chart TF (catches the
 // strong-trend names that ride the weekly 8 and never dip to the 20, e.g. today's SPY). ──
