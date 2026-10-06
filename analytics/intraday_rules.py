@@ -27,6 +27,7 @@ from analytics.focus_gate import focus_symbols  # focus-driven gate for level al
 from alert_config import (
     SHORT_UNIVERSE,
     MARKET_GAUGE_SYMBOLS,
+    WEEKLY_SIGNAL_SYMBOLS,
     BOUNCE_ALERT_TYPES,
     BREAKDOWN_CONVICTION_PCT,
     BREAKDOWN_VOLUME_RATIO,
@@ -9000,23 +9001,27 @@ def evaluate_rules(
             signals.append(sig)
 
         # --- Weekly rising 8 / 20 / 50 / 200 SMA support (swing) ---
-        for _wk_at, _wk_fn, _wk_val, _wk_rise in (
-            (AlertType.WSMA8_SUPPORT, check_weekly_sma8_support, "wsma8", "wsma8_rising"),
-            (AlertType.WSMA20_SUPPORT, check_weekly_sma20_support, "wsma20", "wsma20_rising"),
-            (AlertType.WSMA50_SUPPORT, check_weekly_sma50_support, "wsma50", "wsma50_rising"),
-            (AlertType.WSMA200_SUPPORT, check_weekly_sma200_support, "wsma200", "wsma200_rising"),
-        ):
-            if _wk_at.value in ENABLED_RULES:
-                sig = _wk_fn(
-                    symbol, intraday_bars,
-                    prior_day.get(_wk_val), bool(prior_day.get(_wk_rise)),
-                    today_open=today_open, prior_close=prior_close,
-                )
-                if sig:
-                    signals.append(sig)
+        # Restricted to WEEKLY_SIGNAL_SYMBOLS (SPY/QQQ/SMH) — a broad-market/sector swing gauge,
+        # not a per-name entry (2026-10-05 trader). Skip the whole block for other names.
+        if symbol.upper() in WEEKLY_SIGNAL_SYMBOLS:
+            for _wk_at, _wk_fn, _wk_val, _wk_rise in (
+                (AlertType.WSMA8_SUPPORT, check_weekly_sma8_support, "wsma8", "wsma8_rising"),
+                (AlertType.WSMA20_SUPPORT, check_weekly_sma20_support, "wsma20", "wsma20_rising"),
+                (AlertType.WSMA50_SUPPORT, check_weekly_sma50_support, "wsma50", "wsma50_rising"),
+                (AlertType.WSMA200_SUPPORT, check_weekly_sma200_support, "wsma200", "wsma200_rising"),
+            ):
+                if _wk_at.value in ENABLED_RULES:
+                    sig = _wk_fn(
+                        symbol, intraday_bars,
+                        prior_day.get(_wk_val), bool(prior_day.get(_wk_rise)),
+                        today_open=today_open, prior_close=prior_close,
+                    )
+                    if sig:
+                        signals.append(sig)
 
         # --- Weekly congestion support (tested multi-week floor — swing) ---
-        if AlertType.WCLUSTER_SUPPORT.value in ENABLED_RULES:
+        # Same WEEKLY_SIGNAL_SYMBOLS gate (also disabled in ENABLED_RULES as of 2026-10-05).
+        if symbol.upper() in WEEKLY_SIGNAL_SYMBOLS and AlertType.WCLUSTER_SUPPORT.value in ENABLED_RULES:
             sig = check_weekly_cluster_support(
                 symbol, intraday_bars,
                 prior_day.get("wsup_cluster"), prior_day.get("wsup_cluster_touch"),
