@@ -5647,7 +5647,9 @@ class TestCryptoIntegration:
             })
         bars = _bars(bar_data)
         prior = {
-            "close": 100.0, "high": 101.0, "low": 99.0,
+            # prior high ABOVE every close so the PDH breakout/retest path (not regime-demoted)
+            # doesn't fire — this test isolates the MA-path SPY-regime demotion.
+            "close": 100.0, "high": 102.0, "low": 99.0,
             "ma20": bars.iloc[-1]["Low"] * 1.001,
             "ma50": 99.5, "ma100": 98.0, "ma200": 95.0,
             "ema20": 100.0, "ema50": 99.5, "ema100": 98.0,
@@ -5658,11 +5660,11 @@ class TestCryptoIntegration:
             spy_context={"trend": "bearish", "regime": "CHOPPY"},
             is_crypto=False,
         )
-        buy_signals = [s for s in signals if s.direction == "BUY"]
-        if buy_signals:
-            # At least one BUY should have SPY caution
-            has_choppy = any("CHOPPY" in s.message for s in buy_signals)
-            assert has_choppy
+        # Regime demotion applies to the MA bounce/reclaim family; breakout-retests aren't demoted.
+        demotable = [s for s in signals if s.direction == "BUY"
+                     and ("bounce" in s.alert_type.value or "reclaim" in s.alert_type.value)]
+        if demotable:
+            assert any("CHOPPY" in s.message for s in demotable)
 
     def test_crypto_no_rs_demotion(self):
         """Crypto BUY should not get RS (relative strength vs SPY) demotion."""
