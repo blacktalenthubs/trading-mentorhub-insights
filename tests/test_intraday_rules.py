@@ -8149,7 +8149,8 @@ class TestWeeklyClusterSupport:
     def test_no_fire_without_cluster(self):
         assert check_weekly_cluster_support("VRT", self._bars(250.0, 252.0), None, 0, today_open=250.0) is None
 
-    def test_disabled_delivery(self):
-        # wcluster_support DISABLED 2026-10-05 (trader: "use only the MA") — still computed, not delivered.
-        from alert_config import ENABLED_RULES
-        assert "wcluster_support" not in ENABLED_RULES
+    def test_enabled_for_gauge_only(self):
+        # wcluster_support re-enabled 2026-10-05 but gated to WEEKLY_SIGNAL_SYMBOLS (SPY/QQQ/SMH).
+        from alert_config import ENABLED_RULES, WEEKLY_SIGNAL_SYMBOLS
+        assert "wcluster_support" in ENABLED_RULES
+        assert WEEKLY_SIGNAL_SYMBOLS == {"SPY", "QQQ", "SMH"}
