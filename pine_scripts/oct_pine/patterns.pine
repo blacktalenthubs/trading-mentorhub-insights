@@ -271,7 +271,9 @@ if patFresh
     mStart := startBar
     mBar   := bar_index
 
-active = not na(mBar) and bar_index - mBar <= holdBars
+// Pattern FAILED once price closes below its stop (the base low broke down) — a TBA ceiling far
+// ABOVE price is a dead pattern price fell away from, not a forming base. Drop it so the TBA clears.
+active = not na(mBar) and bar_index - mBar <= holdBars and (na(mStp) or close > mStp)
 
 // Main breakout tracking
 var float brkLow  = na
