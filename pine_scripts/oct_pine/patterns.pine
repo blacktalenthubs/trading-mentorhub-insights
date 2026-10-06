@@ -596,7 +596,9 @@ if barstate.islast
     if shRec and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
         recLn := line.new(xL, LrecL, xR, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
         recLb := label.new(xR, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
-    if shRes and not na(LresL)
+    // When resistance coincides with the TBA (within 0.5%) and the TBA is drawn, show the TBA only.
+    _resDup = La and shTba and not na(Ltba) and not na(LresL) and math.abs(LresL / Ltba - 1) <= 0.005
+    if shRes and not na(LresL) and not _resDup
         resLn := line.new(xL, LresL, xR, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
         resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
     if shOpn and not na(Lopen)
