@@ -578,6 +578,13 @@ SHORT_UNIVERSE = {"SPY", "QQQ", "SMH", "DRAM"}  # 2026-09-14 (user): index/proxy
 # per-name entry. Mirrors SHORT_UNIVERSE: the rule is in ENABLED_RULES, symbol-gated at generation.
 MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
 
+# Weekly SMA supports (wsma8/20/50/200) are RESTRICTED to these broad-market / sector proxies only
+# (2026-10-05 trader: "remove all weekly signals for now … all weekly signals should only alert for
+# SPY, QQQ, and SMH"). On single names the weekly swing read was causing noise/missed day entries;
+# on the index + semis proxy it's a useful broad swing gauge. Symbol-gated at generation, like
+# MARKET_GAUGE_SYMBOLS. The rules stay in ENABLED_RULES; they just only run for these symbols.
+WEEKLY_SIGNAL_SYMBOLS = {"SPY", "QQQ", "SMH"}
+
 # Weekly rising 20 SMA support (wsma20_support) — a swing signal. Price above and within
 # WSMA20_SUPPORT_MAX_DISTANCE_PCT of a RISING weekly 20 SMA = at weekly support in a weekly
 # uptrend (captures SNDK's bounce and SPY riding the line). Stop sits a weekly-width below.
