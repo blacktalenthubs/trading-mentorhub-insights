@@ -1008,8 +1008,11 @@ def _weekly_sma_family(symbol: str) -> dict:
         "wsup_cluster": None, "wsup_cluster_touch": 0,
     }
     try:
-        from analytics.market_data import fetch_ohlc
-        wk = fetch_ohlc(symbol, period="5y", interval="1wk")
+        # Weekly SMA needs only CLOSES, and yfinance weekly closes are correct (only its VOLUME is
+        # the unreliable field — see volume-profile notes). Pin to yfinance DIRECTLY rather than the
+        # RH→Alpaca→yf fetch_ohlc chain: in prod that chain produced a stale/low weekly series
+        # (SPY wsma8 came out ~753 vs the real ~767 that matches the chart). 2026-10-06.
+        wk = yf.Ticker(symbol).history(period="5y", interval="1wk")
         if wk is None or wk.empty or "Close" not in wk:
             return out
         # Drop ONLY the still-forming current week. yfinance includes it as the last row;
