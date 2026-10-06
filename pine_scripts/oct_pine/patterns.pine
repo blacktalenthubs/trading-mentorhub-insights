@@ -43,7 +43,7 @@ basingRng  = input.float(12.0, "Basing max range %", group=g7) / 100
 nearHigh   = input.float(8.0, "Near highs within %", group=g7) / 100
 
 g8 = "Support / resistance"
-showSR  = input.bool(true, "Draw support / resistance", group=g8)
+// Per-line show toggles live in the "Line styles" group (Support / Recent low / Resistance each own one).
 srLook  = input.int(120, "S/R lookback (bars)", group=g8)
 stopBuf = input.float(2.0, "Stop buffer below support %", step=0.5, group=g8) / 100
 
@@ -504,23 +504,28 @@ alertcondition(brkIn, "Inner base breakout on volume", "{{ticker}} broke above i
 // ── Line styles — colour · width · solid/dashed/dotted for every drawn level ──
 gLn  = "Line styles"
 f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
-cTba = input.color(color.aqua, "TBA",         inline = "L1", group = gLn)
+shTba = input.bool(true, "TBA", inline = "L1", group = gLn)
+cTba = input.color(color.aqua, "", inline = "L1", group = gLn)
 wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
 yTba = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "L1", group = gLn)
 shStp = input.bool(true, "Stop", inline = "L2", group = gLn)
 cStp = input.color(color.new(color.red, 20), "", inline = "L2", group = gLn)
 wStp = input.int(1, "w", minval = 1, maxval = 6, inline = "L2", group = gLn)
 yStp = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L2", group = gLn)
-cSup = input.color(color.lime, "Support",     inline = "L3", group = gLn)
+shSup = input.bool(true, "Support", inline = "L3", group = gLn)
+cSup = input.color(color.lime, "", inline = "L3", group = gLn)
 wSup = input.int(2, "w", minval = 1, maxval = 6, inline = "L3", group = gLn)
 ySup = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L3", group = gLn)
-cRec = input.color(color.new(color.lime, 30), "Recent low", inline = "L4", group = gLn)
+shRec = input.bool(true, "Recent low", inline = "L4", group = gLn)
+cRec = input.color(color.new(color.lime, 30), "", inline = "L4", group = gLn)
 wRec = input.int(1, "w", minval = 1, maxval = 6, inline = "L4", group = gLn)
 yRec = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L4", group = gLn)
-cRes = input.color(color.new(color.red, 10), "Resistance", inline = "L5", group = gLn)
+shRes = input.bool(true, "Resistance", inline = "L5", group = gLn)
+cRes = input.color(color.new(color.red, 10), "", inline = "L5", group = gLn)
 wRes = input.int(2, "w", minval = 1, maxval = 6, inline = "L5", group = gLn)
 yRes = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L5", group = gLn)
-cInn = input.color(color.yellow, "Inner TBA", inline = "L6", group = gLn)
+shInn = input.bool(true, "Inner TBA", inline = "L6", group = gLn)
+cInn = input.color(color.yellow, "", inline = "L6", group = gLn)
 wInn = input.int(1, "w", minval = 1, maxval = 6, inline = "L6", group = gLn)
 yInn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L6", group = gLn)
 shOpn = input.bool(true, "Today's open", inline = "L7", group = gLn)
@@ -576,22 +581,22 @@ if barstate.islast
     // Locked levels are horizontal; every line shares ONE extent so they all draw equal length.
     xL = bar_index - lnBack
     xR = bar_index + lnFwd
-    if La
+    if La and shTba
         tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
         tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
-        if shStp
-            stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
-            stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
-    if LinOK
+    if La and shStp
+        stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
+        stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
+    if LinOK and shInn
         inLn := line.new(xL, LinC, xR, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
         inLb := label.new(xR, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
-    if showSR and not na(LsupL)
+    if shSup and not na(LsupL)
         supLn := line.new(xL, LsupL, xR, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
         supLb := label.new(xR, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
-    if showSR and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
+    if shRec and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
         recLn := line.new(xL, LrecL, xR, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
         recLb := label.new(xR, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
-    if showSR and not na(LresL)
+    if shRes and not na(LresL)
         resLn := line.new(xL, LresL, xR, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
         resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
     if shOpn and not na(Lopen)
