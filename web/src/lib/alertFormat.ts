@@ -21,6 +21,8 @@ export function isSwingAlert(alertType?: string): boolean {
 export function formatSetup(alertType?: string): string {
   const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (!t) return "Signal";
+  // Breakout scanner — a previously-broken TBA that price pulled back to and held (the retest entry).
+  if (t === "tba_retest") return "TBA retest";
   // Breakout scanner — breakout_<pattern> → "TBA breakout", "Ascending Triangle breakout", …
   if (t.startsWith("breakout_")) {
     const BO: Record<string, string> = { cup_handle: "Cup & Handle", flat_base: "Flat Base", ascending_triangle: "Ascending Triangle", bull_flag: "Bull Flag", horizontal_tba: "TBA", trendline_break: "Trendline" };
@@ -390,7 +392,8 @@ export function isVolumeSignal(alertType?: string): boolean {
  *  flat base, ascending triangle, bull flag, Zanger TBA + trendline), fired when price crosses
  *  the trigger. alert_type = breakout_<pattern>. Kept separate from Day/Swing/Volume. */
 export function isBreakoutSignal(alertType?: string): boolean {
-  return (alertType ?? "").startsWith("breakout_");
+  const t = alertType ?? "";
+  return t.startsWith("breakout_") || t === "tba_retest";   // retest = pullback entry on a broken TBA
 }
 
 /** Exit / trade-lifecycle events — target hits and stop-outs. Kept in the DB for P&L
