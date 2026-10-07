@@ -96,6 +96,12 @@ class PatternConfig:
     ht_level_tol: float = 0.015                 # highs within 1.5% of each other = one ceiling
     ht_min_touches: int = 3
     ht_max_level_dist: float = 0.08             # the ceiling must sit within 8% of price (near, actionable)
+    # ── TBA RETEST — a previously-broken level that price pulled back to and HELD ─────────────
+    # (the detector is "fresh only" and drops a level once it breaks, so retests are driven off the
+    # RECORDED breakout levels instead). A retest = price holding above the broken level AND the
+    # last bar's low came back within retest_tol of it. We watch each broken level for retest_days.
+    retest_tol: float = 0.012                   # the pullback low came within 1.2% of the line
+    retest_days: int = 7                        # watch a broken level for retests for this many days
 
     # ── Descending trendline break (Zanger — QQQ-style) ──────────────────────
     tl_min_bars: int = 30

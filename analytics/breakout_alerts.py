@@ -73,6 +73,38 @@ def detect(df, cfg=CONFIG) -> list[dict]:
     return out
 
 
+def detect_retest(df, bp, cfg=CONFIG):
+    """A previously-broken level `bp` that price pulled back to and HELD. The last bar must close
+    ABOVE bp (holding) AND its low must have come back within retest_tol of bp (the pullback touch)."""
+    if df is None or len(df) < 3 or not bp or bp <= 0:
+        return None
+    last = df.iloc[-1]
+    c, l = float(last["Close"]), float(last["Low"])
+    tol = cfg.retest_tol
+    if c > bp and bp * (1 - tol) <= l <= bp * (1 + tol):
+        stop = round(bp * (1 - cfg.tight_stop_pct), 2)
+        risk = (bp - stop) / bp * 100.0 if bp else 999
+        return {"buy_point": round(bp, 2), "stop": stop, "price": round(c, 2), "risk_pct": round(risk, 1)}
+    return None
+
+
+def _recent_broken_levels(days: int):  # pragma: no cover - DB
+    """Levels broken by a delivered breakout in the last `days` — [(symbol, buy_point)]. The retest
+    watches these (the detector can't, it drops a level once it breaks). Latest per (symbol, level)."""
+    import psycopg2
+    conn = psycopg2.connect(_dsn(), connect_timeout=15); cur = conn.cursor()
+    cur.execute(
+        "SELECT DISTINCT ON (symbol, round(entry::numeric, 2)) symbol, entry "
+        "FROM alerts WHERE alert_type LIKE 'breakout\\_%%' AND direction = 'BUY' AND entry IS NOT NULL "
+        "AND suppressed_reason IS NULL AND created_at > NOW() - %s * INTERVAL '1 day' "
+        "ORDER BY symbol, round(entry::numeric, 2), created_at DESC",
+        (days,),
+    )
+    rows = [(r[0], float(r[1])) for r in cur.fetchall()]
+    cur.close(); conn.close()
+    return rows
+
+
 def _unsent(events):  # pragma: no cover - DB
     import psycopg2
     conn = psycopg2.connect(_dsn(), connect_timeout=15); cur = conn.cursor()
@@ -111,8 +143,8 @@ def _record_alerts(events, session_date):  # pragma: no cover - DB
             "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, "
             "target_1, score, message, volume_ratio, session_date, created_at) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())",
-            (USER_ID, e["sym"], f"breakout_{e['pattern']}", "BUY", e["price"], e["buy_point"],
-             e["stop"], None, e["score"], e["msg"], e["rvol"], session_date),
+            (USER_ID, e["sym"], e.get("alert_type") or f"breakout_{e['pattern']}", "BUY", e["price"],
+             e["buy_point"], e["stop"], None, e["score"], e["msg"], e["rvol"], session_date),
         )
     conn.commit(); cur.close(); conn.close()
 
@@ -120,6 +152,10 @@ def _record_alerts(events, session_date):  # pragma: no cover - DB
 def _format(events) -> str:
     lines = ["<b>📈 Breakout signals</b> (TBA crossed)"]
     for e in events:
+        if e.get("pattern") == "tba_retest":        # pulled back to a broken level and held
+            lines.append(f"• <b>{e['sym']}</b> TBA retest — pulled back to ${e['buy_point']:.2f} &amp; held "
+                         f"(now ${e['price']:.2f}) · stop ${e['stop']:.2f} · risk {e['risk_pct']:.1f}%")
+            continue
         extra = []
         if e.get("day_change") is not None:
             extra.append(f"{'🔥 ' if e.get('big_day') else ''}+{e['day_change']:.1f}% day")
@@ -141,11 +177,29 @@ def run(dry: bool = False) -> dict:  # pragma: no cover - network/DB
         try:
             for ev in detect(_fetch(sym), CONFIG):
                 ev["sym"] = sym.upper()
+                ev["alert_type"] = f"breakout_{ev['pattern']}"
                 ev["key"] = f"{ev['sym']}:{ev['pattern']}:{date}"
                 ev["msg"] = f"{_label(ev['pattern'])} breakout — crossed TBA {ev['buy_point']:.2f}. {ev['reason']}"
                 events.append(ev)
         except Exception:
             pass
+
+    # --- TBA retests: a level broken in the last retest_days that price pulled back to and HELD ---
+    for _sym, _bp in _recent_broken_levels(CONFIG.retest_days):
+        try:
+            r = detect_retest(_fetch(_sym), _bp, CONFIG)
+            if r:
+                r["sym"] = _sym.upper()
+                r["pattern"] = "tba_retest"
+                r["alert_type"] = "tba_retest"
+                r["rvol"] = 1.0
+                r["score"] = 0
+                r["key"] = f"{r['sym']}:tba_retest:{r['buy_point']:.2f}:{date}"
+                r["msg"] = f"TBA retest — pulled back to ${r['buy_point']:.2f} and held (broke it earlier)"
+                events.append(r)
+        except Exception:
+            pass
+
     new = _unsent(events) if events else []
     for e in new:                                       # earnings context (few fires → affordable)
         try:
