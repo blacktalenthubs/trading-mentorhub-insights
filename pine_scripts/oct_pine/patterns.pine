@@ -509,29 +509,53 @@ f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.sty
 f_openLoc(float o, float s8, float s20, float s50, float s200) =>
     _v = array.from(s8, s20, s50, s200)
     _n = array.from("8", "20", "50", "200")
-    float aboveV = na
-    string aboveN = ""
-    float belowV = na
-    string belowN = ""
-    int nBelow = 0
-    int nTot   = 0
     // The open counts as ABOVE a SMA (support) only when it CLEARS it by >0.1% — opening right AT
     // the line means the SMA is still resistance, so it counts as below/overhead.
     _buf = 0.001
+    int nAbove = 0
+    int nTot   = 0
+    // Track the TWO NEAREST SMAs by distance — those are the "neighbors" (e.g. open nestled just
+    // under the 8/20 while the 50 is far below → name the 8 & 20, not the distant 50).
+    float d1 = na
+    int   i1 = -1
+    float d2 = na
+    int   i2 = -1
     for _i = 0 to 3
         _x = array.get(_v, _i)
         if not na(_x) and not na(o)
             nTot += 1
             if o > _x * (1 + _buf)
-                nBelow += 1
-                if na(belowV) or _x > belowV
-                    belowV := _x
-                    belowN := array.get(_n, _i)
-            else
-                if na(aboveV) or _x < aboveV
-                    aboveV := _x
-                    aboveN := array.get(_n, _i)
-    nTot == 0 ? "" : nBelow == nTot ? "above all SMA" : nBelow == 0 ? "below all SMA" : "below " + aboveN + " SMA, above " + belowN + " SMA"
+                nAbove += 1
+            _d = math.abs(o - _x)
+            if na(d1) or _d < d1
+                d2 := d1
+                i2 := i1
+                d1 := _d
+                i1 := _i
+            else if na(d2) or _d < d2
+                d2 := _d
+                i2 := _i
+    string _r = ""
+    if nTot == 0
+        _r := ""
+    else if nAbove == nTot
+        _r := "above all SMA"
+    else if nAbove == 0
+        _r := "below all SMA"
+    else if i2 < 0
+        _r := ""
+    else
+        _lo = math.min(i1, i2)
+        _hi = math.max(i1, i2)
+        _aLo = o > array.get(_v, _lo) * (1 + _buf)
+        _aHi = o > array.get(_v, _hi) * (1 + _buf)
+        _nlo = array.get(_n, _lo)
+        _nhi = array.get(_n, _hi)
+        if _aLo == _aHi
+            _r := (_aLo ? "above " : "below ") + _nlo + " & " + _nhi + " SMA"
+        else
+            _r := (_aLo ? "above " : "below ") + _nlo + " SMA, " + (_aHi ? "above " : "below ") + _nhi + " SMA"
+    _r
 shTba = input.bool(true, "TBA", inline = "L1", group = gLn)
 cTba = input.color(color.aqua, "", inline = "L1", group = gLn)
 wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
