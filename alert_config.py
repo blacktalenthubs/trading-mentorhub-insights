@@ -741,15 +741,12 @@ ENABLED_RULES: set[str] = {
     # time in intraday_rules.py — a broad-market momentum read, NOT a per-name entry. Enabled
     # here so it delivers; it will only ever fire for those four gauges.
     "ema_bounce_8",
-    # Weekly rising 8/20/50/200 SMA support (2026-10-02) — the swing lines trending names ride
-    # (SPCX rides the W8, SNDK the W20, SMH opens back above it). Strong uptrends never pull back
-    # to the W20 — the W8 catches them. Daily opens above a RISING weekly SMA = swing support.
-    "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
-    # Weekly congestion support — tested multi-week low cluster (weekly_sma.pine S line). RE-ENABLED
-    # 2026-10-05 but ONLY for SPY/QQQ/SMH (WEEKLY_SIGNAL_SYMBOLS gate in evaluate_rules) — on a single
-    # name the cluster sprawled into a fuzzy zone ("a bunch of supports"); on the index/sector proxies
-    # it's a clean macro floor (a level the proxy has defended repeatedly). ×N touches on the label.
-    "wcluster_support",
+    # Weekly rising 8/20/50/200 SMA support + weekly congestion cluster — DISABLED (2026-10-08,
+    # trader: "largely miss and not useful"). The weekly swing read fired too rarely to be worth the
+    # noise even restricted to SPY/QQQ/SMH. monitor.py / intraday_rules.py still compute them; this
+    # gate just drops delivery, so re-enable by uncommenting.
+    # "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
+    # "wcluster_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
