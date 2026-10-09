@@ -8,14 +8,15 @@
 //   • PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
 //   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
 //     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
-//   • Opening range (first N min of the RTH session): faint ORH / ORL / midpoint, each toggleable.
+//   • Opening range (first N min of the RTH session): ORH / ORL / midpoint, each toggleable. The
+//     last COMPLETED range is latched and carried forward (keeps ~1 day — never blanks mid-formation).
 //   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
 //   • HUD: the opening-range read only — OR width, OR ÷ ADR, Verdict (NARROW/WIDE, ★ if bottom-25%).
 // SMAs come from request.security on fixed 60/240 resolutions; prior highs/lows are settled
 // ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
 // Every line group has its own colour / width / style — change them freely.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Day Proximity · SMAs + Levels", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
+indicator("day signals", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
 
 // ── Intraday SMAs (each toggles on its own; its own colour / width / style) ──
 gMa         = "Intraday SMAs"
@@ -75,15 +76,15 @@ gOR          = "Opening range (RTH)"
 or_win       = input.string("15", "Window (min)", options = ["15", "30", "60"], group = gOR, tooltip = "First N minutes of the regular session from 9:30 ET (15 = 9:30-9:45). The range is whatever price does in that window.")
 or_base      = input.string("5", "Lock to base TF (min)", options = ["1", "3", "5", "15"], group = gOR, tooltip = "Build the OR from this base timeframe so it stays identical on any chart TF.")
 show_orh     = input.bool(true, "OR High", group = gOR, inline = "or1")
-c_orh        = input.color(color.new(#26A69A, 78), "", group = gOR, inline = "or1")
+c_orh        = input.color(color.new(#26A69A, 20), "", group = gOR, inline = "or1")
 w_orh        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or1")
 y_orh        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or1")
 show_orl     = input.bool(true, "OR Low", group = gOR, inline = "or2")
-c_orl        = input.color(color.new(#EF5350, 78), "", group = gOR, inline = "or2")
+c_orl        = input.color(color.new(#EF5350, 20), "", group = gOR, inline = "or2")
 w_orl        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or2")
 y_orl        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or2")
 show_ormid   = input.bool(true, "OR Mid", group = gOR, inline = "or3")
-c_ormid      = input.color(color.new(color.gray, 78), "", group = gOR, inline = "or3")
+c_ormid      = input.color(color.new(color.gray, 40), "", group = gOR, inline = "or3")
 w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
 y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
 // Range quality — the HUD read: OR width vs the stock's ADR + its own recent OR distribution.
@@ -158,8 +159,10 @@ pql = f_plo("3M")
 _orMin  = math.round(str.tonumber(or_win))
 _orBase = str.tonumber(or_base)
 f_or() =>
-    var float _h = na
-    var float _l = na
+    var float _h  = na      // the forming session's high/low (built over the window)
+    var float _l  = na
+    var float _ch = na      // the last COMPLETED OR — carried forward until the next one completes
+    var float _cl = na
     var int   _sb = 0
     _new  = ta.change(time("D")) != 0
     _sb  := _new ? 0 : _sb + 1
@@ -170,7 +173,10 @@ f_or() =>
     else if _sb < _bars
         _h := math.max(_h, high)
         _l := math.min(_l, low)
-    [_h, _l]
+    if _sb == _bars - 1      // the opening window just closed → latch it; _ch/_cl persist from here
+        _ch := _h
+        _cl := _l
+    [_ch, _cl]
 [orh, orl] = request.security(tid, or_base, f_or(), lookahead = barmerge.lookahead_on)
 orMid  = na(orh) or na(orl) ? na : (orh + orl) / 2.0
 orW    = na(orh) or na(orl) ? na : orh - orl                         // range height (price)
