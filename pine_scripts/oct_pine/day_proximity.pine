@@ -441,15 +441,18 @@ if barstate.islast
         _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
         _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
 
-// ── HUD — the opening-range read only: OR width, OR ÷ ADR, Verdict (trimmed on request 2026-10-08).
+// ── HUD — the opening-range read: price vs OR, OR width, OR ÷ ADR, Verdict (2026-10-08).
 //    bottom-25% (tighter than ≥75% of the last N ORs) still flags the ★ on the verdict. ──
-var table _hud = not show_hud ? na : table.new(hud_pos, 2, 3, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 4, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
 f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
+    _orStat = na(orh) or na(orl) ? "—" : close > orh ? "above ORH ▲" : close < orl ? "below ORL ▼" : "inside range"
+    _orSCol = na(orh) or na(orl) ? color.gray : close > orh ? color.lime : close < orl ? color.red : color.silver
     _orVerd = orNarrow and orBottom25 ? "NARROW + bottom-25% ★" : orNarrow ? "NARROW" : orWide ? "WIDE" : na(orVsAdr) ? "—" : "normal"
     _orVCol = (orNarrow and orBottom25) ? color.lime : orNarrow ? #8BC34A : orWide ? color.red : color.white
-    f_row(0, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
-    f_row(1, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
-    f_row(2, "Verdict", _orVerd, _orVCol)
+    f_row(0, "OR " + or_win + "m", _orStat, _orSCol)
+    f_row(1, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
+    f_row(2, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
+    f_row(3, "Verdict", _orVerd, _orVCol)
