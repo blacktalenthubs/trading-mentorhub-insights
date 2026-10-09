@@ -10,8 +10,7 @@
 //     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
 //   • Opening range (first N min of the RTH session): faint ORH / ORL / midpoint, each toggleable.
 //   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
-//   • HUD: last price + DAILY RSI 14 (locked to D on any chart TF) + the opening-range read
-//     (width vs ADR → NARROW/WIDE, vs recent days).
+//   • HUD: the opening-range read only — OR width, OR ÷ ADR, Verdict (NARROW/WIDE, ★ if bottom-25%).
 // SMAs come from request.security on fixed 60/240 resolutions; prior highs/lows are settled
 // ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
 // Every line group has its own colour / width / style — change them freely.
@@ -88,7 +87,7 @@ c_ormid      = input.color(color.new(color.gray, 78), "", group = gOR, inline = 
 w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
 y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
 // Range quality — the HUD read: OR width vs the stock's ADR + its own recent OR distribution.
-or_adrLen    = input.int(14, "ADR lookback (days)", minval = 3, maxval = 60, group = gOR)
+or_adrLen    = input.int(12, "ADR lookback (days)", minval = 3, maxval = 60, group = gOR)
 or_narrow    = input.float(50.0, "NARROW if OR ≤ this % of ADR", minval = 10, maxval = 100, step = 5, group = gOR, tooltip = "A small OR vs the average daily range = most of the day's move is still ahead → higher breakout odds.")
 or_wide      = input.float(90.0, "WIDE if OR ≥ this % of ADR", minval = 50, maxval = 200, step = 5, group = gOR, tooltip = "An OR already near/over the ADR has little room left → breakouts rarely run.")
 or_distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval = 40, group = gOR, tooltip = "Where today's OR width sits vs the last N sessions. Tighter than ≥75% = bottom-25% = highest-odds tape.")
@@ -436,25 +435,15 @@ if barstate.islast
         _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
         _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
 
-// ── HUD — last price + RSI 14 + the opening-range read (width vs ADR, verdict, vs recent days).
-//    The nearest-above/below rows were removed on request (2026-10-08); the ORB read added back. ──
-h_rsi = request.security(tid, "D", ta.rsi(close, 14), lookahead = barmerge.lookahead_off)  // DAILY RSI on any chart TF (non-repainting)
-var table _hud = not show_hud ? na : table.new(hud_pos, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+// ── HUD — the opening-range read only: OR width, OR ÷ ADR, Verdict (trimmed on request 2026-10-08).
+//    bottom-25% (tighter than ≥75% of the last N ORs) still flags the ★ on the verdict. ──
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 3, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
 f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _rsiTxt = na(h_rsi) ? "—" : str.tostring(h_rsi, "#.0") + "  " + (h_rsi >= 70 ? "overbought" : h_rsi <= 30 ? "oversold" : h_rsi >= 50 ? "bullish" : "bearish")
-    _rsiCol = na(h_rsi) ? color.gray : h_rsi >= 70 ? color.red : h_rsi <= 30 ? color.lime : h_rsi >= 50 ? #8BC34A : color.orange
-    // opening-range verdict + where price sits vs the range
-    _orStat = na(orh) or na(orl) ? "—" : close > orh ? "above ORH ▲" : close < orl ? "below ORL ▼" : "inside range"
-    _orSCol = na(orh) or na(orl) ? color.gray : close > orh ? color.lime : close < orl ? color.red : color.silver
     _orVerd = orNarrow and orBottom25 ? "NARROW + bottom-25% ★" : orNarrow ? "NARROW" : orWide ? "WIDE" : na(orVsAdr) ? "—" : "normal"
     _orVCol = (orNarrow and orBottom25) ? color.lime : orNarrow ? #8BC34A : orWide ? color.red : color.white
-    f_row(0, "Day  " + syminfo.ticker, str.tostring(close, format.mintick), color.white)
-    f_row(1, "RSI 14 (D)", _rsiTxt, _rsiCol)
-    f_row(2, "OR " + or_win + "m", _orStat, _orSCol)
-    f_row(3, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
-    f_row(4, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
-    f_row(5, "Verdict", _orVerd, _orVCol)
-    f_row(6, "vs " + str.tostring(or_distLen) + "-day", na(orPctile) ? "—" : "tighter than " + str.tostring(orPctile, "#") + "% of days", orBottom25 ? color.lime : color.white)
+    f_row(0, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
+    f_row(1, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
+    f_row(2, "Verdict", _orVerd, _orVCol)
