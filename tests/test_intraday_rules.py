@@ -8119,12 +8119,14 @@ class TestWeeklySma20Support:
     def test_weekly_50_opened_below_no_fire(self):
         assert check_weekly_sma50_support("SMH", self._bars(990.0, 1034.0), 1000.0, True, today_open=990.0) is None
 
-    def test_enabled_and_swing(self):
+    def test_disabled_delivery(self):
+        # DISABLED 2026-10-08 (trader: "largely miss and not useful"). Still COMPUTED above —
+        # only delivery is gated, so the signal-generation tests stay valid.
         from alert_config import ENABLED_RULES
-        assert "wsma8_support" in ENABLED_RULES
-        assert "wsma20_support" in ENABLED_RULES
-        assert "wsma50_support" in ENABLED_RULES
-        assert "wsma200_support" in ENABLED_RULES
+        assert "wsma8_support" not in ENABLED_RULES
+        assert "wsma20_support" not in ENABLED_RULES
+        assert "wsma50_support" not in ENABLED_RULES
+        assert "wsma200_support" not in ENABLED_RULES
 
 
 class TestWeeklyClusterSupport:
@@ -8151,8 +8153,7 @@ class TestWeeklyClusterSupport:
     def test_no_fire_without_cluster(self):
         assert check_weekly_cluster_support("VRT", self._bars(250.0, 252.0), None, 0, today_open=250.0) is None
 
-    def test_enabled_for_gauge_only(self):
-        # wcluster_support re-enabled 2026-10-05 but gated to WEEKLY_SIGNAL_SYMBOLS (SPY/QQQ/SMH).
-        from alert_config import ENABLED_RULES, WEEKLY_SIGNAL_SYMBOLS
-        assert "wcluster_support" in ENABLED_RULES
-        assert WEEKLY_SIGNAL_SYMBOLS == {"SPY", "QQQ", "SMH"}
+    def test_disabled_delivery(self):
+        # DISABLED 2026-10-08 (trader: "largely miss and not useful"). Still computed; delivery gated.
+        from alert_config import ENABLED_RULES
+        assert "wcluster_support" not in ENABLED_RULES
