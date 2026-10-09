@@ -221,13 +221,18 @@ if barstate.islast
     queue(pdl,    "PDL",   c_pd,   w_pd,   y_pd,   show_levels and show_pdl  and not na(pdl))
     queue(premH,  "Pre-H", c_pre,  w_pre,  y_pre,  show_levels and show_preh and not na(premH))
     queue(premL,  "Pre-L", c_pre,  w_pre,  y_pre,  show_levels and show_prel and not na(premL))
-    // weekly + monthly + quarterly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
-    _hv = array.from(pwh, pwl, pmh, pml, pqh, pql)
-    _hn = array.from("PWH", "PWL", "PMH", "PML", "PQH", "PQL")
-    _hc = array.from(c_pw, c_pw, c_pm, c_pm, c_pq, c_pq)
-    _hw = array.from(w_pw, w_pw, w_pm, w_pm, w_pq, w_pq)
-    _hy = array.from(y_pw, y_pw, y_pm, y_pm, y_pq, y_pq)
-    _he = array.from(show_levels and show_pwh, show_levels and show_pwl, show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql)
+    // prior-WEEK high/low are a primary battleground like PDH/PDL → ALWAYS draw both (2026-10-08).
+    // Previously folded into the nearest-above/below pool, which hid PWH whenever PWL sat between it
+    // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
+    queue(pwh,    "PWH",   c_pw,   w_pw,   y_pw,   show_levels and show_pwh  and not na(pwh))
+    queue(pwl,    "PWL",   c_pw,   w_pw,   y_pw,   show_levels and show_pwl  and not na(pwl))
+    // monthly + quarterly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
+    _hv = array.from(pmh, pml, pqh, pql)
+    _hn = array.from("PMH", "PML", "PQH", "PQL")
+    _hc = array.from(c_pm, c_pm, c_pq, c_pq)
+    _hw = array.from(w_pm, w_pm, w_pq, w_pq)
+    _hy = array.from(y_pm, y_pm, y_pq, y_pq)
+    _he = array.from(show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql)
     float  _luV = na
     string _luN = ""
     color  _luC = c_pw
