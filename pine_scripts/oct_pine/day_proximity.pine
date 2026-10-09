@@ -1,17 +1,18 @@
 //@version=5
 // ─────────────────────────────────────────────────────────────────────────────
-// DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + premarket, on one chart. VISUAL ONLY.
+// DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + opening range, on one chart. VISUAL ONLY.
 // A merge of intraday_sma_proximity.pine + levels_proximity.pine (both left in place, superseded).
 //
 //   • SMA 20 (1h+4h) ALWAYS draw; SMA 200 (1h+4h) are %-gated (appear as price comes into range).
-//   • PDH / PDL + premarket H/L + today's Open ALWAYS draw — today's battleground.
-//   • PWH/PWL, PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
+//   • PDH / PDL + PWH / PWL + today's Open ALWAYS draw — today's battleground.
+//   • PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
 //   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
 //     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
+//   • Opening range (first N min of the RTH session): faint ORH / ORL / midpoint, each toggleable.
 //   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
-//   • HUD: RSI 14 + the single nearest thing ABOVE and BELOW price, across SMAs AND levels.
+//   • HUD: last price + RSI 14.
 // SMAs come from request.security on fixed 60/240 resolutions; prior highs/lows are settled
-// ([1] + lookahead_on, non-repainting); premarket is from the extended-hours series (lookahead_off).
+// ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
 // Every line group has its own colour / width / style — change them freely.
 // ─────────────────────────────────────────────────────────────────────────────
 indicator("Day Proximity · SMAs + Levels", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
@@ -68,12 +69,23 @@ w_open       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = 
 y_open       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvo")
 
 // ── Premarket H/L (most recent 0400-0930 ET session) ──
-gPre         = "Premarket"
-show_preh    = input.bool(true, "Pre-H", group = gPre, inline = "pm")
-show_prel    = input.bool(true, "Pre-L", group = gPre, inline = "pm")
-c_pre        = input.color(#00BCD4, "", group = gPre, inline = "pm")
-w_pre        = input.int(1, "w", minval = 1, maxval = 10, group = gPre, inline = "pm")
-y_pre        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gPre, inline = "pm")
+// ── Opening range — first N min of the RTH session (9:30 ET). Faint ORH / ORL / midpoint, each
+//    its own toggle. Locked to a base TF so it's identical on any chart TF. ──
+gOR          = "Opening range (RTH)"
+or_win       = input.string("15", "Window (min)", options = ["15", "30", "60"], group = gOR, tooltip = "First N minutes of the regular session from 9:30 ET (15 = 9:30-9:45). The range is whatever price does in that window.")
+or_base      = input.string("5", "Lock to base TF (min)", options = ["1", "3", "5", "15"], group = gOR, tooltip = "Build the OR from this base timeframe so it stays identical on any chart TF.")
+show_orh     = input.bool(true, "OR High", group = gOR, inline = "or1")
+c_orh        = input.color(color.new(#26A69A, 78), "", group = gOR, inline = "or1")
+w_orh        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or1")
+y_orh        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or1")
+show_orl     = input.bool(true, "OR Low", group = gOR, inline = "or2")
+c_orl        = input.color(color.new(#EF5350, 78), "", group = gOR, inline = "or2")
+w_orl        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or2")
+y_orl        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or2")
+show_ormid   = input.bool(true, "OR Mid", group = gOR, inline = "or3")
+c_ormid      = input.color(color.new(color.gray, 78), "", group = gOR, inline = "or3")
+w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
+y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
 
 // ── Recent daily gaps (untraded zone between a day's prior close and its open — magnets price revisits) ──
 gGp          = "Gaps (daily)"
@@ -135,23 +147,27 @@ pml = f_plo("M")
 pqh = f_phi("3M")
 pql = f_plo("3M")
 
-// ── premarket high/low — the MOST RECENT premarket (0400-0930 ET), from the EXTENDED-HOURS
-// series so it shows on ANY chart TF incl. a regular-session daily; rolls forward like PDL,
-// lookahead_off = historically honest for Replay/backtest. ──
-_tExt = ticker.modify(syminfo.tickerid, session = session.extended)
-f_preCalc() =>
-    _inP  = not na(time("5", "0400-0930", "America/New_York"))
-    _newP = _inP and not nz(_inP[1], false)
+// ── Opening range high/low — the first `or_win` minutes of the RTH session, built on the `or_base`
+// series (ta.change(time("D")) fires at the 9:30 session open on an RTH chart) so it's identical on
+// any chart TF. lookahead_on reads the settled base bars (non-repainting on history). ──
+_orMin  = math.round(str.tonumber(or_win))
+_orBase = str.tonumber(or_base)
+f_or() =>
     var float _h = na
     var float _l = na
-    if _newP
+    var int   _sb = 0
+    _new  = ta.change(time("D")) != 0
+    _sb  := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(_orMin / _orBase))
+    if _new
         _h := high
         _l := low
-    else if _inP
-        _h := math.max(nz(_h, high), high)
-        _l := math.min(nz(_l, low),  low)
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
     [_h, _l]
-[premH, premL] = request.security(_tExt, "5", f_preCalc(), lookahead = barmerge.lookahead_off)
+[orh, orl] = request.security(tid, or_base, f_or(), lookahead = barmerge.lookahead_on)
+orMid = na(orh) or na(orl) ? na : (orh + orl) / 2.0
 
 // ── daily O/H/L/C history (last gap_look sessions) for gap detection — the var arrays persist in the
 // DAILY context, so one security call hands back trailing windows we scan for gaps in the chart context ──
@@ -215,12 +231,10 @@ if barstate.islast
     queue(s200_1h, "SMA 200 (1h)", c_200_1h, w_200_1h, y_200_1h, show_200_1h and prox_ok(s200_1h))
     queue(s200_4h, "SMA 200 (4h)", c_200_4h, w_200_4h, y_200_4h, show_200_4h and prox_ok(s200_4h))
     queue(s20_d,   "SMA 20 (D)",   c_20_d,   w_20_d,   y_20_d,   show_20_d)
-    // always-on: today's open + yesterday's range + the most-recent premarket (levels gated by master)
+    // always-on: today's open + yesterday's range (prior levels gated by the master toggle)
     queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open))
     queue(pdh,    "PDH",   c_pd,   w_pd,   y_pd,   show_levels and show_pdh  and not na(pdh))
     queue(pdl,    "PDL",   c_pd,   w_pd,   y_pd,   show_levels and show_pdl  and not na(pdl))
-    queue(premH,  "Pre-H", c_pre,  w_pre,  y_pre,  show_levels and show_preh and not na(premH))
-    queue(premL,  "Pre-L", c_pre,  w_pre,  y_pre,  show_levels and show_prel and not na(premL))
     // prior-WEEK high/low are a primary battleground like PDH/PDL → ALWAYS draw both (2026-10-08).
     // Previously folded into the nearest-above/below pool, which hid PWH whenever PWL sat between it
     // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
@@ -346,32 +360,52 @@ if barstate.islast
                     _drawn := _drawn + 1
             _gi := _gi - 1
 
-// ── HUD — RSI 14 (chart TF) + the nearest thing ABOVE / BELOW price, across SMAs AND levels ──
+// ── Opening range — faint ORH / ORL / midpoint (first N min of the RTH session), each toggleable.
+//    Standalone faint lines (NOT in the level queue, so they stay a whisper and never fuse a tag). ──
+var line  _orhL = na
+var line  _orlL = na
+var line  _ormL = na
+var label _orhT = na
+var label _orlT = na
+var label _ormT = na
+if barstate.islast
+    if not na(_orhL)
+        line.delete(_orhL)
+        _orhL := na
+    if not na(_orlL)
+        line.delete(_orlL)
+        _orlL := na
+    if not na(_ormL)
+        line.delete(_ormL)
+        _ormL := na
+    if not na(_orhT)
+        label.delete(_orhT)
+        _orhT := na
+    if not na(_orlT)
+        label.delete(_orlT)
+        _orlT := na
+    if not na(_ormT)
+        label.delete(_ormT)
+        _ormT := na
+    _orExt = line_full ? extend.left : extend.none
+    if show_orh and not na(orh)
+        _orhL := line.new(bar_index - flat_len, orh, bar_index + 6, orh, color = c_orh, width = w_orh, style = f_style(y_orh), extend = _orExt)
+        _orhT := label.new(bar_index + 6, orh, "ORH", style = label.style_none, textcolor = c_orh, size = size.tiny, textalign = text.align_left)
+    if show_orl and not na(orl)
+        _orlL := line.new(bar_index - flat_len, orl, bar_index + 6, orl, color = c_orl, width = w_orl, style = f_style(y_orl), extend = _orExt)
+        _orlT := label.new(bar_index + 6, orl, "ORL", style = label.style_none, textcolor = c_orl, size = size.tiny, textalign = text.align_left)
+    if show_ormid and not na(orMid)
+        _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
+        _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
+
+// ── HUD — last price + RSI 14 (the nearest-above/below rows were removed on request 2026-10-08) ──
 h_rsi = ta.rsi(close, 14)
-var table _hud = not show_hud ? na : table.new(hud_pos, 2, 4, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 2, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
 f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
 if show_hud and barstate.islast
-    _av = array.from(s20_1h, s200_1h, s20_4h, s200_4h, s20_d, pdh, pdl, pwh, pwl, pmh, pml, pqh, pql, premH, premL, d_open)
-    _an = array.from("SMA 20 (1h)", "SMA 200 (1h)", "SMA 20 (4h)", "SMA 200 (4h)", "SMA 20 (D)", "PDH", "PDL", "PWH", "PWL", "PMH", "PML", "PQH", "PQL", "Pre-H", "Pre-L", "Open")
-    _ae = array.from(show_20_1h, show_200_1h, show_20_4h, show_200_4h, show_20_d, show_levels and show_pdh, show_levels and show_pdl, show_levels and show_pwh, show_levels and show_pwl, show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql, show_levels and show_preh, show_levels and show_prel, show_open)
-    float  _uV = na
-    string _uN = "—"
-    float  _dV = na
-    string _dN = "—"
-    for _ai = 0 to array.size(_av) - 1
-        _vv = array.get(_av, _ai)
-        if array.get(_ae, _ai) and not na(_vv)
-            if _vv > close and (na(_uV) or _vv < _uV)
-                _uV := _vv
-                _uN := array.get(_an, _ai)
-            if _vv < close and (na(_dV) or _vv > _dV)
-                _dV := _vv
-                _dN := array.get(_an, _ai)
     _rsiTxt = na(h_rsi) ? "—" : str.tostring(h_rsi, "#.0") + "  " + (h_rsi >= 70 ? "overbought" : h_rsi <= 30 ? "oversold" : h_rsi >= 50 ? "bullish" : "bearish")
     _rsiCol = na(h_rsi) ? color.gray : h_rsi >= 70 ? color.red : h_rsi <= 30 ? color.lime : h_rsi >= 50 ? #8BC34A : color.orange
     f_row(0, "Day  " + syminfo.ticker, str.tostring(close, format.mintick), color.white)
     f_row(1, "RSI 14", _rsiTxt, _rsiCol)
-    f_row(2, "Nearest ▲", na(_uV) ? "—" : _uN + "  " + str.tostring(_uV, format.mintick) + "  (+" + str.tostring((_uV - close) / close * 100, "#.##") + "%)", res_col)
-    f_row(3, "Nearest ▼", na(_dV) ? "—" : _dN + "  " + str.tostring(_dV, format.mintick) + "  (" + str.tostring((_dV - close) / close * 100, "#.##") + "%)", sup_col)
