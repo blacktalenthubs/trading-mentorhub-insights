@@ -21,23 +21,23 @@ gMa         = "Intraday SMAs"
 show_20_1h  = input.bool(true, "SMA 20 · 1h",   group = gMa, inline = "m1")
 c_20_1h     = input.color(#26A69A, "", group = gMa, inline = "m1")
 w_20_1h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m1")
-y_20_1h     = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m1")
+y_20_1h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m1")
 show_200_1h = input.bool(true, "SMA 200 · 1h",  group = gMa, inline = "m2")
 c_200_1h    = input.color(#2962FF, "", group = gMa, inline = "m2")
 w_200_1h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m2")
-y_200_1h    = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m2")
+y_200_1h    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m2")
 show_20_4h  = input.bool(true, "SMA 20 · 4h",   group = gMa, inline = "m3")
 c_20_4h     = input.color(#00897B, "", group = gMa, inline = "m3")
 w_20_4h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m3")
-y_20_4h     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m3")
+y_20_4h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m3")
 show_200_4h = input.bool(true, "SMA 200 · 4h",  group = gMa, inline = "m4")
 c_200_4h    = input.color(#1565C0, "", group = gMa, inline = "m4")
 w_200_4h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m4")
-y_200_4h    = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4")
+y_200_4h    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4")
 show_20_d   = input.bool(true, "SMA 20 · Daily", group = gMa, inline = "md")
 c_20_d      = input.color(#AB47BC, "", group = gMa, inline = "md")
 w_20_d      = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "md")
-y_20_d      = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "md")
+y_20_d      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "md")
 
 // ── Prior levels (D / W / M / Q) + today's Open (H+L of a group share colour / width / style) ──
 gLv          = "Prior levels (D/W/M/Q)"
@@ -46,22 +46,22 @@ show_pdh     = input.bool(true, "PDH", group = gLv, inline = "lv1")
 show_pdl     = input.bool(true, "PDL", group = gLv, inline = "lv1")
 c_pd         = input.color(#787B86, "", group = gLv, inline = "lv1")
 w_pd         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv1")
-y_pd         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv1")
+y_pd         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv1")
 show_pwh     = input.bool(true, "PWH", group = gLv, inline = "lv2")
 show_pwl     = input.bool(true, "PWL", group = gLv, inline = "lv2")
 c_pw         = input.color(#AB47BC, "", group = gLv, inline = "lv2")
 w_pw         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2")
-y_pw         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
+y_pw         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
 show_pmh     = input.bool(true, "PMH", group = gLv, inline = "lv3")
 show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
 c_pm         = input.color(#FF7043, "", group = gLv, inline = "lv3")
 w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
-y_pm         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
+y_pm         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
 show_pqh     = input.bool(true, "PQH", group = gLv, inline = "lvq")
 show_pql     = input.bool(true, "PQL", group = gLv, inline = "lvq")
 c_pq         = input.color(#EC407A, "", group = gLv, inline = "lvq")
 w_pq         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvq")
-y_pq         = input.string("dashed", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvq")
+y_pq         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvq")
 show_open    = input.bool(true, "Today's open", group = gLv, inline = "lvo")
 c_open       = input.color(#FFB300, "", group = gLv, inline = "lvo")
 w_open       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvo")
@@ -232,12 +232,12 @@ if barstate.islast
     string _luN = ""
     color  _luC = c_pw
     int    _luW = 1
-    string _luY = "dashed"
+    string _luY = "dotted"
     float  _ldV = na
     string _ldN = ""
     color  _ldC = c_pw
     int    _ldW = 1
-    string _ldY = "dashed"
+    string _ldY = "dotted"
     for _li = 0 to array.size(_hv) - 1
         _lv = array.get(_hv, _li)
         if array.get(_he, _li) and not na(_lv)
