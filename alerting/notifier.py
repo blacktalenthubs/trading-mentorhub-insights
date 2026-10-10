@@ -30,6 +30,27 @@ from alert_config import (
 
 logger = logging.getLogger(__name__)
 
+def _emit_to_claude(alert_id: int | None) -> None:
+    """Stream a delivered alert to Muse via LISTEN/NOTIFY.
+
+    Fire-and-forget: any failure is logged and swallowed so it can never
+    break alert delivery. No-op on SQLite (local dev) or without an id.
+    The Muse listener re-filters by user / suppressed_reason / alert_type
+    and dedupes by id, so emitting twice for the same alert is harmless.
+    """
+    if not alert_id:
+        return
+    try:
+        from db import _USE_POSTGRES, get_db
+
+        if not _USE_POSTGRES:
+            return
+        with get_db() as conn:
+            conn.execute("SELECT pg_notify(?, ?)", ("muse_signals", str(alert_id)))
+    except Exception:
+        logger.exception("Muse emit failed for alert_id=%s (ignored)", alert_id)
+
+
 
 def _get_app_url() -> str:
     """Return the public-facing app URL, ignoring localhost values."""
@@ -1066,6 +1087,7 @@ def notify_user(
     else:
         logger.debug("notify_user: telegram_enabled=False, skipping")
 
+    _emit_to_claude(alert_id)
     return email_sent, telegram_sent
 
 
@@ -1094,4 +1116,5 @@ def notify(signal: AlertSignal, alert_id: int | None = None) -> tuple[bool, bool
             if _send_sms_via_email_gateway(body):
                 sms_sent = True
 
+    _emit_to_claude(alert_id)
     return email_sent, sms_sent
