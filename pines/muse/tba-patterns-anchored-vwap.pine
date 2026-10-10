@@ -1,0 +1,814 @@
+//@version=5
+indicator("TBA Patterns + Anchored VWAP", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+
+g1 = "Swings"
+pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
+tolPct  = input.float(3.0, "Ceiling tolerance %", minval=0.5, step=0.5, group=g1) / 100
+
+g2 = "Flat base / Ascending triangle"
+maxDepth  = input.float(35.0, "Max base depth %", group=g2) / 100
+flatDepth = input.float(15.0, "Flat base max depth %", group=g2) / 100
+minBase   = input.int(10, "Min base length (bars)", group=g2)
+maxBase   = input.int(120, "Max base lookback (bars)", group=g2)
+
+g3 = "Bull flag"
+poleMin    = input.float(12.0, "Min pole gain %", group=g3) / 100
+poleMax    = input.int(15, "Max pole length (bars)", group=g3)
+flagMin    = input.int(3, "Min flag length (bars)", group=g3)
+flagMax    = input.int(12, "Max flag length (bars)", group=g3)
+maxRetrace = input.float(50.0, "Max flag retrace of pole %", group=g3) / 100
+
+g4 = "Cup with handle"
+cupLen     = input.int(80, "Cup lookback (bars)", group=g4)
+minCup     = input.int(20, "Min cup length (bars)", group=g4)
+cupMinD    = input.float(12.0, "Min cup depth %", group=g4) / 100
+cupMaxD    = input.float(40.0, "Max cup depth %", group=g4) / 100
+rimTol     = input.float(5.0, "Right rim within % of left rim", group=g4) / 100
+handleMin  = input.int(3, "Min handle length (bars)", group=g4)
+handleMax  = input.int(15, "Max handle length (bars)", group=g4)
+handleMaxD = input.float(12.0, "Max handle depth %", group=g4) / 100
+
+g6 = "Inner base"
+useInner  = input.bool(true, "Detect inner base", group=g6)
+innerLook = input.int(40, "Inner base lookback (bars)", group=g6)
+innerTol  = input.float(2.0, "Inner ceiling tolerance %", step=0.5, group=g6) / 100
+innerGap  = input.float(1.0, "Min gap below main TBA %", step=0.5, group=g6) / 100
+
+g7 = "Stage"
+stageLook  = input.int(120, "Stage lookback (bars)", group=g7)
+crashPct   = input.float(25.0, "Crash = drawdown from high %", group=g7) / 100
+bottomPct  = input.float(8.0, "Still bottoming if within % of low", group=g7) / 100
+basingBars = input.int(8, "Basing window (bars)", group=g7)
+basingRng  = input.float(12.0, "Basing max range %", group=g7) / 100
+nearHigh   = input.float(8.0, "Near highs within %", group=g7) / 100
+
+g8 = "Support / resistance"
+// Per-line show toggles live in the "Line styles" group (Support / Recent low / Resistance each own one).
+srLook  = input.int(120, "S/R lookback (bars)", group=g8)
+stopBuf = input.float(2.0, "Stop buffer below support %", step=0.5, group=g8) / 100
+
+g5 = "Volume, trend, stop, display"
+volLen   = input.int(50, "Avg volume length", group=g5)
+volMult  = input.float(1.5, "Breakout volume multiple", step=0.1, group=g5)
+extPct   = input.float(5.0, "Extended above TBA %", group=g5) / 100
+holdBars = input.int(5, "Keep showing pattern after breakout (bars)", group=g5)
+maxRisk  = input.float(8.0, "Max stop distance below TBA %", group=g5) / 100
+reqTrend = input.bool(false, "Only detect above rising 50 SMA", group=g5)
+showHUD  = input.bool(true, "Show HUD", group=g5)
+hudPos   = input.string("Top Right", "HUD position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Bottom Left"], group=g5)
+hudSize  = input.string("Large", "HUD text size", options=["Small", "Normal", "Large", "Huge"], group=g5)
+
+gVR = "Volume ratio (Zanger · daily chart only)"
+showVR = input.bool(true, "Show volume ratio in HUD", group=gVR)
+vrLen  = input.int(20, "Average over (days)", minval=5, maxval=50, group=gVR)
+vrLtf  = input.timeframe("5", "Intraday resolution", group=gVR)
+vrPace = input.int(3, "Pace lookback (intraday bars)", minval=1, group=gVR)
+
+gE = "EMAs (8 / 21 / 50)"
+showE8   = input.bool(false, "8 EMA",   inline="e",  group=gE)
+showE21  = input.bool(false, "21 EMA",  inline="e",  group=gE)
+showE50  = input.bool(false, "50 EMA",  inline="e",  group=gE)
+showE100 = input.bool(false, "100 EMA", inline="e2", group=gE)
+showE200 = input.bool(false, "200 EMA", inline="e2", group=gE)
+emaLock  = input.bool(false, "Lock EMAs/MAs to a timeframe (UNCHECK = follow chart / unlock)", group=gE)
+emaTf    = input.timeframe("D", "…lock to this timeframe (only when locked above)", group=gE)
+colE8    = input.color(#00BCD4,      "8",   inline="ec", group=gE)
+colE21   = input.color(#9C27B0,      "21",  inline="ec", group=gE)
+colE50   = input.color(color.green,  "50",  inline="ec", group=gE)
+colE100  = input.color(#F57F17,      "100", inline="ec", group=gE)
+colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
+
+gS = "SMAs (5 / 8 / 20 / 50 / 200)"
+showS5   = input.bool(false, "5 SMA",  inline="s",  group=gS)
+showS8   = input.bool(true, "8 SMA",   inline="s",  group=gS)
+showS20  = input.bool(true, "20 SMA",  inline="s",  group=gS)
+showS50  = input.bool(true, "50 SMA",  inline="s",  group=gS)
+showS200 = input.bool(true, "200 SMA", inline="s",  group=gS)
+colS5    = input.color(#EC407A, "5",   inline="sc", group=gS)
+colS8    = input.color(#26A69A, "8",   inline="sc", group=gS)
+colS20   = input.color(#42A5F5, "20",  inline="sc", group=gS)
+colS50   = input.color(#FF9800, "50",  inline="sc", group=gS)
+colS200  = input.color(#787B86, "200", inline="sc", group=gS)
+
+gLk = "Lock levels to a timeframe"
+lockLevels = input.bool(true, "Lock TBA / stop / support / resistance to a fixed timeframe", group=gLk, tooltip="ON = the pattern levels are computed on the timeframe below and stay put on any chart TF (so a 15m chart still shows the DAILY levels). The current forming HTF bar updates live.")
+levelTf    = input.timeframe("D", "…levels timeframe", group=gLk)
+
+// Trend and volume
+sma50   = ta.sma(close, 50)
+sma200  = ta.sma(close, 200)
+trendOK = close > sma50 and sma50 > sma50[5]
+avgVol  = ta.sma(volume, volLen)
+rvol    = avgVol > 0 ? volume / avgVol : na
+rsi0    = ta.rsi(close, 14)
+vol5    = ta.sma(volume, 5)
+recLow  = ta.lowest(low, 10)
+recHigh = ta.highest(high, 10)
+
+// 8 / 21 / 50 EMA — each toggleable; optionally locked to a fixed timeframe (settled [1] +
+// lookahead_on = non-repainting, same values on any chart TF). Unlocked = live chart-TF EMA.
+f_ema(simple int len) =>
+    emaLock ? request.security(syminfo.tickerid, emaTf, ta.ema(close, len)[1], lookahead=barmerge.lookahead_on) : ta.ema(close, len)
+f_sma(simple int len) =>
+    emaLock ? request.security(syminfo.tickerid, emaTf, ta.sma(close, len)[1], lookahead=barmerge.lookahead_on) : ta.sma(close, len)
+ema8   = f_ema(8)
+ema21  = f_ema(21)
+ema50  = f_ema(50)
+ema100 = f_ema(100)
+ema200 = f_ema(200)
+sma5v   = f_sma(5)
+sma8v   = f_sma(8)
+sma20v  = f_sma(20)
+sma50v  = f_sma(50)
+sma200v = f_sma(200)
+plot(showE8   ? ema8   : na, "8 EMA",   color=color.new(colE8, 0),   linewidth=1)
+plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1)
+plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
+plot(showE100 ? ema100 : na, "100 EMA", color=color.new(colE100, 0), linewidth=2)
+plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2)
+// SMAs 5 / 8 / 20 / 50 / 200 — structural levels (match the scanner). Same lock as the EMAs (emaLock).
+plot(showS5   ? sma5v   : na, "5 SMA",   color=color.new(colS5, 0),   linewidth=1)
+plot(showS8   ? sma8v   : na, "8 SMA",   color=color.new(colS8, 0),   linewidth=1)
+plot(showS20  ? sma20v  : na, "20 SMA",  color=color.new(colS20, 0),  linewidth=1)
+plot(showS50  ? sma50v  : na, "50 SMA",  color=color.new(colS50, 0),  linewidth=2)
+plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=2, style=plot.style_circles)
+
+// Confirmed swing highs / lows
+var shP = array.new_float()
+var shI = array.new_int()
+var slP = array.new_float()
+var slI = array.new_int()
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+if not na(ph)
+    array.push(shP, ph)
+    array.push(shI, bar_index - pivLen)
+    if array.size(shP) > 30
+        array.shift(shP)
+        array.shift(shI)
+if not na(pl)
+    array.push(slP, pl)
+    array.push(slI, bar_index - pivLen)
+    if array.size(slP) > 30
+        array.shift(slP)
+        array.shift(slI)
+
+// Flat base / ascending triangle
+float ceilLvl    = na
+int   touches    = 0
+int   firstTouch = na
+int   lowsFrom   = na
+float baseLow    = na
+float firstL     = na
+float prevL      = na
+float lastL      = na
+int   nLows      = 0
+
+nH = array.size(shP)
+if nH > 0
+    lastH = array.get(shP, nH - 1)
+    ceilLvl := lastH
+    for i = nH - 1 to 0
+        h  = array.get(shP, i)
+        ix = array.get(shI, i)
+        if bar_index - ix > maxBase
+            break
+        if h > lastH * (1 + tolPct)
+            lowsFrom := ix
+            break
+        if h >= lastH * (1 - tolPct)
+            touches += 1
+            ceilLvl := math.max(ceilLvl, h)
+            firstTouch := ix
+    if na(lowsFrom)
+        lowsFrom := firstTouch
+    nL = array.size(slP)
+    if nL > 0 and not na(lowsFrom)
+        for j = 0 to nL - 1
+            ix = array.get(slI, j)
+            if ix > lowsFrom
+                l = array.get(slP, j)
+                baseLow := na(baseLow) ? l : math.min(baseLow, l)
+                if na(firstL)
+                    firstL := l
+                prevL := lastL
+                lastL := l
+                nLows += 1
+
+baseLen    = na(lowsFrom) ? 0 : bar_index - lowsFrom
+depth      = not na(baseLow) and ceilLvl > 0 ? (ceilLvl - baseLow) / ceilLvl : na
+risingLows = nLows >= 2 and lastL > prevL and lastL > firstL
+isTri      = touches >= 2 and risingLows and depth <= maxDepth and baseLen >= minBase
+isFlat     = touches >= 2 and not isTri and depth <= flatDepth and baseLen >= minBase
+
+// Bull flag
+k        = nz(-ta.highestbars(high, flagMax + 1))
+kLen     = math.max(k, 1)
+kLen2    = math.max(k - 1, 1)
+poleTop  = high[k]
+lowPole  = ta.lowest(low, poleMax)
+poleBase = lowPole[k]
+flagLow  = ta.lowest(low, kLen)
+flagHigh = ta.highest(high[1], kLen2)
+poleGain = poleBase > 0 ? poleTop / poleBase - 1 : 0.0
+retr     = poleTop > poleBase ? (poleTop - flagLow) / (poleTop - poleBase) : 1.0
+isFlag   = k >= flagMin and k <= flagMax and poleGain >= poleMin and retr <= maxRetrace
+
+// Cup with handle
+lrOff     = nz(-ta.highestbars(high[handleMax], cupLen - handleMax))
+lrLen     = math.max(lrOff, 1)
+leftAgo   = handleMax + lrOff
+leftRim   = high[leftAgo]
+cupLow    = ta.lowest(low[handleMax], lrLen)
+rOff      = nz(-ta.highestbars(high, handleMax))
+rLen      = math.max(rOff, 1)
+rightRim  = high[rOff]
+handleLow = ta.lowest(low, rLen)
+cupDepth  = leftRim > 0 ? (leftRim - cupLow) / leftRim : 0.0
+hDepth    = rightRim > 0 ? (rightRim - handleLow) / rightRim : 1.0
+cupMid    = cupLow + (leftRim - cupLow) / 2
+isCup     = leftAgo - rOff >= minCup and cupDepth >= cupMinD and cupDepth <= cupMaxD and rightRim >= leftRim * (1 - rimTol) and rightRim <= leftRim * (1 + rimTol) and rOff >= handleMin and hDepth <= handleMaxD and handleLow > cupMid
+
+// Pick the pattern
+string pat = na
+float  tba = na
+float  stp = na
+int    startBar = na
+if isFlag
+    pat := "Bull Flag"
+    tba := flagHigh
+    stp := flagLow
+    startBar := bar_index - k
+else if isCup
+    pat := "Cup w/ Handle"
+    tba := rightRim
+    stp := handleLow
+    startBar := bar_index - leftAgo
+else if isTri
+    pat := "Ascending Triangle"
+    tba := ceilLvl
+    stp := lastL
+    startBar := lowsFrom
+else if isFlat
+    pat := "Flat Base"
+    tba := ceilLvl
+    stp := lastL
+    startBar := lowsFrom
+if reqTrend and not trendOK
+    pat := na
+
+var string mPat   = na
+var float  mTba   = na
+var float  mStp   = na
+var int    mStart = na
+var int    mBar   = na
+// Only anchor to a CURRENT base — one whose ceiling is still near price. During a fast rally the
+// detector keeps re-finding the OLD base (its pivot highs still dominate, no new pivot confirmed
+// yet), which refreshed mBar every bar and kept the stale TBA alive forever. Once price has
+// extended past `extPct` above the ceiling, that base is played out: stop refreshing it so `active`
+// expires (the TBA clears), and let a NEW base take over when one forms (Zanger: new base = new TBA).
+patFresh = not na(pat) and not na(tba) and close <= tba * (1 + extPct)
+if patFresh
+    mPat   := pat
+    mTba   := tba
+    mStp   := stp
+    mStart := startBar
+    mBar   := bar_index
+
+// Pattern FAILED once price closes below its stop (the base low broke down) — a TBA ceiling far
+// ABOVE price is a dead pattern price fell away from, not a forming base. Drop it so the TBA clears.
+active = not na(mBar) and bar_index - mBar <= holdBars and (na(mStp) or close > mStp)
+
+// Main breakout tracking
+var float brkLow  = na
+var float brkRef  = na
+var float brkRvol = na
+crossUp = active and close > mTba and close[1] <= mTba
+if crossUp
+    brkLow  := low
+    brkRef  := mTba
+    brkRvol := rvol
+afterBrk = active and not na(brkRef) and brkRef == mTba
+
+// Inner base
+float inCeil    = na
+int   inTouches = 0
+int   inFirst   = na
+if useInner and nH > 0
+    lastHi = array.get(shP, nH - 1)
+    for i = nH - 1 to 0
+        ix = array.get(shI, i)
+        if bar_index - ix > innerLook
+            break
+        h = array.get(shP, i)
+        if math.abs(h / lastHi - 1) <= innerTol
+            inTouches += 1
+            inCeil := na(inCeil) ? h : math.max(inCeil, h)
+            inFirst := ix
+
+innerOK = useInner and active and not afterBrk and inTouches >= 2 and not na(inCeil) and inCeil < mTba * (1 - innerGap)
+
+var float inBrkLow  = na
+var float inBrkRef  = na
+var float inBrkRvol = na
+crossIn = innerOK and close > inCeil and close[1] <= inCeil
+if crossIn
+    inBrkLow  := low
+    inBrkRef  := inCeil
+    inBrkRvol := rvol
+afterIn = innerOK and not na(inBrkRef) and math.abs(inBrkRef / inCeil - 1) < 0.001
+
+// Pattern stop
+capStop = mTba * (1 - maxRisk)
+stopF   = afterBrk ? math.max(brkLow, mStp) : afterIn ? inBrkLow : math.max(mStp, capStop)
+riskRef = afterIn and not afterBrk ? inCeil : mTba
+
+// Status
+string status = "No pattern"
+color  stCol  = color.gray
+if active
+    distPct = (close / mTba - 1) * 100
+    if close < stopF
+        status := "Failed (below stop)"
+        stCol  := color.red
+    else if close > mTba * (1 + extPct)
+        status := "Extended +" + str.tostring(distPct, "#.0") + "%"
+        stCol  := color.orange
+    else if crossUp
+        status := rvol >= volMult ? "BREAKOUT on volume" : "Breakout, light volume"
+        stCol  := rvol >= volMult ? color.lime : color.yellow
+    else if afterBrk and close > mTba
+        status := "Holding above TBA"
+        stCol  := color.lime
+    else if afterBrk
+        status := "Back below TBA"
+        stCol  := color.orange
+    else if innerOK and crossIn
+        status := rvol >= volMult ? "INNER BREAKOUT on volume" : "Inner breakout, light volume"
+        stCol  := rvol >= volMult ? color.lime : color.yellow
+    else if innerOK and afterIn and close > inCeil
+        status := "Above inner TBA, " + str.tostring(-distPct, "#.0") + "% to TBA"
+        stCol  := color.lime
+    else if innerOK
+        status := "Inner base, " + str.tostring((1 - close / inCeil) * 100, "#.0") + "% below inner TBA"
+        stCol  := color.yellow
+    else
+        status := "Forming, " + str.tostring(-distPct, "#.0") + "% below TBA"
+        stCol  := color.aqua
+
+// Stage
+stHi     = ta.highest(high, stageLook)
+hiAgo    = nz(-ta.highestbars(high, stageLook))
+hiLen    = math.max(hiAgo, 1)
+lowSince = ta.lowest(low, hiLen)
+lowAgo   = nz(-ta.lowestbars(low, hiLen))
+ddMax    = stHi > 0 ? (stHi - lowSince) / stHi : 0.0
+ddNow    = stHi > 0 ? (stHi - close) / stHi : 0.0
+offLow   = lowSince > 0 ? close / lowSince - 1 : 0.0
+rngHi    = ta.highest(high, basingBars)
+rngLo    = ta.lowest(low, basingBars)
+rngPct   = rngLo > 0 ? (rngHi - rngLo) / rngLo : 1.0
+
+string stage = "Neutral"
+string play  = "-"
+color  sgCol = color.gray
+if active and close > mTba * (1 + extPct)
+    stage := "Extended"
+    play  := "Trim or sell covered calls"
+    sgCol := color.orange
+else if afterBrk or crossUp
+    stage := "Breakout"
+    play  := "Zanger entry / add on volume"
+    sgCol := color.lime
+else if crossIn or afterIn
+    stage := "Inner breakout"
+    play  := "Early entry, confirm at main TBA"
+    sgCol := color.lime
+else if active
+    stage := "Pattern forming"
+    play  := "Wait for TBA + HIGH volume"
+    sgCol := color.aqua
+else if ddMax >= crashPct and offLow <= bottomPct
+    stage := "Crash / bottoming"
+    play  := "Buy only on reclaim of support"
+    sgCol := color.red
+else if ddMax >= crashPct and lowAgo >= basingBars and rngPct <= basingRng
+    stage := "Basing"
+    play  := "Sell puts under support line"
+    sgCol := color.yellow
+else if ddMax >= crashPct and ddNow > nearHigh
+    stage := "V rebound"
+    play  := "Hold, don't chase into resistance"
+    sgCol := color.orange
+else if ddNow <= nearHigh and trendOK
+    stage := "Uptrend near highs"
+    play  := "Look for flags / tight bases"
+    sgCol := color.lime
+else if ddNow > nearHigh
+    stage := "Pullback"
+    play  := "Buy at support line, stop below"
+    sgCol := color.yellow
+
+// Support / resistance helpers
+f_pickSup(v, t, curV, curT) =>
+    better = not na(v) and v < close * 0.998 and (na(curV) or v > curV)
+    [better ? v : curV, better ? t : curT]
+
+f_pickRes(v, t, curV, curT) =>
+    better = not na(v) and v > close * 1.002 and (na(curV) or v < curV)
+    [better ? v : curV, better ? t : curT]
+
+f_held(L) =>
+    int n = 0
+    for i = 0 to 9
+        if low[i] <= L * 1.01 and close[i] > L * 0.995
+            n += 1
+    n
+
+float  supLvl = na
+string supTyp = "-"
+float  resLvl = na
+string resTyp = "-"
+if barstate.islast
+    nSL = array.size(slP)
+    if nSL > 0
+        for j = 0 to nSL - 1
+            if bar_index - array.get(slI, j) <= srLook
+                v = array.get(slP, j)
+                [sv, st] = f_pickSup(v, "swing low", supLvl, supTyp)
+                supLvl := sv
+                supTyp := st
+                [rv, rt] = f_pickRes(v, "broken swing low", resLvl, resTyp)
+                resLvl := rv
+                resTyp := rt
+    nSH = array.size(shP)
+    if nSH > 0
+        for j = 0 to nSH - 1
+            if bar_index - array.get(shI, j) <= srLook
+                v = array.get(shP, j)
+                [sv, st] = f_pickSup(v, "prior high (flipped)", supLvl, supTyp)
+                supLvl := sv
+                supTyp := st
+                [rv, rt] = f_pickRes(v, "swing high", resLvl, resTyp)
+                resLvl := rv
+                resTyp := rt
+    [s1, t1] = f_pickSup(sma50, "50 SMA", supLvl, supTyp)
+    supLvl := s1
+    supTyp := t1
+    [s2, t2] = f_pickSup(sma200, "200 SMA", supLvl, supTyp)
+    supLvl := s2
+    supTyp := t2
+    [r1, u1] = f_pickRes(sma50, "50 SMA", resLvl, resTyp)
+    resLvl := r1
+    resTyp := u1
+    [r2, u2] = f_pickRes(sma200, "200 SMA", resLvl, resTyp)
+    resLvl := r2
+    resTyp := u2
+    [r3, u3] = f_pickRes(recHigh, "10-day high", resLvl, resTyp)
+    resLvl := r3
+    resTyp := u3
+
+supStop = na(supLvl) ? na : supLvl * (1 - stopBuf)
+rrVal   = not na(supStop) and not na(resLvl) and close > supStop ? (resLvl - close) / (close - supStop) : na
+
+// ── LOCK: recompute the whole engine on levelTf (default daily) so lower-TF charts keep the
+// daily levels. request.security re-evaluates each expression on levelTf; colours + strings pass
+// through. Everything the lines + HUD need is read here as L-prefixed values. ──
+heldN0   = na(supLvl) ? 0 : f_held(supLvl)
+riskPct0 = active and riskRef > 0 ? (riskRef - stopF) / riskRef * 100 : na
+volTxt0  = vol5 < avgVol * 0.8 ? "Drying up" : vol5 > avgVol * 1.2 ? "Heavy" : "Normal"
+brkTxt0  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tostring(inBrkRvol, "#.0") + "x (inner)" : "-"
+brkCol0  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
+patLen0  = active and not na(mStart) ? bar_index - mStart : na
+_ltf = lockLevels ? levelTf : timeframe.period
+[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0], lookahead=barmerge.lookahead_off)
+[LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
+
+// YTD % — this calendar year's return. The yearly ("12M") bar's OPEN is the first trading day of
+// the year, fixed at the year's start, so lookahead_on is safe (known, not future).
+_ytdOpen = request.security(syminfo.tickerid, "12M", open, lookahead=barmerge.lookahead_on)
+_ytdPct  = not na(_ytdOpen) and _ytdOpen > 0 and not na(close) ? (close - _ytdOpen) / _ytdOpen * 100.0 : na
+
+// Today's OPEN — the daily open (= 09:30 RTH open on a regular-session chart). lookahead_on is
+// safe: a day's open is fixed at the bar's start, so it's known, not future data.
+Lopen = request.security(syminfo.tickerid, "D", open, lookahead=barmerge.lookahead_on)
+
+// Weekly 8 / 20 SMA — pulled from the WEEKLY series so they're identical on any chart TF
+// (lookahead_off = non-repainting; the forming week updates the value, like a normal MA overlay).
+wSma8  = request.security(syminfo.tickerid, "W", ta.sma(close, 8),  lookahead=barmerge.lookahead_off)
+wSma20 = request.security(syminfo.tickerid, "W", ta.sma(close, 20), lookahead=barmerge.lookahead_off)
+
+brk   = crossUp and rvol >= volMult
+brkIn = crossIn and rvol >= volMult
+plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.lime, size=size.small)
+plotshape(brkIn, "Inner breakout on volume", shape.triangleup, location.belowbar, color.yellow, size=size.tiny)
+alertcondition(brk, "Pattern breakout on volume", "{{ticker}} broke above its TBA on volume")
+alertcondition(brkIn, "Inner base breakout on volume", "{{ticker}} broke above its inner TBA on volume")
+
+// ── Line styles — colour · width · solid/dashed/dotted for every drawn level ──
+gLn  = "Line styles"
+f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
+// Where did it OPEN relative to the 8/20/50/200 SMAs — "above all SMA" / "below all SMA", or the
+// nearest SMA above (overhead) + nearest below (support) when the open sits inside the stack.
+f_openLoc(float o, float s8, float s20, float s50, float s200) =>
+    _v = array.from(s8, s20, s50, s200)
+    _n = array.from("8", "20", "50", "200")
+    // The open counts as ABOVE a SMA (support) only when it CLEARS it by >0.1% — opening right AT
+    // the line means the SMA is still resistance, so it counts as below/overhead.
+    _buf = 0.001
+    int nAbove = 0
+    int nTot   = 0
+    // Track the TWO NEAREST SMAs by distance — those are the "neighbors" (e.g. open nestled just
+    // under the 8/20 while the 50 is far below → name the 8 & 20, not the distant 50).
+    float d1 = na
+    int   i1 = -1
+    float d2 = na
+    int   i2 = -1
+    for _i = 0 to 3
+        _x = array.get(_v, _i)
+        if not na(_x) and not na(o)
+            nTot += 1
+            if o > _x * (1 + _buf)
+                nAbove += 1
+            _d = math.abs(o - _x)
+            if na(d1) or _d < d1
+                d2 := d1
+                i2 := i1
+                d1 := _d
+                i1 := _i
+            else if na(d2) or _d < d2
+                d2 := _d
+                i2 := _i
+    string _r = ""
+    if nTot == 0
+        _r := ""
+    else if nAbove == nTot
+        _r := "above all SMA"
+    else if nAbove == 0
+        _r := "below all SMA"
+    else if i2 < 0
+        _r := ""
+    else
+        _lo = math.min(i1, i2)
+        _hi = math.max(i1, i2)
+        _aLo = o > array.get(_v, _lo) * (1 + _buf)
+        _aHi = o > array.get(_v, _hi) * (1 + _buf)
+        _nlo = array.get(_n, _lo)
+        _nhi = array.get(_n, _hi)
+        if _aLo == _aHi
+            _r := (_aLo ? "above " : "below ") + _nlo + " & " + _nhi + " SMA"
+        else
+            _r := (_aLo ? "above " : "below ") + _nlo + " SMA, " + (_aHi ? "above " : "below ") + _nhi + " SMA"
+    _r
+shTba = input.bool(true, "TBA", inline = "L1", group = gLn)
+cTba = input.color(color.aqua, "", inline = "L1", group = gLn)
+wTba = input.int(2, "w", minval = 1, maxval = 6, inline = "L1", group = gLn)
+yTba = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "L1", group = gLn)
+shStp = input.bool(true, "Stop", inline = "L2", group = gLn)
+cStp = input.color(color.new(color.red, 20), "", inline = "L2", group = gLn)
+wStp = input.int(1, "w", minval = 1, maxval = 6, inline = "L2", group = gLn)
+yStp = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L2", group = gLn)
+shSup = input.bool(true, "Support", inline = "L3", group = gLn)
+cSup = input.color(color.lime, "", inline = "L3", group = gLn)
+wSup = input.int(2, "w", minval = 1, maxval = 6, inline = "L3", group = gLn)
+ySup = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "L3", group = gLn)
+shRec = input.bool(true, "Recent low", inline = "L4", group = gLn)
+cRec = input.color(color.new(color.lime, 30), "", inline = "L4", group = gLn)
+wRec = input.int(1, "w", minval = 1, maxval = 6, inline = "L4", group = gLn)
+yRec = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L4", group = gLn)
+shRes = input.bool(true, "Resistance", inline = "L5", group = gLn)
+cRes = input.color(color.new(color.red, 10), "", inline = "L5", group = gLn)
+wRes = input.int(2, "w", minval = 1, maxval = 6, inline = "L5", group = gLn)
+yRes = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L5", group = gLn)
+shInn = input.bool(true, "Inner TBA", inline = "L6", group = gLn)
+cInn = input.color(color.yellow, "", inline = "L6", group = gLn)
+wInn = input.int(1, "w", minval = 1, maxval = 6, inline = "L6", group = gLn)
+yInn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L6", group = gLn)
+shOpn = input.bool(true, "Today's open", inline = "L7", group = gLn)
+cOpn = input.color(#FFB300, "", inline = "L7", group = gLn)
+wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "L7", group = gLn)
+yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L7", group = gLn)
+// Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
+lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
+lnFwd  = input.int(3, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
+
+// ── Weekly SMAs — locked to the WEEKLY timeframe, so they show on any chart TF (catches the
+// strong-trend names that ride the weekly 8 and never dip to the 20, e.g. today's SPY). ──
+gWk   = "Weekly SMAs"
+shW8  = input.bool(false, "Weekly 8 SMA",  inline = "W8", group = gWk)
+cW8   = input.color(#AB47BC, "", inline = "W8", group = gWk)
+wW8   = input.int(2, "w", minval = 1, maxval = 6, inline = "W8", group = gWk)
+shW20 = input.bool(false, "Weekly 20 SMA", inline = "W20", group = gWk)
+cW20  = input.color(#42A5F5, "", inline = "W20", group = gWk)
+wW20  = input.int(2, "w", minval = 1, maxval = 6, inline = "W20", group = gWk)
+plot(shW8  and not na(wSma8)  ? wSma8  : na, "Weekly 8 SMA",  color = cW8,  linewidth = wW8)
+plot(shW20 and not na(wSma20) ? wSma20 : na, "Weekly 20 SMA", color = cW20, linewidth = wW20)
+
+// Lines
+var line  tbaLn = na
+var line  stpLn = na
+var line  inLn  = na
+var line  supLn = na
+var line  recLn = na
+var line  resLn = na
+var line  opnLn = na
+var label tbaLb = na
+var label stpLb = na
+var label inLb  = na
+var label supLb = na
+var label recLb = na
+var label resLb = na
+var label opnLb = na
+if barstate.islast
+    line.delete(tbaLn)
+    line.delete(stpLn)
+    line.delete(inLn)
+    line.delete(supLn)
+    line.delete(recLn)
+    line.delete(resLn)
+    line.delete(opnLn)
+    label.delete(tbaLb)
+    label.delete(stpLb)
+    label.delete(inLb)
+    label.delete(supLb)
+    label.delete(recLb)
+    label.delete(resLb)
+    label.delete(opnLb)
+    // Locked levels are horizontal; every line shares ONE extent so they all draw equal length.
+    xL = bar_index - lnBack
+    xR = bar_index + lnFwd
+    if La and shTba
+        tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
+        tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
+    if La and shStp
+        stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
+        stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
+    if LinOK and shInn
+        inLn := line.new(xL, LinC, xR, LinC, color=cInn, width=wInn, style=f_lstyle(yInn))
+        inLb := label.new(xR, LinC, "Inner TBA " + str.tostring(LinC, format.mintick), style=label.style_label_left, color=cInn, textcolor=color.black, size=size.small)
+    // When support coincides with the TBA (within 0.5%) and the TBA is drawn, show the TBA only.
+    _supDup = La and shTba and not na(Ltba) and not na(LsupL) and math.abs(LsupL / Ltba - 1) <= 0.005
+    if shSup and not na(LsupL) and not _supDup
+        supLn := line.new(xL, LsupL, xR, LsupL, color=cSup, width=wSup, style=f_lstyle(ySup))
+        supLb := label.new(xR, LsupL, "Support " + str.tostring(LsupL, format.mintick), style=label.style_label_left, color=cSup, textcolor=color.black, size=size.small)
+    if shRec and not na(LrecL) and (na(LsupL) or math.abs(LrecL / LsupL - 1) > 0.005)
+        recLn := line.new(xL, LrecL, xR, LrecL, color=cRec, width=wRec, style=f_lstyle(yRec))
+        recLb := label.new(xR, LrecL, "Recent low " + str.tostring(LrecL, format.mintick), style=label.style_label_left, color=cRec, textcolor=color.black, size=size.small)
+    // When resistance coincides with the TBA (within 0.5%) and the TBA is drawn, show the TBA only.
+    _resDup = La and shTba and not na(Ltba) and not na(LresL) and math.abs(LresL / Ltba - 1) <= 0.005
+    if shRes and not na(LresL) and not _resDup
+        resLn := line.new(xL, LresL, xR, LresL, color=cRes, width=wRes, style=f_lstyle(yRes))
+        resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
+    if shOpn and not na(Lopen)
+        opnLn := line.new(xL, Lopen, xR, Lopen, color=cOpn, width=wOpn, style=f_lstyle(yOpn))
+        _openLoc = f_openLoc(Lopen, sma8v, sma20v, sma50v, sma200v)
+        opnLb := label.new(xR, Lopen, "Open " + str.tostring(Lopen, format.mintick) + (_openLoc == "" ? "" : "  · " + _openLoc), style=label.style_label_left, color=cOpn, textcolor=color.black, size=size.small)
+
+// ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
+// Same math as the standalone "Vol Ratio" indicator: projects where the day's volume will
+// finish from how much has traded by this point vs the average day's cumulative volume by the
+// same time. Needs each chart bar to BE a day + intraday sub-bars, so it only computes on a
+// daily chart (shows "Daily only" otherwise; request.security_lower_tf returns empty when its
+// timeframe isn't lower than the chart, so this stays safe on any TF).
+VR_MAXB = 300
+vrIsD = timeframe.isdaily
+vrIv  = request.security_lower_tf(syminfo.tickerid, vrLtf, volume)
+var vrCum   = array.new_float(vrLen * VR_MAXB, 0.0)
+var vrDaySz = array.new_int(vrLen, 0)
+vrSlot = bar_index % vrLen
+vrNn   = math.min(array.size(vrIv), VR_MAXB)
+float vrRun = 0.0
+if vrIsD and vrNn > 0
+    for i = 0 to vrNn - 1
+        vrRun += nz(array.get(vrIv, i))
+        array.set(vrCum, vrSlot * VR_MAXB + i, vrRun)
+if vrIsD
+    array.set(vrDaySz, vrSlot, vrNn)
+
+f_vrAvgCum(k, cur) =>
+    float sum = 0.0
+    int cnt = 0
+    for s = 0 to vrLen - 1
+        sz = array.get(vrDaySz, s)
+        if s != cur and sz > 0
+            idx = math.min(k, sz) - 1
+            if idx >= 0
+                sum += array.get(vrCum, s * VR_MAXB + idx)
+                cnt += 1
+    cnt > 0 ? sum / cnt : na
+f_vrCumToday(k) => k > 0 ? array.get(vrCum, vrSlot * VR_MAXB + k - 1) : na
+
+vrAvgFull = ta.sma(volume[1], vrLen)
+vrDayDone = timenow >= time_close
+vrAvgNow  = f_vrAvgCum(vrNn, vrSlot)
+vrLive    = vrNn > 0 and vrAvgNow > 0 ? f_vrCumToday(vrNn) / vrAvgNow * 100 : na
+vrRatio   = not vrIsD ? na : vrDayDone ? (vrAvgFull > 0 ? volume / vrAvgFull * 100 : na) : vrLive
+vrKp      = vrNn - vrPace
+vrAvgPrev = vrKp > 0 ? f_vrAvgCum(vrKp, vrSlot) : na
+vrRatPrev = vrKp > 0 and vrAvgPrev > 0 ? f_vrCumToday(vrKp) / vrAvgPrev * 100 : na
+vrProj    = not na(vrRatio) ? vrAvgFull * vrRatio / 100 : na
+f_vrCat(r) => na(r) ? "Daily only" : r >= 250 ? "EXTREME" : r >= 150 ? "HIGH" : r >= 85 ? "AVERAGE" : r >= 60 ? "LIGHT" : "DRY-UP"
+f_vrCol(r) => na(r) ? color.gray : r >= 250 ? color.fuchsia : r >= 150 ? color.lime : r >= 85 ? color.gray : r >= 60 ? color.yellow : color.aqua
+vrPaceTxt = not vrIsD ? "-" : vrDayDone ? "closed" : na(vrRatPrev) or na(vrLive) ? "-" : vrLive > vrRatPrev ? "▲ rising" : vrLive < vrRatPrev ? "▼ fading" : "flat"
+vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ? color.red : color.gray
+
+// HUD
+posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
+var table hud = table.new(posT, 2, 5, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+
+hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
+f_row(t, r, key, val, c) =>
+    table.cell(t, 0, r, key, text_color=color.silver, text_size=hudTxt, text_halign=text.align_left)
+    table.cell(t, 1, r, val, text_color=c, text_size=hudTxt, text_halign=text.align_right)
+
+if showHUD and barstate.islast
+    // Interpretive context ONLY — the prices (support / resistance / recent low / TBA /
+    // inner TBA / pattern stop) are drawn as lines on the chart, so they're not repeated here.
+    tfTag   = lockLevels ? " (" + levelTf + ")" : ""
+    rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
+    rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
+    // Lean HUD (trader directive 2026-10-04): pattern + status + RSI + YTD only. Ext·20SMA, the
+    // volume row and the Zanger volume-ratio block were cut — prices/levels live on the chart lines.
+    f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
+    f_row(hud, 1, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
+    f_row(hud, 2, "Status", La ? Lstat : "-", La ? LstC : color.gray)
+    f_row(hud, 3, "RSI 14", rsiTxt, rsiCol)
+    f_row(hud, 4, "YTD", na(_ytdPct) ? "-" : (_ytdPct >= 0 ? "+" : "") + str.tostring(_ytdPct, "#.#") + "%", na(_ytdPct) ? color.gray : _ytdPct >= 0 ? color.lime : color.red)
+    // © bolofbaba
+// merged section: Anchored VWAP (from standalone script)
+// merged section: inputs, calculations, plots and labels follow
+
+gAV        = "Anchored VWAP"
+showAnch   = input.bool(true, "Show anchored VWAP", group = gAV)
+anchCol    = input.color(color.new(#AA00FF, 0), "Anchored VWAP color", group = gAV)
+showAnchHi = input.bool(true, "Show swing-high AVWAP", group = gAV)
+anchHiCol  = input.color(color.new(#2962FF, 0), "Swing-high AVWAP color", group = gAV)
+anchHiPivLen = input.int(25, "AVWAP-H pivot length", minval = 10, maxval = 60, group = gAV)
+anchMode   = input.string("Last swing low", "Anchor mode", group = gAV, options = ["Last swing low", "Last swing high", "Last earnings", "Highest-volume bar", "Month start"])
+
+gRoll    = "Rolling AVWAP"
+showRoll = input.bool(true, "Show rolling AVWAP", group = gRoll)
+rollCol  = input.color(color.new(#FF9800, 0), "Rolling AVWAP color", group = gRoll)
+
+barsBack = 150
+
+_pivLen = 10
+_pivLo  = ta.pivotlow(low, _pivLen, _pivLen)
+_pivHi  = ta.pivothigh(high, _pivLen, _pivLen)
+var int _swLoBar = na
+var int _swHiBar = na
+if not na(_pivLo)
+    _swLoBar := bar_index - _pivLen
+if not na(_pivHi)
+    _swHiBar := bar_index - _pivLen
+
+_pivHiH = ta.pivothigh(high, anchHiPivLen, anchHiPivLen)
+var int _swHiBarH = na
+if not na(_pivHiH)
+    _swHiBarH := bar_index - anchHiPivLen
+
+_earnVal = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_off)
+var int _earnBar = na
+if not na(_earnVal) and na(_earnVal[1])
+    _earnBar := bar_index
+
+_hvBar = bar_index + ta.highestbars(volume, barsBack)
+_isMonthStart = na(time[1]) or month(time) != month(time[1]) or year(time) != year(time[1])
+var int _monthBar = na
+if _isMonthStart
+    _monthBar := bar_index
+
+int _anchBar = na
+_anchBar := switch anchMode
+    "Last swing high"    => _swHiBar
+    "Last earnings"      => na(_earnBar) ? _swLoBar : _earnBar
+    "Highest-volume bar" => _hvBar
+    "Month start"        => _monthBar
+    => _swLoBar
+
+_anchLen = na(_anchBar) ? 0 : bar_index - _anchBar + 1
+_aPv     = na(_anchBar) ? na : math.sum(hlc3 * volume, _anchLen) / math.max(math.sum(volume, _anchLen), 1e-10)
+anchVWAP = showAnch ? _aPv : na
+plot(anchVWAP, "AVWAP (anchored)", color = anchCol, linewidth = 2)
+var label _anchLbl = na
+if barstate.islast and showAnch and not na(anchVWAP)
+    _anchLbl := label.new(bar_index, anchVWAP, "AVWAP " + str.tostring(anchVWAP, format.mintick), style = label.style_label_left, color = anchCol, textcolor = color.white, size = size.small)
+    label.delete(_anchLbl[1])
+
+_anchHiLen  = na(_swHiBarH) ? 0 : bar_index - _swHiBarH + 1
+_aPvHi      = na(_swHiBarH) ? na : math.sum(hlc3 * volume, _anchHiLen) / math.max(math.sum(volume, _anchHiLen), 1e-10)
+anchVWAPHi  = showAnchHi ? _aPvHi : na
+plot(anchVWAPHi, "AVWAP-H (swing high)", color = anchHiCol, linewidth = 2)
+var label _anchHiLbl = na
+if barstate.islast and showAnchHi and not na(anchVWAPHi)
+    _anchHiLbl := label.new(bar_index, anchVWAPHi, "AVWAP-H " + str.tostring(anchVWAPHi, format.mintick), style = label.style_label_left, color = anchHiCol, textcolor = color.white, size = size.small)
+    label.delete(_anchHiLbl[1])
+
+_hlc     = (high + low + close) / 3
+_sv      = math.sum(volume, barsBack)
+rollVWAP = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showRoll ? rollVWAP : na, "AVWAP-R (rolling)", color = rollCol, linewidth = 2)
+var label _rollLbl = na
+if barstate.islast and showRoll and not na(rollVWAP)
+    _rollLbl := label.new(bar_index, rollVWAP, "AVWAP-R " + str.tostring(rollVWAP, format.mintick), style = label.style_label_left, color = rollCol, textcolor = color.white, size = size.small)
+    label.delete(_rollLbl[1])
