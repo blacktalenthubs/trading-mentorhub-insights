@@ -1,0 +1,49 @@
+// Locked SMA 8/20
+// Two simple moving averages (8 and 20) computed on a timeframe you LOCK
+// in the settings — daily by default — no matter what timeframe the
+// chart is showing. On an hourly or 15-minute chart the lines reflect
+// the locked timeframe's data, the same way Victor locks his SMAs to
+// daily. "Settled values only" (default on) uses the locked timeframe's
+// last COMPLETED bar, so the lines step instead of drifting intraday;
+// turn it off to let the forming bar update live.
+
+//@version=6
+indicator("Locked SMA 8/20", shorttitle = "Locked SMA", overlay = true)
+
+// ── Inputs ──────────────────────────────────────────────────────────────
+grp = "Locked SMAs"
+tf      = input.timeframe("D", "Lock SMAs to timeframe", group = grp, tooltip = "D = daily, W = weekly, 240 = 4h, 60 = 1h. The SMAs are computed on this timeframe regardless of the chart's timeframe.")
+lenFast = input.int(8, "Fast SMA length", minval = 1, group = grp)
+lenSlow = input.int(20, "Slow SMA length", minval = 1, group = grp)
+settled = input.bool(true, "Settled values only (last completed bar of the locked TF)", group = grp, tooltip = "On = stepped lines from completed bars only — the basis Victor trades from. Off = the forming bar of the locked timeframe updates live.")
+showLbl = input.bool(true, "Value labels", group = grp)
+
+// ── Locked SMAs ─────────────────────────────────────────────────────────
+f_sma(len) =>
+    request.security(syminfo.tickerid, tf, settled ? ta.sma(close, len)[1] : ta.sma(close, len))
+
+smaFast = f_sma(lenFast)
+smaSlow = f_sma(lenSlow)
+
+colFast = color.rgb(242, 54, 69)   // red — matches Victor's SMA8 on his charts
+colSlow = color.rgb(8, 153, 129)   // green — matches Victor's SMA20
+
+plot(smaFast, "SMA Fast", color = colFast, linewidth = 2)
+plot(smaSlow, "SMA Slow", color = colSlow, linewidth = 2)
+
+// ── Value labels (persistent, updated on the last bar) ──────────────────
+var label lblFast = na
+var label lblSlow = na
+tfDisp = tf == "" ? "chart" : tf
+
+if barstate.islast and showLbl and not na(smaFast)
+    if na(lblFast)
+        lblFast := label.new(bar_index, smaFast, "", xloc = xloc.bar_index, style = label.style_label_left, color = colFast, textcolor = color.white, size = size.small)
+    label.set_xy(lblFast, bar_index, smaFast)
+    label.set_text(lblFast, "SMA " + str.tostring(lenFast) + " (" + tfDisp + ") " + str.tostring(smaFast, format.mintick))
+
+if barstate.islast and showLbl and not na(smaSlow)
+    if na(lblSlow)
+        lblSlow := label.new(bar_index, smaSlow, "", xloc = xloc.bar_index, style = label.style_label_left, color = colSlow, textcolor = color.white, size = size.small)
+    label.set_xy(lblSlow, bar_index, smaSlow)
+    label.set_text(lblSlow, "SMA " + str.tostring(lenSlow) + " (" + tfDisp + ") " + str.tostring(smaSlow, format.mintick))
