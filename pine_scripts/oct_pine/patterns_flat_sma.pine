@@ -141,6 +141,8 @@ gFlat    = "Flat SMA lines"
 flatLen  = input.int(120, "Line length (bars back)", minval = 10, maxval = 500, group = gFlat)
 flatFull = input.bool(true, "Extend across the whole chart", group = gFlat, tooltip = "ON = each line runs edge-to-edge; OFF = only the fixed bars-back length.")
 flatTag  = input.bool(true, "Show value tags", group = gFlat, tooltip = "The right-side SMA name + value label. Uncheck to keep just the lines.")
+flatTagOff = input.int(16, "Tag column offset (bars right)", minval = 0, maxval = 120, group = gFlat, tooltip = "Push the SMA value tags into their OWN column, right of the TBA / support / resistance tags, so a confluence doesn't stack them on top of each other.")
+flatTagGap = input.float(0.35, "De-overlap tags within (%)", minval = 0.0, maxval = 2.0, step = 0.05, group = gFlat, tooltip = "When two SMA tags sit closer than this % of price, nudge them apart vertically so both read. The LINE stays on its true value.") / 100.0
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 var line[]  _smaLn = array.new_line()
 var label[] _smaLb = array.new_label()
@@ -159,14 +161,38 @@ if barstate.islast
     _sn = array.from("SMA 8", "SMA 21", "SMA 50", "SMA 100", "SMA 150", "SMA 200")
     _xL = bar_index - flatLen
     _xR = bar_index + 6
+    _x2 = flatTag ? _xR + flatTagOff : _xR   // reach the tag column so the line connects to its label
+    // 1) lines — always on their TRUE value
     for _i = 0 to 5
         _v = array.get(_sv, _i)
         if array.get(_ss, _i) and not na(_v)
             _c   = color.new(array.get(_sc, _i), 0)
             _sty = _i == 5 ? line.style_dotted : line.style_solid   // 200 dotted, like the curve version
-            array.push(_smaLn, line.new(_xL, _v, _xR, _v, color = _c, width = 3, style = _sty, extend = flatFull ? extend.left : extend.none))
-            if flatTag
-                array.push(_smaLb, label.new(_xR, _v, array.get(_sn, _i) + "  " + str.tostring(_v, format.mintick), style = label.style_label_left, color = _c, textcolor = f_txtcol(array.get(_sc, _i)), size = size.small))
+            array.push(_smaLn, line.new(_xL, _v, _x2, _v, color = _c, width = 3, style = _sty, extend = flatFull ? extend.left : extend.none))
+    // 2) value tags — in their OWN column (right of the pattern tags) and nudged apart vertically so a
+    //    confluence (e.g. SMA 200 next to a Support level) doesn't stack them. Line stays on true value.
+    if flatTag
+        _shownV = array.new_float()
+        _shownI = array.new_int()
+        for _i = 0 to 5
+            _v = array.get(_sv, _i)
+            if array.get(_ss, _i) and not na(_v)
+                array.push(_shownV, _v)
+                array.push(_shownI, _i)
+        if array.size(_shownV) > 0
+            _ord  = array.sort_indices(_shownV, order.ascending)
+            _tagX = _xR + flatTagOff
+            _gap  = close * flatTagGap
+            float _lastY = na
+            for _k = 0 to array.size(_ord) - 1
+                _pos = array.get(_ord, _k)
+                _val = array.get(_shownV, _pos)
+                _idx = array.get(_shownI, _pos)
+                _ly  = _val
+                if flatTagGap > 0 and not na(_lastY) and _ly < _lastY + _gap
+                    _ly := _lastY + _gap
+                _lastY := _ly
+                array.push(_smaLb, label.new(_tagX, _ly, array.get(_sn, _idx) + "  " + str.tostring(_val, format.mintick), style = label.style_label_left, color = color.new(array.get(_sc, _idx), 0), textcolor = f_txtcol(array.get(_sc, _idx)), size = size.small))
 
 // Confirmed swing highs / lows
 var shP = array.new_float()
