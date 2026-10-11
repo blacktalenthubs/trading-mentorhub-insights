@@ -90,9 +90,9 @@ showS200 = input.bool(true, "200 SMA", inline="s2", group=gS)
 colS8    = input.color(color.red,    "8",   inline="sc", group=gS)
 colS21   = input.color(color.green,  "21",  inline="sc", group=gS)
 colS50   = input.color(color.blue,   "50",  inline="sc", group=gS)
-colS100  = input.color(#FF9800,      "100", inline="sc", group=gS)
-colS150  = input.color(#9C27B0,      "150", inline="sc", group=gS)
-colS200  = input.color(color.black,  "200", inline="sc", group=gS)
+colS100  = input.color(#F9A825,      "100", inline="sc", group=gS)   // deep yellow
+colS150  = input.color(#808080,      "150", inline="sc", group=gS)   // light black (gray)
+colS200  = input.color(color.black,  "200", inline="sc", group=gS)   // deep black
 
 gLk = "Lock levels to a timeframe"
 lockLevels = input.bool(true, "Lock TBA / stop / support / resistance to a fixed timeframe", group=gLk, tooltip="ON = the pattern levels are computed on the timeframe below and stay put on any chart TF (so a 15m chart still shows the DAILY levels). The current forming HTF bar updates live.")
@@ -131,13 +131,14 @@ plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1
 plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
 plot(showE100 ? ema100 : na, "100 EMA", color=color.new(colE100, 0), linewidth=2)
 plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2)
-// SMAs 8 / 21 / 50 / 100 / 150 / 200 — the Zanger stack, all thick. Same lock as the EMAs (emaLock).
+// SMAs 8 / 21 / 50 / 100 / 150 / 200 — the Zanger stack, all thick. 200 is dotted (plot.style_circles —
+// Pine has no dashed line plot). Same lock as the EMAs (emaLock).
 plot(showS8   ? sma8v   : na, "8 SMA",   color=color.new(colS8, 0),   linewidth=3)
 plot(showS21  ? sma21v  : na, "21 SMA",  color=color.new(colS21, 0),  linewidth=3)
 plot(showS50  ? sma50v  : na, "50 SMA",  color=color.new(colS50, 0),  linewidth=3)
 plot(showS100 ? sma100v : na, "100 SMA", color=color.new(colS100, 0), linewidth=3)
 plot(showS150 ? sma150v : na, "150 SMA", color=color.new(colS150, 0), linewidth=3)
-plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=3)
+plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=3, style=plot.style_circles)
 
 // Confirmed swing highs / lows
 var shP = array.new_float()
