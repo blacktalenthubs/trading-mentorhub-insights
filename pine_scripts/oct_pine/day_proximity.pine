@@ -95,6 +95,7 @@ show_ormid   = input.bool(true, "OR Mid", group = gOR, inline = "or3")
 c_ormid      = input.color(color.new(color.gray, 40), "", group = gOR, inline = "or3")
 w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
 y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
+show_or_tags = input.bool(true, "OR tags (ORH / ORL / mid labels)", group = gOR, tooltip = "Uncheck to hide the text labels but keep the lines.")
 // Range quality — the HUD read: OR width vs the stock's ADR + its own recent OR distribution.
 or_adrLen    = input.int(12, "ADR lookback (days)", minval = 3, maxval = 60, group = gOR)
 or_narrow    = input.float(50.0, "NARROW if OR ≤ this % of ADR", minval = 10, maxval = 100, step = 5, group = gOR, tooltip = "A small OR vs the average daily range = most of the day's move is still ahead → higher breakout odds.")
@@ -445,13 +446,16 @@ if barstate.islast
     _orExt = line_full ? extend.left : extend.none
     if show_orh and not na(orh)
         _orhL := line.new(bar_index - flat_len, orh, bar_index + 6, orh, color = c_orh, width = w_orh, style = f_style(y_orh), extend = _orExt)
-        _orhT := label.new(bar_index + 6, orh, "ORH", style = label.style_none, textcolor = c_orh, size = size.tiny, textalign = text.align_left)
+        if show_or_tags
+            _orhT := label.new(bar_index + 6, orh, "ORH", style = label.style_none, textcolor = c_orh, size = size.tiny, textalign = text.align_left)
     if show_orl and not na(orl)
         _orlL := line.new(bar_index - flat_len, orl, bar_index + 6, orl, color = c_orl, width = w_orl, style = f_style(y_orl), extend = _orExt)
-        _orlT := label.new(bar_index + 6, orl, "ORL", style = label.style_none, textcolor = c_orl, size = size.tiny, textalign = text.align_left)
+        if show_or_tags
+            _orlT := label.new(bar_index + 6, orl, "ORL", style = label.style_none, textcolor = c_orl, size = size.tiny, textalign = text.align_left)
     if show_ormid and not na(orMid)
         _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
-        _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
+        if show_or_tags
+            _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
 
 // ── HUD — the opening-range read: price vs OR, OR width, OR ÷ ADR, Verdict (2026-10-08).
 //    bottom-25% (tighter than ≥75% of the last N ORs) still flags the ★ on the verdict. ──
