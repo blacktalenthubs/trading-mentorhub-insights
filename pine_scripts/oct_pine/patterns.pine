@@ -714,7 +714,7 @@ vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ?
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 5, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, showVR ? 8 : 5, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -727,10 +727,16 @@ if showHUD and barstate.islast
     tfTag   = lockLevels ? " (" + levelTf + ")" : ""
     rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
     rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
-    // Lean HUD (trader directive 2026-10-04): pattern + status + RSI + YTD only. Ext·20SMA, the
-    // volume row and the Zanger volume-ratio block were cut — prices/levels live on the chart lines.
+    // Lean HUD: pattern + status + RSI + YTD. The Zanger volume-ratio block is back behind showVR
+    // (2026-10-10) — time-of-day volume projection, daily chart only. Prices/levels live on the lines.
     f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
     f_row(hud, 1, "Pattern", La ? Lpat : "None", La ? color.white : color.gray)
     f_row(hud, 2, "Status", La ? Lstat : "-", La ? LstC : color.gray)
     f_row(hud, 3, "RSI 14", rsiTxt, rsiCol)
     f_row(hud, 4, "YTD", na(_ytdPct) ? "-" : (_ytdPct >= 0 ? "+" : "") + str.tostring(_ytdPct, "#.#") + "%", na(_ytdPct) ? color.gray : _ytdPct >= 0 ? color.lime : color.red)
+    // ── Zanger volume ratio (daily chart only): where today's volume projects to finish vs an
+    //    average day by this time, its pace (rising/fading intraday), and the projected day total. ──
+    if showVR
+        f_row(hud, 5, "Vol ratio", na(vrRatio) ? "Daily only" : str.tostring(vrRatio, "#") + "% · " + f_vrCat(vrRatio), f_vrCol(vrRatio))
+        f_row(hud, 6, "Vol pace", vrPaceTxt, vrPaceCol)
+        f_row(hud, 7, vrDayDone ? "Day volume" : "Projected vol", na(vrProj) ? "-" : str.tostring(vrProj / 1e6, "#.0") + "M", color.white)
