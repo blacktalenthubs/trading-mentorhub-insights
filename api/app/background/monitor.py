@@ -253,6 +253,20 @@ _swing_2h_bucket: str = ""
 # Confluence merge — same-level entries collapse into one alert.
 _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 
+# SMA HTF family (1h/4h 20/50/200 support + reject) — HIGH PRIORITY, dedup-exempt
+# (trader, 2026-10-10). These are near self-sufficient entry signals, so every
+# firing must be delivered and recorded: signals of these types skip the
+# fired-today skip, the 10-min direction lock, level dedup, the confluence
+# merge, entry-type-day, zone-cluster and price-area dedup below. Rule
+# enablement (ENABLED_RULES / per-user toggles) still applies — a type that is
+# off simply never generates.
+SMA_HTF_TYPES = frozenset({
+    "ma20_support_1h", "ma50_support_1h", "ma200_support_1h",
+    "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
+    "ma20_support_4h", "ma50_support_4h", "ma200_support_4h",
+    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
+})
+
 
 def _setup_name(alert_type: str) -> str:
     """Human setup title for a rule key — "ma_reclaim_50" → "50 SMA Reclaim".
@@ -311,6 +325,7 @@ def _merge_confluence(signals: list) -> list:
     buys = [s for s in signals
             if (getattr(s, "direction", "") or "").upper() == "BUY"
             and getattr(s, "entry", None) and s.entry > 0
+            and getattr(s.alert_type, "value", "") not in SMA_HTF_TYPES
             and not _is_weekly_signal(s)]
     if len(buys) <= 1:
         return signals
@@ -1034,12 +1049,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # --- Dedup: same alert type at same price level = skip ---
                     # Different price levels are allowed (e.g. double top at $2148 vs $2193)
                     key = _dedup_key(symbol, signal.alert_type.value, signal.price or 0)
-                    if key in fired_today:
+                    if key in fired_today and signal.alert_type.value not in SMA_HTF_TYPES:
                         continue
 
                     # Direction lock: only suppress exact same alert type within 10 min
                     # (prevents rapid-fire spam of the same signal, but allows different setups)
-                    if signal.direction in ("BUY", "SHORT"):
+                    if signal.direction in ("BUY", "SHORT") and signal.alert_type.value not in SMA_HTF_TYPES:
                         _lock = _direction_lock.get((symbol, signal.alert_type.value))
                         if _lock:
                             _locked_time = _lock
@@ -1073,7 +1088,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             if abs(signal.entry - _prev_entry) / _prev_entry <= LEVEL_DEDUP_TOLERANCE_PCT:
                                 _duplicate = True
                                 break
-                        if _duplicate:
+                        if _duplicate and signal.alert_type.value not in SMA_HTF_TYPES:
                             logger.info(
                                 "LEVEL DEDUP: user=%d %s %s entry=$%.2f — suppressed (matches recent alert)",
                                 user_id, symbol, signal.alert_type.value, float(signal.entry),
@@ -1287,7 +1302,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # once-per-type-per-day and cooldown discipline as a long.
                     _is_entry = _dir_up in ("BUY", "SHORT")
                     _etd_key = (user_id, symbol, _at_val)
-                    if _send_notification and _is_entry and _etd_key in _entry_type_day:
+                    if _send_notification and _is_entry and _etd_key in _entry_type_day and _at_val not in SMA_HTF_TYPES:
                         _send_notification = False
                         _suppressed = "dedup_type_day"
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
@@ -1304,7 +1319,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                     # Zone clustering: suppress redundant directional signals at same price zone.
                     # Weekly SWING supports are excluded — a separate stream, not deduped vs day entries.
-                    if _send_notification and signal.direction in ("SHORT", "BUY") and not _is_weekly_signal(signal):
+                    if _send_notification and signal.direction in ("SHORT", "BUY") and not _is_weekly_signal(signal) and _at_val not in SMA_HTF_TYPES:
                         _price_bucket = round(signal.price, -1) if signal.price > 100 else round(signal.price, 0)
                         _zone_key = (symbol, signal.direction, _price_bucket)
                         _zone_cooldown = getattr(_poll_all_users_inner, "_zone_cooldown", {})
@@ -1325,7 +1340,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # BUY was already DELIVERED today within PRICE_AREA_DEDUP_PCT of this entry, this
                     # is the same trade at the same level (just a different trigger) -> collapse it.
                     # A materially different entry is outside the band and still fires.
-                    if _send_notification and signal.direction == "BUY" and signal.entry and not _is_weekly_signal(signal):
+                    if _send_notification and signal.direction == "BUY" and signal.entry and not _is_weekly_signal(signal) and _at_val not in SMA_HTF_TYPES:
                         from alerting.alert_store import was_price_area_alerted
                         if was_price_area_alerted(symbol, float(signal.entry), PRICE_AREA_DEDUP_PCT,
                                                   user_id=user_id, exclude_types=WEEKLY_SUPPORT_TYPES):
