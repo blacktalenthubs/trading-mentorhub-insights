@@ -118,6 +118,11 @@ f_ema(simple int len) =>
     emaLock ? request.security(syminfo.tickerid, emaTf, ta.ema(close, len)[1], lookahead=barmerge.lookahead_on) : ta.ema(close, len)
 f_sma(simple int len) =>
     emaLock ? request.security(syminfo.tickerid, emaTf, ta.sma(close, len)[1], lookahead=barmerge.lookahead_on) : ta.sma(close, len)
+// SMA slope (for the ▲ rising / ▼ falling tag) — change over slopeN bars ON THE LOCK TF, so the
+// read is correct even when the lines are locked to the daily and the chart is intraday.
+slopeN = input.int(3, "Slope lookback (bars, on lock TF)", minval=1, maxval=50, group="Flat SMA lines", tooltip="The rising/falling arrow on each SMA tag compares the SMA now vs this many bars ago on the locked timeframe.")
+f_smaSlope(simple int len) =>
+    emaLock ? request.security(syminfo.tickerid, emaTf, ta.sma(close, len)[1] - ta.sma(close, len)[1 + slopeN], lookahead=barmerge.lookahead_on) : (ta.sma(close, len) - ta.sma(close, len)[slopeN])
 ema8   = f_ema(8)
 ema21  = f_ema(21)
 ema50  = f_ema(50)
@@ -129,6 +134,12 @@ sma50v  = f_sma(50)
 sma100v = f_sma(100)
 sma150v = f_sma(150)
 sma200v = f_sma(200)
+slp8   = f_smaSlope(8)
+slp21  = f_smaSlope(21)
+slp50  = f_smaSlope(50)
+slp100 = f_smaSlope(100)
+slp150 = f_smaSlope(150)
+slp200 = f_smaSlope(200)
 plot(showE8   ? ema8   : na, "8 EMA",   color=color.new(colE8, 0),   linewidth=1)
 plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1)
 plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
@@ -159,6 +170,7 @@ if barstate.islast
     _ss = array.from(showS8, showS21, showS50, showS100, showS150, showS200)
     _sc = array.from(colS8, colS21, colS50, colS100, colS150, colS200)
     _sn = array.from("SMA 8", "SMA 21", "SMA 50", "SMA 100", "SMA 150", "SMA 200")
+    _sl = array.from(slp8, slp21, slp50, slp100, slp150, slp200)   // slope sign → ▲ rising / ▼ falling
     _xL = bar_index - flatLen
     _xR = bar_index + 6
     _x2 = flatTag ? _xR + flatTagOff : _xR   // reach the tag column so the line connects to its label
@@ -192,7 +204,9 @@ if barstate.islast
                 if flatTagGap > 0 and not na(_lastY) and _ly < _lastY + _gap
                     _ly := _lastY + _gap
                 _lastY := _ly
-                array.push(_smaLb, label.new(_tagX, _ly, array.get(_sn, _idx) + "  " + str.tostring(_val, format.mintick), style = label.style_label_left, color = color.new(array.get(_sc, _idx), 0), textcolor = f_txtcol(array.get(_sc, _idx)), size = size.small))
+                _slv = array.get(_sl, _idx)
+                _arr = na(_slv) or _slv == 0 ? " →" : _slv > 0 ? " ▲" : " ▼"   // rising / falling / flat
+                array.push(_smaLb, label.new(_tagX, _ly, array.get(_sn, _idx) + _arr + "  " + str.tostring(_val, format.mintick), style = label.style_label_left, color = color.new(array.get(_sc, _idx), 0), textcolor = f_txtcol(array.get(_sc, _idx)), size = size.small))
 
 // Confirmed swing highs / lows
 var shP = array.new_float()
