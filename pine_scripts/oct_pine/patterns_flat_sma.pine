@@ -145,12 +145,14 @@ f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.1
 var line[]  _smaLn = array.new_line()
 var label[] _smaLb = array.new_label()
 if barstate.islast
-    for _i = 0 to array.size(_smaLn) - 1
-        line.delete(array.get(_smaLn, _i))
-    array.clear(_smaLn)
-    for _i = 0 to array.size(_smaLb) - 1
-        label.delete(array.get(_smaLb, _i))
-    array.clear(_smaLb)
+    if array.size(_smaLn) > 0
+        for _i = 0 to array.size(_smaLn) - 1
+            line.delete(array.get(_smaLn, _i))
+        array.clear(_smaLn)
+    if array.size(_smaLb) > 0
+        for _i = 0 to array.size(_smaLb) - 1
+            label.delete(array.get(_smaLb, _i))
+        array.clear(_smaLb)
     _sv = array.from(sma8v, sma21v, sma50v, sma100v, sma150v, sma200v)
     _ss = array.from(showS8, showS21, showS50, showS100, showS150, showS200)
     _sc = array.from(colS8, colS21, colS50, colS100, colS150, colS200)
