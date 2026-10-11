@@ -28,6 +28,19 @@ handleMin  = input.int(3, "Min handle length (bars)", group=g4)
 handleMax  = input.int(15, "Max handle length (bars)", group=g4)
 handleMaxD = input.float(12.0, "Max handle depth %", group=g4) / 100
 
+g9 = "Prior-high shelf (Zanger)"
+useShelf  = input.bool(true, "Detect prior-high shelf TBA", group=g9)
+shelfLook = input.int(120, "Prior-high lookback (bars)", minval=30, maxval=400, group=g9)
+shelfZone = input.float(8.0, "Arm when close is within % below the prior high", step=0.5, group=g9) / 100
+shelfBars = input.int(8, "Staging window (bars)", minval=5, maxval=30, group=g9)
+shelfRng  = input.float(5.0, "Staging max CLOSE range % (tight shelf)", step=0.5, group=g9) / 100
+
+g10 = "RS line + dry-up (Zanger tell)"
+showRS    = input.bool(true, "RS-line tell vs SPY", group=g10)
+rsLook    = input.int(252, "RS lookback (bars)", minval=60, maxval=500, group=g10)
+rsTol     = input.float(2.0, "RS line within % of its high = at high", step=0.5, group=g10) / 100
+dryThresh = input.float(0.85, "Dry-up: 5-bar avg volume <= x 50-bar avg", step=0.05, group=g10)
+
 g6 = "Inner base"
 useInner  = input.bool(true, "Detect inner base", group=g6)
 innerLook = input.int(40, "Inner base lookback (bars)", group=g6)
@@ -102,6 +115,13 @@ avgVol  = ta.sma(volume, volLen)
 rvol    = avgVol > 0 ? volume / avgVol : na
 rsi0    = ta.rsi(close, 14)
 vol5    = ta.sma(volume, 5)
+
+// RS line vs SPY (Zanger/Jack tell): the ratio making its own highs while price is still
+// inside a base is the stock "screaming" before the breakout. Computed on the chart series;
+// the LOCK pass below re-evaluates it on the levels timeframe like everything else.
+spyC    = request.security("AMEX:SPY", timeframe.period, close)
+rsLine  = not na(spyC) and spyC > 0 ? close / spyC : na
+rsAtHigh = showRS and not na(rsLine) and rsLine >= ta.highest(rsLine, rsLook) * (1 - rsTol)
 recLow  = ta.lowest(low, 10)
 recHigh = ta.highest(high, 10)
 
@@ -229,6 +249,34 @@ hDepth    = rightRim > 0 ? (rightRim - handleLow) / rightRim : 1.0
 cupMid    = cupLow + (leftRim - cupLow) / 2
 isCup     = leftAgo - rOff >= minCup and cupDepth >= cupMinD and cupDepth <= cupMaxD and rightRim >= leftRim * (1 - rimTol) and rightRim <= leftRim * (1 + rimTol) and rOff >= handleMin and hDepth <= handleMaxD and handleLow > cupMid
 
+// Prior-high shelf (Zanger): Dan draws the TBA at the PRIOR HIGH by hand — no repeated-touch
+// requirement. The classic leader shape the base detectors above miss: a rounded recovery /
+// staircase of higher lows into a single old high, with a short tight shelf digesting directly
+// underneath it (DDOG into its 294 spike high, Oct 2026 — the flat-base engine required two
+// ceiling touches within 3% and never armed). Armed only while price STAGES below the high:
+// within shelfZone under it, above the 50 SMA, and either tight (shelfRng over shelfBars) or
+// rising pivot lows. Stop = the staging low.
+shelfLvl  = ta.highest(high[1], shelfLook)
+shelfLoW  = ta.lowest(low, shelfBars)
+// Tightness is judged on CLOSES, not the high-low range: one vertical bar's wick poisons a
+// range test, while Dan's shelf is closes pinching together under the high (DDOG's closes sat
+// inside ~2.5% for a week while its wicks ranged ~8%). Either the last 5 closes inside 4% or
+// the staging window's closes inside shelfRng counts as tight.
+shelfCW5 = ta.lowest(close, 5) > 0 ? ta.highest(close, 5) / ta.lowest(close, 5) - 1 : 1.0
+shelfCW  = ta.lowest(close, shelfBars) > 0 ? ta.highest(close, shelfBars) / ta.lowest(close, shelfBars) - 1 : 1.0
+shelfTight = shelfCW5 <= 0.04 or shelfCW <= shelfRng
+nSL2 = array.size(slP)
+shelfRising = false
+if nSL2 >= 2
+    _ll = array.get(slP, nSL2 - 1)
+    _pl = array.get(slP, nSL2 - 2)
+    _li = array.get(slI, nSL2 - 1)
+    shelfRising := _ll > _pl and bar_index - _li <= shelfBars * 3
+isShelf = useShelf and not na(shelfLvl) and close < shelfLvl and close >= shelfLvl * (1 - shelfZone) and close > sma50 and (shelfTight or shelfRising)
+shelfStp = shelfTight ? shelfLoW : (nSL2 >= 1 ? array.get(slP, nSL2 - 1) : na)
+if not na(shelfStp) and shelfStp >= close
+    shelfStp := na
+
 // Pick the pattern
 string pat = na
 float  tba = na
@@ -254,6 +302,11 @@ else if isFlat
     tba := ceilLvl
     stp := lastL
     startBar := lowsFrom
+else if isShelf
+    pat := "Prior-High Shelf"
+    tba := shelfLvl
+    stp := shelfStp
+    startBar := bar_index - shelfBars
 if reqTrend and not trendOK
     pat := na
 
@@ -476,12 +529,14 @@ rrVal   = not na(supStop) and not na(resLvl) and close > supStop ? (resLvl - clo
 // through. Everything the lines + HUD need is read here as L-prefixed values. ──
 heldN0   = na(supLvl) ? 0 : f_held(supLvl)
 riskPct0 = active and riskRef > 0 ? (riskRef - stopF) / riskRef * 100 : na
+rsTell0  = rsAtHigh and active and not na(mTba) and close < mTba
+dryUp0   = active and avgVol > 0 and vol5 <= avgVol * dryThresh
 volTxt0  = vol5 < avgVol * 0.8 ? "Drying up" : vol5 > avgVol * 1.2 ? "Heavy" : "Normal"
 brkTxt0  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tostring(inBrkRvol, "#.0") + "x (inner)" : "-"
 brkCol0  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
 patLen0  = active and not na(mStart) ? bar_index - mStart : na
 _ltf = lockLevels ? levelTf : timeframe.period
-[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0], lookahead=barmerge.lookahead_off)
+[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi, LrsT, Ldry] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0, rsTell0, dryUp0], lookahead=barmerge.lookahead_off)
 [LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
 
 // YTD % — this calendar year's return. The yearly ("12M") bar's OPEN is the first trading day of
@@ -504,6 +559,8 @@ plotshape(brk, "Breakout on volume", shape.triangleup, location.belowbar, color.
 plotshape(brkIn, "Inner breakout on volume", shape.triangleup, location.belowbar, color.yellow, size=size.tiny)
 alertcondition(brk, "Pattern breakout on volume", "{{ticker}} broke above its TBA on volume")
 alertcondition(brkIn, "Inner base breakout on volume", "{{ticker}} broke above its inner TBA on volume")
+plotshape(rsTell0 and not rsTell0[1], "RS line at high in base", shape.diamond, location.abovebar, color.new(#E040FB, 0), size=size.tiny)
+alertcondition(rsTell0 and not rsTell0[1], "RS line leading in base", "{{ticker}} RS line at its high while still under the TBA")
 
 // ── Line styles — colour · width · solid/dashed/dotted for every drawn level ──
 gLn  = "Line styles"
@@ -639,7 +696,7 @@ if barstate.islast
     xR = bar_index + lnFwd
     if La and shTba
         tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
-        tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
+        tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick) + (LrsT ? " · RS★" : "") + (Ldry ? " · DRY" : ""), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
     if La and shStp
         stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
         stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
