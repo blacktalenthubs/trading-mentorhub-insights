@@ -78,17 +78,21 @@ colE50   = input.color(color.green,  "50",  inline="ec", group=gE)
 colE100  = input.color(#F57F17,      "100", inline="ec", group=gE)
 colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
 
-gS = "SMAs (5 / 8 / 20 / 50 / 200)"
-showS5   = input.bool(false, "5 SMA",  inline="s",  group=gS)
+// Zanger stack (his AMD chart: 21 / 50 / 100 / 150 / 200) + the 8 the trader runs. SMAs — Zanger
+// uses SIMPLE MAs. All on by default; EMAs below stay off.
+gS = "SMAs (8 / 21 / 50 / 100 / 150 / 200)"
 showS8   = input.bool(true, "8 SMA",   inline="s",  group=gS)
-showS20  = input.bool(true, "20 SMA",  inline="s",  group=gS)
+showS21  = input.bool(true, "21 SMA",  inline="s",  group=gS)
 showS50  = input.bool(true, "50 SMA",  inline="s",  group=gS)
-showS200 = input.bool(true, "200 SMA", inline="s",  group=gS)
-colS5    = input.color(#EC407A, "5",   inline="sc", group=gS)
-colS8    = input.color(color.red,   "8",   inline="sc", group=gS)
-colS20   = input.color(color.green, "20",  inline="sc", group=gS)
-colS50   = input.color(color.blue,  "50",  inline="sc", group=gS)
-colS200  = input.color(color.black, "200", inline="sc", group=gS)
+showS100 = input.bool(true, "100 SMA", inline="s2", group=gS)
+showS150 = input.bool(true, "150 SMA", inline="s2", group=gS)
+showS200 = input.bool(true, "200 SMA", inline="s2", group=gS)
+colS8    = input.color(color.red,    "8",   inline="sc", group=gS)
+colS21   = input.color(color.green,  "21",  inline="sc", group=gS)
+colS50   = input.color(color.blue,   "50",  inline="sc", group=gS)
+colS100  = input.color(#FF9800,      "100", inline="sc", group=gS)
+colS150  = input.color(#9C27B0,      "150", inline="sc", group=gS)
+colS200  = input.color(color.black,  "200", inline="sc", group=gS)
 
 gLk = "Lock levels to a timeframe"
 lockLevels = input.bool(true, "Lock TBA / stop / support / resistance to a fixed timeframe", group=gLk, tooltip="ON = the pattern levels are computed on the timeframe below and stay put on any chart TF (so a 15m chart still shows the DAILY levels). The current forming HTF bar updates live.")
@@ -116,21 +120,23 @@ ema21  = f_ema(21)
 ema50  = f_ema(50)
 ema100 = f_ema(100)
 ema200 = f_ema(200)
-sma5v   = f_sma(5)
 sma8v   = f_sma(8)
-sma20v  = f_sma(20)
+sma21v  = f_sma(21)
 sma50v  = f_sma(50)
+sma100v = f_sma(100)
+sma150v = f_sma(150)
 sma200v = f_sma(200)
 plot(showE8   ? ema8   : na, "8 EMA",   color=color.new(colE8, 0),   linewidth=1)
 plot(showE21  ? ema21  : na, "21 EMA",  color=color.new(colE21, 0),  linewidth=1)
 plot(showE50  ? ema50  : na, "50 EMA",  color=color.new(colE50, 0),  linewidth=2)
 plot(showE100 ? ema100 : na, "100 EMA", color=color.new(colE100, 0), linewidth=2)
 plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2)
-// SMAs 5 / 8 / 20 / 50 / 200 — structural levels (match the scanner). Same lock as the EMAs (emaLock).
-plot(showS5   ? sma5v   : na, "5 SMA",   color=color.new(colS5, 0),   linewidth=3)
+// SMAs 8 / 21 / 50 / 100 / 150 / 200 — the Zanger stack, all thick. Same lock as the EMAs (emaLock).
 plot(showS8   ? sma8v   : na, "8 SMA",   color=color.new(colS8, 0),   linewidth=3)
-plot(showS20  ? sma20v  : na, "20 SMA",  color=color.new(colS20, 0),  linewidth=3)
+plot(showS21  ? sma21v  : na, "21 SMA",  color=color.new(colS21, 0),  linewidth=3)
 plot(showS50  ? sma50v  : na, "50 SMA",  color=color.new(colS50, 0),  linewidth=3)
+plot(showS100 ? sma100v : na, "100 SMA", color=color.new(colS100, 0), linewidth=3)
+plot(showS150 ? sma150v : na, "150 SMA", color=color.new(colS150, 0), linewidth=3)
 plot(showS200 ? sma200v : na, "200 SMA", color=color.new(colS200, 0), linewidth=3)
 
 // Confirmed swing highs / lows
@@ -510,9 +516,9 @@ gLn  = "Line styles"
 f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
 // Where did it OPEN relative to the 8/20/50/200 SMAs — "above all SMA" / "below all SMA", or the
 // nearest SMA above (overhead) + nearest below (support) when the open sits inside the stack.
-f_openLoc(float o, float s8, float s20, float s50, float s200) =>
-    _v = array.from(s8, s20, s50, s200)
-    _n = array.from("8", "20", "50", "200")
+f_openLoc(float o, float s8, float s21, float s50, float s200) =>
+    _v = array.from(s8, s21, s50, s200)
+    _n = array.from("8", "21", "50", "200")
     // The open counts as ABOVE a SMA (support) only when it CLEARS it by >0.1% — opening right AT
     // the line means the SMA is still resistance, so it counts as below/overhead.
     _buf = 0.001
@@ -661,7 +667,7 @@ if barstate.islast
         resLb := label.new(xR, LresL, "Resistance " + str.tostring(LresL, format.mintick), style=label.style_label_left, color=cRes, textcolor=color.white, size=size.small)
     if shOpn and not na(Lopen)
         opnLn := line.new(xL, Lopen, xR, Lopen, color=cOpn, width=wOpn, style=f_lstyle(yOpn))
-        _openLoc = f_openLoc(Lopen, sma8v, sma20v, sma50v, sma200v)
+        _openLoc = f_openLoc(Lopen, sma8v, sma21v, sma50v, sma200v)
         opnLb := label.new(xR, Lopen, "Open " + str.tostring(Lopen, format.mintick) + (_openLoc == "" ? "" : "  · " + _openLoc), style=label.style_label_left, color=cOpn, textcolor=color.black, size=size.small)
 
 // ── Volume ratio (Zanger-style, time-of-day projection) — DAILY CHART ONLY ──
