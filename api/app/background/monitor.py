@@ -1386,11 +1386,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # view shows suppressed_reason IS NULL — i.e. what actually
                     # delivered — and the "Show collapsed" toggle reveals the rest.
                     if not _send_notification:
-                        alert.suppressed_reason = (_suppressed or "not_delivered")[:200]
-                        logger.info(
-                            "NOT DELIVERED: user=%d %s %s — %s",
-                            user_id, signal.symbol, _at_val, alert.suppressed_reason,
-                        )
+                        if _suppressed == "rule_not_enabled":
+                            # Don't persist rule_not_enabled rows at all (trader's
+                            # standing rule: they're ignored everywhere). They were
+                            # ~99% of alert writes in Jul-Aug 2026 — pure storage/CPU
+                            # noise. Expunge just this row; the commit below still
+                            # persists everything else (entries, cooldowns) as today.
+                            if alert in db:
+                                db.expunge(alert)
+                            logger.info(
+                                "NOT RECORDED: user=%d %s %s — rule_not_enabled (not persisted)",
+                                user_id, signal.symbol, _at_val,
+                            )
+                        else:
+                            alert.suppressed_reason = (_suppressed or "not_delivered")[:200]
+                            logger.info(
+                                "NOT DELIVERED: user=%d %s %s — %s",
+                                user_id, signal.symbol, _at_val, alert.suppressed_reason,
+                            )
 
                     # Commit immediately so alert is persisted + has ID for Telegram buttons
                     db.commit()
