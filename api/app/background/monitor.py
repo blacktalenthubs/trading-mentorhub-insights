@@ -253,7 +253,8 @@ _swing_2h_bucket: str = ""
 # Confluence merge — same-level entries collapse into one alert.
 _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 
-# SMA HTF family (1h/4h 20/50/200 support + reject) — HIGH PRIORITY, dedup-exempt
+# SMA HTF family (1h/4h 20 + 200 support + reject — the day-trade SMAs) —
+# HIGH PRIORITY, dedup-exempt
 # (trader, 2026-10-10). These are near self-sufficient entry signals, so every
 # firing must be delivered and recorded: signals of these types skip the
 # fired-today skip, the 10-min direction lock, level dedup, the confluence
@@ -261,10 +262,10 @@ _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 # enablement (ENABLED_RULES / per-user toggles) still applies — a type that is
 # off simply never generates.
 SMA_HTF_TYPES = frozenset({
-    "ma20_support_1h", "ma50_support_1h", "ma200_support_1h",
-    "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
-    "ma20_support_4h", "ma50_support_4h", "ma200_support_4h",
-    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
+    "ma20_support_1h", "ma200_support_1h",
+    "ma20_reject_1h", "ma200_reject_1h",
+    "ma20_support_4h", "ma200_support_4h",
+    "ma20_reject_4h", "ma200_reject_4h",
 })
 
 
