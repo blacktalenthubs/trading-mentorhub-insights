@@ -35,6 +35,10 @@ shelfZone = input.float(8.0, "Arm when close is within % below the prior high", 
 shelfBars = input.int(8, "Staging window (bars)", minval=5, maxval=30, group=g9)
 shelfRng  = input.float(5.0, "Staging max CLOSE range % (tight shelf)", step=0.5, group=g9) / 100
 
+g11 = "Market regime tag (QQQ)"
+showMkt = input.bool(true, "Show market regime row in HUD", group=g11)
+mktSym  = input.symbol("NASDAQ:QQQ", "Regime index", group=g11)
+
 g10 = "RS line + dry-up (Zanger tell)"
 showRS    = input.bool(true, "RS-line tell vs SPY", group=g10)
 rsLook    = input.int(252, "RS lookback (bars)", minval=60, maxval=500, group=g10)
@@ -769,9 +773,18 @@ f_vrCol(r) => na(r) ? color.gray : r >= 250 ? color.fuchsia : r >= 150 ? color.l
 vrPaceTxt = not vrIsD ? "-" : vrDayDone ? "closed" : na(vrRatPrev) or na(vrLive) ? "-" : vrLive > vrRatPrev ? "▲ rising" : vrLive < vrRatPrev ? "▼ fading" : "flat"
 vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ? color.red : color.gray
 
+// ── Market regime tag (Zanger gate, display only — never blocks a pattern) ──
+// Dan's sequence is market first, stocks second: cash is his #1 position in chop and he only
+// presses when the NASDAQ is good. This row puts that context on every chart: the index's
+// close vs its rising/falling 50 SMA and its distance from the 52-week high, computed on the
+// DAILY series of the regime symbol so it reads the same on any chart timeframe.
+[qC, q50, q50up, q200, qOffHi] = request.security(mktSym, "D", [close, ta.sma(close, 50), ta.sma(close, 50) > ta.sma(close, 50)[5], ta.sma(close, 200), (close / ta.highest(high, 252) - 1) * 100], lookahead=barmerge.lookahead_off)
+mktTxt = na(qC) ? "-" : str.tostring(qC, "#.##") + " · " + (qOffHi >= -0.05 ? "at 52w high" : str.tostring(qOffHi, "#.0") + "% vs high") + " · " + (qC > q50 ? "abv " : "bel ") + "50" + (q50up ? "▲" : "▼") + (qC < q200 ? " · bel 200" : "")
+mktCol = na(qC) ? color.gray : qC > q50 and q50up and qC > q200 ? color.lime : qC > q50 ? color.yellow : color.red
+
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 5, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 6, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -791,6 +804,9 @@ if showHUD and barstate.islast
     f_row(hud, 2, "Status", La ? Lstat : "-", La ? LstC : color.gray)
     f_row(hud, 3, "RSI 14", rsiTxt, rsiCol)
     f_row(hud, 4, "YTD", na(_ytdPct) ? "-" : (_ytdPct >= 0 ? "+" : "") + str.tostring(_ytdPct, "#.#") + "%", na(_ytdPct) ? color.gray : _ytdPct >= 0 ? color.lime : color.red)
+    // Market row added at Victor's direction 2026-10-11 (supersedes the lean-HUD cut for this row).
+    if showMkt
+        f_row(hud, 5, "Market", mktTxt, mktCol)
     // © bolofbaba
 // merged section: Anchored VWAP (from standalone script)
 // merged section: inputs, calculations, plots and labels follow
