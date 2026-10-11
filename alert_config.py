@@ -752,6 +752,7 @@ ENABLED_RULES: set[str] = {
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
     # frequency without edge on lower TFs. The 50 stays on the DAILY chart only) ────────
     "ma20_support_1h",
+    "ma50_support_1h",   # re-enabled 2026-10-10 (trader) — was dropped 2026-09-28
     "ma200_support_1h",
     # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
     # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
@@ -766,11 +767,12 @@ ENABLED_RULES: set[str] = {
     # dropped intraday, kept on daily). Deep fetch (180d) makes the 200-4h computable.
     # NOTE: 4h is UNGATED by symbol (fires on every polled name).
     "ma20_support_4h",
+    "ma50_support_4h",   # re-enabled 2026-10-10 (trader)
     "ma200_support_4h",
     # ── 1H / 4H SMA rejection SHORTS: 20 + 200 (index set only — SHORT_UNIVERSE;
     # 50 dropped intraday to mirror the support side) ────────────────────────────
-    "ma20_reject_1h", "ma200_reject_1h",
-    "ma20_reject_4h", "ma200_reject_4h",
+    "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
+    "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
