@@ -35,6 +35,9 @@ shelfZone = input.float(8.0, "Arm when close is within % below the prior high", 
 shelfBars = input.int(8, "Staging window (bars)", minval=5, maxval=30, group=g9)
 shelfRng  = input.float(5.0, "Staging max CLOSE range % (tight shelf)", step=0.5, group=g9) / 100
 
+g12 = "TBA breakout webhook (swing feed)"
+showHook = input.bool(true, "Send TBA breakout to the swing webhook", group=g12)
+
 g11 = "Market regime tag (QQQ)"
 showMkt = input.bool(true, "Show market regime row in HUD", group=g11)
 mktSym  = input.symbol("NASDAQ:QQQ", "Regime index", group=g11)
@@ -781,6 +784,22 @@ vrPaceCol = vrPaceTxt == "▲ rising" ? color.lime : vrPaceTxt == "▼ fading" ?
 [qC, q50, q50up, q200, qOffHi] = request.security(mktSym, "D", [close, ta.sma(close, 50), ta.sma(close, 50) > ta.sma(close, 50)[5], ta.sma(close, 200), (close / ta.highest(high, 252) - 1) * 100], lookahead=barmerge.lookahead_off)
 mktTxt = na(qC) ? "-" : str.tostring(qC, "#.##") + " · " + (qOffHi >= -0.05 ? "at 52w high" : str.tostring(qOffHi, "#.0") + "% vs high") + " · " + (qC > q50 ? "abv " : "bel ") + "50" + (q50up ? "▲" : "▼") + (qC < q200 ? " · bel 200" : "")
 mktCol = na(qC) ? color.gray : qC > q50 and q50up and qC > q200 ? color.lime : qC > q50 ? color.yellow : color.red
+
+// ── TBA breakout webhook → swing feed + Telegram (Victor, 2026-10-11) ──
+// Bind ONE TradingView alert per symbol on a 30m chart (condition: this script,
+// "alert() function calls only", webhook URL = the desk's /tv/webhook). The trigger is a
+// 30m CLOSE crossing the LOCKED DAILY TBA while the daily pattern is active — the daily
+// shelf/base top is the line that fires, never a 30m pattern. Payload mirrors the existing
+// swing Pines' JSON (swing_trade.pine f_pqpay shape); rule "swing_tba_breakout" is what
+// routes it: the backend maps swing_* → Swing style → the app's SWING feed (not the Day
+// tab) with "Trim at daily RSI 70+" guidance. Target_1 = the locked resistance above the
+// TBA when one exists. This is the script's ONLY alert() call, so the binding is clean.
+f_hookMsg(string pat, float tba, float stp, float t1, string t1lab) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + (na(stp) ? "" : str.tostring(stp, format.mintick)) + '","target_1":"' + (na(t1) ? "" : str.tostring(t1, format.mintick)) + '","target_1_label":"' + t1lab + '","rule":"swing_tba_breakout","direction":"BUY","rsi":"' + (na(Lrsi) ? "" : str.tostring(Lrsi, "#.0")) + '","volume_ratio":"' + (na(vrRatio) ? "" : str.tostring(vrRatio, "#")) + '","note":"' + pat + ' breakout over ' + str.tostring(tba, format.mintick) + '"}'
+hookT1 = not na(LresL) and not na(Ltba) and LresL > Ltba * 1.005 ? LresL : na
+hookFire = showHook and La and not na(Ltba) and ta.crossover(close, Ltba)
+if hookFire
+    alert(f_hookMsg(Lpat, Ltba, Lstop, hookT1, na(hookT1) ? "" : LresT), alert.freq_once_per_bar_close)
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
