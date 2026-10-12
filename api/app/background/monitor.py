@@ -256,11 +256,18 @@ _CONFLUENCE_PCT = 0.002  # 0.2% — same tolerance as level-dedup
 # SMA HTF family (1h/4h 20 + 200 support + reject — the day-trade SMAs) —
 # HIGH PRIORITY, dedup-exempt
 # (trader, 2026-10-10). These are near self-sufficient entry signals, so every
-# firing must be delivered and recorded: signals of these types skip the
+# firing is recorded: signals of these types skip the
 # fired-today skip, the 10-min direction lock, level dedup, the confluence
 # merge, entry-type-day, zone-cluster and price-area dedup below. Rule
 # enablement (ENABLED_RULES / per-user toggles) still applies — a type that is
 # off simply never generates.
+# AMENDED (trader, 2026-10-12): ONE delivery limit applies — a 60-min
+# per-(symbol, alert_type) cooldown. QQQ ma20_reject_1h printed 33x in a single
+# session while pinned at its hourly 20 (every 5-min bar re-fired); repeats of
+# the same (symbol, type) within 60 min of the last recorded firing are now
+# recorded with suppressed_reason="dedup_cooldown" but not re-delivered. The
+# window rolls from the last firing, so a level pinned all day prints once,
+# and a re-test after >60 min of silence prints again.
 SMA_HTF_TYPES = frozenset({
     "ma20_support_1h", "ma200_support_1h",
     "ma20_reject_1h", "ma200_reject_1h",
@@ -1047,6 +1054,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                 for signal in signals:
                   try:
+                    _sma_cooldown = False
                     # --- Dedup: same alert type at same price level = skip ---
                     # Different price levels are allowed (e.g. double top at $2148 vs $2193)
                     key = _dedup_key(symbol, signal.alert_type.value, signal.price or 0)
@@ -1055,12 +1063,18 @@ def _poll_all_users_inner(sync_session_factory) -> int:
 
                     # Direction lock: only suppress exact same alert type within 10 min
                     # (prevents rapid-fire spam of the same signal, but allows different setups)
-                    if signal.direction in ("BUY", "SHORT") and signal.alert_type.value not in SMA_HTF_TYPES:
+                    # SMA HTF types skip the 10-min lock but carry their own 60-min
+                    # per-(symbol, type) delivery cooldown (trader, 2026-10-12):
+                    # _sma_cooldown is read by the delivery gates below, which record
+                    # the repeat as dedup_cooldown instead of delivering it.
+                    if signal.direction in ("BUY", "SHORT"):
                         _lock = _direction_lock.get((symbol, signal.alert_type.value))
                         if _lock:
-                            _locked_time = _lock
-                            _elapsed = (datetime.utcnow() - _locked_time).total_seconds()
-                            if _elapsed < 600:  # 10 min cooldown per alert type
+                            _elapsed = (datetime.utcnow() - _lock).total_seconds()
+                            if signal.alert_type.value in SMA_HTF_TYPES:
+                                if _elapsed < 3600:  # 60 min cooldown per (symbol, type)
+                                    _sma_cooldown = True
+                            elif _elapsed < 600:  # 10 min cooldown per alert type
                                 continue
 
                     # Phase 1 (2026-04-22) — Level-based dedup.
@@ -1307,6 +1321,17 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         _send_notification = False
                         _suppressed = "dedup_type_day"
                         logger.info("DAY DEDUP: user=%d %s %s — already fired this type today",
+                                    user_id, symbol, _at_val)
+
+                    # SMA HTF 60-min cooldown (trader, 2026-10-12): a repeat of the
+                    # same (symbol, SMA type) within 60 min of the last recorded
+                    # firing is recorded but not re-delivered — the first card
+                    # stands. Repeats still land in the DB as dedup_cooldown rows,
+                    # so level-test counts survive for backtesting.
+                    if _send_notification and _is_entry and _at_val in SMA_HTF_TYPES and _sma_cooldown:
+                        _send_notification = False
+                        _suppressed = "dedup_cooldown"
+                        logger.info("SMA COOLDOWN: user=%d %s %s — same SMA type fired <60 min ago, recorded not delivered",
                                     user_id, symbol, _at_val)
 
                     # Burst cooldown REMOVED 2026-10-05 (trader). It suppressed any 2nd entry on a
