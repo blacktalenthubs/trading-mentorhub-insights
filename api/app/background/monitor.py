@@ -29,7 +29,8 @@ from analytics.htf_bias import (  # noqa: E402
     confluence_score,
 )
 from analytics.intraday_data import compute_daily_avwaps, fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
-from analytics.intraday_rules import AlertSignal, AlertType, check_avwap_reject, check_avwap_support, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, check_hourly_vp_breakout, check_hourly_vp_reject, evaluate_rules  # noqa: E402
+from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, check_hourly_vp_breakout, check_hourly_vp_reject, evaluate_rules  # noqa: E402
+from analytics.avwap_signals import AVWAPAlertType, check_avwap_reject, check_avwap_support  # noqa: E402
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
@@ -858,9 +859,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 _avw = compute_daily_avwaps(symbol, is_crypto=_is_crypto)
                                 if _avw:
                                     for _av_key, _av_lbl, _av_st, _av_rt in (
-                                        ("avwap", "AVWAP (daily)", AlertType.AVWAP_SUPPORT, AlertType.AVWAP_REJECT),
-                                        ("avwap_h", "AVWAP-H (daily)", AlertType.AVWAP_H_SUPPORT, AlertType.AVWAP_H_REJECT),
-                                        ("avwap_r", "AVWAP-R (daily)", AlertType.AVWAP_R_SUPPORT, AlertType.AVWAP_R_REJECT),
+                                        ("avwap", "AVWAP (daily)", AVWAPAlertType.AVWAP_SUPPORT, AVWAPAlertType.AVWAP_REJECT),
+                                        ("avwap_h", "AVWAP-H (daily)", AVWAPAlertType.AVWAP_H_SUPPORT, AVWAPAlertType.AVWAP_H_REJECT),
+                                        ("avwap_r", "AVWAP-R (daily)", AVWAPAlertType.AVWAP_R_SUPPORT, AVWAPAlertType.AVWAP_R_REJECT),
                                     ):
                                         _av_lvl = _avw.get(_av_key)
                                         if _av_lvl is None:
