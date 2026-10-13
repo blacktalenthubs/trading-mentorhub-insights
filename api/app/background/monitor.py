@@ -28,8 +28,9 @@ from analytics.htf_bias import (  # noqa: E402
     compute_htf_bias,
     confluence_score,
 )
-from analytics.intraday_data import fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
+from analytics.intraday_data import compute_daily_avwaps, fetch_intraday, fetch_intraday_crypto, fetch_hourly_bars, fetch_prior_day, get_spy_context  # noqa: E402
 from analytics.intraday_rules import AlertSignal, AlertType, check_ma_support_1h, check_ma_reject_htf, check_hourly_vp_level, check_hourly_vp_breakout, check_hourly_vp_reject, evaluate_rules  # noqa: E402
+from analytics.avwap_signals import AVWAPAlertType, check_avwap_reject, check_avwap_support  # noqa: E402
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
@@ -820,7 +821,9 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # Fetched separately (needs ~200 hourly bars; cached ~15m) and fully
                     # defensive — a fetch miss or error just skips, never breaks the poll.
                     _1h_rules = ("ma20_support_1h", "ma50_support_1h", "ma200_support_1h",
-                                 "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h")
+                                 "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
+                                 "avwap_support", "avwap_h_support", "avwap_r_support",
+                                 "avwap_reject", "avwap_h_reject", "avwap_r_reject")
                     _4h_rules = ("ma20_support_4h", "ma50_support_4h", "ma200_support_4h",
                                  "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h")
                     _need_4h = any(r in _ENABLED_RULES for r in _4h_rules)
@@ -845,6 +848,30 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                                 if _sma1h_ok and "ma200_support_1h" in _ENABLED_RULES:
                                     _x = check_ma_support_1h(symbol, _h1, 200, AlertType.MA200_SUPPORT_1H, "200 SMA (1h)", require_rising=False)
                                     if _x: signals.append(_x)
+                                # ── Daily anchored-VWAP defense / rejection (2026-10-12, trader) ──
+                                # The three AVWAP lines are DAILY-locked — computed once per
+                                # symbol per session from completed daily bars (cached inside
+                                # compute_daily_avwaps) — then tested against the last completed
+                                # 1h bar exactly like the levels above. Supports are BUY entries;
+                                # rejects are SHORTs and generate for every name (delivery stays
+                                # index-gated downstream: short_not_index), unlike the 1H MA
+                                # rejects which only generate on the index set.
+                                _avw = compute_daily_avwaps(symbol, is_crypto=_is_crypto)
+                                if _avw:
+                                    for _av_key, _av_lbl, _av_st, _av_rt in (
+                                        ("avwap", "AVWAP (daily)", AVWAPAlertType.AVWAP_SUPPORT, AVWAPAlertType.AVWAP_REJECT),
+                                        ("avwap_h", "AVWAP-H (daily)", AVWAPAlertType.AVWAP_H_SUPPORT, AVWAPAlertType.AVWAP_H_REJECT),
+                                        ("avwap_r", "AVWAP-R (daily)", AVWAPAlertType.AVWAP_R_SUPPORT, AVWAPAlertType.AVWAP_R_REJECT),
+                                    ):
+                                        _av_lvl = _avw.get(_av_key)
+                                        if _av_lvl is None:
+                                            continue
+                                        if _av_st.value in _ENABLED_RULES:
+                                            _x = check_avwap_support(symbol, _h1, _av_lvl, _av_lbl, _av_st)
+                                            if _x: signals.append(_x)
+                                        if _av_rt.value in _ENABLED_RULES:
+                                            _x = check_avwap_reject(symbol, _h1, _av_lvl, _av_lbl, _av_rt)
+                                            if _x: signals.append(_x)
                                 # ── 1H volume-profile (POC / VAL / VWAP / VAH) — on TRIAL over a wider
                                 # 50-name mega/AI universe (_HOURLY_VP_SYMBOLS), decoupled from the focus
                                 # gate so the "Volume" feed builds days of data without flooding the

@@ -774,6 +774,15 @@ ENABLED_RULES: set[str] = {
     "ma20_reject_1h", "ma50_reject_1h", "ma200_reject_1h",
     "ma20_reject_4h", "ma50_reject_4h", "ma200_reject_4h",
 
+    # ── Daily anchored-VWAP defense + rejection (2026-10-12, trader) ────────
+    # The three daily AVWAP lines from the chart: swing-low AVWAP, pivot-high
+    # AVWAP-H (len 25), rolling-150 AVWAP-R. Support holds are BUY entries;
+    # rejections are SHORTs (delivery index-gated like every short). Listed
+    # here = ENABLED BY DEFAULT — no settings toggle needed (per-user toggles
+    # are opt-out only). Standard dedup stack; NOT dedup-exempt.
+    "avwap_support", "avwap_h_support", "avwap_r_support",
+    "avwap_reject", "avwap_h_reject", "avwap_r_reject",
+
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
     "pdh_retest_hold",           # PDH breakout → pullback → retest/hold (2026-10-05). The breakout
