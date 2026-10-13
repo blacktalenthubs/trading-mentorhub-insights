@@ -2425,3 +2425,134 @@ def fetch_historical_intraday(
         return hist[["Open", "High", "Low", "Close", "Volume"]].copy()
     except Exception:
         return pd.DataFrame()
+
+
+# ===========================================================================
+# Daily anchored VWAPs (2026-10-12, trader) — the three lines from the
+# "Anchored VWAPs" Pine on his daily chart:
+#   AVWAP   — VWAP anchored at the most recent CONFIRMED swing-low bar
+#             (ta.pivotlow(low, 10, 10); the anchor bar is the pivot bar)
+#   AVWAP-H — VWAP anchored at the most recent CONFIRMED pivot-high bar
+#             (ta.pivothigh(high, 25, 25))
+#   AVWAP-R — rolling 150-bar VWAP (not an anchor)
+# All three are cumulative sum(hlc3 * V) / sum(V), hlc3 = (H + L + C) / 3.
+# Computed from COMPLETED daily bars only (today's partial bar dropped — the
+# fetch_prior_day convention) and LOCKED for the session: cached per
+# (symbol, ET session date), because a daily-locked level cannot change
+# until the next daily bar completes.
+# ===========================================================================
+_AVWAP_PIVOT_LOW_LEN = 10    # Pine _pivLen for the swing-low anchor
+_AVWAP_PIVOT_HIGH_LEN = 25   # Pine anchHiPivLen (AVWAP-H)
+_AVWAP_ROLLING_BARS = 150    # Pine barsBack (AVWAP-R)
+_AVWAP_NEGATIVE_TTL_SEC = 900  # a failed fetch is retried after 15 min, not cached all day
+
+# (symbol, ET session date) -> (monotonic ts, result dict | None)
+_daily_avwap_cache: dict = {}
+
+
+def _last_confirmed_pivot(values, length: int, want_low: bool):
+    """Index of the most recent CONFIRMED Pine-style pivot in `values`, or None.
+
+    Bar i is a pivot low when its value is lower than the `length` bars on
+    either side of it (mirror for a pivot high). Pine only confirms a pivot
+    `length` bars after the pivot bar, so bar i is usable only when
+    i + length <= the last bar index — this returns exactly the anchor the
+    chart is using on its last completed bar.
+    """
+    n = len(values)
+    for i in range(n - 1 - length, length - 1, -1):
+        v = values[i]
+        is_pivot = True
+        for j in range(i - length, i + length + 1):
+            if j == i:
+                continue
+            if want_low:
+                if values[j] <= v:
+                    is_pivot = False
+                    break
+            elif values[j] >= v:
+                is_pivot = False
+                break
+        if is_pivot:
+            return i
+    return None
+
+
+def _avwaps_from_daily_frame(hist: pd.DataFrame) -> dict | None:
+    """Pure anchored-VWAP math over a completed-daily-bars frame (OHLCV)."""
+    try:
+        if hist is None or len(hist) < _AVWAP_PIVOT_HIGH_LEN * 2 + 2:
+            return None
+        hist = hist[["Open", "High", "Low", "Close", "Volume"]].dropna(
+            subset=["High", "Low", "Close", "Volume"])
+        if len(hist) < _AVWAP_PIVOT_HIGH_LEN * 2 + 2:
+            return None
+        hlc3 = (hist["High"] + hist["Low"] + hist["Close"]) / 3.0
+        pv = hlc3 * hist["Volume"]
+        result = {
+            "avwap": None, "avwap_h": None, "avwap_r": None,
+            "avwap_anchor": None, "avwap_h_anchor": None,
+        }
+        i_low = _last_confirmed_pivot(
+            hist["Low"].to_numpy(dtype=float), _AVWAP_PIVOT_LOW_LEN, True)
+        if i_low is not None:
+            vol = float(hist["Volume"].iloc[i_low:].sum())
+            if vol > 0:
+                result["avwap"] = float(pv.iloc[i_low:].sum() / vol)
+                result["avwap_anchor"] = hist.index[i_low].date()
+        i_high = _last_confirmed_pivot(
+            hist["High"].to_numpy(dtype=float), _AVWAP_PIVOT_HIGH_LEN, False)
+        if i_high is not None:
+            vol = float(hist["Volume"].iloc[i_high:].sum())
+            if vol > 0:
+                result["avwap_h"] = float(pv.iloc[i_high:].sum() / vol)
+                result["avwap_h_anchor"] = hist.index[i_high].date()
+        if len(hist) >= _AVWAP_ROLLING_BARS:
+            vol = float(hist["Volume"].iloc[-_AVWAP_ROLLING_BARS:].sum())
+            if vol > 0:
+                result["avwap_r"] = float(
+                    pv.iloc[-_AVWAP_ROLLING_BARS:].sum() / vol)
+        if (result["avwap"] is None and result["avwap_h"] is None
+                and result["avwap_r"] is None):
+            return None
+        return result
+    except Exception:
+        return None
+
+
+def compute_daily_avwaps(symbol: str, is_crypto: bool = False) -> dict | None:
+    """The three daily anchored-VWAP levels for `symbol`, locked for the session.
+
+    Returns {"avwap", "avwap_h", "avwap_r"} (floats; a line is None when its
+    anchor/window is unavailable) plus {"avwap_anchor", "avwap_h_anchor"}
+    (datetime.date of the anchor bar, or None). Returns None on any failure —
+    never raises.
+
+    Crypto returns None: the Coinbase daily candles are UTC-bucketed (see the
+    fetch_prior_day notes), which makes the completed-bar cutoff unreliable
+    for a session-locked level, and the anchored-VWAP read is an equity/index
+    tool. Crypto symbols simply never fire the AVWAP checks.
+    """
+    import time as _time
+
+    try:
+        today_et = pd.Timestamp.now(tz=ET).normalize().tz_localize(None)
+        key = (symbol.upper(), today_et.date())
+        cached = _daily_avwap_cache.get(key)
+        if cached is not None:
+            _ts, _result = cached
+            if _result is not None or (_time.monotonic() - _ts) < _AVWAP_NEGATIVE_TTL_SEC:
+                return _result
+        result = None
+        if not is_crypto:
+            hist = yf.Ticker(symbol).history(period="2y", auto_adjust=False)
+            if hist is not None and not hist.empty:
+                hist = _normalize_index_to_et(hist)
+                # Completed bars only — drop today's partial bar.
+                hist = hist[hist.index.normalize() < today_et]
+                result = _avwaps_from_daily_frame(hist)
+        _daily_avwap_cache[key] = (_time.monotonic(), result)
+        return result
+    except Exception:
+        logger.debug("compute_daily_avwaps failed for %s", symbol, exc_info=True)
+        return None
