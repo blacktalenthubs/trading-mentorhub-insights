@@ -33,6 +33,7 @@ import PublicEODReportPage from "./pages/PublicEODReportPage";
 import TrackRecordPage from "./pages/TrackRecordPage";
 import PublicPerformancePage from "./pages/PublicPerformancePage";
 import WatchlistPage from "./pages/WatchlistPage";
+import MasterRsiPage from "./pages/MasterRsiPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
@@ -145,6 +146,7 @@ export default function App() {
                 <Route path="premium-desk/:sym" element={<ErrorBoundary><PremiumDeskDetailPage /></ErrorBoundary>} />
                 <Route path="conviction"  element={<Navigate to="/trade-ideas" replace />} />
                 <Route path="watchlist"   element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
+                <Route path="master-rsi"  element={<ErrorBoundary><MasterRsiPage /></ErrorBoundary>} />
                 <Route path="research"    element={<ErrorBoundary><UniverseResearchPage /></ErrorBoundary>} />
                 <Route path="premarket"   element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
                 <Route path="performance" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
