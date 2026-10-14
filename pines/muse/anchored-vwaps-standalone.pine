@@ -328,28 +328,37 @@ if patFresh
 active = not na(mBar) and bar_index - mBar <= holdBars and (na(mStp) or close > mStp)
 
 // ── Daily lock + TBA lines ──────────────────────────────────────────────────
-// Locked to the DAILY timeframe (the main script's default lock), so the lines
-// show the daily TBA stack on any chart timeframe. Values are the engine's
-// state as of each bar, so the plots step through history the way the levels
-// actually evolved; the right-edge labels show the current values.
+// Locked to the DAILY timeframe (the main script's default lock). The three
+// levels draw as FLAT horizontal lines at their CURRENT locked values —
+// exactly how the main script draws them (an extent line on the last bar) —
+// never as curves wandering through history.
 [tbaOn, tbaLvl, fmrLvl, pstLvl] = request.security(syminfo.tickerid, "D", [active, mTba, fTba, pTba], lookahead = barmerge.lookahead_off)
 // Same duplicate suppression as the main script: a retiree sitting within
 // 0.5% of the current TBA (or of a drawn Former) is not drawn twice.
 _fmrDup  = tbaOn and showTba and not na(tbaLvl) and not na(fmrLvl) and math.abs(fmrLvl / tbaLvl - 1) <= 0.005
 _pstDupT = tbaOn and showTba and not na(tbaLvl) and not na(pstLvl) and math.abs(pstLvl / tbaLvl - 1) <= 0.005
 _pstDupF = showFmrT and not na(fmrLvl) and not na(pstLvl) and math.abs(pstLvl / fmrLvl - 1) <= 0.005
-plot(showTba and tbaOn ? tbaLvl : na, "TBA", color = tbaCol, linewidth = 2, style = plot.style_linebr)
-plot(showFmrT and not na(fmrLvl) and not _fmrDup ? fmrLvl : na, "Former TBA", color = fmrTbaCol, linewidth = 2, style = plot.style_linebr)
-plot(showPstT and not na(pstLvl) and not _pstDupT and not _pstDupF ? pstLvl : na, "Past TBA", color = pstTbaCol, linewidth = 2, style = plot.style_linebr)
+var line  _tbaLn = na
+var line  _fmrLn = na
+var line  _pstLn = na
 var label _tbaLbl = na
-if barstate.islast and showTba and tbaOn and not na(tbaLvl)
-    _tbaLbl := label.new(bar_index, tbaLvl, "TBA " + str.tostring(tbaLvl, format.mintick), style = label.style_label_left, color = tbaCol, textcolor = color.black, size = size.small)
-    label.delete(_tbaLbl[1])
 var label _fmrLbl = na
-if barstate.islast and showFmrT and not na(fmrLvl) and not _fmrDup
-    _fmrLbl := label.new(bar_index, fmrLvl, "Former TBA " + str.tostring(fmrLvl, format.mintick), style = label.style_label_left, color = fmrTbaCol, textcolor = color.white, size = size.small)
-    label.delete(_fmrLbl[1])
 var label _pstLbl = na
-if barstate.islast and showPstT and not na(pstLvl) and not _pstDupT and not _pstDupF
-    _pstLbl := label.new(bar_index, pstLvl, "Past TBA " + str.tostring(pstLvl, format.mintick), style = label.style_label_left, color = pstTbaCol, textcolor = color.white, size = size.small)
-    label.delete(_pstLbl[1])
+if barstate.islast
+    line.delete(_tbaLn)
+    line.delete(_fmrLn)
+    line.delete(_pstLn)
+    label.delete(_tbaLbl)
+    label.delete(_fmrLbl)
+    label.delete(_pstLbl)
+    _xL = bar_index - 60
+    _xR = bar_index + 3
+    if showTba and tbaOn and not na(tbaLvl)
+        _tbaLn := line.new(_xL, tbaLvl, _xR, tbaLvl, color = tbaCol, width = 2)
+        _tbaLbl := label.new(bar_index, tbaLvl, "TBA " + str.tostring(tbaLvl, format.mintick), style = label.style_label_left, color = tbaCol, textcolor = color.black, size = size.small)
+    if showFmrT and not na(fmrLvl) and not _fmrDup
+        _fmrLn := line.new(_xL, fmrLvl, _xR, fmrLvl, color = fmrTbaCol, width = 2)
+        _fmrLbl := label.new(bar_index, fmrLvl, "Former TBA " + str.tostring(fmrLvl, format.mintick), style = label.style_label_left, color = fmrTbaCol, textcolor = color.white, size = size.small)
+    if showPstT and not na(pstLvl) and not _pstDupT and not _pstDupF
+        _pstLn := line.new(_xL, pstLvl, _xR, pstLvl, color = pstTbaCol, width = 2, style = line.style_dashed)
+        _pstLbl := label.new(bar_index, pstLvl, "Past TBA " + str.tostring(pstLvl, format.mintick), style = label.style_label_left, color = pstTbaCol, textcolor = color.white, size = size.small)
