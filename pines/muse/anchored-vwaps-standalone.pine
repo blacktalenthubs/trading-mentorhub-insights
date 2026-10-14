@@ -125,6 +125,7 @@ shelfBars  = 8
 shelfRng   = 5.0 / 100
 extPct     = 5.0 / 100
 holdBars   = 5
+stackSep   = 3.0 / 100
 reqTrend   = false
 
 // Trend gate input to the engine (from the main script's "Trend and volume")
@@ -298,9 +299,9 @@ var int    mBar   = na
 // former TBA that price broke out through flips to support (the retest line), e.g. AMD's 583.75
 // shelf after the TBA moved up to 648.48. Line only — no alert reads this value.
 var float  fTba   = na
-// PAST TBA (Victor, 2026-10-14): the SECOND most recent retiree. On rotation the outgoing
-// Former shifts here before the new Former is captured, so the chart keeps the last TWO
-// rotated-away ceilings. AMD is why: the Oct-2026 pullback cut straight through the freshest
+// PAST TBA (Victor, 2026-10-14): the SECOND most recent retiree that cleared the
+// separation gate below. On a qualifying rotation the outgoing Former shifts here before
+// the new Former is captured, so the chart keeps the last two DISTINCT rotated-away ceilings. AMD is why: the Oct-2026 pullback cut straight through the freshest
 // former (639.00) and stopped at the OLDER shelf (583.75) — the floor under the base price
 // originally launched from. Line only — no alert reads this value either.
 var float  pTba   = na
@@ -315,8 +316,16 @@ if patFresh
     // one to FORMER before it is overwritten. Same-base ceiling revisions (<=1%) do NOT count,
     // so the former stays the last REAL prior TBA instead of churning on every wiggle.
     if not na(mTba) and math.abs(tba / mTba - 1) > 0.01
-        pTba := fTba
-        fTba := mTba
+        // SEPARATION GATE (Victor, 2026-10-14): the outgoing TBA earns a stack slot only
+        // if it sits at least `stackSep` away from the INCOMING shelf. AMD's climb rotated
+        // 629.75 -> 639 -> 648.48 in ~1.4% steps — one markup cluster, not distinct
+        // shelves — and those micro-rotations pushed the governing ~583.75 launch shelf
+        // out of the stack entirely ("picking too many close ones"). Near-duplicate
+        // retirees are simply forgotten; the current TBA still rotates on the >1% rule
+        // above regardless of the gate.
+        if math.abs(mTba / tba - 1) >= stackSep
+            pTba := fTba
+            fTba := mTba
     mPat   := pat
     mTba   := tba
     mStp   := stp
