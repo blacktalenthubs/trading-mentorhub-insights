@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import cache_get, cache_set
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import ADMIN_EMAILS, MASTER_WATCHLIST_EMAIL, get_current_user
 from app.models.user import User
 from app.models.watchlist import WatchlistItem
 from app.rate_limit import limiter
@@ -1514,3 +1514,84 @@ def _attach_fundamentals(base: list) -> list:
                 _fund_inflight.discard(sym)
         out.append({**row, "fund": (f or None)})
     return out
+
+
+# ── Master RSI — the FULL master watchlist with daily RSI ─────────────────────
+_MASTER_RSI_TTL = 300  # 5 min — daily RSI barely moves intraday (Bottom Watch cadence)
+
+
+@router.get("/master-rsi")
+async def master_rsi(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """EVERY symbol on the MASTER watchlist (the master@busytradersdesk account)
+    with its daily RSI(14) — the unfiltered companion to Bottom Watch, which
+    only surfaces actionable oversold rows. Default order is RSI ascending
+    (most oversold first); the UI re-sorts client-side. A symbol whose RSI
+    can't be computed (thin history / fetch failure) stays on the list with
+    rsi=null, sorted last, so the board always shows the complete master list.
+    Same Wilder math as Bottom Watch, so the two boards agree on every symbol.
+    Cached 5 min (global — the master list is the same for every user)."""
+    key = "master_rsi:global"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
+    # Resolve the master account — same rule as watchlist._resolve_admin_id:
+    # MASTER_WATCHLIST_EMAIL, falling back to the first admin by id.
+    master_id = (await db.execute(
+        select(User.id).where(User.email == MASTER_WATCHLIST_EMAIL).limit(1)
+    )).scalar_one_or_none()
+    if master_id is None:
+        master_id = (await db.execute(
+            select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+        )).scalar_one_or_none()
+    if master_id is None:
+        return []
+    rows = (await db.execute(
+        select(WatchlistItem.symbol).where(WatchlistItem.user_id == master_id)
+    )).scalars().all()
+    symbols = sorted({s.strip().upper() for s in rows if s and s.strip()})
+    loop = asyncio.get_running_loop()
+
+    async def _one(sym: str):
+        # Desk crypto spelling (BTCUSD) → Coinbase pair (BTC-USD); the "-USD"
+        # suffix marks crypto for _fetch_daily_closes, same as Bottom Watch.
+        product, is_crypto = sym, sym.endswith("-USD")
+        if sym in ("BTCUSD", "ETHUSD"):
+            product, is_crypto = f"{sym[:-3]}-USD", True
+        base = {"symbol": sym, "rsi": None, "rsi_prev": None, "close": None,
+                "dist_200ma_pct": None, "near_200ma": False}
+        try:
+            closes = await loop.run_in_executor(None, _fetch_daily_closes, product, is_crypto)
+        except Exception:
+            return base
+        if not closes or len(closes) < 30:
+            return base
+        import pandas as pd
+        s = pd.Series(closes, dtype="float64")
+        delta = s.diff()
+        gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+        loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
+        rsi_series = 100 - 100 / (1 + gain / loss)
+        rsi = float(rsi_series.iloc[-1])
+        if rsi != rsi:  # NaN guard
+            return base
+        rsi_prev = float(rsi_series.iloc[-2]) if len(rsi_series) >= 2 and rsi_series.iloc[-2] == rsi_series.iloc[-2] else None
+        close = float(s.iloc[-1])
+        ema200 = float(s.ewm(span=200, adjust=False).mean().iloc[-1]) if len(s) >= 200 else None
+        base.update({
+            "rsi": round(rsi, 1),
+            "rsi_prev": round(rsi_prev, 1) if rsi_prev is not None else None,
+            "close": round(close, 2),
+            "dist_200ma_pct": round((close - ema200) / ema200 * 100, 2) if ema200 else None,
+            "near_200ma": bool(ema200 and abs(close - ema200) / ema200 <= 0.02),
+        })
+        return base
+
+    results = await asyncio.gather(*[_one(s) for s in symbols])
+    # RSI ascending; names without an RSI ride at the bottom, alphabetical.
+    results.sort(key=lambda x: (x["rsi"] is None, x["rsi"] if x["rsi"] is not None else 0.0, x["symbol"]))
+    cache_set(key, results, _MASTER_RSI_TTL)
+    return results

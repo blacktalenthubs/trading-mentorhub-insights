@@ -1352,6 +1352,27 @@ export function useBottomWatch() {
   });
 }
 
+export interface MasterRsiItem {
+  symbol: string;
+  rsi: number | null;
+  rsi_prev: number | null;
+  close: number | null;
+  dist_200ma_pct: number | null;
+  near_200ma: boolean;
+}
+
+// The FULL master watchlist with daily RSI(14) — unfiltered (Bottom Watch only
+// shows actionable oversold rows). Default order: RSI ascending.
+export function useMasterRsi() {
+  return useQuery({
+    queryKey: ["master-rsi"],
+    queryFn: () => api.get<MasterRsiItem[]>("/market/master-rsi"),
+    staleTime: 5 * 60_000, // matches backend cache TTL
+    refetchInterval: 5 * 60_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useActiveEntries() {
   return useQuery({
     queryKey: ["active-entries"],
