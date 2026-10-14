@@ -322,6 +322,11 @@ var float  mTba   = na
 var float  mStp   = na
 var int    mStart = na
 var int    mBar   = na
+// FORMER TBA (Victor, 2026-10-13): the most recent TBA the engine rotated AWAY from. When a new
+// base takes over, the outgoing ceiling is retained as a level instead of being forgotten — a
+// former TBA that price broke out through flips to support (the retest line), e.g. AMD's 583.75
+// shelf after the TBA moved up to 648.48. Line only — no alert reads this value.
+var float  fTba   = na
 // Only anchor to a CURRENT base — one whose ceiling is still near price. During a fast rally the
 // detector keeps re-finding the OLD base (its pivot highs still dominate, no new pivot confirmed
 // yet), which refreshed mBar every bar and kept the stale TBA alive forever. Once price has
@@ -329,6 +334,11 @@ var int    mBar   = na
 // expires (the TBA clears), and let a NEW base take over when one forms (Zanger: new base = new TBA).
 patFresh = not na(pat) and not na(tba) and close <= tba * (1 + extPct)
 if patFresh
+    // Rotation capture: a genuinely different shelf (>1% from the outgoing TBA) retires the old
+    // one to FORMER before it is overwritten. Same-base ceiling revisions (<=1%) do NOT count,
+    // so the former stays the last REAL prior TBA instead of churning on every wiggle.
+    if not na(mTba) and math.abs(tba / mTba - 1) > 0.01
+        fTba := mTba
     mPat   := pat
     mTba   := tba
     mStp   := stp
@@ -543,7 +553,7 @@ brkTxt0  = afterBrk ? str.tostring(brkRvol, "#.0") + "x avg" : afterIn ? str.tos
 brkCol0  = (afterBrk and brkRvol >= volMult) or (afterIn and inBrkRvol >= volMult) ? color.lime : color.white
 patLen0  = active and not na(mStart) ? bar_index - mStart : na
 _ltf = lockLevels ? levelTf : timeframe.period
-[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi, LrsT, Ldry] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0, rsTell0, dryUp0], lookahead=barmerge.lookahead_off)
+[La, Lpat, Ltba, Lstop, LinOK, LinC, Lstat, LstC, Lstg, Lplay, LsgC, LrPct, LpatLen, Lrsi, LrsT, Ldry, LfTba] = request.security(syminfo.tickerid, _ltf, [active, mPat, mTba, stopF, innerOK, inCeil, status, stCol, stage, play, sgCol, riskPct0, patLen0, rsi0, rsTell0, dryUp0, fTba], lookahead=barmerge.lookahead_off)
 [LsupL, LsupT, LresL, LresT, LrecL, LheldN, Lrv, LbrkT, LbrkC, LvolT, LtrOK, LsupS, LrrV] = request.security(syminfo.tickerid, _ltf, [supLvl, supTyp, resLvl, resTyp, recLow, heldN0, rvol, brkTxt0, brkCol0, volTxt0, trendOK, supStop, rrVal], lookahead=barmerge.lookahead_off)
 
 // YTD % — this calendar year's return. The yearly ("12M") bar's OPEN is the first trading day of
@@ -652,6 +662,10 @@ shOpn = input.bool(true, "Today's open", inline = "L7", group = gLn)
 cOpn = input.color(#FFB300, "", inline = "L7", group = gLn)
 wOpn = input.int(1, "w", minval = 1, maxval = 6, inline = "L7", group = gLn)
 yOpn = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "L7", group = gLn)
+shFmr = input.bool(true, "Former TBA", inline = "L8", group = gLn)
+cFmr = input.color(color.gray, "", inline = "L8", group = gLn)
+wFmr = input.int(2, "w", minval = 1, maxval = 6, inline = "L8", group = gLn)
+yFmr = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "L8", group = gLn)
 // Shared extent so every level draws the SAME length (left lookback + right extension, in bars).
 lnBack = input.int(60, "Line length ← bars", minval = 5, maxval = 300, inline = "LX", group = gLn)
 lnFwd  = input.int(3, "→ bars", minval = 0, maxval = 100, inline = "LX", group = gLn)
@@ -670,6 +684,7 @@ plot(shW20 and not na(wSma20) ? wSma20 : na, "Weekly 20 SMA", color = cW20, line
 
 // Lines
 var line  tbaLn = na
+var line  fmrLn = na
 var line  stpLn = na
 var line  inLn  = na
 var line  supLn = na
@@ -677,6 +692,7 @@ var line  recLn = na
 var line  resLn = na
 var line  opnLn = na
 var label tbaLb = na
+var label fmrLb = na
 var label stpLb = na
 var label inLb  = na
 var label supLb = na
@@ -685,6 +701,7 @@ var label resLb = na
 var label opnLb = na
 if barstate.islast
     line.delete(tbaLn)
+    line.delete(fmrLn)
     line.delete(stpLn)
     line.delete(inLn)
     line.delete(supLn)
@@ -692,6 +709,7 @@ if barstate.islast
     line.delete(resLn)
     line.delete(opnLn)
     label.delete(tbaLb)
+    label.delete(fmrLb)
     label.delete(stpLb)
     label.delete(inLb)
     label.delete(supLb)
@@ -704,6 +722,13 @@ if barstate.islast
     if La and shTba
         tbaLn := line.new(xL, Ltba, xR, Ltba, color=cTba, width=wTba, style=f_lstyle(yTba))
         tbaLb := label.new(xR, Ltba, "TBA " + str.tostring(Ltba, format.mintick) + (LrsT ? " · RS★" : "") + (Ldry ? " · DRY" : ""), style=label.style_label_left, color=cTba, textcolor=color.black, size=size.small)
+    // Former TBA — drawn whenever the level exists, even with NO active pattern (price falling
+    // back toward it is exactly when it matters). Skipped only when it sits on top of the
+    // current TBA (within 0.5%), where the TBA's own line already says the same thing.
+    _fmrDup = La and shTba and not na(Ltba) and not na(LfTba) and math.abs(LfTba / Ltba - 1) <= 0.005
+    if shFmr and not na(LfTba) and not _fmrDup
+        fmrLn := line.new(xL, LfTba, xR, LfTba, color=cFmr, width=wFmr, style=f_lstyle(yFmr))
+        fmrLb := label.new(xR, LfTba, "Former TBA " + str.tostring(LfTba, format.mintick), style=label.style_label_left, color=cFmr, textcolor=color.white, size=size.small)
     if La and shStp
         stpLn := line.new(xL, Lstop, xR, Lstop, color=cStp, width=wStp, style=f_lstyle(yStp))
         stpLb := label.new(xR, Lstop, "Stop " + str.tostring(Lstop, format.mintick), style=label.style_label_left, color=cStp, textcolor=color.white, size=size.small)
