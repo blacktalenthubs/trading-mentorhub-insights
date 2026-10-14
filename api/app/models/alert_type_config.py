@@ -161,6 +161,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # (reclaim 30 or hold — NEVER below 30), ema_5_20_cross = Steve Burns 5/20.
     # rsi_70 RETIRED 2026-07-18 (user: "pointless for entry") → OBSOLETE below.
     ("ema_5_20_cross", "5/20 EMA bullish cross (Steve Burns)", "Swing", False),
+    # TBA breakout (2026-10-13) — the TBA Patterns Pine's ONLY webhook rule (PR #1628):
+    # a 30m close crosses the LOCKED daily TBA while a base pattern is active. The type
+    # was never added to this catalog, so every arrival was recorded unknown_type and
+    # never delivered (first live fires 2026-10-12/13: PWR, URI, MRNA, VST, AAPL, ZETA).
+    ("swing_tba_breakout", "TBA breakout (swing) — 30m close crossed the locked daily TBA of an active base pattern (flat base / triangle / flag / prior-high shelf). Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
@@ -425,6 +430,7 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "weekly_ma_pullback": "Weekly position entry from the WkPos indicator: in a Stage-2 uptrend (price above a RISING 30-week MA, 10w > 30w), the week dipped to the rising 10-week MA and closed back GREEN above it — buy the pullback in an established trend. STOP = the pullback week's low (trend invalidates on a weekly close below the 30wMA). TARGET = weekly RSI 70. Fires once at the weekly close.",
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
+    "swing_tba_breakout": "A 30-minute close crossed ABOVE the locked daily TBA — the top of an active base pattern (flat base, ascending triangle, bull flag, or prior-high shelf) from the TBA Patterns Pine. A SWING breakout entry (hold days); STOP = the daily pattern stop carried in the alert, TARGET = the locked resistance above the TBA when one exists. Entry doctrine: the holding retest of the TBA, not the chase.",
     "swing_8ema_w_reclaim": "The WEEK opened above the weekly 8 EMA (the fast trend spine) and price reclaimed it — an early trend re-entry after a pullback (fires a bit more than the 21 EMA-W but still weekly-gated). Long swing entry; stop = a weekly close back below / the swept low.",
     "swing_21ema_w_reclaim": "The WEEK opened above the weekly 21 EMA (it was support) and price reclaimed it — the higher-timeframe trend spine held. Replaces the noisy daily 50/100 SMA reclaims. Long swing entry; stop = a weekly close back below / the swept low.",
     "swing_rsi_30": "Daily RSI crossed back ABOVE the oversold zone (30-35) from below — the bottom-fishing 'turn is in' on a washed-out name. Longer-hold reversal; stop = the swept low. Standalone (doesn't need to be above the 30W).",
