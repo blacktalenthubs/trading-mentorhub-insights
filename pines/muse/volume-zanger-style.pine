@@ -15,7 +15,8 @@ showMA = input.bool(true, "Show MA line", group = "Volume")
 upColor   = #089981
 downColor = #f23645
 
-isUp  = nz(close >= close[1], close >= open)
+prevClose = nz(close[1], open)
+isUp = close >= prevClose
 barColor = isUp ? upColor : downColor
 
 plot(volume, "Volume", style = plot.style_columns, color = barColor)
