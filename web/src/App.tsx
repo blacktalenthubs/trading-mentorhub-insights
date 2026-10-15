@@ -34,6 +34,7 @@ import TrackRecordPage from "./pages/TrackRecordPage";
 import PublicPerformancePage from "./pages/PublicPerformancePage";
 import WatchlistPage from "./pages/WatchlistPage";
 import MasterRsiPage from "./pages/MasterRsiPage";
+import LeadersPage from "./pages/LeadersPage";
 import PremarketPage from "./pages/PremarketPage";
 import FocusListPage from "./pages/FocusListPage";
 import TodayPage from "./pages/TodayPage";
@@ -147,6 +148,7 @@ export default function App() {
                 <Route path="conviction"  element={<Navigate to="/trade-ideas" replace />} />
                 <Route path="watchlist"   element={<ErrorBoundary><WatchlistPage /></ErrorBoundary>} />
                 <Route path="master-rsi"  element={<ErrorBoundary><MasterRsiPage /></ErrorBoundary>} />
+                <Route path="leaders"     element={<ErrorBoundary><LeadersPage /></ErrorBoundary>} />
                 <Route path="research"    element={<ErrorBoundary><UniverseResearchPage /></ErrorBoundary>} />
                 <Route path="premarket"   element={<ErrorBoundary><PremarketPage /></ErrorBoundary>} />
                 <Route path="performance" element={<ErrorBoundary><RealTradesPage /></ErrorBoundary>} />
