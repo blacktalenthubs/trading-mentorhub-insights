@@ -27,6 +27,7 @@ import {
   Activity,
   Target,
   MoreHorizontal,
+  Crown,
   Gauge,
   X,
   ChevronLeft,
@@ -63,6 +64,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/premium-desk", label: "Premium Desk", icon: CircleDollarSign },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/master-rsi",  label: "Master RSI",  icon: Gauge },
+  { to: "/leaders",     label: "Leaders",     icon: Crown },
   { to: "/research",    label: "Research",    icon: Layers },
   { to: "/premarket",   label: "Premarket",   icon: Activity },
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },
@@ -81,6 +83,7 @@ const MORE_ITEMS: NavItem[] = [
   { to: "/premium-desk", label: "Premium Desk", icon: CircleDollarSign },
   { to: "/watchlist",   label: "Watchlist",   icon: Star },
   { to: "/master-rsi",  label: "Master RSI",  icon: Gauge },
+  { to: "/leaders",     label: "Leaders",     icon: Crown },
   { to: "/research",    label: "Research",    icon: Layers },
   // Performance is a post-close retrospective — rarely opened during market hours → fine in More.
   { to: "/performance", label: "Performance", icon: ArrowLeftRight },

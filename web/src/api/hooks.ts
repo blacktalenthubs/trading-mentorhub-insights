@@ -1373,6 +1373,37 @@ export function useMasterRsi() {
   });
 }
 
+export interface LeaderItem {
+  symbol: string;
+  state: "AT_AVERAGE" | "SLIPPING" | "EXTENDED" | "BROKEN" | null;
+  close: number | null;
+  d20: number | null;
+  d50: number | null;
+  w20: number | null;
+  w50: number | null;
+  rsi: number | null;
+}
+
+export interface LeadersResponse {
+  as_of: string | null;
+  universe: number;
+  counts: { leaders: number; probation: number; notLeaders: number; unranked: number };
+  rows: LeaderItem[];
+}
+
+// The Leaders board — ONLY current leaders (close above the rising weekly
+// 20 and 50 SMA), computed from completed bars and refreshed after each
+// close. Non-leaders are never listed, only counted in the header counts.
+export function useLeaders() {
+  return useQuery({
+    queryKey: ["leaders"],
+    queryFn: () => api.get<LeadersResponse>("/market/leaders"),
+    staleTime: 30 * 60_000, // matches backend cache TTL
+    refetchInterval: 30 * 60_000,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useActiveEntries() {
   return useQuery({
     queryKey: ["active-entries"],

@@ -1595,3 +1595,217 @@ async def master_rsi(
     results.sort(key=lambda x: (x["rsi"] is None, x["rsi"] if x["rsi"] is not None else 0.0, x["symbol"]))
     cache_set(key, results, _MASTER_RSI_TTL)
     return results
+
+
+# ── Leaders — Victor's leader board (weekly identity, daily state) ───────────
+_LEADERS_TTL = 1800  # 30 min — inputs are completed bars only, so values are
+# stable intraday and settle once, after the close.
+
+
+def _leaders_bars_from_df(df) -> list:
+    """[(date, close)] ascending from an Alpaca/yfinance daily-bars frame.
+    Defensive about the frame's shape: dates from a DatetimeIndex when present,
+    else a date-like column. [] when no usable dates — the caller falls back."""
+    try:
+        if df is None or df.empty or "Close" not in df:
+            return []
+        import pandas as pd
+        dates = None
+        if isinstance(df.index, pd.DatetimeIndex):
+            dates = [d.date() for d in df.index]
+        else:
+            for c in ("Date", "date", "timestamp", "time", "Timestamp"):
+                if c in df.columns:
+                    dates = [pd.Timestamp(x).date() for x in df[c]]
+                    break
+        if dates is None:
+            return []
+        out = []
+        for d, c in zip(dates, df["Close"]):
+            try:
+                c = float(c)
+            except (TypeError, ValueError):
+                continue
+            if c == c:  # NaN guard
+                out.append((d, c))
+        out.sort(key=lambda x: x[0])
+        return out
+    except Exception:
+        return []
+
+
+def _fetch_leaders_bars(product: str, is_crypto: bool) -> list:
+    """~2y of dated daily bars [(date, close)] — a weekly SMA50 needs 51+
+    completed weeks, so the 1y closes the other boards use are not enough.
+    Stocks: Alpaca daily first; yfinance (2y) only as fallback / top-up when
+    Alpaca returns a short series. Crypto: yfinance directly (Coinbase caps
+    at 300 candles — too few for weekly-50 math)."""
+    bars = []
+    if not is_crypto:
+        try:
+            from analytics.intraday_data import _fetch_alpaca_bars
+            bars = _leaders_bars_from_df(
+                _fetch_alpaca_bars(product, interval="1d", hours_back=24 * 740)
+            )
+        except Exception:
+            bars = []
+        if len(bars) >= 300:
+            return bars
+    try:
+        import yfinance as yf
+        df = yf.download(product, period="2y", interval="1d",
+                         progress=False, auto_adjust=False)
+        yf_bars = _leaders_bars_from_df(df)
+        if len(yf_bars) > len(bars):
+            bars = yf_bars
+    except Exception:
+        pass
+    return bars
+
+
+def _leaders_analyze(bars: list):
+    """Victor's leader definition (rulebook rules 15–18) on COMPLETED bars —
+    the caller has already dropped any still-forming bar. Same math as the
+    nightly leaders scan, so the two boards agree on every symbol.
+    LEADER: close above the RISING weekly SMA20 AND SMA50 (Fri-ending weeks,
+    completed weeks only). PROBATION: over the weekly 50 but under the weekly
+    20 while both rise, or above both while an average rolls over. Anything
+    else with 51+ completed weeks is NOT_A_LEADER; fewer = UNRANKED.
+    Daily state (LEADER / PROBATION rows): BROKEN (under daily 50) /
+    SLIPPING (under daily 20) / AT_AVERAGE (within 3% over daily 20 — the
+    buy zone) / EXTENDED. Returns a row dict, or None when unusable."""
+    if not bars or len(bars) < 60:
+        return None
+    import pandas as pd
+    from datetime import timedelta
+    dates = [d for d, _ in bars]
+    closes = pd.Series([c for _, c in bars], dtype="float64")
+    close = float(closes.iloc[-1])
+    d20 = float(closes.rolling(20).mean().iloc[-1])
+    d50 = float(closes.rolling(50).mean().iloc[-1])
+    delta = closes.diff()
+    gain = delta.clip(lower=0).ewm(com=13, min_periods=14).mean()
+    loss = (-delta.clip(upper=0)).ewm(com=13, min_periods=14).mean()
+    rsi = float((100 - 100 / (1 + gain / loss)).iloc[-1])
+    base = {"close": round(close, 2), "d20": round(d20, 2), "d50": round(d50, 2),
+            "rsi": round(rsi, 1) if rsi == rsi else None,
+            "as_of": dates[-1].isoformat()}
+    df = pd.DataFrame({"date": dates, "close": closes.values})
+    df["week_end"] = df["date"].apply(lambda d: d + timedelta(days=(4 - d.weekday()) % 7))
+    wk = df.groupby("week_end")["close"].last()
+    last_bar = dates[-1]
+    cur_week_end = last_bar + timedelta(days=(4 - last_bar.weekday()) % 7)
+    if len(wk) and wk.index[-1] == cur_week_end and last_bar.weekday() != 4:
+        wk = wk.iloc[:-1]  # current week still incomplete — completed weeks only
+    if len(wk) < 51:
+        return {**base, "status": "UNRANKED", "state": None, "w20": None, "w50": None}
+    w20s = wk.rolling(20).mean()
+    w50s = wk.rolling(50).mean()
+    w20, w50 = float(w20s.iloc[-1]), float(w50s.iloc[-1])
+    rising = float(w20s.iloc[-1]) > float(w20s.iloc[-2]) and \
+        float(w50s.iloc[-1]) > float(w50s.iloc[-2])
+    above20, above50 = close > w20, close > w50
+    if above20 and above50 and rising:
+        status = "LEADER"
+    elif above50 and rising:
+        status = "PROBATION"  # under the weekly 20, over the weekly 50
+    elif above20 and above50:
+        status = "PROBATION"  # above both, but an average is rolling over
+    else:
+        status = "NOT_A_LEADER"
+    state = None
+    if status in ("LEADER", "PROBATION"):
+        if close < d50:
+            state = "BROKEN"
+        elif close < d20:
+            state = "SLIPPING"
+        elif close <= d20 * 1.03:
+            state = "AT_AVERAGE"
+        else:
+            state = "EXTENDED"
+    return {**base, "status": status, "state": state,
+            "w20": round(w20, 2), "w50": round(w50, 2)}
+
+
+@router.get("/leaders")
+async def leaders(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The Leaders board: ONLY the master-watchlist symbols that currently
+    hold leader status (see _leaders_analyze for the definition), each with
+    its daily state and the four averages + RSI. Non-leaders are counted in
+    the header counts but never listed — the board answers one question:
+    what is a leader right now, and is it at a buyable average?
+
+    Computed from COMPLETED daily bars only: today's bar joins the series
+    once the regular session has closed (16:05 ET buffer), so the board
+    refreshes once daily after the close and never grants or revokes a
+    badge on an intraday print. Same Wilder RSI and weekly math as the
+    nightly leaders scan."""
+    from datetime import datetime, time as dtime
+    from zoneinfo import ZoneInfo
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    key = f"leaders:global:{now_et.date().isoformat()}"
+    cached = cache_get(key)
+    if cached is not None:
+        return cached
+
+    # Resolve the master account — same rule as master_rsi / watchlist:
+    # MASTER_WATCHLIST_EMAIL, falling back to the first admin by id.
+    master_id = (await db.execute(
+        select(User.id).where(User.email == MASTER_WATCHLIST_EMAIL).limit(1)
+    )).scalar_one_or_none()
+    if master_id is None:
+        master_id = (await db.execute(
+            select(User.id).where(User.email.in_(ADMIN_EMAILS)).order_by(User.id).limit(1)
+        )).scalar_one_or_none()
+    empty = {"as_of": None, "universe": 0,
+             "counts": {"leaders": 0, "probation": 0, "notLeaders": 0, "unranked": 0},
+             "rows": []}
+    if master_id is None:
+        return empty
+    rows = (await db.execute(
+        select(WatchlistItem.symbol).where(WatchlistItem.user_id == master_id)
+    )).scalars().all()
+    symbols = sorted({s.strip().upper() for s in rows if s and s.strip()})
+    if not symbols:
+        return empty
+
+    loop = asyncio.get_running_loop()
+    today_et = now_et.date()
+    market_closed = now_et.time() >= dtime(16, 5)
+
+    async def _one(sym: str):
+        product, is_crypto = sym, sym.endswith("-USD")
+        if sym in ("BTCUSD", "ETHUSD"):
+            product, is_crypto = f"{sym[:-3]}-USD", True
+        try:
+            bars = await loop.run_in_executor(None, _fetch_leaders_bars, product, is_crypto)
+        except Exception:
+            bars = []
+        # Completed bars only — leadership is granted on closes.
+        bars = [(d, c) for d, c in bars
+                if d < today_et or (d == today_et and market_closed)]
+        row = _leaders_analyze(bars)
+        if row is None:
+            return {"symbol": sym, "status": "UNRANKED", "state": None,
+                    "close": None, "d20": None, "d50": None, "w20": None,
+                    "w50": None, "rsi": None, "as_of": None}
+        return {"symbol": sym, **row}
+
+    results = await asyncio.gather(*[_one(s) for s in symbols])
+    bucket = {"LEADER": "leaders", "PROBATION": "probation",
+              "NOT_A_LEADER": "notLeaders", "UNRANKED": "unranked"}
+    counts = {"leaders": 0, "probation": 0, "notLeaders": 0, "unranked": 0}
+    for r in results:
+        counts[bucket[r["status"]]] += 1
+    state_order = {"AT_AVERAGE": 0, "SLIPPING": 1, "EXTENDED": 2, "BROKEN": 3}
+    leader_rows = [{k: v for k, v in r.items() if k != "as_of"}
+                   for r in results if r["status"] == "LEADER"]
+    leader_rows.sort(key=lambda r: (state_order.get(r["state"], 9), r["symbol"]))
+    as_of = max((r["as_of"] for r in results if r["as_of"]), default=None)
+    payload = {"as_of": as_of, "universe": len(symbols),
+               "counts": counts, "rows": leader_rows}
+    cache_set(key, payload, _LEADERS_TTL)
+    return payload
