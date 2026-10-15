@@ -14,11 +14,17 @@ import { useLeaders, type LeaderItem } from "../api/hooks";
 import { useFeatureGate } from "../hooks/useFeatureGate";
 
 const STATE_ORDER: Record<string, number> = { AT_AVERAGE: 0, SLIPPING: 1, EXTENDED: 2, BROKEN: 3 };
+// States describe the DAILY chart only, and each label names its line so it
+// explains itself: the badge (Leader) comes from the weekly chart, the state
+// never does. AT_AVERAGE = sitting on the daily 20 (the buy zone);
+// SLIPPING = below the daily 20 but still above the daily 50;
+// BROKEN = below the daily 50 (no trade until reclaimed);
+// EXTENDED = stretched well above the daily 20.
 const STATE_LABEL: Record<string, string> = {
-  AT_AVERAGE: "At average",
-  SLIPPING: "Slipping",
+  AT_AVERAGE: "At daily 20 · buy zone",
+  SLIPPING: "Below daily 20",
   EXTENDED: "Extended",
-  BROKEN: "Broken",
+  BROKEN: "Below daily 50",
 };
 
 function stateChipClass(state: string | null): string {
@@ -76,10 +82,10 @@ function avgCell(close: number | null, v: number | null) {
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "ALL", label: "All states" },
-  { key: "AT_AVERAGE", label: "At average" },
-  { key: "SLIPPING", label: "Slipping" },
+  { key: "AT_AVERAGE", label: "At daily 20" },
+  { key: "SLIPPING", label: "Below daily 20" },
   { key: "EXTENDED", label: "Extended" },
-  { key: "BROKEN", label: "Broken" },
+  { key: "BROKEN", label: "Below daily 50" },
 ];
 
 export default function LeadersPage() {
@@ -146,8 +152,10 @@ export default function LeadersPage() {
             <span className="text-text-faint font-normal text-sm">· master watchlist names holding leader status</span>
           </h2>
           <p className="text-[11px] text-text-faint mt-0.5">
-            A leader closes above its rising weekly 20 and 50 SMA — nothing else is listed. At Average is the buy zone;
-            Broken means under the daily 50, no trade until reclaimed.
+            A leader closes above its rising weekly 20 and 50 SMA — the <span className="text-text-secondary font-medium">weekly</span> chart
+            grants the badge, and nothing else is listed. The state chip is the <span className="text-text-secondary font-medium">daily</span> chart:
+            At daily 20 = the buy zone · Below daily 20 = slipped under the 20-day, still over the 50-day ·
+            Below daily 50 = broken, no trade until reclaimed · Extended = stretched above the daily 20.
           </p>
           <p className="text-[10px] text-text-faint/80 mt-1 flex items-center gap-1">
             <Info className="h-3 w-3 shrink-0" />
