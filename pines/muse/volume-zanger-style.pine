@@ -1,0 +1,22 @@
+// Volume · Zanger Style
+// Display styled after the volume pane on Dan Zanger's ChartPattern Report
+// charts: plain volume histogram bars colored by the day's price direction
+// (up day = green, down day = red), a smooth volume moving-average line
+// drawn over the bars, and the pane axis labeled in K/M units.
+// Display only — no pace math, no profile. Original display script written
+// for Victor; this is not Dan's code.
+
+//@version=6
+indicator("Volume · Zanger Style", shorttitle = "Vol · Z", overlay = false, format = format.volume)
+
+maLen  = input.int(50, "MA length", minval = 1, group = "Volume")
+showMA = input.bool(true, "Show MA line", group = "Volume")
+
+upColor   = #089981
+downColor = #f23645
+
+isUp  = nz(close >= close[1], close >= open)
+barColor = isUp ? upColor : downColor
+
+plot(volume, "Volume", style = plot.style_columns, color = barColor)
+plot(showMA ? ta.sma(volume, maLen) : na, "Volume MA", color = #b71c1c, linewidth = 1)
