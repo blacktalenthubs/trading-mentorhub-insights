@@ -49,6 +49,32 @@ function StateChip({ state }: { state: string | null }) {
   );
 }
 
+/** Weekly danger: a leader hugging its weekly line is one bad week from
+ *  losing the badge, whatever its daily state says. Within 3% above the
+ *  weekly 50 is the deeper danger (leadership itself goes), so it wins
+ *  over the weekly 20 warning. Returns "W50" | "W20" | null. */
+function weeklyRisk(r: LeaderItem): "W50" | "W20" | null {
+  const p50 = pctOf(r.close, r.w50);
+  if (p50 != null && p50 >= 0 && p50 <= 3) return "W50";
+  const p20 = pctOf(r.close, r.w20);
+  if (p20 != null && p20 >= 0 && p20 <= 3) return "W20";
+  return null;
+}
+
+function WeeklyChip({ r }: { r: LeaderItem }) {
+  const risk = weeklyRisk(r);
+  if (!risk) return null;
+  const cls =
+    risk === "W50"
+      ? "text-bearish-text bg-bearish-subtle border-bearish/30"
+      : "text-accent bg-accent/10 border-accent/20";
+  return (
+    <span className={`inline-flex items-center text-[10px] font-semibold border px-1.5 py-0.5 rounded ${cls}`}>
+      {risk === "W50" ? "Near weekly 50" : "Near weekly 20"}
+    </span>
+  );
+}
+
 function money(v: number | null): string {
   return v != null ? `$${v.toFixed(2)}` : "—";
 }
@@ -111,7 +137,7 @@ export default function LeadersPage() {
 
   const columns: Column<LeaderItem>[] = [
     { key: "symbol", label: "Symbol", align: "left", value: (r) => r.symbol, render: (r) => (
-      <span className="font-bold text-text-primary">{r.symbol}</span>
+      <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><WeeklyChip r={r} /></span>
     ) },
     { key: "state", label: "State", align: "left", value: (r) => STATE_ORDER[r.state ?? ""] ?? 9, render: (r) => <StateChip state={r.state} /> },
     { key: "close", label: "Close", align: "right", value: (r) => r.close ?? -1, render: (r) => (
@@ -129,7 +155,7 @@ export default function LeadersPage() {
   const mobileRow = (r: LeaderItem) => (
     <>
       <div className="flex items-center justify-between">
-        <span className="font-bold text-text-primary">{r.symbol}</span>
+        <span className="flex items-center gap-2"><span className="font-bold text-text-primary">{r.symbol}</span><WeeklyChip r={r} /></span>
         <StateChip state={r.state} />
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-text-muted font-mono">
@@ -162,6 +188,10 @@ export default function LeadersPage() {
             Completed bars only — the board updates once daily after the close
             {data?.as_of && <> · as of {data.as_of} close</>}. The % beside each average is how far the
             close sits above (+) or below (−) it — green above, red below.
+            {(() => {
+              const near = all.filter((r) => weeklyRisk(r) != null).length;
+              return near > 0 ? <> <span className="text-accent font-medium">{near} leader{near > 1 ? "s sit" : " sits"} within 3% of a weekly line — badge at risk.</span></> : null;
+            })()}
             {data && data.counts.probation > 0 && <> {data.counts.probation} more on probation (over the weekly 50, badge at risk).</>}
           </p>
         </div>
