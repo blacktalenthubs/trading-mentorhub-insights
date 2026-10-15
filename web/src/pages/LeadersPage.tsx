@@ -47,8 +47,31 @@ function money(v: number | null): string {
   return v != null ? `$${v.toFixed(2)}` : "—";
 }
 
-function avgCell(v: number | null) {
-  return <span className="font-mono text-text-secondary">{money(v)}</span>;
+function pctOf(close: number | null, avg: number | null): number | null {
+  return close != null && avg != null && avg !== 0 ? ((close - avg) / avg) * 100 : null;
+}
+
+function pctText(close: number | null, avg: number | null): string | null {
+  const p = pctOf(close, avg);
+  return p == null ? null : `${p >= 0 ? "+" : ""}${p.toFixed(1)}%`;
+}
+
+/** An average's value with the close's signed distance from it — green when
+ *  price sits above the average, red when below — so where a name stands
+ *  against each daily/weekly SMA reads at a glance, no mental math. */
+function avgCell(close: number | null, v: number | null) {
+  if (v == null) return <span className="font-mono text-text-faint">—</span>;
+  const p = pctOf(close, v);
+  return (
+    <span className="font-mono text-text-secondary">
+      {money(v)}
+      {p != null && (
+        <span className={`ml-1.5 text-[10px] font-semibold ${p >= 0 ? "text-bullish-text" : "text-bearish-text"}`}>
+          {p >= 0 ? "+" : ""}{p.toFixed(1)}%
+        </span>
+      )}
+    </span>
+  );
 }
 
 const FILTERS: { key: string; label: string }[] = [
@@ -88,10 +111,10 @@ export default function LeadersPage() {
     { key: "close", label: "Close", align: "right", value: (r) => r.close ?? -1, render: (r) => (
       <span className="font-mono text-text-primary">{money(r.close)}</span>
     ) },
-    { key: "d20", label: "Daily 20", align: "right", value: (r) => r.d20 ?? -1, render: (r) => avgCell(r.d20) },
-    { key: "d50", label: "Daily 50", align: "right", cls: "hidden md:table-cell", value: (r) => r.d50 ?? -1, render: (r) => avgCell(r.d50) },
-    { key: "w20", label: "Weekly 20", align: "right", cls: "hidden lg:table-cell", value: (r) => r.w20 ?? -1, render: (r) => avgCell(r.w20) },
-    { key: "w50", label: "Weekly 50", align: "right", cls: "hidden lg:table-cell", value: (r) => r.w50 ?? -1, render: (r) => avgCell(r.w50) },
+    { key: "d20", label: "Daily 20", align: "right", value: (r) => pctOf(r.close, r.d20) ?? -999, render: (r) => avgCell(r.close, r.d20) },
+    { key: "d50", label: "Daily 50", align: "right", cls: "hidden md:table-cell", value: (r) => pctOf(r.close, r.d50) ?? -999, render: (r) => avgCell(r.close, r.d50) },
+    { key: "w20", label: "Weekly 20", align: "right", cls: "hidden lg:table-cell", value: (r) => pctOf(r.close, r.w20) ?? -999, render: (r) => avgCell(r.close, r.w20) },
+    { key: "w50", label: "Weekly 50", align: "right", cls: "hidden lg:table-cell", value: (r) => pctOf(r.close, r.w50) ?? -999, render: (r) => avgCell(r.close, r.w50) },
     { key: "rsi", label: "RSI (14)", align: "right", value: (r) => r.rsi ?? -1, render: (r) => (
       <span className="font-mono text-text-primary">{r.rsi != null ? r.rsi.toFixed(1) : "—"}</span>
     ) },
@@ -105,8 +128,10 @@ export default function LeadersPage() {
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[11px] text-text-muted font-mono">
         {r.close != null && <span>${r.close.toFixed(2)}</span>}
-        {r.d20 != null && <span>D20 ${r.d20.toFixed(2)}</span>}
-        {r.w20 != null && <span>W20 ${r.w20.toFixed(2)}</span>}
+        {r.d20 != null && <span>D20 {pctText(r.close, r.d20)}</span>}
+        {r.d50 != null && <span>D50 {pctText(r.close, r.d50)}</span>}
+        {r.w20 != null && <span>W20 {pctText(r.close, r.w20)}</span>}
+        {r.w50 != null && <span>W50 {pctText(r.close, r.w50)}</span>}
         {r.rsi != null && <span>RSI {r.rsi.toFixed(1)}</span>}
       </div>
     </>
@@ -127,7 +152,8 @@ export default function LeadersPage() {
           <p className="text-[10px] text-text-faint/80 mt-1 flex items-center gap-1">
             <Info className="h-3 w-3 shrink-0" />
             Completed bars only — the board updates once daily after the close
-            {data?.as_of && <> · as of {data.as_of} close</>}.
+            {data?.as_of && <> · as of {data.as_of} close</>}. The % beside each average is how far the
+            close sits above (+) or below (−) it — green above, red below.
             {data && data.counts.probation > 0 && <> {data.counts.probation} more on probation (over the weekly 50, badge at risk).</>}
           </p>
         </div>
