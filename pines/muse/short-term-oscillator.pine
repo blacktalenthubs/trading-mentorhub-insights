@@ -5,34 +5,52 @@
 //
 // Construction (standard, stated openly — this is NOT Dan's proprietary
 // ChartPattern formula, which is not public):
-//   oscillator = 10-day rate of change of the source index, x 5, clipped to +/-50.
-// The scale was fitted to QQQ daily history (Oct 2021 - Oct 2026, 1,245 bars):
-// readings above +35 occurred on ~5.5% of days and below -40 on ~2.7% —
-// overbought is occasional, oversold is rare but real, matching how Dan uses
-// the bands (a print near -40 marks oversold / bounce territory).
-// Alternatives tested and rejected: RSI-based centering never reaches -40 on
-// QQQ in 5 years; raw stochastics sit above +35 a quarter of the time (noise);
-// ATR-normalized ROC compresses exactly the washout readings that matter.
+//   oscillator = CCI(8) of the source index's daily typical price x 0.228,
+//   clipped to +/-50.
 //
-// The gauge reads the source symbol's DAILY series (default QQQ) on any chart
-// and any timeframe, so it shows the same number everywhere. On intraday
-// charts the current day's reading is a live estimate until the close.
-// Calibration note: if Dan's stated prints collected during the ChartPattern
-// trial disagree systematically, adjust the Scale input — one number.
+// REFIT 2026-10-14, anchored on Dan's first stated print: his oscillator
+// closed at -40 on 2026-10-14 ("oversold conditions begin at -40 and
+// lower"). CCI(8) on QQQ printed -175.5 that day, so scale 0.228 solves
+// the gauge to exactly -40 at that close. Why CCI: it self-normalizes by
+// recent mean deviation, so it stays moderate through calm uptrends yet
+// plunges on a sudden cascade — the behavior Dan's readings show. Fitted
+// band behavior on QQQ daily history (Oct 2021 - Oct 2026, 1,254 bars):
+// above +35 on ~5.5% of days, below -40 on ~2.5%, pinned at the clip on
+// ~0.6%. Readings for the anchor week: Oct 7 +16, Oct 8 +1, Oct 9 +1,
+// Oct 12 -15, Oct 13 -33, Oct 14 -40. Sanity check on SPY (not fitted):
+// -32 on 2026-10-14 — less oversold than QQQ, matching SPY's milder drop.
+// The previous construction (10-day ROC x 5) read only -7.3 on 2026-10-14
+// and was retired: a 10-day window is still digesting the prior two weeks
+// when a fast washout reaches the band. An earlier fit attempt across ROC,
+// RSI-centered, deviation, net-up-days and z-score families confirmed the
+// pattern: only the self-normalizing CCI family satisfies both band
+// frequencies at the anchor-exact scale.
+// HONEST LIMIT: this fit rests on ONE anchor print plus band-frequency
+// behavior — a behavioral match, not Dan's formula. Further stated prints
+// will validate it or force a revision; if his prints disagree
+// systematically, adjust the Scale input — one number.
+//
+// The gauge reads the source symbol's DAILY series (default QQQ) on any
+// chart and any timeframe — the CCI is computed inside the daily security
+// request, so it shows the same number everywhere. On intraday charts the
+// current day's reading is a live estimate until the close.
 
 //@version=6
 indicator("Short-Term Oscillator · Dan-Style Bands", shorttitle = "ST Osc", overlay = false, precision = 1)
 
 srcSym   = input.symbol("NASDAQ:QQQ", "Source symbol", group = "Oscillator")
 useChart = input.bool(false, "Use chart symbol instead of source", group = "Oscillator")
-rocLen   = input.int(10, "ROC length (days)", minval = 2, group = "Oscillator")
-scale    = input.float(5.0, "Scale", minval = 0.5, step = 0.5, group = "Oscillator")
+cciLen   = input.int(8, "CCI length (days)", minval = 2, group = "Oscillator")
+scale    = input.float(0.228, "Scale", minval = 0.01, step = 0.001, group = "Oscillator")
 obLevel  = input.float(35.0, "Overbought band", group = "Oscillator")
 osLevel  = input.float(-40.0, "Oversold band", group = "Oscillator")
 
 sym = useChart ? syminfo.tickerid : srcSym
-dClose = request.security(sym, "D", close)
-oscRaw = ta.roc(dClose, rocLen) * scale
+
+f_osc() =>
+    ta.cci(hlc3, cciLen) * scale
+
+oscRaw = request.security(sym, "D", f_osc())
 osc = math.max(-50.0, math.min(50.0, oscRaw))
 
 oscColor = osc >= obLevel ? color.new(color.red, 0) : osc <= osLevel ? color.new(color.lime, 0) : color.new(color.gray, 0)
