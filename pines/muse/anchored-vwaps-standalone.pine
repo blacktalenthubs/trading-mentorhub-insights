@@ -1,0 +1,383 @@
+// © bolofbaba
+//@version=6
+indicator("Anchored VWAPs · Standalone", overlay = true, max_bars_back = 500)
+
+gAV        = "Anchored VWAP"
+showAnch   = input.bool(true, "Show anchored VWAP", group = gAV)
+anchCol    = input.color(color.new(#AA00FF, 0), "Anchored VWAP color", group = gAV)
+showAnchHi = input.bool(true, "Show swing-high AVWAP", group = gAV)
+anchHiCol  = input.color(color.new(#2962FF, 0), "Swing-high AVWAP color", group = gAV)
+anchHiPivLen = input.int(25, "AVWAP-H pivot length", minval = 10, maxval = 60, group = gAV)
+anchMode   = input.string("Last swing low", "Anchor mode", group = gAV, options = ["Last swing low", "Last swing high", "Last earnings", "Highest-volume bar", "Month start"])
+
+gRoll    = "Rolling AVWAP"
+showRoll = input.bool(true, "Show rolling AVWAP", group = gRoll)
+rollCol  = input.color(color.new(#FF9800, 0), "Rolling AVWAP color", group = gRoll)
+
+barsBack = 150
+
+_pivLen = 10
+_pivLo  = ta.pivotlow(low, _pivLen, _pivLen)
+_pivHi  = ta.pivothigh(high, _pivLen, _pivLen)
+var int _swLoBar = na
+var int _swHiBar = na
+if not na(_pivLo)
+    _swLoBar := bar_index - _pivLen
+if not na(_pivHi)
+    _swHiBar := bar_index - _pivLen
+
+_pivHiH = ta.pivothigh(high, anchHiPivLen, anchHiPivLen)
+var int _swHiBarH = na
+if not na(_pivHiH)
+    _swHiBarH := bar_index - anchHiPivLen
+
+_earnVal = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_off)
+var int _earnBar = na
+if not na(_earnVal) and na(_earnVal[1])
+    _earnBar := bar_index
+
+_hvBar = bar_index + ta.highestbars(volume, barsBack)
+_isMonthStart = na(time[1]) or month(time) != month(time[1]) or year(time) != year(time[1])
+var int _monthBar = na
+if _isMonthStart
+    _monthBar := bar_index
+
+int _anchBar = na
+_anchBar := switch anchMode
+    "Last swing high"    => _swHiBar
+    "Last earnings"      => na(_earnBar) ? _swLoBar : _earnBar
+    "Highest-volume bar" => _hvBar
+    "Month start"        => _monthBar
+    => _swLoBar
+
+_anchLen = na(_anchBar) ? 0 : bar_index - _anchBar + 1
+_aPv     = na(_anchBar) ? na : math.sum(hlc3 * volume, _anchLen) / math.max(math.sum(volume, _anchLen), 1e-10)
+anchVWAP = showAnch ? _aPv : na
+plot(anchVWAP, "AVWAP (anchored)", color = anchCol, linewidth = 2)
+var label _anchLbl = na
+if barstate.islast and showAnch and not na(anchVWAP)
+    _anchLbl := label.new(bar_index, anchVWAP, "AVWAP " + str.tostring(anchVWAP, format.mintick), style = label.style_label_left, color = anchCol, textcolor = color.white, size = size.small)
+    label.delete(_anchLbl[1])
+
+_anchHiLen  = na(_swHiBarH) ? 0 : bar_index - _swHiBarH + 1
+_aPvHi      = na(_swHiBarH) ? na : math.sum(hlc3 * volume, _anchHiLen) / math.max(math.sum(volume, _anchHiLen), 1e-10)
+anchVWAPHi  = showAnchHi ? _aPvHi : na
+plot(anchVWAPHi, "AVWAP-H (swing high)", color = anchHiCol, linewidth = 2)
+var label _anchHiLbl = na
+if barstate.islast and showAnchHi and not na(anchVWAPHi)
+    _anchHiLbl := label.new(bar_index, anchVWAPHi, "AVWAP-H " + str.tostring(anchVWAPHi, format.mintick), style = label.style_label_left, color = anchHiCol, textcolor = color.white, size = size.small)
+    label.delete(_anchHiLbl[1])
+
+_hlc     = (high + low + close) / 3
+_sv      = math.sum(volume, barsBack)
+rollVWAP = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showRoll ? rollVWAP : na, "AVWAP-R (rolling)", color = rollCol, linewidth = 2)
+var label _rollLbl = na
+if barstate.islast and showRoll and not na(rollVWAP)
+    _rollLbl := label.new(bar_index, rollVWAP, "AVWAP-R " + str.tostring(rollVWAP, format.mintick), style = label.style_label_left, color = rollCol, textcolor = color.white, size = size.small)
+    label.delete(_rollLbl[1])
+
+// ============================================================================
+// TBA LEVELS — visual only (added 2026-10-14 at Victor's direction)
+// The pattern engine below is a VERBATIM port of the detection + state core of
+// "TBA Patterns + Anchored VWAP" (pines/muse/tba-patterns-anchored-vwap.pine),
+// so the TBA / Former TBA / Past TBA printed here are the SAME values that
+// script computes — not an approximation. Display only: no HUD, no webhook,
+// no alert reads these values.
+// The engine parameters are FROZEN CONSTANTS set to the TBA Patterns defaults
+// (not inputs): if they were Settings inputs, the two scripts could drift
+// apart and print different TBAs. Tune the engine in the main script; if its
+// defaults ever change there, update the constants here to match.
+// ============================================================================
+
+gTBA       = "TBA levels"
+showTba    = input.bool(true, "TBA", inline = "T1", group = gTBA)
+tbaCol     = input.color(color.aqua, "", inline = "T1", group = gTBA)
+tbaWid     = input.int(2, "w", minval = 1, maxval = 6, inline = "T1", group = gTBA)
+tbaSty     = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "T1", group = gTBA)
+showFmrT   = input.bool(true, "Former TBA", inline = "T2", group = gTBA)
+fmrTbaCol  = input.color(color.gray, "", inline = "T2", group = gTBA)
+fmrWid     = input.int(2, "w", minval = 1, maxval = 6, inline = "T2", group = gTBA)
+fmrSty     = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "T2", group = gTBA)
+showPstT   = input.bool(true, "Past TBA", inline = "T3", group = gTBA)
+pstTbaCol  = input.color(color.new(color.gray, 35), "", inline = "T3", group = gTBA)
+pstWid     = input.int(2, "w", minval = 1, maxval = 6, inline = "T3", group = gTBA)
+pstSty     = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "T3", group = gTBA)
+lnBack     = input.int(60, "Line length ← bars", minval = 5, maxval = 500, inline = "TX", group = gTBA)
+lnFwd      = input.int(3, "→ bars", minval = 0, maxval = 100, inline = "TX", group = gTBA)
+
+// Frozen engine parameters (= TBA Patterns input defaults)
+pivLen     = 5
+tolPct     = 3.0 / 100
+maxDepth   = 35.0 / 100
+flatDepth  = 15.0 / 100
+minBase    = 10
+maxBase    = 120
+poleMin    = 12.0 / 100
+poleMax    = 15
+flagMin    = 3
+flagMax    = 12
+maxRetrace = 50.0 / 100
+cupLen     = 80
+minCup     = 20
+cupMinD    = 12.0 / 100
+cupMaxD    = 40.0 / 100
+rimTol     = 5.0 / 100
+handleMin  = 3
+handleMax  = 15
+handleMaxD = 12.0 / 100
+useShelf   = true
+shelfLook  = 120
+shelfZone  = 8.0 / 100
+shelfBars  = 8
+shelfRng   = 5.0 / 100
+extPct     = 5.0 / 100
+holdBars   = 5
+stackSep   = 3.0 / 100
+reqTrend   = false
+
+// Trend gate input to the engine (from the main script's "Trend and volume")
+sma50   = ta.sma(close, 50)
+trendOK = close > sma50 and sma50 > sma50[5]
+
+// Confirmed swing highs / lows
+var shP = array.new_float()
+var shI = array.new_int()
+var slP = array.new_float()
+var slI = array.new_int()
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+if not na(ph)
+    array.push(shP, ph)
+    array.push(shI, bar_index - pivLen)
+    if array.size(shP) > 30
+        array.shift(shP)
+        array.shift(shI)
+if not na(pl)
+    array.push(slP, pl)
+    array.push(slI, bar_index - pivLen)
+    if array.size(slP) > 30
+        array.shift(slP)
+        array.shift(slI)
+
+// Flat base / ascending triangle
+float ceilLvl    = na
+int   touches    = 0
+int   firstTouch = na
+int   lowsFrom   = na
+float baseLow    = na
+float firstL     = na
+float prevL      = na
+float lastL      = na
+int   nLows      = 0
+
+nH = array.size(shP)
+if nH > 0
+    lastH = array.get(shP, nH - 1)
+    ceilLvl := lastH
+    for i = nH - 1 to 0
+        h  = array.get(shP, i)
+        ix = array.get(shI, i)
+        if bar_index - ix > maxBase
+            break
+        if h > lastH * (1 + tolPct)
+            lowsFrom := ix
+            break
+        if h >= lastH * (1 - tolPct)
+            touches += 1
+            ceilLvl := math.max(ceilLvl, h)
+            firstTouch := ix
+    if na(lowsFrom)
+        lowsFrom := firstTouch
+    nL = array.size(slP)
+    if nL > 0 and not na(lowsFrom)
+        for j = 0 to nL - 1
+            ix = array.get(slI, j)
+            if ix > lowsFrom
+                l = array.get(slP, j)
+                baseLow := na(baseLow) ? l : math.min(baseLow, l)
+                if na(firstL)
+                    firstL := l
+                prevL := lastL
+                lastL := l
+                nLows += 1
+
+baseLen    = na(lowsFrom) ? 0 : bar_index - lowsFrom
+depth      = not na(baseLow) and ceilLvl > 0 ? (ceilLvl - baseLow) / ceilLvl : na
+risingLows = nLows >= 2 and lastL > prevL and lastL > firstL
+isTri      = touches >= 2 and risingLows and depth <= maxDepth and baseLen >= minBase
+isFlat     = touches >= 2 and not isTri and depth <= flatDepth and baseLen >= minBase
+
+// Bull flag
+k        = nz(-ta.highestbars(high, flagMax + 1))
+kLen     = math.max(k, 1)
+kLen2    = math.max(k - 1, 1)
+poleTop  = high[k]
+lowPole  = ta.lowest(low, poleMax)
+poleBase = lowPole[k]
+flagLow  = ta.lowest(low, kLen)
+flagHigh = ta.highest(high[1], kLen2)
+poleGain = poleBase > 0 ? poleTop / poleBase - 1 : 0.0
+retr     = poleTop > poleBase ? (poleTop - flagLow) / (poleTop - poleBase) : 1.0
+isFlag   = k >= flagMin and k <= flagMax and poleGain >= poleMin and retr <= maxRetrace
+
+// Cup with handle
+lrOff     = nz(-ta.highestbars(high[handleMax], cupLen - handleMax))
+lrLen     = math.max(lrOff, 1)
+leftAgo   = handleMax + lrOff
+leftRim   = high[leftAgo]
+cupLow    = ta.lowest(low[handleMax], lrLen)
+rOff      = nz(-ta.highestbars(high, handleMax))
+rLen      = math.max(rOff, 1)
+rightRim  = high[rOff]
+handleLow = ta.lowest(low, rLen)
+cupDepth  = leftRim > 0 ? (leftRim - cupLow) / leftRim : 0.0
+hDepth    = rightRim > 0 ? (rightRim - handleLow) / rightRim : 1.0
+cupMid    = cupLow + (leftRim - cupLow) / 2
+isCup     = leftAgo - rOff >= minCup and cupDepth >= cupMinD and cupDepth <= cupMaxD and rightRim >= leftRim * (1 - rimTol) and rightRim <= leftRim * (1 + rimTol) and rOff >= handleMin and hDepth <= handleMaxD and handleLow > cupMid
+
+// Prior-high shelf (Zanger): Dan draws the TBA at the PRIOR HIGH by hand — no repeated-touch
+// requirement. The classic leader shape the base detectors above miss: a rounded recovery /
+// staircase of higher lows into a single old high, with a short tight shelf digesting directly
+// underneath it (DDOG into its 294 spike high, Oct 2026 — the flat-base engine required two
+// ceiling touches within 3% and never armed). Armed only while price STAGES below the high:
+// within shelfZone under it, above the 50 SMA, and either tight (shelfRng over shelfBars) or
+// rising pivot lows. Stop = the staging low.
+shelfLvl  = ta.highest(high[1], shelfLook)
+shelfLoW  = ta.lowest(low, shelfBars)
+// Tightness is judged on CLOSES, not the high-low range: one vertical bar's wick poisons a
+// range test, while Dan's shelf is closes pinching together under the high (DDOG's closes sat
+// inside ~2.5% for a week while its wicks ranged ~8%). Either the last 5 closes inside 4% or
+// the staging window's closes inside shelfRng counts as tight.
+shelfCW5 = ta.lowest(close, 5) > 0 ? ta.highest(close, 5) / ta.lowest(close, 5) - 1 : 1.0
+shelfCW  = ta.lowest(close, shelfBars) > 0 ? ta.highest(close, shelfBars) / ta.lowest(close, shelfBars) - 1 : 1.0
+shelfTight = shelfCW5 <= 0.04 or shelfCW <= shelfRng
+nSL2 = array.size(slP)
+shelfRising = false
+if nSL2 >= 2
+    _ll = array.get(slP, nSL2 - 1)
+    _pl = array.get(slP, nSL2 - 2)
+    _li = array.get(slI, nSL2 - 1)
+    shelfRising := _ll > _pl and bar_index - _li <= shelfBars * 3
+isShelf = useShelf and not na(shelfLvl) and close < shelfLvl and close >= shelfLvl * (1 - shelfZone) and close > sma50 and (shelfTight or shelfRising)
+shelfStp = shelfTight ? shelfLoW : (nSL2 >= 1 ? array.get(slP, nSL2 - 1) : na)
+if not na(shelfStp) and shelfStp >= close
+    shelfStp := na
+
+// Pick the pattern
+string pat = na
+float  tba = na
+float  stp = na
+int    startBar = na
+if isFlag
+    pat := "Bull Flag"
+    tba := flagHigh
+    stp := flagLow
+    startBar := bar_index - k
+else if isCup
+    pat := "Cup w/ Handle"
+    tba := rightRim
+    stp := handleLow
+    startBar := bar_index - leftAgo
+else if isTri
+    pat := "Ascending Triangle"
+    tba := ceilLvl
+    stp := lastL
+    startBar := lowsFrom
+else if isFlat
+    pat := "Flat Base"
+    tba := ceilLvl
+    stp := lastL
+    startBar := lowsFrom
+else if isShelf
+    pat := "Prior-High Shelf"
+    tba := shelfLvl
+    stp := shelfStp
+    startBar := bar_index - shelfBars
+if reqTrend and not trendOK
+    pat := na
+
+var string mPat   = na
+var float  mTba   = na
+var float  mStp   = na
+var int    mStart = na
+var int    mBar   = na
+// FORMER TBA (Victor, 2026-10-13): the most recent TBA the engine rotated AWAY from. When a new
+// base takes over, the outgoing ceiling is retained as a level instead of being forgotten — a
+// former TBA that price broke out through flips to support (the retest line), e.g. AMD's 583.75
+// shelf after the TBA moved up to 648.48. Line only — no alert reads this value.
+var float  fTba   = na
+// PAST TBA (Victor, 2026-10-14): the SECOND most recent retiree that cleared the
+// separation gate below. On a qualifying rotation the outgoing Former shifts here before
+// the new Former is captured, so the chart keeps the last two DISTINCT rotated-away ceilings. AMD is why: the Oct-2026 pullback cut straight through the freshest
+// former (639.00) and stopped at the OLDER shelf (583.75) — the floor under the base price
+// originally launched from. Line only — no alert reads this value either.
+var float  pTba   = na
+// Only anchor to a CURRENT base — one whose ceiling is still near price. During a fast rally the
+// detector keeps re-finding the OLD base (its pivot highs still dominate, no new pivot confirmed
+// yet), which refreshed mBar every bar and kept the stale TBA alive forever. Once price has
+// extended past `extPct` above the ceiling, that base is played out: stop refreshing it so `active`
+// expires (the TBA clears), and let a NEW base take over when one forms (Zanger: new base = new TBA).
+patFresh = not na(pat) and not na(tba) and close <= tba * (1 + extPct)
+if patFresh
+    // Rotation capture: a genuinely different shelf (>1% from the outgoing TBA) retires the old
+    // one to FORMER before it is overwritten. Same-base ceiling revisions (<=1%) do NOT count,
+    // so the former stays the last REAL prior TBA instead of churning on every wiggle.
+    if not na(mTba) and math.abs(tba / mTba - 1) > 0.01
+        // SEPARATION GATE (Victor, 2026-10-14): the outgoing TBA earns a stack slot only
+        // if it sits at least `stackSep` away from the INCOMING shelf. AMD's climb rotated
+        // 629.75 -> 639 -> 648.48 in ~1.4% steps — one markup cluster, not distinct
+        // shelves — and those micro-rotations pushed the governing ~583.75 launch shelf
+        // out of the stack entirely ("picking too many close ones"). Near-duplicate
+        // retirees are simply forgotten; the current TBA still rotates on the >1% rule
+        // above regardless of the gate.
+        if math.abs(mTba / tba - 1) >= stackSep
+            pTba := fTba
+            fTba := mTba
+    mPat   := pat
+    mTba   := tba
+    mStp   := stp
+    mStart := startBar
+    mBar   := bar_index
+
+// Pattern FAILED once price closes below its stop (the base low broke down) — a TBA ceiling far
+// ABOVE price is a dead pattern price fell away from, not a forming base. Drop it so the TBA clears.
+active = not na(mBar) and bar_index - mBar <= holdBars and (na(mStp) or close > mStp)
+
+f_lstyle(string s) => s == "solid" ? line.style_solid : s == "dotted" ? line.style_dotted : line.style_dashed
+
+// ── Daily lock + TBA lines ──────────────────────────────────────────────────
+// Locked to the DAILY timeframe (the main script's default lock). The three
+// levels draw as FLAT horizontal lines at their CURRENT locked values —
+// exactly how the main script draws them (an extent line on the last bar) —
+// never as curves wandering through history.
+[tbaOn, tbaLvl, fmrLvl, pstLvl] = request.security(syminfo.tickerid, "D", [active, mTba, fTba, pTba], lookahead = barmerge.lookahead_off)
+// Same duplicate suppression as the main script: a retiree sitting within
+// 0.5% of the current TBA (or of a drawn Former) is not drawn twice.
+_fmrDup  = tbaOn and showTba and not na(tbaLvl) and not na(fmrLvl) and math.abs(fmrLvl / tbaLvl - 1) <= 0.005
+_pstDupT = tbaOn and showTba and not na(tbaLvl) and not na(pstLvl) and math.abs(pstLvl / tbaLvl - 1) <= 0.005
+_pstDupF = showFmrT and not na(fmrLvl) and not na(pstLvl) and math.abs(pstLvl / fmrLvl - 1) <= 0.005
+var line  _tbaLn = na
+var line  _fmrLn = na
+var line  _pstLn = na
+var label _tbaLbl = na
+var label _fmrLbl = na
+var label _pstLbl = na
+if barstate.islast
+    line.delete(_tbaLn)
+    line.delete(_fmrLn)
+    line.delete(_pstLn)
+    label.delete(_tbaLbl)
+    label.delete(_fmrLbl)
+    label.delete(_pstLbl)
+    _xL = bar_index - lnBack
+    _xR = bar_index + lnFwd
+    if showTba and tbaOn and not na(tbaLvl)
+        _tbaLn := line.new(_xL, tbaLvl, _xR, tbaLvl, color = tbaCol, width = tbaWid, style = f_lstyle(tbaSty))
+        _tbaLbl := label.new(bar_index, tbaLvl, "TBA " + str.tostring(tbaLvl, format.mintick), style = label.style_label_left, color = tbaCol, textcolor = color.black, size = size.small)
+    if showFmrT and not na(fmrLvl) and not _fmrDup
+        _fmrLn := line.new(_xL, fmrLvl, _xR, fmrLvl, color = fmrTbaCol, width = fmrWid, style = f_lstyle(fmrSty))
+        _fmrLbl := label.new(bar_index, fmrLvl, "Former TBA " + str.tostring(fmrLvl, format.mintick), style = label.style_label_left, color = fmrTbaCol, textcolor = color.white, size = size.small)
+    if showPstT and not na(pstLvl) and not _pstDupT and not _pstDupF
+        _pstLn := line.new(_xL, pstLvl, _xR, pstLvl, color = pstTbaCol, width = pstWid, style = f_lstyle(pstSty))
+        _pstLbl := label.new(bar_index, pstLvl, "Past TBA " + str.tostring(pstLvl, format.mintick), style = label.style_label_left, color = pstTbaCol, textcolor = color.white, size = size.small)
