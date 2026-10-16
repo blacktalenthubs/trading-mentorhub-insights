@@ -1,0 +1,132 @@
+// © bolofbaba
+//@version=6
+indicator("Volume Pace · Zanger", overlay = false)
+
+// Dan Zanger's breakout-volume method as a glanceable pane (Victor, 2026-10-14).
+// A TBA breakout needs the day's volume to reach 150% of the 20-day average —
+// and Dan judges it DURING the day by pace: cumulative volume so far vs the
+// average day's cumulative volume by the same time of day. Weak pace midday =
+// reduce / close and wait; pace projecting ~200% = conviction, adding is
+// sanctioned. This pane plots that pace % live: 100 = exactly average pace,
+// 150 = Dan's bar, 250 = extreme. Same math as the Volume Ratio feature inside
+// "TBA Patterns + Anchored VWAP", extracted into its own pane and extended to
+// intraday charts (the HUD version is daily-chart only).
+
+gP      = "Volume pace"
+daysN   = input.int(20, "Average over (days)", minval = 5, maxval = 60, group = gP)
+gridTf  = input.timeframe("5", "Pace grid (intraday resolution)", group = gP)
+danBar  = input.int(150, "Dan's breakout bar (%)", minval = 50, maxval = 400, group = gP)
+paceK   = input.int(3, "Pace trend lookback (grid bars)", minval = 1, maxval = 20, group = gP)
+showLbl = input.bool(true, "Show big label", group = gP)
+showBg  = input.bool(false, "Tint bars at/above Dan's bar", group = gP)
+
+MAXB = 400
+
+// ── Day-profile store ─────────────────────────────────────────────────────
+// Ring buffer of the last daysN days; each day stores its cumulative volume
+// after every grid bar, so any time of day can be compared like-for-like
+// (today's cumulative at this hour vs the average day's cumulative by now).
+var float[] cum   = array.new_float(daysN * MAXB, 0.0)
+var int[]   daySz = array.new_int(daysN, 0)
+var int dayCount  = 0
+newDay = na(time("D")[1]) or time("D") != time("D")[1]
+if newDay
+    dayCount += 1
+ring = dayCount % daysN
+
+isDaily = timeframe.isdaily
+isIntra = timeframe.in_seconds() < 86400
+
+iv      = request.security_lower_tf(syminfo.tickerid, gridTf, volume)
+nIv     = array.size(iv)
+gridSec = timeframe.in_seconds(gridTf)
+useStitch = isIntra and timeframe.in_seconds() > gridSec and nIv > 0
+
+var int   slotPos = 0
+var float runCum  = 0.0
+var int   curRing = 0
+
+if isDaily
+    // One chart bar = one day: write the whole day's cumulative curve.
+    curRing := ring
+    float run = 0.0
+    int n = math.min(nIv, MAXB)
+    if n > 0
+        for i = 0 to n - 1
+            run += nz(array.get(iv, i))
+            array.set(cum, ring * MAXB + i, run)
+        array.set(daySz, ring, n)
+else if isIntra
+    if newDay
+        slotPos := 0
+        runCum  := 0.0
+        curRing := ring
+    if useStitch
+        // Chart bar is coarser than the grid: append its grid sub-bars.
+        for i = 0 to nIv - 1
+            if slotPos < MAXB
+                runCum += nz(array.get(iv, i))
+                array.set(cum, curRing * MAXB + slotPos, runCum)
+                slotPos += 1
+    else
+        // Chart bars are at/below the grid: each chart bar is one slot.
+        if slotPos < MAXB
+            runCum += nz(volume)
+            array.set(cum, curRing * MAXB + slotPos, runCum)
+            slotPos += 1
+    array.set(daySz, curRing, slotPos)
+
+tRing = isDaily ? ring : curRing
+
+// ── Pace computation (mirrors the TBA Patterns Volume Ratio math) ─────────
+f_avgCum(k, cur) =>
+    float sum = 0.0
+    int cnt = 0
+    for s = 0 to daysN - 1
+        sz = array.get(daySz, s)
+        if s != cur and sz > 0
+            idx = math.min(k, sz) - 1
+            if idx >= 0
+                sum += array.get(cum, s * MAXB + idx)
+                cnt += 1
+    cnt > 0 ? sum / cnt : na
+
+f_cumToday(k) => k > 0 ? array.get(cum, tRing * MAXB + k - 1) : na
+
+f_avgTotal(cur) =>
+    float sum = 0.0
+    int cnt = 0
+    for s = 0 to daysN - 1
+        sz = array.get(daySz, s)
+        if s != cur and sz > 0
+            sum += array.get(cum, s * MAXB + sz - 1)
+            cnt += 1
+    cnt > 0 ? sum / cnt : na
+
+nToday   = array.get(daySz, tRing)
+avgNow   = f_avgCum(nToday, tRing)
+pacePct  = nToday > 0 and avgNow > 0 ? f_cumToday(nToday) / avgNow * 100 : na
+kPrev    = nToday - paceK
+avgPrev  = kPrev > 0 ? f_avgCum(kPrev, tRing) : na
+pacePrev = kPrev > 0 and avgPrev > 0 ? f_cumToday(kPrev) / avgPrev * 100 : na
+avgFull  = f_avgTotal(tRing)
+projVol  = not na(pacePct) and not na(avgFull) ? avgFull * pacePct / 100 : na
+
+f_cat(r) => na(r) ? "—" : r >= 250 ? "EXTREME" : r >= danBar ? "HIGH" : r >= 85 ? "AVERAGE" : r >= 60 ? "LIGHT" : "DRY-UP"
+f_col(r) => na(r) ? color.gray : r >= 250 ? color.fuchsia : r >= danBar ? color.lime : r >= 85 ? color.gray : r >= 60 ? color.yellow : color.aqua
+f_vol(x) => na(x) ? "—" : x >= 1000000 ? str.tostring(x / 1000000, "#.##") + "M" : x >= 1000 ? str.tostring(x / 1000, "#.#") + "K" : str.tostring(x, "#")
+trendTxt = na(pacePrev) or na(pacePct) ? "" : pacePct > pacePrev ? " · ▲ rising" : pacePct < pacePrev ? " · ▼ fading" : " · flat"
+
+// ── Pane ──────────────────────────────────────────────────────────────────
+plot(pacePct, "Pace %", color = f_col(pacePct), linewidth = 2)
+hline(danBar, "Dan's bar", color = color.lime, linestyle = hline.style_dashed)
+hline(100, "Average pace", color = color.gray, linestyle = hline.style_dotted)
+hline(250, "Extreme", color = color.new(color.fuchsia, 50), linestyle = hline.style_dotted)
+bgcolor(showBg and not na(pacePct) and pacePct >= danBar ? color.new(color.lime, 92) : na, title = "At/above Dan's bar")
+
+var label _lbl = na
+if barstate.islast and showLbl
+    txt = not (isDaily or isIntra) ? "Volume Pace\nDaily or intraday only" : na(pacePct) ? "PACE —\nwarming up" : "PACE " + str.tostring(pacePct, "#") + "% · " + f_cat(pacePct) + trendTxt + "\nproj " + f_vol(projVol) + " · avg " + f_vol(avgFull)
+    txtCol = na(pacePct) ? color.white : pacePct >= 250 or (pacePct >= 85 and pacePct < danBar) ? color.white : color.black
+    _lbl := label.new(bar_index, na(pacePct) ? 100 : pacePct, txt, style = label.style_label_left, color = f_col(pacePct), textcolor = txtCol, size = size.large)
+    label.delete(_lbl[1])
