@@ -5,6 +5,8 @@
 // + the anchored VWAP trio (AVWAP / AVWAP-H / AVWAP-R — math identical to "TBA Patterns +
 // Anchored VWAP") drawn the same flat way, and CONFLUENCE TAGS: flat lines whose values sit
 // within the confluence % share ONE combined tag naming all of them, instead of stacking.
+// + PROXIMITY: flat lines farther than the proximity % from price are not drawn at all, so a
+// distant line (e.g. the 200 SMA in a strong uptrend) can't stretch the chart's price scale.
 indicator("TBA-signals · flat SMA", overlay=true, max_bars_back=500, max_lines_count=40, max_labels_count=40)
 
 g1 = "Swings"
@@ -215,6 +217,9 @@ flatTag  = input.bool(true, "Show value tags", group = gFlat, tooltip = "The rig
 flatTagOff = input.int(16, "Tag column offset (bars right)", minval = 0, maxval = 120, group = gFlat, tooltip = "Push the SMA value tags into their OWN column, right of the TBA / support / resistance tags, so a confluence doesn't stack them on top of each other.")
 flatTagGap = input.float(0.35, "De-overlap tags within (%)", minval = 0.0, maxval = 2.0, step = 0.05, group = gFlat, tooltip = "When two SMA tags sit closer than this % of price, nudge them apart vertically so both read. The LINE stays on its true value.") / 100.0
 confPct = input.float(0.5, "Confluence: merge tags within (%)", minval = 0.0, maxval = 2.0, step = 0.05, group = gFlat, tooltip = "Flat lines (SMAs + anchored VWAPs) whose values sit within this % of each other are a CONFLUENCE: they share ONE combined tag naming all of them (e.g. 'SMA 50 + AVWAP  344.92-346.88') instead of tags covering each other. Membership is measured from the cluster's lowest line. 0 = never merge; tags then only nudge apart.") / 100.0
+proxPct = input.float(5.0, "Proximity: show lines within (%) of price", minval = 0.0, maxval = 50.0, step = 0.5, group = gFlat, tooltip = "Flat lines (SMAs + anchored VWAPs) farther than this % from the current price are NOT drawn — a far-away line (e.g. the 200 SMA in a strong uptrend) otherwise stretches the chart's price scale and compresses the candles. A hidden line returns on its own when price moves back within range. 0 = show every line.") / 100.0
+// Proximity gate for the flat lines: drawn (and tagged) only when within proxPct of price.
+f_near(float v) => proxPct <= 0 or (close > 0 and not na(v) and math.abs(v / close - 1) <= proxPct)
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 var line[]  _smaLn = array.new_line()
 var label[] _smaLb = array.new_label()
@@ -238,7 +243,7 @@ if barstate.islast
     // 1) lines — always on their TRUE value
     for _i = 0 to 5
         _v = array.get(_sv, _i)
-        if array.get(_ss, _i) and not na(_v)
+        if array.get(_ss, _i) and not na(_v) and f_near(_v)
             _c   = color.new(array.get(_sc, _i), 0)
             _sty = _i == 5 ? line.style_dotted : line.style_solid   // 200 dotted, like the curve version
             array.push(_smaLn, line.new(_xL, _v, _x2, _v, color = _c, width = 3, style = _sty, extend = flatFull ? extend.left : extend.none))
@@ -249,12 +254,13 @@ if barstate.islast
     _avc = array.from(anchCol, anchHiCol, rollCol)
     for _j = 0 to 2
         _wv = array.get(_avv, _j)
-        if array.get(_avs, _j) and not na(_wv)
+        if array.get(_avs, _j) and not na(_wv) and f_near(_wv)
             array.push(_smaLn, line.new(_xL, _wv, _x2, _wv, color = color.new(array.get(_avc, _j), 0), width = avwWidth, style = line.style_solid, extend = flatFull ? extend.left : extend.none))
     // 2) value tags — ONE pass over every flat line (SMAs + anchored VWAPs), in their OWN column
     //    (right of the pattern tags). CONFLUENCE: lines whose values sit within confPct of the
     //    cluster's lowest line share ONE combined tag naming all of them (names joined with "+",
-    //    value shown as the cluster's low-high range) instead of tags covering each other. Single
+    //    value shown as the cluster's low-high range, tag anchored at the cluster's centre)
+    //    instead of tags covering each other. Single
     //    lines keep the classic tag (SMA name + slope arrow + value). Lines always stay on their
     //    TRUE value; distinct tags nudge apart vertically by flatTagGap so they never stack.
     if flatTag
@@ -264,7 +270,7 @@ if barstate.islast
         _ta = array.new_string()   // slope arrow for SMAs, "" for the VWAPs
         for _i = 0 to 5
             _v = array.get(_sv, _i)
-            if array.get(_ss, _i) and not na(_v)
+            if array.get(_ss, _i) and not na(_v) and f_near(_v)
                 _slv = array.get(_sl, _i)
                 array.push(_tv, _v)
                 array.push(_tn, array.get(_sn, _i))
@@ -276,7 +282,7 @@ if barstate.islast
         _avn2 = array.from("AVWAP", "AVWAP-H", "AVWAP-R")
         for _j = 0 to 2
             _wv = array.get(_avv2, _j)
-            if array.get(_avs2, _j) and not na(_wv)
+            if array.get(_avs2, _j) and not na(_wv) and f_near(_wv)
                 array.push(_tv, _wv)
                 array.push(_tn, array.get(_avn2, _j))
                 array.push(_tc, array.get(_avc2, _j))
@@ -306,7 +312,7 @@ if barstate.islast
                     else
                         break
                 _valTxt = _hi > _base ? str.tostring(_base, format.mintick) + "-" + str.tostring(_hi, format.mintick) : str.tostring(_base, format.mintick)
-                _ly = _base
+                _ly = _hi > _base ? (_base + _hi) / 2 : _base   // a merged tag sits at its cluster's CENTRE, so every member line is near its tag
                 if flatTagGap > 0 and not na(_lastY) and _ly < _lastY + _gap
                     _ly := _lastY + _gap
                 _lastY := _ly
