@@ -1,0 +1,498 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + opening range, on one chart. VISUAL ONLY.
+// A merge of intraday_sma_proximity.pine + levels_proximity.pine (both left in place, superseded).
+//
+//   • SMA 20 (1h+4h) ALWAYS draw; SMA 200 (1h+4h) are %-gated (appear as price comes into range).
+//   • PDH / PDL + PWH / PWL + 2PWH / 2PWL (the week before last) + today's Open ALWAYS draw.
+//   • The Open tag swaps its price/% for a trend flag: DOWNTRENDING when price sits under the
+//     prior weekly low and/or the week-before low (weekly lower lows), UPTRENDING when it sits
+//     over the prior weekly high and/or the week-before high (weekly higher highs). Inside the
+//     two-week range neither flag shows — the tag keeps its normal price/%.
+//   • PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
+//   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
+//     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
+//   • Opening range (first N min of the RTH session): ORH / ORL / midpoint, each toggleable. The
+//     last COMPLETED range is latched and carried forward (keeps ~1 day — never blanks mid-formation).
+//   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
+//   • HUD: the opening-range read only — OR width, OR ÷ ADR, Verdict (NARROW/WIDE, ★ if bottom-25%).
+// SMAs come from request.security on fixed 60/240 resolutions; prior highs/lows are settled
+// ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
+// Every line group has its own colour / width / style — change them freely.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("day signals", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
+
+// ── Intraday SMAs (each toggles on its own; its own colour / width / style) ──
+gMa         = "Intraday SMAs"
+show_20_1h  = input.bool(false, "SMA 20 · 1h",  group = gMa, inline = "m1")
+c_20_1h     = input.color(#26A69A, "", group = gMa, inline = "m1")
+w_20_1h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m1")
+y_20_1h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m1")
+show_50_1h  = input.bool(false, "SMA 50 · 1h",  group = gMa, inline = "m2b")
+c_50_1h     = input.color(#FB8C00, "", group = gMa, inline = "m2b")
+w_50_1h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m2b")
+y_50_1h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m2b")
+show_200_1h = input.bool(false, "SMA 200 · 1h", group = gMa, inline = "m2")
+c_200_1h    = input.color(#2962FF, "", group = gMa, inline = "m2")
+w_200_1h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m2")
+y_200_1h    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m2")
+show_20_4h  = input.bool(false, "SMA 20 · 4h",  group = gMa, inline = "m3")
+c_20_4h     = input.color(#00897B, "", group = gMa, inline = "m3")
+w_20_4h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m3")
+y_20_4h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m3")
+show_50_4h  = input.bool(false, "SMA 50 · 4h",  group = gMa, inline = "m4b")
+c_50_4h     = input.color(#E65100, "", group = gMa, inline = "m4b")
+w_50_4h     = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m4b")
+y_50_4h     = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4b")
+show_200_4h = input.bool(false, "SMA 200 · 4h", group = gMa, inline = "m4")
+c_200_4h    = input.color(#1565C0, "", group = gMa, inline = "m4")
+w_200_4h    = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "m4")
+y_200_4h    = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "m4")
+show_20_d   = input.bool(true, "SMA 20 · Daily", group = gMa, inline = "md")
+c_20_d      = input.color(#AB47BC, "", group = gMa, inline = "md")
+w_20_d      = input.int(3, "w", minval = 1, maxval = 10, group = gMa, inline = "md")
+y_20_d      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "md")
+
+// ── Prior levels (D / W / M / Q) + today's Open (H+L of a group share colour / width / style) ──
+gLv          = "Prior levels (D/W/M/Q)"
+show_levels  = input.bool(true, "Show prior levels (master)", group = gLv)
+show_pdh     = input.bool(true, "PDH", group = gLv, inline = "lv1")
+show_pdl     = input.bool(true, "PDL", group = gLv, inline = "lv1")
+c_pd         = input.color(#787B86, "", group = gLv, inline = "lv1")
+w_pd         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv1")
+y_pd         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv1")
+show_pwh     = input.bool(true, "PWH", group = gLv, inline = "lv2")
+show_pwl     = input.bool(true, "PWL", group = gLv, inline = "lv2")
+c_pw         = input.color(#AB47BC, "", group = gLv, inline = "lv2")
+w_pw         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2")
+y_pw         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
+show_p2wh    = input.bool(true, "2PWH", group = gLv, inline = "lv2b")
+show_p2wl    = input.bool(true, "2PWL", group = gLv, inline = "lv2b")
+c_p2w        = input.color(#9575CD, "", group = gLv, inline = "lv2b")
+w_p2w        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2b")
+y_p2w        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2b")
+show_pmh     = input.bool(true, "PMH", group = gLv, inline = "lv3")
+show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
+c_pm         = input.color(#FF7043, "", group = gLv, inline = "lv3")
+w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
+y_pm         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
+show_pqh     = input.bool(true, "PQH", group = gLv, inline = "lvq")
+show_pql     = input.bool(true, "PQL", group = gLv, inline = "lvq")
+c_pq         = input.color(#EC407A, "", group = gLv, inline = "lvq")
+w_pq         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvq")
+y_pq         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvq")
+show_open    = input.bool(true, "Today's open", group = gLv, inline = "lvo")
+c_open       = input.color(#FFB300, "", group = gLv, inline = "lvo")
+w_open       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvo")
+y_open       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvo")
+
+// ── Premarket H/L (most recent 0400-0930 ET session) ──
+// ── Opening range — first N min of the RTH session (9:30 ET). Faint ORH / ORL / midpoint, each
+//    its own toggle. Locked to a base TF so it's identical on any chart TF. ──
+gOR          = "Opening range (RTH)"
+or_win       = input.string("15", "Window (min)", options = ["15", "30", "60"], group = gOR, tooltip = "First N minutes of the regular session from 9:30 ET (15 = 9:30-9:45). The range is whatever price does in that window.")
+or_base      = input.string("5", "Lock to base TF (min)", options = ["1", "3", "5", "15"], group = gOR, tooltip = "Build the OR from this base timeframe so it stays identical on any chart TF.")
+show_orh     = input.bool(true, "OR High", group = gOR, inline = "or1")
+c_orh        = input.color(color.new(#26A69A, 20), "", group = gOR, inline = "or1")
+w_orh        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or1")
+y_orh        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or1")
+show_orl     = input.bool(true, "OR Low", group = gOR, inline = "or2")
+c_orl        = input.color(color.new(#EF5350, 20), "", group = gOR, inline = "or2")
+w_orl        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or2")
+y_orl        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or2")
+show_ormid   = input.bool(true, "OR Mid", group = gOR, inline = "or3")
+c_ormid      = input.color(color.new(color.gray, 40), "", group = gOR, inline = "or3")
+w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
+y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
+show_or_tags = input.bool(true, "OR tags (ORH / ORL / mid labels)", group = gOR, tooltip = "Uncheck to hide the text labels but keep the lines.")
+// Range quality — the HUD read: OR width vs the stock's ADR + its own recent OR distribution.
+or_adrLen    = input.int(12, "ADR lookback (days)", minval = 3, maxval = 60, group = gOR)
+or_narrow    = input.float(50.0, "NARROW if OR ≤ this % of ADR", minval = 10, maxval = 100, step = 5, group = gOR, tooltip = "A small OR vs the average daily range = most of the day's move is still ahead → higher breakout odds.")
+or_wide      = input.float(90.0, "WIDE if OR ≥ this % of ADR", minval = 50, maxval = 200, step = 5, group = gOR, tooltip = "An OR already near/over the ADR has little room left → breakouts rarely run.")
+or_distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval = 40, group = gOR, tooltip = "Where today's OR width sits vs the last N sessions. Tighter than ≥75% = bottom-25% = highest-odds tape.")
+
+// ── Recent daily gaps (untraded zone between a day's prior close and its open — magnets price revisits) ──
+gGp          = "Gaps (daily)"
+show_gaps    = input.bool(true, "Show recent daily gaps", group = gGp)
+gap_unfilled = input.bool(true, "Unfilled gaps only", group = gGp, tooltip = "A gap is 'filled' once price trades back through its zone. ON = hide gaps price has already closed, so only the still-open magnets show.")
+gap_n        = input.int(3, "How many most-recent gaps", minval = 1, maxval = 10, group = gGp)
+gap_min      = input.float(0.3, "Ignore gaps smaller than (%)", minval = 0.0, maxval = 10, step = 0.1, group = gGp)
+gap_look     = input.int(40, "Scan window (daily bars back)", minval = 5, maxval = 200, group = gGp)
+c_gap_up     = input.color(color.new(#26A69A, 90), "Gap-up fill",   group = gGp, inline = "gc")
+c_gap_dn     = input.color(color.new(#EF5350, 90), "Gap-down fill", group = gGp, inline = "gc")
+
+// ── Proximity / gating — the 200 SMAs only (the 20s are always on; W/M/Q are nearest-above/below gated) ──
+gPx       = "Proximity / gating"
+prox_on   = input.bool(true, "Gate the 200 SMAs by % distance from price", group = gPx, tooltip = "The 1h/4h 20 SMAs always draw. The 200 SMAs draw ONLY when price is within the % below — which is exactly when a ma200_support signal fires. OFF = always draw them too.")
+prox_pct  = input.float(8.0, "  · 200 draws only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx)
+
+// ── Style — colour mode, line extent, merge + de-overlap ──
+gSt        = "Style"
+color_mode = input.string("per-line", "Line color", options = ["per-line", "role (support / resistance)"], group = gSt, tooltip = "per-line = each wears the colour set above. role = green when price is above the line (support), red when below (resistance).")
+sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
+res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
+flat_len   = input.int(60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
+line_full  = input.bool(true, "Extend lines across the whole chart", group = gSt, tooltip = "ON: each line runs edge-to-edge (extends left from the tag) so it covers the chart on ANY timeframe, even 1m. OFF: the line is only the fixed bars-back length.")
+merge_pct  = input.float(0.25, "Merge lines within (%) into ONE", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "Lines stacked within this % collapse into a SINGLE line whose tag names every member (e.g. 'SMA 20 (1h) · PDL ·×2'). The merged line sits on the member NEAREST price. 0 = draw every line separately.") / 100.0
+lbl_gap    = input.float(0.08, "De-overlap labels within (%)", minval = 0.0, maxval = 1, step = 0.02, group = gSt, tooltip = "Two lines too close to MERGE but close enough that their right-edge tags would collide get nudged apart vertically — the LINE stays on its true price, only the text box shifts. 0 = off.") / 100.0
+by_role    = color_mode != "per-line"
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+
+// ── HUD ──
+gHd        = "HUD"
+show_hud   = input.bool(true, "Show the HUD", group = gHd)
+hud_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gHd)
+hud_size   = input.string("small", "Text size", options = ["tiny", "small", "normal", "large"], group = gHd)
+hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
+hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
+
+// ── values ──
+tid = syminfo.tickerid
+// SMAs — fixed 1h (60) and 4h (240) resolutions, non-repainting (lookahead_off).
+f_sma(simple string tf, simple int len) => request.security(tid, tf, ta.sma(close, len), lookahead = barmerge.lookahead_off)
+s20_1h  = f_sma("60", 20)
+s50_1h  = f_sma("60", 50)
+s200_1h = f_sma("60", 200)
+s20_4h  = f_sma("240", 20)
+s50_4h  = f_sma("240", 50)
+s200_4h = f_sma("240", 200)
+s20_d   = f_sma("D", 20)   // daily 20 SMA — locked to the daily, non-repainting, on any chart TF
+// Today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
+// is safe here: a day's open is fixed at the bar's start, so it's known, not future data.
+d_open  = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
+// Prior-period highs/lows — settled ([1] + lookahead_on), never repaint.
+f_phi(simple string tf) => request.security(tid, tf, high[1], lookahead = barmerge.lookahead_on)
+f_plo(simple string tf) => request.security(tid, tf, low[1],  lookahead = barmerge.lookahead_on)
+pdh = f_phi("D")
+pdl = f_plo("D")
+pwh = f_phi("W")
+pwl = f_plo("W")
+// Week before last — settled ([2] + lookahead_on), never repaint.
+p2wh = request.security(tid, "W", high[2], lookahead = barmerge.lookahead_on)
+p2wl = request.security(tid, "W", low[2],  lookahead = barmerge.lookahead_on)
+// Weekly lower-lows / higher-highs states — price beyond the prior two weeks' range edges.
+wkDn = (not na(pwl) and close < pwl) or (not na(p2wl) and close < p2wl)
+wkUp = (not na(pwh) and close > pwh) or (not na(p2wh) and close > p2wh)
+pmh = f_phi("M")
+pml = f_plo("M")
+pqh = f_phi("3M")
+pql = f_plo("3M")
+
+// ── Opening range high/low — the first `or_win` minutes of the RTH session, built on the `or_base`
+// series (ta.change(time("D")) fires at the 9:30 session open on an RTH chart) so it's identical on
+// any chart TF. lookahead_on reads the settled base bars (non-repainting on history). ──
+_orMin  = math.round(str.tonumber(or_win))
+_orBase = str.tonumber(or_base)
+f_or() =>
+    var float _h  = na      // the forming session's high/low (built over the window)
+    var float _l  = na
+    var float _ch = na      // the last COMPLETED OR — carried forward until the next one completes
+    var float _cl = na
+    var int   _sb = 0
+    _new  = ta.change(time("D")) != 0
+    _sb  := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(_orMin / _orBase))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    if _sb == _bars - 1      // the opening window just closed → latch it; _ch/_cl persist from here
+        _ch := _h
+        _cl := _l
+    [_ch, _cl]
+[orh, orl] = request.security(tid, or_base, f_or(), lookahead = barmerge.lookahead_on)
+orMid  = na(orh) or na(orl) ? na : (orh + orl) / 2.0
+orW    = na(orh) or na(orl) ? na : orh - orl                         // range height (price)
+orWpct = na(orW) or close <= 0 ? na : orW / close * 100.0            // range as % of price
+
+// ── Range quality — OR width vs ADR, and vs its own last N sessions (the ORB HUD read) ──
+adr     = request.security(tid, "D", ta.sma(high - low, or_adrLen), lookahead = barmerge.lookahead_off)
+adrPct  = na(adr) or close <= 0 ? na : adr / close * 100.0
+orVsAdr = na(orWpct) or na(adrPct) or adrPct <= 0 ? na : orWpct / adrPct * 100.0   // OR as % of ADR
+var float[] _orHist = array.new_float()
+var float   _dayOR  = na
+_nDay = ta.change(time("D")) != 0
+if _nDay
+    if not na(_dayOR)
+        array.push(_orHist, _dayOR)
+        if array.size(_orHist) > or_distLen
+            array.shift(_orHist)
+    _dayOR := na
+if not na(orW)
+    _dayOR := orW
+f_orPctile() =>
+    float _p = na
+    _nn = array.size(_orHist)
+    if _nn > 0 and not na(orW)
+        int _bigger = 0
+        for _i = 0 to _nn - 1
+            if array.get(_orHist, _i) > orW
+                _bigger += 1
+        _p := _bigger / _nn * 100.0    // % of recent days WIDER than today → high = today is tighter
+    _p
+orPctile   = f_orPctile()
+orNarrow   = not na(orVsAdr) and orVsAdr <= or_narrow
+orWide     = not na(orVsAdr) and orVsAdr >= or_wide
+orBottom25 = not na(orPctile) and orPctile >= 75.0
+
+// ── daily O/H/L/C history (last gap_look sessions) for gap detection — the var arrays persist in the
+// DAILY context, so one security call hands back trailing windows we scan for gaps in the chart context ──
+f_dHist() =>
+    var float[] _O = array.new_float()
+    var float[] _H = array.new_float()
+    var float[] _L = array.new_float()
+    var float[] _C = array.new_float()
+    array.push(_O, open)
+    array.push(_H, high)
+    array.push(_L, low)
+    array.push(_C, close)
+    if array.size(_O) > gap_look
+        array.shift(_O)
+        array.shift(_H)
+        array.shift(_L)
+        array.shift(_C)
+    [_O, _H, _L, _C]
+[dO, dH, dL, dC] = request.security(tid, "D", f_dHist(), lookahead = barmerge.lookahead_off)
+
+// the 200-SMA gate — absolute % distance, so a far 200 hides whichever side it sits on
+prox_ok(float v) =>
+    float d = na(v) or close <= 0 ? float(na) : math.abs(v - close) / close * 100.0
+    not prox_on or na(d) or d <= prox_pct
+
+// ── queue machinery — everything that survives its gate is QUEUED, then merged + drawn in one pass ──
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var color[]  _qc = array.new_color()
+var int[]    _qw = array.new_int()
+var string[] _qy = array.new_string()
+var string[] _qo = array.new_string()
+queue(float v, string nm, color col, int wid, string sty, bool show, string ovr = "") =>
+    if show and not na(v)
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qc, col)
+        array.push(_qw, wid > 10 ? 10 : wid < 1 ? 1 : wid)
+        array.push(_qy, f_style(sty))
+        array.push(_qo, ovr)
+
+// ── draw ──
+if barstate.islast
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qc)
+    array.clear(_qw)
+    array.clear(_qy)
+    array.clear(_qo)
+
+    // SMAs — 20s always; 200s gated by proximity
+    queue(s20_1h,  "SMA 20 (1h)",  c_20_1h,  w_20_1h,  y_20_1h,  show_20_1h)
+    queue(s20_4h,  "SMA 20 (4h)",  c_20_4h,  w_20_4h,  y_20_4h,  show_20_4h)
+    queue(s50_1h,  "SMA 50 (1h)",  c_50_1h,  w_50_1h,  y_50_1h,  show_50_1h)
+    queue(s50_4h,  "SMA 50 (4h)",  c_50_4h,  w_50_4h,  y_50_4h,  show_50_4h)
+    queue(s200_1h, "SMA 200 (1h)", c_200_1h, w_200_1h, y_200_1h, show_200_1h and prox_ok(s200_1h))
+    queue(s200_4h, "SMA 200 (4h)", c_200_4h, w_200_4h, y_200_4h, show_200_4h and prox_ok(s200_4h))
+    queue(s20_d,   "SMA 20 (D)",   c_20_d,   w_20_d,   y_20_d,   show_20_d)
+    // always-on: today's open + yesterday's range (prior levels gated by the master toggle)
+    queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open), wkDn ? "DOWNTRENDING" : wkUp ? "UPTRENDING" : "")
+    queue(pdh,    "PDH",   c_pd,   w_pd,   y_pd,   show_levels and show_pdh  and not na(pdh))
+    queue(pdl,    "PDL",   c_pd,   w_pd,   y_pd,   show_levels and show_pdl  and not na(pdl))
+    // prior-WEEK high/low are a primary battleground like PDH/PDL → ALWAYS draw both (2026-10-08).
+    // Previously folded into the nearest-above/below pool, which hid PWH whenever PWL sat between it
+    // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
+    queue(pwh,    "PWH",   c_pw,   w_pw,   y_pw,   show_levels and show_pwh  and not na(pwh))
+    queue(pwl,    "PWL",   c_pw,   w_pw,   y_pw,   show_levels and show_pwl  and not na(pwl))
+    // the week before last draws the same way — an older battleground price still respects
+    queue(p2wh,   "2PWH",  c_p2w,  w_p2w,  y_p2w,  show_levels and show_p2wh and not na(p2wh))
+    queue(p2wl,   "2PWL",  c_p2w,  w_p2w,  y_p2w,  show_levels and show_p2wl and not na(p2wl))
+    // monthly + quarterly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
+    _hv = array.from(pmh, pml, pqh, pql)
+    _hn = array.from("PMH", "PML", "PQH", "PQL")
+    _hc = array.from(c_pm, c_pm, c_pq, c_pq)
+    _hw = array.from(w_pm, w_pm, w_pq, w_pq)
+    _hy = array.from(y_pm, y_pm, y_pq, y_pq)
+    _he = array.from(show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql)
+    float  _luV = na
+    string _luN = ""
+    color  _luC = c_pw
+    int    _luW = 1
+    string _luY = "dotted"
+    float  _ldV = na
+    string _ldN = ""
+    color  _ldC = c_pw
+    int    _ldW = 1
+    string _ldY = "dotted"
+    for _li = 0 to array.size(_hv) - 1
+        _lv = array.get(_hv, _li)
+        if array.get(_he, _li) and not na(_lv)
+            if _lv > close and (na(_luV) or _lv < _luV)
+                _luV := _lv
+                _luN := array.get(_hn, _li)
+                _luC := array.get(_hc, _li)
+                _luW := array.get(_hw, _li)
+                _luY := array.get(_hy, _li)
+            if _lv < close and (na(_ldV) or _lv > _ldV)
+                _ldV := _lv
+                _ldN := array.get(_hn, _li)
+                _ldC := array.get(_hc, _li)
+                _ldW := array.get(_hw, _li)
+                _ldY := array.get(_hy, _li)
+    queue(_luV, _luN, _luC, _luW, _luY, not na(_luV))
+    queue(_ldV, _ldN, _ldC, _ldW, _ldY, not na(_ldV))
+
+    // ── MERGE + DE-OVERLAP + DRAW — lines within merge_pct fuse into one tag naming all members;
+    //    the merged line sits on the member nearest price. Tags too close to merge are nudged up. ──
+    _n = array.size(_qv)
+    if _n > 0
+        _ord = array.sort_indices(_qv, order.ascending)
+        float _gap     = close * lbl_gap
+        float _lastLbl = na
+        _i = 0
+        while _i < _n
+            _s     = array.get(_ord, _i)
+            _hi    = array.get(_qv, _s)
+            _nm    = array.get(_qn, _s)
+            _cnt   = 1
+            _near  = _hi
+            _nearD = math.abs(close - _hi)
+            _col   = array.get(_qc, _s)
+            _wid   = array.get(_qw, _s)
+            _sty   = array.get(_qy, _s)
+            _ovr   = array.get(_qo, _s)
+            _j = _i + 1
+            while _j < _n
+                _k  = array.get(_ord, _j)
+                _v2 = array.get(_qv, _k)
+                if merge_pct > 0 and _v2 <= _hi * (1.0 + merge_pct)
+                    _hi  := _v2
+                    _nm  := _nm + " · " + array.get(_qn, _k)
+                    _cnt := _cnt + 1
+                    if math.abs(close - _v2) < _nearD
+                        _near  := _v2
+                        _nearD := math.abs(close - _v2)
+                        _col   := array.get(_qc, _k)
+                        _wid   := array.get(_qw, _k)
+                        _sty   := array.get(_qy, _k)
+                        _ovr   := array.get(_qo, _k)
+                    _j := _j + 1
+                else
+                    break
+            _sup  = close > _near
+            _draw = by_role ? (_sup ? sup_col : res_col) : _col
+            _w    = _cnt > 1 and _wid < 10 ? _wid + 1 : _wid
+            float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
+            _base = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "")
+            _txt  = _ovr != "" ? _base + "  · " + _ovr : _base + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
+            float _lblY = _near
+            if lbl_gap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
+                _lblY := _lastLbl + _gap
+            _lastLbl := _lblY
+            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty, extend = line_full ? extend.left : extend.none))
+            array.push(_lb, label.new(bar_index + 6, _lblY, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
+            _i := _j
+
+// ── most-recent DAILY gaps drawn as zones — walk back from today, draw the N newest (unfilled) gaps ──
+var box[]   _gbx = array.new_box()
+if barstate.islast
+    if array.size(_gbx) > 0
+        for i = 0 to array.size(_gbx) - 1
+            box.delete(array.get(_gbx, i))
+        array.clear(_gbx)
+    if show_gaps
+        _sz    = array.size(dC)
+        _drawn = 0
+        _gi    = _sz - 1
+        while _gi >= 1 and _drawn < gap_n
+            _pc = array.get(dC, _gi - 1)   // prior session close
+            _o  = array.get(dO, _gi)       // this session open
+            if not na(_pc) and not na(_o) and _pc > 0 and math.abs((_o - _pc) / _pc * 100.0) >= gap_min
+                _up  = _o > _pc
+                _top = math.max(_o, _pc)
+                _bot = math.min(_o, _pc)
+                // fill = price trades back INTO the zone on/after the day it formed
+                _filled = false
+                if gap_unfilled
+                    _fj = _gi
+                    while _fj <= _sz - 1 and not _filled
+                        _lo = array.get(dL, _fj)
+                        _hi = array.get(dH, _fj)
+                        if _up and not na(_lo) and _lo <= _bot
+                            _filled := true
+                        if (not _up) and not na(_hi) and _hi >= _top
+                            _filled := true
+                        _fj := _fj + 1
+                if not (gap_unfilled and _filled)
+                    _gcol = _up ? c_gap_up : c_gap_dn
+                    _gbrd = color.new(_gcol, 70)   // faint outline so the zone reads as a whisper, not a frame
+                    array.push(_gbx, box.new(bar_index - flat_len, _top, bar_index + 6, _bot, border_color = _gbrd, bgcolor = _gcol, extend = line_full ? extend.left : extend.none))
+                    _drawn := _drawn + 1
+            _gi := _gi - 1
+
+// ── Opening range — faint ORH / ORL / midpoint (first N min of the RTH session), each toggleable.
+//    Standalone faint lines (NOT in the level queue, so they stay a whisper and never fuse a tag). ──
+var line  _orhL = na
+var line  _orlL = na
+var line  _ormL = na
+var label _orhT = na
+var label _orlT = na
+var label _ormT = na
+if barstate.islast
+    if not na(_orhL)
+        line.delete(_orhL)
+        _orhL := na
+    if not na(_orlL)
+        line.delete(_orlL)
+        _orlL := na
+    if not na(_ormL)
+        line.delete(_ormL)
+        _ormL := na
+    if not na(_orhT)
+        label.delete(_orhT)
+        _orhT := na
+    if not na(_orlT)
+        label.delete(_orlT)
+        _orlT := na
+    if not na(_ormT)
+        label.delete(_ormT)
+        _ormT := na
+    _orExt = line_full ? extend.left : extend.none
+    if show_orh and not na(orh)
+        _orhL := line.new(bar_index - flat_len, orh, bar_index + 6, orh, color = c_orh, width = w_orh, style = f_style(y_orh), extend = _orExt)
+        if show_or_tags
+            _orhT := label.new(bar_index + 6, orh, "ORH", style = label.style_none, textcolor = c_orh, size = size.tiny, textalign = text.align_left)
+    if show_orl and not na(orl)
+        _orlL := line.new(bar_index - flat_len, orl, bar_index + 6, orl, color = c_orl, width = w_orl, style = f_style(y_orl), extend = _orExt)
+        if show_or_tags
+            _orlT := label.new(bar_index + 6, orl, "ORL", style = label.style_none, textcolor = c_orl, size = size.tiny, textalign = text.align_left)
+    if show_ormid and not na(orMid)
+        _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
+        if show_or_tags
+            _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
+
+// ── HUD — the opening-range read: price vs OR, OR width, OR ÷ ADR, Verdict (2026-10-08).
+//    bottom-25% (tighter than ≥75% of the last N ORs) still flags the ★ on the verdict. ──
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 4, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+f_row(int r, string k, string v, color c) =>
+    table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
+    table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
+if show_hud and barstate.islast
+    _orStat = na(orh) or na(orl) ? "—" : close > orh ? "above ORH ▲" : close < orl ? "below ORL ▼" : "inside range"
+    _orSCol = na(orh) or na(orl) ? color.gray : close > orh ? color.lime : close < orl ? color.red : color.silver
+    _orVerd = orNarrow and orBottom25 ? "NARROW + bottom-25% ★" : orNarrow ? "NARROW" : orWide ? "WIDE" : na(orVsAdr) ? "—" : "normal"
+    _orVCol = (orNarrow and orBottom25) ? color.lime : orNarrow ? #8BC34A : orWide ? color.red : color.white
+    f_row(0, "OR " + or_win + "m", _orStat, _orSCol)
+    f_row(1, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
+    f_row(2, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
+    f_row(3, "Verdict", _orVerd, _orVCol)
