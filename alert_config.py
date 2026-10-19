@@ -585,6 +585,21 @@ MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
 # MARKET_GAUGE_SYMBOLS. The rules stay in ENABLED_RULES; they just only run for these symbols.
 WEEKLY_SIGNAL_SYMBOLS = {"SPY", "QQQ", "SMH"}
 
+# Signal symbol allowlist (trader, 2026-10-19) — HARDCODED and TEMPORARY. While the
+# trader evaluates the alert system he wants a SMALL set of names: the scanner still
+# scans the full focus universe and records every alert, but only these symbols may
+# DELIVER (Telegram / email / APNs / live feed). Everything else is recorded with
+# suppressed_reason="symbol_not_in_allowlist" (see the delivery gate in
+# api/app/background/monitor.py) — visible in the feed's collapsed view, never
+# pushed, and (because the delivery dedups anchor only on DELIVERED rows) it never
+# blocks a later alert at the same level. To restore full-universe delivery,
+# remove this constant and its gate in monitor.py.
+SIGNAL_SYMBOL_ALLOWLIST = {
+    "SOXL", "DRAM", "QQQ", "NVDA", "IWM", "SPY", "SNDK", "MU", "LITE", "BE",
+    "AMZN", "GOOGL", "TSLA", "TSM", "SMH", "NBIS", "AMD", "AAPL", "CRDO",
+    "PLTR", "CRWD",
+}
+
 # Weekly rising 20 SMA support (wsma20_support) — a swing signal. Price above and within
 # WSMA20_SUPPORT_MAX_DISTANCE_PCT of a RISING weekly 20 SMA = at weekly support in a weekly
 # uptrend (captures SNDK's bounce and SPY riding the line). Stop sits a weekly-width below.
