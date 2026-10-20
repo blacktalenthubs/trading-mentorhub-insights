@@ -1,0 +1,334 @@
+//@version=5
+// Volume Profile · Pro — horizontal volume-by-price over the last N bars, with POC,
+// Value Area (VAH/VAL) and a rolling/anchored VWAP. Every feature is a toggle you
+// control: columns, value-area %, histogram width/direction/offset, volume labels,
+// and the colours/opacities/widths of the blocks and lines. Overlay on price.
+indicator("Volume Profile · Pro v2", "VP-pro v2", overlay = true,
+     max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+gP = "Profile"
+barsBack = input.int(150, "Bars Back (per current timeframe)", minval = 10, maxval = 5000, group = gP)
+ltfTF = input.timeframe("30", "Lower Timeframe (sub-bars)", group = gP, tooltip = "v2 builds the profile from sub-bars of this timeframe; if the calculation times out, use 60.")
+columns  = input.int(35,  "Columns (price rows)",              minval = 5,  maxval = 200,  group = gP)
+vaPct    = input.float(70, "Value Area %",                     minval = 1,  maxval = 100,  group = gP)
+
+// ── Histogram (the blocks) ───────────────────────────────────────────────────
+gH = "Histogram"
+histoWidth  = input.int(24, "Histogram width (bars)", minval = 1, maxval = 300, group = gH)
+histoDir    = input.string("Out of chart", "Histogram direction", options = ["Into chart", "Out of chart"], group = gH, tooltip = "Out of chart = blocks sit in the empty margin to the RIGHT of price (won't cover candles). Into chart = grow left over the candles.")
+histoOffset = input.int(3, "Histogram Offset (bars)", tooltip = "Gap (in bars) between the last candle and the profile. Increase to push it further right.", group = gH)
+fillColor   = input.color(color.gray,  "Block fill color",    inline = "f", group = gH)
+fillTransp  = input.int(70, "fill transp %",  minval = 0, maxval = 100, inline = "f", group = gH, tooltip = "0 = solid, 100 = invisible.")
+bordColor   = input.color(color.black, "Block border color",  inline = "b", group = gH)
+bordTransp  = input.int(0,  "border transp %", minval = 0, maxval = 100, inline = "b", group = gH, tooltip = "0 = solid, 100 = hidden.")
+showVolLbl  = input.bool(true, "Show volume labels", group = gH)
+volLblSize  = input.string("tiny", "Volume label size", options = ["tiny", "small", "normal"], group = gH)
+volLblColor = input.color(color.black, "Volume label color", group = gH)
+
+// ── Levels (POC / VAH / VAL / AVWAP) ─────────────────────────────────────────
+gL = "Levels"
+showPOC   = input.bool(true,  "Show POC line", inline = "poc", group = gL)
+pocColor = color.red
+showVA    = input.bool(true,  "Show VAH / VAL lines", inline = "va", group = gL)
+vaColor   = input.color(color.orange, "", inline = "va", group = gL)
+vaWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "va", group = gL)
+showAVWAP = input.bool(true,  "Show AVWAP (rolling VWAP over the window)", inline = "av", group = gL)
+avColor   = input.color(color.blue, "", inline = "av", group = gL)
+avWidth   = input.int(2, "w", minval = 1, maxval = 8, inline = "av", group = gL)
+showOpen = input.bool(true, "Today's open", inline = "opn", group = gL)
+openColor = input.color(#FFB300, "", inline = "opn", group = gL)
+openWidth = input.int(1, "w", minval = 1, maxval = 10, inline = "opn", group = gL)
+openStyle = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "opn", group = gL)
+showLbls  = input.bool(true, "Show line price labels (POC/VAH/VAL)", group = gL)
+
+// ── Value-area shading ───────────────────────────────────────────────────────
+gVA = "Value-area shading"
+shadeVA    = input.bool(true, "Tint the rows inside the value area", group = gVA)
+vaBarColor = input.color(#2962FF, "Value-area row color", group = gVA)
+
+// ── Volume nodes (HVN shelves / LVN fast zones) ──────────────────────────────
+gN = "Volume nodes"
+showHVN   = input.bool(true, "Show HVN lines", inline = "hvn", group = gN)
+hvnColor  = input.color(#000000, "", inline = "hvn", group = gN)
+showLVN   = input.bool(true, "Show LVN lines", inline = "lvn", group = gN)
+lvnColor  = input.color(#757575, "", inline = "lvn", group = gN)
+hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gN, tooltip = "A local peak is a shelf only if it's at least this % of the biggest row.")
+lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN, tooltip = "A local valley is a fast/thin zone only if it's at or below this % of the biggest row.")
+nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
+
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+
+f_volTxt(float v) =>
+    _a = math.abs(v)
+    _s = _a >= 1e9 ? str.tostring(v / 1e9, "#.##") + "B" : _a >= 1e6 ? str.tostring(v / 1e6, "#.##") + "M" : _a >= 1e3 ? str.tostring(v / 1e3, "#.##") + "K" : str.tostring(v, "#")
+    _s
+
+// ── Rolling VWAP over the same window (the "AVWAP" line) ──────────────────────
+_hlc  = (high + low + close) / 3.0
+_sv   = math.sum(volume, barsBack)
+avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showAVWAP ? avwap : na, "AVWAP", color = avColor, linewidth = avWidth)
+
+// ── Build & draw the profile on the last bar ─────────────────────────────────
+var array<box>   vpBoxes = array.new_box()
+var array<label> vpLbls  = array.new_label()
+var array<line>  vpLines = array.new_line()
+// Latest computed levels, kept so the alert conditions below can read them each bar.
+var float pocLevel = na
+var float vahLevel = na
+var float valLevel = na
+
+// v2: collect lower-timeframe sub-bars for the window bars; the heavy build runs on the last bar only.
+// LTF guard: never request a TF higher than the chart TF (RE10066); use chart bars instead
+ltfSecs = timeframe.in_seconds(ltfTF)
+chartSecs = timeframe.in_seconds(timeframe.period)
+effLtfTF = ltfSecs < chartSecs ? ltfTF : timeframe.period
+ltfH = request.security_lower_tf(syminfo.tickerid, effLtfTF, high)
+ltfL = request.security_lower_tf(syminfo.tickerid, effLtfTF, low)
+ltfV = request.security_lower_tf(syminfo.tickerid, effLtfTF, volume)
+ltfN = na(ltfH) ? 0 : array.size(ltfH)
+var float[] subH = array.new_float(0)
+var float[] subL = array.new_float(0)
+var float[] subV = array.new_float(0)
+var int lastSubBar = na
+if bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index != lastSubBar) and ltfN > 0
+
+    lastSubBar := bar_index
+    for _s = 0 to ltfN - 1
+
+        array.push(subH, array.get(ltfH, _s))
+
+        array.push(subL, array.get(ltfL, _s))
+
+        array.push(subV, nz(array.get(ltfV, _s)))
+if barstate.islast
+    // Clear the previous frame (bounded count; redrawn each update).
+    if array.size(vpBoxes) > 0
+        for _i = 0 to array.size(vpBoxes) - 1
+            box.delete(array.get(vpBoxes, _i))
+    if array.size(vpLbls) > 0
+        for _i = 0 to array.size(vpLbls) - 1
+            label.delete(array.get(vpLbls, _i))
+    if array.size(vpLines) > 0
+        for _i = 0 to array.size(vpLines) - 1
+            line.delete(array.get(vpLines, _i))
+    array.clear(vpBoxes)
+    array.clear(vpLbls)
+    array.clear(vpLines)
+
+    _n = math.min(barsBack, bar_index)
+    if _n >= 2
+        // Window price extent.
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / columns
+            vol = array.new_float(columns, 0.0)
+            if array.size(subH) == 0
+                for _f = 0 to _n - 1
+                    array.push(subH, high[_f])
+                    array.push(subL, low[_f])
+                    array.push(subV, nz(volume[_f]))
+            // Distribute each bar's volume across the rows its range overlaps, weighted by the overlap.
+            for _b = 0 to array.size(subH) - 1
+                _bLo = array.get(subL, _b)
+                _bHi = array.get(subH, _b)
+                _bV = nz(array.get(subV, _b))
+                _loI = int(math.floor((_bLo - _lo) / _bs))
+                _hiI = int(math.floor((_bHi - _lo) / _bs))
+                _loI := math.max(0, math.min(columns - 1, _loI))
+                _hiI := math.max(0, math.min(columns - 1, _hiI))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _lo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+
+            // Totals, POC, peak row.
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+
+            // Value area (classic): grow out from the POC, comparing the next TWO rows
+            // above vs the next TWO rows below; add both rows of the heavier side (ties go
+            // until the enclosed volume reaches vaPct% of total.)
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaPct / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, columns - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+
+            _vah      = _lo + (_up + 1) * _bs
+            _val      = _lo + _dn * _bs
+            _pocPrice = _lo + (_poc + 0.5) * _bs
+
+            // Histogram blocks, anchored at the right edge (+offset).
+            _anchor  = bar_index + histoOffset
+            _fillCol = color.new(fillColor, fillTransp)
+            _bordCol = color.new(bordColor, bordTransp)
+            _into    = histoDir == "Into chart"
+            _vaFill = color.new(vaBarColor, fillTransp)
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                if _v > 0 and _maxV > 0
+                    _w    = math.max(1, int(math.round(_v / _maxV * histoWidth)))
+                    _top  = _lo + (_k + 1) * _bs
+                    _bot  = _lo + _k * _bs
+                    _x1   = _into ? _anchor - _w : _anchor
+                    _x2   = _into ? _anchor : _anchor + _w
+                    _inVA = _k >= _dn and _k <= _up
+                    _bg   = shadeVA and _inVA ? _vaFill : _fillCol
+                    array.push(vpBoxes, box.new(_x1, _top, _x2, _bot, border_color = _bordCol, border_width = 1, bgcolor = _bg))
+                    if showVolLbl
+                        _lx = _into ? _x1 : _x2
+                        _st = _into ? label.style_label_right : label.style_label_left
+                        array.push(vpLbls, label.new(_lx, (_top + _bot) / 2.0, f_volTxt(_v), xloc = xloc.bar_index, yloc = yloc.price, style = _st, color = color.new(color.gray, 100), textcolor = volLblColor, size = f_lblSize(volLblSize)))
+
+            // POC / VAH / VAL lines spanning the window.
+            _xL = math.max(bar_index - _n + 1, bar_index - 9000)
+            _xR = _anchor
+            if showPOC
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
+            if showVA
+                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
+                if showLbls
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(volLblSize)))
+
+            // Remember the levels so the alert conditions (below) can read them each bar.
+            pocLevel := _pocPrice
+            vahLevel := _vah
+            valLevel := _val
+
+            // HVN shelves (local volume peaks = S/R) and LVN fast zones (local valleys).
+            if showHVN or showLVN
+                _hvnMin = _maxV * hvnPct / 100.0
+                _lvnMax = _maxV * lvnPct / 100.0
+                for _k = 1 to columns - 2
+                    _vk    = array.get(vol, _k)
+                    _vp    = array.get(vol, _k - 1)
+                    _vn    = array.get(vol, _k + 1)
+                    _price = _lo + (_k + 0.5) * _bs
+                    _isHVN = _vk >= _vp and _vk >= _vn and _vk >= _hvnMin and _k != _poc
+                    _isLVN = _vk <= _vp and _vk <= _vn and _vk <= _lvnMax and _vk > 0 and _k != _poc
+                    if showHVN and _isHVN
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
+                        if showLbls
+                            array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.white, size = size.tiny))
+                    else if showLVN and _isLVN
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_solid))
+                        if showLbls
+                            array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.white, size = size.tiny))
+            if showPOC
+                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = color.red, width = 3, style = line.style_solid))
+                // ── Alerts: price trading into a key profile level ───────────────────────────
+alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
+alertcondition(not na(vahLevel) and low <= vahLevel and high >= vahLevel, "Price at VAH", "{{ticker}} is trading at the Value Area High")
+alertcondition(not na(valLevel) and low <= valLevel and high >= valLevel, "Price at VAL", "{{ticker}} is trading at the Value Area Low")
+
+
+
+
+// ── Anchored VWAP (auto anchor) ─────────────────────────────
+gAV      = "Anchored VWAP"
+showAnch = input.bool(true, "Show anchored VWAP", group = gAV)
+showAnchHi = input.bool(true, "Show swing-high AVWAP", group = gAV)
+anchHiCol = input.color(color.new(#2962FF, 0), "Swing-high AVWAP color", group = gAV)
+anchHiPivLen = input.int(25, "AVWAP-H pivot length", minval = 10, maxval = 60, group = gAV)
+anchCol  = color.new(#AA00FF, 0)
+anchMode = input.string("Last swing low", "Anchor mode", group = gAV,
+     options = ["Last swing low", "Last swing high", "Last earnings", "Highest-volume bar", "Month start"])
+_pivLen = 10
+_pivLo  = ta.pivotlow(low, _pivLen, _pivLen)
+_pivHi  = ta.pivothigh(high, _pivLen, _pivLen)
+var int _swLoBar = na
+var int _swHiBar = na
+if not na(_pivLo)
+    _swLoBar := bar_index - _pivLen
+if not na(_pivHi)
+    _swHiBar := bar_index - _pivLen
+_pivHiH = ta.pivothigh(high, anchHiPivLen, anchHiPivLen)
+var int _swHiBarH = na
+if not na(_pivHiH)
+    _swHiBarH := bar_index - anchHiPivLen
+_earnVal = request.earnings(syminfo.tickerid, earnings.actual, barmerge.gaps_on, barmerge.lookahead_off)
+var int _earnBar = na
+if not na(_earnVal) and na(_earnVal[1])
+    _earnBar := bar_index
+_hvBar = bar_index + ta.highestbars(volume, barsBack)
+_isMonthStart = na(time[1]) or month(time) != month(time[1]) or year(time) != year(time[1])
+var int _monthBar = na
+if _isMonthStart
+    _monthBar := bar_index
+int _anchBar = na
+_anchBar := switch anchMode
+    "Last swing high"    => _swHiBar
+    "Last earnings"      => na(_earnBar) ? _swLoBar : _earnBar
+    "Highest-volume bar" => _hvBar
+    "Month start"        => _monthBar
+    => _swLoBar
+_anchLen  = na(_anchBar) ? 0 : bar_index - _anchBar + 1
+_aPv      = na(_anchBar) ? na : math.sum(hlc3 * volume, _anchLen) / math.max(math.sum(volume, _anchLen), 1e-10)
+anchVWAP  = showAnch ? _aPv : na
+plot(anchVWAP, "AVWAP (anchored)", color = anchCol, linewidth = 2)
+var label _anchLbl = na
+if barstate.islast and showAnch and not na(anchVWAP)
+    _anchLbl := label.new(bar_index, anchVWAP, "AVWAP " + str.tostring(anchVWAP, format.mintick),
+         style = label.style_label_left, color = anchCol, textcolor = color.white, size = size.small)
+    label.delete(_anchLbl[1])
+// Swing-high AVWAP (always the swing-high anchor, independent of Anchor mode)
+_anchHiLen = na(_swHiBarH) ? 0 : bar_index - _swHiBarH + 1
+_aPvHi = na(_swHiBarH) ? na : math.sum(hlc3 * volume, _anchHiLen) / math.max(math.sum(volume, _anchHiLen), 1e-10)
+anchVWAPHi = showAnchHi ? _aPvHi : na
+plot(anchVWAPHi, "AVWAP-H (swing high)", color = anchHiCol, linewidth = 2)
+var label _anchHiLbl = na
+if barstate.islast and showAnchHi and not na(anchVWAPHi)
+    _anchHiLbl := label.new(bar_index, anchVWAPHi, "AVWAP-H " + str.tostring(anchVWAPHi, format.mintick), style = label.style_label_left, color = anchHiCol, textcolor = color.white, size = size.small)
+    label.delete(_anchHiLbl[1])
+// Today's open (mirrors Day Proximity: daily open via request.security, amber dotted line + label)
+d_open = request.security(syminfo.tickerid, "D", open, lookahead = barmerge.lookahead_on)
+_openStyle = openStyle == "dashed" ? line.style_dashed : openStyle == "solid" ? line.style_solid : line.style_dotted
+var line _openLine = na
+var label _openLbl = na
+if barstate.islast and showOpen and not na(d_open)
+    _openLine := line.new(bar_index - barsBack + 1, d_open, bar_index + 6, d_open, color = openColor, width = openWidth, style = _openStyle)
+    line.delete(_openLine[1])
+if barstate.islast and showOpen and showLbls and not na(d_open)
+    _openLbl := label.new(bar_index + 6, d_open, "Open " + str.tostring(d_open, format.mintick), style = label.style_label_left, color = openColor, textcolor = color.white, size = size.small)
+    label.delete(_openLbl[1])
