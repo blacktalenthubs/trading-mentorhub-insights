@@ -1,0 +1,174 @@
+// © bolofbaba
+//@version=6
+indicator("AVWAP-R · Recovery TBA", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// ── Recovery TBA: price bases BELOW the rolling VWAP, the base top is the TBA,
+//    the rolling VWAP is the target. One line only: AVWAP-R (trailing 150, hlc3,
+//    volume weighted — identical math to Anchored VWAPs · Standalone, so the
+//    values match that script's tags to the cent).
+//    States: BASING (base armed under the line) -> TRIGGERED (close over the TBA)
+//    -> AT VWAP (first touch of the line) -> COMPLETED (close over the line = flip)
+//    or FAILED (close back inside the base past the fail buffer). A close under
+//    the base floor before any trigger invalidates the base.
+
+gLine   = "Rolling VWAP"
+showLine = input.bool(true, "Show AVWAP-R", group = gLine)
+lineCol  = input.color(color.new(#FF9800, 0), "AVWAP-R color", group = gLine)
+
+gBase    = "Base geometry"
+lookback = input.int(25, "Anchor lookback (bars)", minval = 10, maxval = 60, group = gBase, tooltip = "The base is anchored at the lowest low of this window — the capitulation point. Everything after it is the base.")
+minBase  = input.int(7, "Min base bars", minval = 5, maxval = 30, group = gBase)
+maxBase  = input.int(30, "Max base bars", minval = 10, maxval = 90, group = gBase)
+maxRange = input.float(15.0, "Max base range (%)", minval = 5.0, maxval = 40.0, step = 0.5, group = gBase) / 100.0
+minDist  = input.float(1.0, "Min distance TBA -> VWAP (%)", minval = 0.0, maxval = 10.0, step = 0.5, group = gBase, tooltip = "The line must sit at least this far above the TBA — otherwise price is already at the line (the fight, not a recovery setup).") / 100.0
+maxDist  = input.float(25.0, "Max distance TBA -> VWAP (%)", minval = 10.0, maxval = 60.0, step = 1.0, group = gBase, tooltip = "The reachability fence. Farther than this, the VWAP is not a target for this base (the RKLB case: +55%+).") / 100.0
+failBuf  = input.float(2.3, "Fail buffer inside TBA (%)", minval = 0.5, maxval = 6.0, step = 0.1, group = gBase, tooltip = "Post-trigger failure = a close back under TBA x (1 - buffer). Dan's grammar: the stop sits a short distance back inside the range.") / 100.0
+
+gDraw    = "Drawing"
+showBox  = input.bool(true, "Show base box", group = gDraw)
+tbaCol   = input.color(color.new(#000000, 0), "TBA line color", group = gDraw)
+trigCol  = input.color(color.new(#089981, 0), "Triggered color", group = gDraw)
+failCol  = input.color(color.new(#F23645, 0), "Failed color", group = gDraw)
+
+// ── AVWAP-R — same computation as the standalone ──
+barsBack = 150
+_hlc     = (high + low + close) / 3
+_sv      = math.sum(volume, barsBack)
+rollVWAP = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showLine ? rollVWAP : na, "AVWAP-R (rolling)", color = lineCol, linewidth = 2)
+var label _rollLbl = na
+if barstate.islast and showLine and not na(rollVWAP)
+    _rollLbl := label.new(bar_index, rollVWAP, "AVWAP-R " + str.tostring(rollVWAP, format.mintick), style = label.style_label_left, color = lineCol, textcolor = color.white, size = size.small)
+    label.delete(_rollLbl[1])
+
+// ── anchor tracking — the lowest low of the lookback window is the base anchor;
+//    _anchClean = every close since the anchor printed under the rolling VWAP ──
+_off     = ta.lowestbars(low, lookback)
+_anchBar = bar_index + _off
+_baseAge = -_off
+var int   _curAnch  = na
+var bool  _anchClean = true
+if na(_curAnch) or _anchBar != _curAnch
+    _curAnch  := _anchBar
+    _anchClean := close < rollVWAP
+if bar_index > _curAnch and close >= rollVWAP
+    _anchClean := false
+
+_floor = ta.lowest(low, lookback)
+_top   = _baseAge >= 2 ? ta.highest(high[1], _baseAge - 1) : na
+
+// ── state machine (0 none · 1 basing · 2 triggered · 3 at target) — state changes
+//    inline only, no helper functions touching these vars ──
+var int   _state = 0
+var float _tba   = na
+var float _flr   = na
+var int   _armBar = na
+var box   _box   = na
+var line  _tbaLn = na
+var label _evtLbl = na
+
+if _state == 0
+    if _baseAge >= minBase and _baseAge <= maxBase and not na(_top) and not na(rollVWAP)
+        _rng  = (_top - _floor) / _floor
+        _dist = rollVWAP / _top - 1.0
+        if _rng <= maxRange and _dist >= minDist and _dist <= maxDist and _anchClean and close < _top
+            _state  := 1
+            _tba    := _top
+            _flr    := _floor
+            _armBar := _curAnch
+            if showBox
+                _box := box.new(_curAnch, _top, bar_index, _floor, border_color = color.new(tbaCol, 40), border_width = 1, bgcolor = color.new(tbaCol, 92))
+            _tbaLn := line.new(_curAnch, _tba, bar_index + 12, _tba, color = tbaCol, width = 2)
+
+if _state == 1
+    if not na(_box)
+        box.set_right(_box, bar_index)
+    if not na(_tbaLn)
+        line.set_x2(_tbaLn, bar_index + 12)
+    if close < _flr * 0.995
+        _evtLbl := label.new(bar_index, low, "BASE INVALID\nclose under floor " + str.tostring(_flr, format.mintick), style = label.style_label_up, color = failCol, textcolor = color.white, size = size.small)
+        box.delete(_box)
+        line.delete(_tbaLn)
+        _box := na
+        _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+    else if rollVWAP <= _tba
+        box.delete(_box)
+        line.delete(_tbaLn)
+        _box := na
+        _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+    else if close > _tba
+        _state := 2
+        if not na(_tbaLn)
+            line.set_color(_tbaLn, trigCol)
+        _evtLbl := label.new(bar_index, high, "RECOVERY TBA TRIGGERED\nclose " + str.tostring(close, format.mintick) + " over TBA " + str.tostring(_tba, format.mintick) + "\ntarget AVWAP-R " + str.tostring(rollVWAP, format.mintick) + " · stop " + str.tostring(_tba * (1.0 - failBuf), format.mintick), style = label.style_label_down, color = trigCol, textcolor = color.white, size = size.small)
+
+if _state == 2
+    if not na(_tbaLn)
+        line.set_x2(_tbaLn, bar_index + 12)
+    if close > rollVWAP
+        _evtLbl := label.new(bar_index, high, "COMPLETED — closed over AVWAP-R\nflip: trend rules own it now", style = label.style_label_down, color = trigCol, textcolor = color.white, size = size.small)
+        box.delete(_box)
+        _box := na
+        if not na(_tbaLn)
+            line.set_x2(_tbaLn, bar_index)
+            _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+    else if high >= rollVWAP * 0.995
+        _state := 3
+        _evtLbl := label.new(bar_index, high, "AT VWAP — recovery target reached\nthe line is the ceiling until a close over it", style = label.style_label_down, color = lineCol, textcolor = color.white, size = size.small)
+    else if close < _tba * (1.0 - failBuf)
+        _evtLbl := label.new(bar_index, low, "FAILED — close back inside the base\nunder " + str.tostring(_tba * (1.0 - failBuf), format.mintick), style = label.style_label_up, color = failCol, textcolor = color.white, size = size.small)
+        box.delete(_box)
+        line.delete(_tbaLn)
+        _box := na
+        _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+
+if _state == 3
+    if not na(_tbaLn)
+        line.set_x2(_tbaLn, bar_index + 12)
+    if close > rollVWAP
+        _evtLbl := label.new(bar_index, high, "COMPLETED at VWAP — closed over the line\nflip: trend rules own it now", style = label.style_label_down, color = trigCol, textcolor = color.white, size = size.small)
+        box.delete(_box)
+        _box := na
+        if not na(_tbaLn)
+            line.set_x2(_tbaLn, bar_index)
+            _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+    else if close < _tba * (1.0 - failBuf)
+        _evtLbl := label.new(bar_index, low, "REJECTED at VWAP — close back inside\nrecovery trade over", style = label.style_label_up, color = failCol, textcolor = color.white, size = size.small)
+        box.delete(_box)
+        line.delete(_tbaLn)
+        _box := na
+        _tbaLn := na
+        _state := 0
+        _tba := na
+        _flr := na
+
+// ── state tag (last bar only) ──
+var table _hud = table.new(position.top_right, 1, 1, bgcolor = color.new(color.black, 15))
+if barstate.islast
+    _txt = ""
+    if _state == 1
+        _txt := "BASING BELOW · TBA " + str.tostring(_tba, format.mintick) + " · target AVWAP-R " + str.tostring(rollVWAP, format.mintick) + " (+" + str.tostring((rollVWAP / _tba - 1.0) * 100.0, "#.#") + "%) · floor " + str.tostring(_flr, format.mintick)
+    else if _state == 2
+        _txt := "TRIGGERED · TBA " + str.tostring(_tba, format.mintick) + " · target AVWAP-R " + str.tostring(rollVWAP, format.mintick) + " · stop " + str.tostring(_tba * (1.0 - failBuf), format.mintick)
+    else if _state == 3
+        _txt := "AT VWAP · line " + str.tostring(rollVWAP, format.mintick) + " · fail under " + str.tostring(_tba * (1.0 - failBuf), format.mintick)
+    table.cell(_hud, 0, 0, _txt, text_color = color.white, text_size = size.small)
+
+alertcondition(_state == 2 and _state[1] != 2, title = "Recovery TBA triggered", message = "{{ticker}} recovery TBA triggered: close over {{close}} — target is the rolling VWAP")
+alertcondition(_state == 3 and _state[1] != 3, title = "Recovery TBA at VWAP target", message = "{{ticker}} reached its rolling VWAP (recovery target)")
+alertcondition(_state == 0 and _state[1] == 2, title = "Recovery TBA resolved", message = "{{ticker}} recovery TBA episode resolved (completed or failed — check chart label)")
