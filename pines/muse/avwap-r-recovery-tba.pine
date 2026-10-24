@@ -2,14 +2,16 @@
 //@version=6
 indicator("AVWAP-R · Bases & Recovery TBA", overlay = true, max_lines_count = 100, max_labels_count = 100)
 
-// ── A consolidation finder. It draws ONE thing, in the same format as the
-//    Zanger-signals TBA: an aqua width-4 line at the top of the current
-//    consolidation — redrawn on the last bar, 60 bars back and 3 forward —
-//    with an aqua "TBA <price>" tag at its right end. Nothing else is drawn:
-//    no VWAP line, no other labels, no HUD. The rolling VWAP (trailing 150,
-//    hlc3, volume weighted — identical math to Anchored VWAPs · Standalone)
-//    is the internal referee only. When the pattern resolves, the line clears
-//    and the next base takes over.
+// ── A consolidation finder built around ONE line: the rolling VWAP
+//    (trailing 150, hlc3, volume weighted — identical math and styling to
+//    Anchored VWAPs · Standalone). The VWAP is the whole idea: the finder
+//    marks consolidations that sit below it or on it, against the line
+//    itself. It draws exactly two things: the orange VWAP curve, and the
+//    current consolidation top in the same format as the Zanger-signals
+//    TBA — an aqua width-4 line redrawn on the last bar (60 back / 3
+//    forward) with an aqua "TBA <price>" tag at its right end. No other
+//    labels, no HUD. When the pattern resolves, the TBA clears and the
+//    next base takes over.
 //
 //    FAMILY 1 — RECOVERY (basing BELOW the line). The episode clock starts
 //    when the name loses the VWAP: the search for the base never crosses the
@@ -42,11 +44,13 @@ onCoil   = input.float(10.0, "Max coil range (%)", minval = 4.0, maxval = 25.0, 
 riseBars = input.int(10, "Rising check (bars)", minval = 3, maxval = 30, group = gOn)
 
 
-// ── AVWAP-R — internal only, never plotted ──
+// ── AVWAP-R — the referee line, plotted (same orange as the standalone) ──
+showRoll = input.bool(true, "Show rolling VWAP", group = "Rolling VWAP")
 barsBack = 150
 _hlc     = (high + low + close) / 3
 _sv      = math.sum(volume, barsBack)
 rollVWAP = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showRoll ? rollVWAP : na, "AVWAP-R (rolling)", color = color.new(#FF9800, 0), linewidth = 2)
 
 // ═══ FAMILY 1 — RECOVERY (below the line) ═══
 _floor = ta.lowest(low, lookback)
