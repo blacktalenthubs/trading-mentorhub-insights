@@ -8,7 +8,7 @@
 //     per-TF copies. The 200 is %-gated only when its lock is 1h/4h; on Daily+ it always draws.
 //     Proximity display rules: price above the 50 hides the 150 + 200; price below EVERY SMA
 //     shows only the two nearest overhead SMAs. PWH/PWL always draw — they're levels, not SMAs.
-//   • PDH / PDL + PWH / PWL + 2PWH (the week before last) + today's Open and the Weekly open ALWAYS draw.
+//   • PDH / PDL + PWH / PWL + today's Open and the Weekly open ALWAYS draw.
 //   • RUMIReversal (RR): today opened UNDER the PDL and a bar on the confirm TF (default 5m)
 //     CLOSES back over it — or opened OVER it and one CLOSES back under. A wick through the
 //     PDL does NOT count: the loss / reclaim must be confirmed on a close. When RR fires the
@@ -79,10 +79,6 @@ show_pwl     = input.bool(true, "PWL", group = gLv, inline = "lv2")
 c_pw         = input.color(#000000, "", group = gLv, inline = "lv2")
 w_pw         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2")
 y_pw         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
-show_p2wh    = input.bool(true, "2PWH", group = gLv, inline = "lv2b")
-c_p2w        = input.color(#000000, "", group = gLv, inline = "lv2b")
-w_p2w        = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2b")
-y_p2w        = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2b")
 show_pmh     = input.bool(true, "PMH", group = gLv, inline = "lv3")
 show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
 c_pm         = input.color(#757575, "", group = gLv, inline = "lv3")
@@ -191,8 +187,6 @@ pdh = f_phi("D")
 pdl = f_plo("D")
 pwh = f_phi("W")
 pwl = f_plo("W")
-// Week before last — settled ([2] + lookahead_on), never repaint.
-p2wh = request.security(tid, "W", high[2], lookahead = barmerge.lookahead_on)
 // Weekly trend state — closes vs the PRIOR week's range (PWH / PWL): over the prior high is a
 // weekly higher high → UPTRENDING; under the prior low is a weekly lower low → DOWNTRENDING;
 // inside the range → SIDEWAYS.
@@ -410,8 +404,6 @@ if barstate.islast
     // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
     queue(pwh,    "PWH",   c_pw,   w_pw,   y_pw,   show_levels and show_pwh  and not na(pwh))
     queue(pwl,    "PWL",   c_pw,   w_pw,   y_pw,   show_levels and show_pwl  and not na(pwl))
-    // the week before last draws the same way — an older battleground price still respects
-    queue(p2wh,   "2PWH",  c_p2w,  w_p2w,  y_p2w,  show_levels and show_p2wh and not na(p2wh))
     // monthly + quarterly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
     _hv = array.from(pmh, pml, pqh, pql)
     _hn = array.from("PMH", "PML", "PQH", "PQL")
