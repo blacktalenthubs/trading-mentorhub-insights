@@ -14,10 +14,10 @@
 //     PDL does NOT count: the loss / reclaim must be confirmed on a close. When RR fires the
 //     PDL line switches to the RR colour and its tag gains "· RR" for the rest of the session;
 //     direction reads off the tag's SUPPORT / RESIST side.
-//   • The Open tag swaps its price/% for a trend flag: DOWNTRENDING when price sits under the
-//     prior weekly low and/or the week-before low (weekly lower lows), UPTRENDING when it sits
-//     over the prior weekly high and/or the week-before high (weekly higher highs). Inside the
-//     two-week range neither flag shows — the tag keeps its normal price/%.
+//   • Weekly trend state, judged on closes vs the PRIOR week's range (PWH/PWL): UPTRENDING over
+//     the prior high (weekly higher high), DOWNTRENDING under the prior low (weekly lower low),
+//     SIDEWAYS inside the range. The state rides on the Open tag (swapping its price/%) and gets
+//     its own HUD row.
 //   • PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
 //   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
 //     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
@@ -25,7 +25,7 @@
 //     last COMPLETED range is latched and carried forward (keeps ~1 day — never blanks mid-formation).
 //   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
 //   • HUD: the opening-range read — OR width, OR ÷ ADR, Verdict (NARROW/WIDE, ★ if bottom-25%) —
-//     plus an "Off high" row: how far the last price sits under the highest DAILY high of the
+//     a "Week" row with the weekly trend state, plus an "Off high" row: how far the last price sits under the highest DAILY high of the
 //     lookback window (default 252 days ≈ the 52-week high), updated live as price moves.
 // SMAs come from request.security on each line's own lock timeframe; prior highs/lows are settled
 // ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
@@ -166,7 +166,8 @@ hud_pos_in = input.string("top_right", "Position", options = ["top_right", "top_
 hud_size   = input.string("small", "Text size", options = ["tiny", "small", "normal", "large"], group = gHd)
 hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
 hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
-show_dd    = input.bool(true, "Off-high row (% below the recent high)", group = gHd, tooltip = "Adds a 5th HUD row: the last price vs the highest DAILY high of the lookback window — e.g. -10.0% means price is 10% under that high. The peak price prints next to the %. The row turns amber past -5% and red past -10%.")
+show_wk    = input.bool(true, "Week trend row (UPTRENDING / SIDEWAYS / DOWNTRENDING)", group = gHd, tooltip = "The weekly trend state, judged on closes vs the PRIOR week's range: over the PWH = UPTRENDING (weekly higher high), under the PWL = DOWNTRENDING (weekly lower low), inside the range = SIDEWAYS. The same state rides on the Open tag.")
+show_dd    = input.bool(true, "Off-high row (% below the recent high)", group = gHd, tooltip = "Adds an HUD row: the last price vs the highest DAILY high of the lookback window — e.g. -10.0% means price is 10% under that high. The peak price prints next to the %. The row turns amber past -5% and red past -10%.")
 dd_days    = input.int(252, "  · Off-high lookback (days)", minval = 10, maxval = 1500, group = gHd, tooltip = "Highest daily high over this many days back, today's high-so-far included. 252 ≈ the 52-week high; 60 ≈ the quarter's high.")
 
 // ── values ──
@@ -194,9 +195,11 @@ pwl = f_plo("W")
 // Week before last — settled ([2] + lookahead_on), never repaint.
 p2wh = request.security(tid, "W", high[2], lookahead = barmerge.lookahead_on)
 p2wl = request.security(tid, "W", low[2],  lookahead = barmerge.lookahead_on)
-// Weekly lower-lows / higher-highs states — price beyond the prior two weeks' range edges.
-wkDn = (not na(pwl) and close < pwl) or (not na(p2wl) and close < p2wl)
-wkUp = (not na(pwh) and close > pwh) or (not na(p2wh) and close > p2wh)
+// Weekly trend state — closes vs the PRIOR week's range (PWH / PWL): over the prior high is a
+// weekly higher high → UPTRENDING; under the prior low is a weekly lower low → DOWNTRENDING;
+// inside the range → SIDEWAYS.
+wkState    = na(pwh) or na(pwl) ? "" : close > pwh ? "UPTRENDING" : close < pwl ? "DOWNTRENDING" : "SIDEWAYS"
+wkStateCol = wkState == "UPTRENDING" ? color.lime : wkState == "DOWNTRENDING" ? #EF5350 : #FFB300
 // ── RUMIReversal (RR) — today's open vs the PDL, CONFIRMED ON A CLOSE on the confirm TF
 //    (default 5m): opened UNDER the PDL and a confirm bar closes back over it (reclaim), or
 //    opened OVER it and a confirm bar closes back under (loss). A wick through the PDL never
@@ -400,7 +403,7 @@ if barstate.islast
     queue(s150, "SMA 150 (" + f_tfLbl(tf_150) + ")", c_150, w_150, y_150, show_150 and _k150)
     queue(s200, "SMA 200 (" + f_tfLbl(tf_200) + ")", c_200, w_200, y_200, show_200 and _k200 and ((tf_200 != "60" and tf_200 != "240") or prox_ok(s200) or _belowAll))
     // always-on: today's open + yesterday's range (prior levels gated by the master toggle)
-    queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open), wkDn ? "DOWNTRENDING" : wkUp ? "UPTRENDING" : "")
+    queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open), wkState)
     queue(wk_open, "W Open", c_wopen, w_wopen, y_wopen, show_wopen and not na(wk_open))
     queue(pdh,    "PDH",   c_pd,   w_pd,   y_pd,   show_levels and show_pdh  and not na(pdh))
     queue(pdl,    rr_on ? "PDL · RR" : "PDL", rr_on ? c_rr : c_pd, w_pd, y_pd, show_levels and show_pdl and not na(pdl))
@@ -583,7 +586,7 @@ if barstate.islast
 // forming daily high is part of the window, so a fresh high today reads 0.0% until price fades.
 peakHi = request.security(tid, "D", ta.highest(high, dd_days), lookahead = barmerge.lookahead_off)
 ddPct  = na(peakHi) or peakHi <= 0 ? na : (close / peakHi - 1) * 100.0
-var table _hud = not show_hud ? na : table.new(hud_pos, 2, show_dd ? 5 : 4, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 4 + (show_wk ? 1 : 0) + (show_dd ? 1 : 0), bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
 f_row(int r, string k, string v, color c) =>
     table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
     table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
@@ -596,10 +599,12 @@ if show_hud and barstate.islast
     f_row(1, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
     f_row(2, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
     f_row(3, "Verdict", _orVerd, _orVCol)
+    if show_wk
+        f_row(4, "Week", wkState == "" ? "—" : wkState, wkState == "" ? color.gray : wkStateCol)
     if show_dd
         _ddTxt = na(ddPct) ? "—" : str.tostring(ddPct, "#.#") + "%  ·  " + str.tostring(peakHi, format.mintick)
         _ddCol = na(ddPct) ? color.gray : ddPct <= -10.0 ? #EF5350 : ddPct <= -5.0 ? #FF9800 : color.white
-        f_row(4, "Off high " + str.tostring(dd_days) + "d", _ddTxt, _ddCol)
+        f_row(show_wk ? 5 : 4, "Off high " + str.tostring(dd_days) + "d", _ddTxt, _ddCol)
 
 // ── ORB entry arrow — one green arrow under the bar where the break fired ──
 plotshape(show_orb and orbFire, title = "ORB entry", style = shape.arrowup, location = location.belowbar, color = c_orb, size = size.normal)
