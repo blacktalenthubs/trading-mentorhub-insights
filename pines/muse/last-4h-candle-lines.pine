@@ -1,0 +1,46 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// LAST 4H CANDLE — the HIGH and the LOW of the final 4h candle of the last
+// completed trading day, drawn as two flat lines for today's session.
+// Red, width 4, solid by default. The values latch when a new day starts (the
+// 4h candle that just closed was the prior day's last one), so the lines never
+// move or repaint during the day. Built in the 4h context (locked base), so
+// they read identically on any chart timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Last 4H Candle", overlay = true, max_lines_count = 10)
+
+c_line   = input.color(#FF0000, "Line colour", group = "Style")
+w_line   = input.int(4, "Width", minval = 1, maxval = 10, group = "Style")
+flat_len = input.int(60, "Flat line length (bars back)", minval = 10, maxval = 500, group = "Style")
+line_full = input.bool(true, "Extend lines across the whole chart", group = "Style")
+
+// ── the last completed day's final 4h candle — tracked inside the 4h context ──
+f_last4h() =>
+    var float _h  = na   // the running 4h candle's high/low (each bar overwrites)
+    var float _l  = na
+    var float _ph = na   // latched: the prior day's last 4h candle
+    var float _pl = na
+    _newDay = ta.change(time("D")) != 0
+    if _newDay
+        _ph := _h        // the candle that just closed was the previous day's last 4h candle
+        _pl := _l
+    _h := high
+    _l := low
+    [_ph, _pl]
+[lastH, lastL] = request.security(syminfo.tickerid, "240", f_last4h(), lookahead = barmerge.lookahead_on)
+
+// ── draw — last-bar redraw, same as the other tools ──
+var line _hL = na
+var line _lL = na
+if barstate.islast
+    if not na(_hL)
+        line.delete(_hL)
+        _hL := na
+    if not na(_lL)
+        line.delete(_lL)
+        _lL := na
+    _ext = line_full ? extend.left : extend.none
+    if not na(lastH)
+        _hL := line.new(bar_index - flat_len, lastH, bar_index + 6, lastH, color = c_line, width = w_line, style = line.style_solid, extend = _ext)
+    if not na(lastL)
+        _lL := line.new(bar_index - flat_len, lastL, bar_index + 6, lastL, color = c_line, width = w_line, style = line.style_solid, extend = _ext)
