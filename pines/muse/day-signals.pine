@@ -97,7 +97,6 @@ show_wopen   = input.bool(true, "Weekly open", group = gLv, inline = "lvow")
 c_wopen      = input.color(#FFB300, "", group = gLv, inline = "lvow")
 w_wopen      = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvow")
 y_wopen      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvow")
-wo_near      = input.float(1.0, "  · 'near PWL' band (%)", minval = 0.1, maxval = 5.0, step = 0.1, group = gLv, tooltip = "The W Open tag flags 'near PWL' when the week's open sits within this % above the PWL, still inside the prior week's range.")
 
 // ── Premarket H/L (most recent 0400-0930 ET session) ──
 // ── Opening range — first N min of the RTH session (9:30 ET). Faint ORH / ORL / midpoint, each
@@ -191,9 +190,9 @@ pwl = f_plo("W")
 // Weekly trend state — closes vs the PRIOR week's range (PWH / PWL): over the prior high is a
 // weekly higher high → UPTRENDING; under the prior low is a weekly lower low → DOWNTRENDING;
 // inside the range → SIDEWAYS.
-// Where the WEEK's open sits vs the PRIOR week's range — flagged on the W Open tag (it swaps
-// the tag's price/% when one fires): over the PWH, under the PWL, or near the PWL from inside.
-woState    = na(wk_open) or na(pwh) or na(pwl) ? "" : wk_open > pwh ? "above PWH" : wk_open < pwl ? "below PWL" : wk_open <= pwl * (1.0 + wo_near / 100.0) ? "near PWL" : ""
+// Where the WEEK's open sits vs the PRIOR week's range — always stated on the W Open tag
+// (swapping its price/%): over the PWH, under the PWL, or inside the range (above the PWL).
+woState    = na(wk_open) or na(pwh) or na(pwl) ? "" : wk_open > pwh ? "above PWH" : wk_open < pwl ? "below PWL" : "above PWL"
 wkState    = na(pwh) or na(pwl) ? "" : close > pwh ? "UPTRENDING" : close < pwl ? "DOWNTRENDING" : "SIDEWAYS"
 wkStateCol = wkState == "UPTRENDING" ? color.lime : wkState == "DOWNTRENDING" ? #EF5350 : #FFB300
 // ── RUMIReversal (RR) — today's open vs the PDL, CONFIRMED ON A CLOSE on the confirm TF
