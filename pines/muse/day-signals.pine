@@ -18,7 +18,8 @@
 //     the prior high (weekly higher high), DOWNTRENDING under the prior low (weekly lower low),
 //     SIDEWAYS inside the range. The state rides on the Open tag (swapping its price/%) and gets
 //     its own HUD row.
-//   • PMH/PML, PQH/PQL are gated to the NEAREST one ABOVE price + the nearest BELOW.
+//   • PMH/PML, PQH/PQL always draw on their own toggles; a level landing on another line FUSES
+//     into one tag naming every member — nothing is hidden for overlapping.
 //   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
 //     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
 //   • Opening range (first N min of the RTH session): ORH / ORL / midpoint, each toggleable. The
@@ -407,40 +408,13 @@ if barstate.islast
     // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
     queue(pwh,    "PWH",   c_pw,   w_pw,   y_pw,   show_levels and show_pwh  and not na(pwh))
     queue(pwl,    "PWL",   c_pw,   w_pw,   y_pw,   show_levels and show_pwl  and not na(pwl))
-    // monthly + quarterly → keep only the nearest ABOVE and nearest BELOW price (enabled ones)
-    _hv = array.from(pmh, pml, pqh, pql)
-    _hn = array.from("PMH", "PML", "PQH", "PQL")
-    _hc = array.from(c_pm, c_pm, c_pq, c_pq)
-    _hw = array.from(w_pm, w_pm, w_pq, w_pq)
-    _hy = array.from(y_pm, y_pm, y_pq, y_pq)
-    _he = array.from(show_levels and show_pmh, show_levels and show_pml, show_levels and show_pqh, show_levels and show_pql)
-    float  _luV = na
-    string _luN = ""
-    color  _luC = c_pw
-    int    _luW = 1
-    string _luY = "dotted"
-    float  _ldV = na
-    string _ldN = ""
-    color  _ldC = c_pw
-    int    _ldW = 1
-    string _ldY = "dotted"
-    for _li = 0 to array.size(_hv) - 1
-        _lv = array.get(_hv, _li)
-        if array.get(_he, _li) and not na(_lv)
-            if _lv > close and (na(_luV) or _lv < _luV)
-                _luV := _lv
-                _luN := array.get(_hn, _li)
-                _luC := array.get(_hc, _li)
-                _luW := array.get(_hw, _li)
-                _luY := array.get(_hy, _li)
-            if _lv < close and (na(_ldV) or _lv > _ldV)
-                _ldV := _lv
-                _ldN := array.get(_hn, _li)
-                _ldC := array.get(_hc, _li)
-                _ldW := array.get(_hw, _li)
-                _ldY := array.get(_hy, _li)
-    queue(_luV, _luN, _luC, _luW, _luY, not na(_luV))
-    queue(_ldV, _ldN, _ldC, _ldW, _ldY, not na(_ldV))
+    // monthly + quarterly draw on their own toggles, like the weekly levels — when one lands
+    // on another line the merge fuses them into ONE tag naming every member, so a level is
+    // never silently hidden just because something else sits at the same price.
+    queue(pmh,    "PMH",   c_pm,   w_pm,   y_pm,   show_levels and show_pmh  and not na(pmh))
+    queue(pml,    "PML",   c_pm,   w_pm,   y_pm,   show_levels and show_pml  and not na(pml))
+    queue(pqh,    "PQH",   c_pq,   w_pq,   y_pq,   show_levels and show_pqh  and not na(pqh))
+    queue(pql,    "PQL",   c_pq,   w_pq,   y_pq,   show_levels and show_pql  and not na(pql))
 
     // ── MERGE + DE-OVERLAP + DRAW — lines within merge_pct fuse into one tag naming all members;
     //    the merged line sits on the member nearest price. Tags too close to merge are nudged up. ──
