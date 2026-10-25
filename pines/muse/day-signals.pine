@@ -136,7 +136,7 @@ gap_look     = input.int(40, "Scan window (daily bars back)", minval = 5, maxval
 c_gap_up     = input.color(color.new(#26A69A, 90), "Gap-up fill",   group = gGp, inline = "gc")
 c_gap_dn     = input.color(color.new(#EF5350, 90), "Gap-down fill", group = gGp, inline = "gc")
 
-// ── Proximity / gating — the 200 SMA only, and only when its lock is 1h/4h (W/M/Q levels are nearest-above/below gated) ──
+// ── Proximity / gating — the 200 SMA only, and only when its lock is 1h/4h ──
 gPx       = "Proximity / gating"
 prox_on   = input.bool(true, "Gate the 200 SMA by % distance from price", group = gPx, tooltip = "Applies ONLY when the SMA 200 line is locked to 1h or 4h: it draws only when price is within the % below — which is exactly when a ma200_support signal fires. On a Daily or Weekly lock the 200 always draws. OFF = always draw.")
 prox_pct  = input.float(8.0, "  · 200 draws only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx)
