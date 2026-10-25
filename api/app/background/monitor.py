@@ -1444,6 +1444,20 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                             user_id, signal.symbol, _at_val, alert.suppressed_reason,
                         )
 
+                    # rule_not_enabled rows are pure noise — legacy rule types the
+                    # scanner redesign replaced, computed only to be clamped at the
+                    # gate above. Don't persist them (cost/hygiene, 2026-10-24).
+                    # Everything else in this unit of work — cooldowns, active
+                    # entries — still commits exactly as before; only the Alert
+                    # row itself is dropped, before the commit.
+                    _drop_row = (
+                        not _send_notification
+                        and getattr(alert, "suppressed_reason", None) == "rule_not_enabled"
+                    )
+                    _alert_channel = getattr(alert, "channel", None)
+                    if _drop_row:
+                        db.delete(alert)
+
                     # Commit immediately so alert is persisted + has ID for Telegram buttons
                     db.commit()
 
@@ -1462,7 +1476,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         "target_1": _py(signal.target_1),
                         "confluence_label": getattr(signal, "_confluence_label", None),
                         "message": signal.message,
-                        "channel": getattr(alert, "channel", None),   # 'app' = tier-B (feed-only) · 'telegram' = tier-A
+                        "channel": _alert_channel,   # 'app' = tier-B (feed-only) · 'telegram' = tier-A
                     }
                     if _send_notification:
                         try:
