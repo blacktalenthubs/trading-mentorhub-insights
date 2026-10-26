@@ -1,0 +1,835 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + yesterday's last 4H + opening range, on one chart.
+// A merge of intraday_sma_proximity.pine + levels_proximity.pine (both left in place, superseded).
+//
+//   • FIVE SMAs only — 8 / 20 / 50 / 150 / 200 — and each one carries its OWN lock timeframe
+//     (set it in the line's "lock" box: 1h, 4h, Daily, Weekly…). One row per length, no
+//     per-TF copies. The 200 is %-gated only when its lock is 1h/4h; on Daily+ it always draws.
+//     Proximity display rules: price above the 50 hides the 150 + 200; price below EVERY SMA
+//     shows only the two nearest overhead SMAs. PWH/PWL always draw — they're levels, not SMAs.
+//   • PDH / PDL + PWH / PWL + today's Open and the Weekly open ALWAYS draw.
+//   • Y-4H trio (ported from "Prior last 4H", 2026-10-26): yesterday's FINAL 4h candle —
+//     HIGH / LOW / CLOSE — fetched on the regular-session ticker, FROZEN at the session roll
+//     (read live it would walk forward through today's own 4h candles), queued with the other
+//     levels so it fuses into the same tags. The Open also gains the Y-4H bracket tag: the two
+//     drawn lines bracketing it ("OPEN BTW Y-4H HIGH and PDH").
+//   • ALERTS (also from "Prior last 4H"): reclaim (wick through, back over — fires immediately)
+//     vs break (needs the confirmed close), one fire per level per direction per session, JSON
+//     payloads routed to the Day feed as last4h_long / last4h_short. Y-4H HIGH + LOW alert by
+//     default (CLOSE optional), plus the gap-and-go over PDH and daily 8/21/50 EMA/SMA reclaims.
+//     Lines are display unless a TradingView alert is bound on the study.
+//   • RUMIReversal (RR): today opened UNDER the PDL and a bar on the confirm TF (default 5m)
+//     CLOSES back over it — or opened OVER it and one CLOSES back under. A wick through the
+//     PDL does NOT count: the loss / reclaim must be confirmed on a close. When RR fires the
+//     PDL line switches to the RR colour and its tag gains "· RR" for the rest of the session;
+//     direction reads off the tag's SUPPORT / RESIST side.
+//   • Weekly trend state, judged on closes vs the PRIOR week's range (PWH/PWL): UPTRENDING over
+//     the prior high (weekly higher high), DOWNTRENDING under the prior low (weekly lower low),
+//     SIDEWAYS inside the range. The state rides on the Open tag (swapping its price/%) and gets
+//     its own HUD row.
+//   • PMH/PML, PQH/PQL always draw on their own toggles; a level landing on another line FUSES
+//     into one tag naming every member — nothing is hidden for overlapping.
+//   • ONE queue: an SMA and a level at the same price FUSE into one tag ("SMA 20 (1h) · PDL ·×2");
+//     tags too close to merge are nudged apart so none hides behind another. Tags on the RIGHT.
+//   • Opening range (first N min of the RTH session): ORH / ORL / midpoint, each toggleable. The
+//     last COMPLETED range is latched and carried forward (keeps ~1 day — never blanks mid-formation).
+//   • Recent DAILY gaps drawn as zones (magnets price revisits), unfilled-only by default.
+//   • HUD: the opening-range read — OR width, OR ÷ ADR, Verdict (NARROW/WIDE, ★ if bottom-25%) —
+//     a "Week" row with the weekly trend state, plus an "Off high" row: how far the last price sits under the highest DAILY high of the
+//     lookback window (default 252 days ≈ the 52-week high), updated live as price moves.
+// SMAs come from request.security on each line's own lock timeframe; prior highs/lows are settled
+// ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
+// Every line group has its own colour / width / style — change them freely.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("day signals", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
+
+// ── SMAs — FIVE lines only: 8 / 20 / 50 / 150 / 200. Each line carries its OWN lock timeframe:
+//    pick any TF in the line's "lock" box (1h, 4h, Daily, Weekly…) and that line follows it on
+//    every chart. One row per length — no separate per-TF copies. ──
+gMa         = "SMAs (8 / 20 / 50 / 150 / 200 — lock TF per line)"
+show_8      = input.bool(true, "SMA 8",   group = gMa, inline = "s8")
+tf_8        = input.timeframe("60", "lock", group = gMa, inline = "s8")
+c_8         = input.color(#FF0000, "", group = gMa, inline = "s8")
+w_8         = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "s8")
+y_8         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s8")
+show_20     = input.bool(true, "SMA 20",  group = gMa, inline = "s20")
+tf_20       = input.timeframe("D", "lock", group = gMa, inline = "s20")
+c_20        = input.color(#AB47BC, "", group = gMa, inline = "s20")
+w_20        = input.int(3, "w", minval = 1, maxval = 10, group = gMa, inline = "s20")
+y_20        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s20")
+show_50     = input.bool(true, "SMA 50",  group = gMa, inline = "s50")
+tf_50       = input.timeframe("D", "lock", group = gMa, inline = "s50")
+c_50        = input.color(#2962FF, "", group = gMa, inline = "s50")
+w_50        = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "s50")
+y_50        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s50")
+show_150    = input.bool(true, "SMA 150", group = gMa, inline = "s150")
+tf_150      = input.timeframe("D", "lock", group = gMa, inline = "s150")
+c_150       = input.color(#F9A825, "", group = gMa, inline = "s150")
+w_150       = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "s150")
+y_150       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s150")
+show_200    = input.bool(true, "SMA 200", group = gMa, inline = "s200")
+tf_200      = input.timeframe("D", "lock", group = gMa, inline = "s200")
+c_200       = input.color(#000000, "", group = gMa, inline = "s200")
+w_200       = input.int(2, "w", minval = 1, maxval = 10, group = gMa, inline = "s200")
+y_200       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s200")
+
+// ── Prior levels (D / W / M / Q) + today's Open (H+L of a group share colour / width / style) ──
+gLv          = "Prior levels (D/W/M/Q)"
+show_levels  = input.bool(true, "Show prior levels (master)", group = gLv)
+show_pdh     = input.bool(true, "PDH", group = gLv, inline = "lv1")
+show_pdl     = input.bool(true, "PDL", group = gLv, inline = "lv1")
+c_pd         = input.color(#787B86, "", group = gLv, inline = "lv1")
+w_pd         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv1")
+y_pd         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv1")
+show_rr      = input.bool(true, "RUMIReversal (RR) on PDL", group = gLv, inline = "lv1b", tooltip = "Today opened under the PDL and a confirm-TF bar CLOSES back over it, or opened over it and one CLOSES back under — a wick through does not count. When it fires, the PDL line switches to this colour and its tag gains · RR for the rest of the session.")
+c_rr         = input.color(#FF1744, "", group = gLv, inline = "lv1b")
+rr_tf        = input.string("5", "confirm TF", options = ["1", "3", "5", "15"], group = gLv, inline = "lv1b")
+show_pwh     = input.bool(true, "PWH", group = gLv, inline = "lv2")
+show_pwl     = input.bool(true, "PWL", group = gLv, inline = "lv2")
+c_pw         = input.color(#000000, "", group = gLv, inline = "lv2")
+w_pw         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv2")
+y_pw         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv2")
+show_pmh     = input.bool(true, "PMH", group = gLv, inline = "lv3")
+show_pml     = input.bool(true, "PML", group = gLv, inline = "lv3")
+c_pm         = input.color(#757575, "", group = gLv, inline = "lv3")
+w_pm         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lv3")
+y_pm         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lv3")
+show_pqh     = input.bool(true, "PQH", group = gLv, inline = "lvq")
+show_pql     = input.bool(true, "PQL", group = gLv, inline = "lvq")
+c_pq         = input.color(#EC407A, "", group = gLv, inline = "lvq")
+w_pq         = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvq")
+y_pq         = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvq")
+show_open    = input.bool(true, "Today's open", group = gLv, inline = "lvo")
+c_open       = input.color(#FFB300, "", group = gLv, inline = "lvo")
+w_open       = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvo")
+y_open       = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvo")
+show_wopen   = input.bool(true, "Weekly open", group = gLv, inline = "lvow")
+c_wopen      = input.color(#FFB300, "", group = gLv, inline = "lvow")
+w_wopen      = input.int(1, "w", minval = 1, maxval = 10, group = gLv, inline = "lvow")
+y_wopen      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gLv, inline = "lvow")
+
+// ── Prior last 4H — yesterday's FINAL 4h candle (ported from "Prior last 4H"). The trio is
+//    FROZEN at the session roll and queued with the other levels, so it fuses into the same
+//    merged tags and wears the same role colours (green above / red below) as every line. ──
+g4h          = "Prior last 4H (Y-4H)"
+show_4h      = input.bool(true, "Show Y-4H trio (master)", group = g4h)
+show_y4h     = input.bool(true, "Y-4H HIGH", group = g4h, inline = "l4")
+show_y4l     = input.bool(true, "Y-4H LOW",  group = g4h, inline = "l4")
+show_y4c     = input.bool(true, "Y-4H CLOSE", group = g4h, inline = "l4")
+c_4h         = input.color(#787B86, "", group = g4h, inline = "l4", tooltip = "Only used in per-line colour mode — in role mode (the default) the trio is green above / red below like every other line.")
+w_4h         = input.int(2, "w", minval = 1, maxval = 10, group = g4h, inline = "l4")
+y_4h         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = g4h, inline = "l4")
+open_btw     = input.bool(true, "Open bracket tag (OPEN BTW the two drawn lines around the open)", group = g4h, tooltip = "The Y-4H open read: where the session opened INSIDE the level stack is the range they intend to play — the tag names the two drawn lines bracketing the open instead of repeating its price.")
+
+// ── Alerts — the Y-4H alert layer, routed to the Day feed. Bind ONE alert on this study:
+//    condition "Any alert() function call", webhook on. Reclaim (wick through, back over)
+//    fires immediately; a break needs the confirmed close at the chart timeframe. One fire
+//    per level per direction per session. ──
+gAl          = "Alerts (Day feed — last4h_long / last4h_short)"
+enAl         = input.bool(true,  "Fire platform alerts", group = gAl)
+alHi         = input.bool(true,  "Alert on the Y-4H HIGH", group = gAl, inline = "a1")
+alLo         = input.bool(true,  "Alert on the Y-4H LOW",  group = gAl, inline = "a1")
+alCl         = input.bool(false, "Alert on the Y-4H CLOSE", group = gAl, inline = "a1", tooltip = "OFF by default — the experiment is the two candle rails. Turn on to add the settle line as a third trigger.")
+alGap        = input.bool(true,  "Gap-and-go — opened above PDH and holding (BUY)", group = gAl, tooltip = "The session OPENED above the prior-day high and is holding above it (closing above both the open and PDH). One fire per session, stop = the morning low. Routed as last4h_long.")
+alLong       = input.bool(true,  "Longs",  group = gAl, inline = "a3")
+alShort      = input.bool(true,  "Shorts", group = gAl, inline = "a3")
+alMark       = input.bool(true,  "Mark the triggers on the chart", group = gAl)
+
+// ── Daily MA reclaim alerts — 8/21/50 EMA + SMA, locked to the daily (settled [1], flat all
+//    session). A reclaim = the chart bar opens above the MA, wicks down to it, closes back
+//    above. LONG only, once per MA per session, routed as last4h_long. ──
+gMaA         = "MA reclaim alerts — daily 8/21/50"
+aE8          = input.bool(true, "8 EMA",  group = gMaA, inline = "ae")
+aE21         = input.bool(true, "21 EMA", group = gMaA, inline = "ae")
+aE50         = input.bool(true, "50 EMA", group = gMaA, inline = "ae")
+aS8          = input.bool(true, "8 SMA",  group = gMaA, inline = "as")
+aS21         = input.bool(true, "21 SMA", group = gMaA, inline = "as")
+aS50         = input.bool(true, "50 SMA", group = gMaA, inline = "as")
+
+// ── Premarket H/L (most recent 0400-0930 ET session) ──
+// ── Opening range — first N min of the RTH session (9:30 ET). Faint ORH / ORL / midpoint, each
+//    its own toggle. Locked to a base TF so it's identical on any chart TF. ──
+gOR          = "Opening range (RTH)"
+or_win       = input.string("15", "Window (min)", options = ["15", "30", "60"], group = gOR, tooltip = "First N minutes of the regular session from 9:30 ET (15 = 9:30-9:45). The range is whatever price does in that window.")
+or_base      = input.string("5", "Lock to base TF (min)", options = ["1", "3", "5", "15"], group = gOR, tooltip = "Build the OR from this base timeframe so it stays identical on any chart TF.")
+show_orh     = input.bool(true, "OR High", group = gOR, inline = "or1")
+c_orh        = input.color(color.new(#26A69A, 20), "", group = gOR, inline = "or1")
+w_orh        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or1")
+y_orh        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or1")
+show_orl     = input.bool(true, "OR Low", group = gOR, inline = "or2")
+c_orl        = input.color(color.new(#EF5350, 20), "", group = gOR, inline = "or2")
+w_orl        = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or2")
+y_orl        = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or2")
+show_ormid   = input.bool(true, "OR Mid", group = gOR, inline = "or3")
+c_ormid      = input.color(color.new(color.gray, 40), "", group = gOR, inline = "or3")
+w_ormid      = input.int(1, "w", minval = 1, maxval = 10, group = gOR, inline = "or3")
+y_ormid      = input.string("dotted", "", options = ["solid", "dashed", "dotted"], group = gOR, inline = "or3")
+show_or_tags = input.bool(true, "OR tags (ORH / ORL / mid labels)", group = gOR, tooltip = "Uncheck to hide the text labels but keep the lines.")
+show_orb     = input.bool(true, "ORB entry arrows (first close over ORH)", group = gOR, inline = "orb", tooltip = "Zanger's entry: the first close through the top of the opening range, once per session. The range low is the stop.")
+c_orb        = input.color(#00C853, "", group = gOR, inline = "orb")
+// Range quality — the HUD read: OR width vs the stock's ADR + its own recent OR distribution.
+or_adrLen    = input.int(12, "ADR lookback (days)", minval = 3, maxval = 60, group = gOR)
+or_narrow    = input.float(50.0, "NARROW if OR ≤ this % of ADR", minval = 10, maxval = 100, step = 5, group = gOR, tooltip = "A small OR vs the average daily range = most of the day's move is still ahead → higher breakout odds.")
+or_wide      = input.float(90.0, "WIDE if OR ≥ this % of ADR", minval = 50, maxval = 200, step = 5, group = gOR, tooltip = "An OR already near/over the ADR has little room left → breakouts rarely run.")
+or_distLen   = input.int(10, "OR-distribution lookback (days)", minval = 5, maxval = 40, group = gOR, tooltip = "Where today's OR width sits vs the last N sessions. Tighter than ≥75% = bottom-25% = highest-odds tape.")
+
+// ── Recent daily gaps (untraded zone between a day's prior close and its open — magnets price revisits) ──
+gGp          = "Gaps (daily)"
+show_gaps    = input.bool(true, "Show recent daily gaps", group = gGp)
+gap_unfilled = input.bool(true, "Unfilled gaps only", group = gGp, tooltip = "A gap is 'filled' once price trades back through its zone. ON = hide gaps price has already closed, so only the still-open magnets show.")
+gap_n        = input.int(3, "How many most-recent gaps", minval = 1, maxval = 10, group = gGp)
+gap_min      = input.float(0.3, "Ignore gaps smaller than (%)", minval = 0.0, maxval = 10, step = 0.1, group = gGp)
+gap_look     = input.int(40, "Scan window (daily bars back)", minval = 5, maxval = 200, group = gGp)
+c_gap_up     = input.color(color.new(#26A69A, 90), "Gap-up fill",   group = gGp, inline = "gc")
+c_gap_dn     = input.color(color.new(#EF5350, 90), "Gap-down fill", group = gGp, inline = "gc")
+
+// ── Proximity / gating — the 200 SMA only, and only when its lock is 1h/4h ──
+gPx       = "Proximity / gating"
+prox_on   = input.bool(true, "Gate the 200 SMA by % distance from price", group = gPx, tooltip = "Applies ONLY when the SMA 200 line is locked to 1h or 4h: it draws only when price is within the % below — which is exactly when a ma200_support signal fires. On a Daily or Weekly lock the 200 always draws. OFF = always draw.")
+prox_pct  = input.float(8.0, "  · 200 draws only within % of price", minval = 0.5, maxval = 50, step = 0.5, group = gPx)
+sma_prox  = input.bool(true, "SMA proximity display rules", group = gPx, tooltip = "Judged on the five SMA slot values, whatever their locks or toggles. Price ABOVE the SMA 50 → the 150 + 200 hide. Price BELOW every SMA → only the two NEAREST overhead SMAs draw. In between → every toggled-on SMA draws. PWH/PWL are levels, not SMAs — they always draw. OFF = every toggled-on SMA draws.")
+
+// ── Style — colour mode, line extent, merge + de-overlap ──
+gSt        = "Style"
+color_mode = input.string("role (support / resistance)", "Line color", options = ["per-line", "role (support / resistance)"], group = gSt, tooltip = "role (DEFAULT — the Y-4H way) = EVERY line wears the same two colours by price location: green when price is above the line (support), red when below (resistance). per-line = each line wears the colour set above.")
+sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
+res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
+flat_len   = input.int(60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
+line_full  = input.bool(true, "Extend lines across the whole chart", group = gSt, tooltip = "ON: each line runs edge-to-edge (extends left from the tag) so it covers the chart on ANY timeframe, even 1m. OFF: the line is only the fixed bars-back length.")
+merge_pct  = input.float(0.25, "Merge lines within (%) into ONE", minval = 0.0, maxval = 3, step = 0.05, group = gSt, tooltip = "Lines stacked within this % collapse into a SINGLE line whose tag names every member (e.g. 'SMA 20 (1h) · PDL ·×2'). The merged line sits on the member NEAREST price. 0 = draw every line separately.") / 100.0
+lbl_gap    = input.float(0.08, "De-overlap labels within (%)", minval = 0.0, maxval = 1, step = 0.02, group = gSt, tooltip = "Two lines too close to MERGE but close enough that their right-edge tags would collide get nudged apart vertically — the LINE stays on its true price, only the text box shifts. 0 = off.") / 100.0
+by_role    = color_mode != "per-line"
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+
+// ── HUD ──
+gHd        = "HUD"
+show_hud   = input.bool(true, "Show the HUD", group = gHd)
+hud_pos_in = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left", "middle_right"], group = gHd)
+hud_size   = input.string("small", "Text size", options = ["tiny", "small", "normal", "large"], group = gHd)
+hud_pos    = hud_pos_in == "top_left" ? position.top_left : hud_pos_in == "bottom_right" ? position.bottom_right : hud_pos_in == "bottom_left" ? position.bottom_left : hud_pos_in == "middle_right" ? position.middle_right : position.top_right
+hud_txt    = hud_size == "tiny" ? size.tiny : hud_size == "normal" ? size.normal : hud_size == "large" ? size.large : size.small
+show_wk    = input.bool(true, "Week trend row (UPTRENDING / SIDEWAYS / DOWNTRENDING)", group = gHd, tooltip = "The weekly trend state, judged on closes vs the PRIOR week's range: over the PWH = UPTRENDING (weekly higher high), under the PWL = DOWNTRENDING (weekly lower low), inside the range = SIDEWAYS. The same state rides on the Open tag.")
+show_dd    = input.bool(true, "Off-high row (% below the recent high)", group = gHd, tooltip = "Adds an HUD row: the last price vs the highest DAILY high of the lookback window — e.g. -10.0% means price is 10% under that high. The peak price prints next to the %. The row turns amber past -5% and red past -10%.")
+dd_days    = input.int(252, "  · Off-high lookback (days)", minval = 10, maxval = 1500, group = gHd, tooltip = "Highest daily high over this many days back, today's high-so-far included. 252 ≈ the 52-week high; 60 ≈ the quarter's high.")
+
+// ── values ──
+tid = syminfo.tickerid
+// SMAs — each on its own lock timeframe (the line's "lock" input), non-repainting (lookahead_off).
+f_sma(simple string tf, simple int len) => request.security(tid, tf, ta.sma(close, len), lookahead = barmerge.lookahead_off)
+f_tfLbl(string tf) => tf == "60" ? "1h" : tf == "240" ? "4h" : tf == "D" ? "D" : tf == "W" ? "W" : tf
+s8   = f_sma(tf_8, 8)
+s20  = f_sma(tf_20, 20)
+s50  = f_sma(tf_50, 50)
+s150 = f_sma(tf_150, 150)
+s200 = f_sma(tf_200, 200)
+// Today's OPEN — the daily open (= the 09:30 RTH open on a regular-session chart). lookahead_on
+// is safe here: a day's open is fixed at the bar's start, so it's known, not future data.
+d_open  = request.security(tid, "D", open, lookahead = barmerge.lookahead_on)
+// The WEEK's open — fixed at the week's first bar, so lookahead_on is safe the same way.
+wk_open = request.security(tid, "W", open, lookahead = barmerge.lookahead_on)
+// Prior-period highs/lows — settled ([1] + lookahead_on), never repaint.
+f_phi(simple string tf) => request.security(tid, tf, high[1], lookahead = barmerge.lookahead_on)
+f_plo(simple string tf) => request.security(tid, tf, low[1],  lookahead = barmerge.lookahead_on)
+pdh = f_phi("D")
+pdl = f_plo("D")
+pwh = f_phi("W")
+pwl = f_plo("W")
+// Weekly trend state — closes vs the PRIOR week's range (PWH / PWL): over the prior high is a
+// weekly higher high → UPTRENDING; under the prior low is a weekly lower low → DOWNTRENDING;
+// inside the range → SIDEWAYS.
+// Where the WEEK's open sits vs the PRIOR week's range — always stated on the W Open tag
+// (swapping its price/%): over the PWH, under the PWL, or inside the range (above the PWL).
+woState    = na(wk_open) or na(pwh) or na(pwl) ? "" : wk_open > pwh ? "above PWH" : wk_open < pwl ? "below PWL" : "above PWL"
+wkState    = na(pwh) or na(pwl) ? "" : close > pwh ? "UPTRENDING" : close < pwl ? "DOWNTRENDING" : "SIDEWAYS"
+wkStateCol = wkState == "UPTRENDING" ? color.lime : wkState == "DOWNTRENDING" ? #EF5350 : #FFB300
+// ── RUMIReversal (RR) — today's open vs the PDL, CONFIRMED ON A CLOSE on the confirm TF
+//    (default 5m): opened UNDER the PDL and a confirm bar closes back over it (reclaim), or
+//    opened OVER it and a confirm bar closes back under (loss). A wick through the PDL never
+//    fires it — the check reads the PREVIOUS confirm bar's settled close, so the signal can
+//    never repaint. Built in the confirm-TF context (same locked-base pattern as the OR), so
+//    it reads identically on any chart TF. Latched for the rest of the session. ──
+f_rr() =>
+    var bool ob = false
+    var bool up = false
+    var bool dn = false
+    pdlR = request.security(tid, "D", low[1], lookahead = barmerge.lookahead_on)
+    nd = ta.change(time("D")) != 0
+    if nd
+        ob := open < pdlR
+        up := false
+        dn := false
+    else if not na(pdlR) and not na(close[1])
+        if ob and close[1] > pdlR
+            up := true
+        if not ob and close[1] < pdlR
+            dn := true
+    [up, dn]
+[_rrU, _rrD] = request.security(tid, rr_tf, f_rr(), lookahead = barmerge.lookahead_on)
+rr_on = show_rr and (_rrU or _rrD)
+pmh = f_phi("M")
+pml = f_plo("M")
+pqh = f_phi("3M")
+pql = f_plo("3M")
+
+// ── Prior last 4H values — yesterday's FINAL 4h candle on the regular-session ticker (so
+//    extended-hours prints never leak in), settled [1] + lookahead → non-repainting. FROZEN at
+//    the session roll: at the instant a new day begins, "the last completed 4h" IS yesterday's
+//    final one, so it's captured there and held all day. ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[_f4h, _f4l, _f4c] = request.security(rthTid, "240", [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+var float y4H = na
+var float y4L = na
+var float y4C = na
+if ta.change(time("D")) != 0 or na(y4H)
+    y4H := _f4h
+    y4L := _f4l
+    y4C := _f4c
+// Daily 8/21/50 EMA + SMA for the reclaim alerts — same settled-[1] locked idiom, so each value
+// is flat all session and identical on any chart TF.
+[dEma8, dEma21, dEma50] = request.security(tid, "D", [ta.ema(close, 8)[1], ta.ema(close, 21)[1], ta.ema(close, 50)[1]], lookahead = barmerge.lookahead_on)
+[dSma8, dSma21, dSma50] = request.security(tid, "D", [ta.sma(close, 8)[1], ta.sma(close, 21)[1], ta.sma(close, 50)[1]], lookahead = barmerge.lookahead_on)
+
+// ── Opening range high/low — the first `or_win` minutes of the RTH session, built on the `or_base`
+// series (ta.change(time("D")) fires at the 9:30 session open on an RTH chart) so it's identical on
+// any chart TF. lookahead_on reads the settled base bars (non-repainting on history). ──
+_orMin  = math.round(str.tonumber(or_win))
+_orBase = str.tonumber(or_base)
+f_or() =>
+    var float _h  = na      // the forming session's high/low (built over the window)
+    var float _l  = na
+    var float _ch = na      // the last COMPLETED OR — carried forward until the next one completes
+    var float _cl = na
+    var int   _sb = 0
+    _new  = ta.change(time("D")) != 0
+    _sb  := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(_orMin / _orBase))
+    if _new
+        _h := high
+        _l := low
+    else if _sb < _bars
+        _h := math.max(_h, high)
+        _l := math.min(_l, low)
+    if _sb == _bars - 1      // the opening window just closed → latch it; _ch/_cl persist from here
+        _ch := _h
+        _cl := _l
+    [_ch, _cl]
+[orh, orl] = request.security(tid, or_base, f_or(), lookahead = barmerge.lookahead_on)
+// ── ORB entry — Zanger's opening-range break: the FIRST base-TF close over today's completed
+//    ORH, once per session. Same locked-base pattern as f_or / f_rr (state is function-local),
+//    so it reads identically on any chart TF. The stop is the ORL the script already draws. ──
+f_orb() =>
+    var float _h   = na
+    var float _ch  = na
+    var int   _sb  = 0
+    var bool  _hit = false
+    var bool  _pls = false
+    _new  = ta.change(time("D")) != 0
+    _sb  := _new ? 0 : _sb + 1
+    _bars = math.max(1, math.round(_orMin / _orBase))
+    _pls := false
+    if _new
+        _h   := high
+        _ch  := na
+        _hit := false
+    else if _sb < _bars
+        _h := math.max(_h, high)
+    if _sb == _bars - 1
+        _ch := _h
+    if not na(_ch) and _sb >= _bars and not _hit and close > _ch
+        _hit := true
+        _pls := true
+    _pls
+orbFire = request.security(tid, or_base, f_orb(), lookahead = barmerge.lookahead_on)
+orMid  = na(orh) or na(orl) ? na : (orh + orl) / 2.0
+orW    = na(orh) or na(orl) ? na : orh - orl                         // range height (price)
+orWpct = na(orW) or close <= 0 ? na : orW / close * 100.0            // range as % of price
+
+// ── Range quality — OR width vs ADR, and vs its own last N sessions (the ORB HUD read) ──
+adr     = request.security(tid, "D", ta.sma(high - low, or_adrLen), lookahead = barmerge.lookahead_off)
+adrPct  = na(adr) or close <= 0 ? na : adr / close * 100.0
+orVsAdr = na(orWpct) or na(adrPct) or adrPct <= 0 ? na : orWpct / adrPct * 100.0   // OR as % of ADR
+var float[] _orHist = array.new_float()
+var float   _dayOR  = na
+_nDay = ta.change(time("D")) != 0
+if _nDay
+    if not na(_dayOR)
+        array.push(_orHist, _dayOR)
+        if array.size(_orHist) > or_distLen
+            array.shift(_orHist)
+    _dayOR := na
+if not na(orW)
+    _dayOR := orW
+f_orPctile() =>
+    float _p = na
+    _nn = array.size(_orHist)
+    if _nn > 0 and not na(orW)
+        int _bigger = 0
+        for _i = 0 to _nn - 1
+            if array.get(_orHist, _i) > orW
+                _bigger += 1
+        _p := _bigger / _nn * 100.0    // % of recent days WIDER than today → high = today is tighter
+    _p
+orPctile   = f_orPctile()
+orNarrow   = not na(orVsAdr) and orVsAdr <= or_narrow
+orWide     = not na(orVsAdr) and orVsAdr >= or_wide
+orBottom25 = not na(orPctile) and orPctile >= 75.0
+
+// ── daily O/H/L/C history (last gap_look sessions) for gap detection — the var arrays persist in the
+// DAILY context, so one security call hands back trailing windows we scan for gaps in the chart context ──
+f_dHist() =>
+    var float[] _O = array.new_float()
+    var float[] _H = array.new_float()
+    var float[] _L = array.new_float()
+    var float[] _C = array.new_float()
+    array.push(_O, open)
+    array.push(_H, high)
+    array.push(_L, low)
+    array.push(_C, close)
+    if array.size(_O) > gap_look
+        array.shift(_O)
+        array.shift(_H)
+        array.shift(_L)
+        array.shift(_C)
+    [_O, _H, _L, _C]
+[dO, dH, dL, dC] = request.security(tid, "D", f_dHist(), lookahead = barmerge.lookahead_off)
+
+// the 200-SMA gate — absolute % distance, so a far 200 hides whichever side it sits on
+prox_ok(float v) =>
+    float d = na(v) or close <= 0 ? float(na) : math.abs(v - close) / close * 100.0
+    not prox_on or na(d) or d <= prox_pct
+
+// ── queue machinery — everything that survives its gate is QUEUED, then merged + drawn in one pass ──
+var line[]   _ln = array.new_line()
+var label[]  _lb = array.new_label()
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var color[]  _qc = array.new_color()
+var int[]    _qw = array.new_int()
+var string[] _qy = array.new_string()
+var string[] _qo = array.new_string()
+var float[]  _dv = array.new_float()
+var string[] _dn = array.new_string()
+queue(float v, string nm, color col, int wid, string sty, bool show, string ovr = "") =>
+    if show and not na(v)
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qc, col)
+        array.push(_qw, wid > 10 ? 10 : wid < 1 ? 1 : wid)
+        array.push(_qy, f_style(sty))
+        array.push(_qo, ovr)
+
+// ── draw ──
+if barstate.islast
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qc)
+    array.clear(_qw)
+    array.clear(_qy)
+    array.clear(_qo)
+    array.clear(_dv)
+    array.clear(_dn)
+
+    // ── SMA proximity display rules — judged on the five slot values, whatever their locks;
+    //    the per-line toggles are still respected on top. Price above the 50 → the 150 + 200
+    //    hide. Price below EVERY SMA → only the two nearest overhead SMAs draw (and a selected
+    //    200 bypasses its 1h/4h % gate — nearest overhead is exactly what you want to see). ──
+    _above50  = sma_prox and not na(s50) and close > s50
+    _belowAll = sma_prox and (na(s8) or close < s8) and (na(s20) or close < s20) and (na(s50) or close < s50) and (na(s150) or close < s150) and (na(s200) or close < s200)
+    float _n1 = na
+    float _n2 = na
+    if _belowAll
+        _sv = array.from(s8, s20, s50, s150, s200)
+        for _si = 0 to array.size(_sv) - 1
+            _vv = array.get(_sv, _si)
+            if not na(_vv)
+                if na(_n1) or _vv < _n1
+                    _n2 := _n1
+                    _n1 := _vv
+                else if na(_n2) or _vv < _n2
+                    _n2 := _vv
+    _k8   = not _belowAll or s8 == _n1 or s8 == _n2
+    _k20  = not _belowAll or s20 == _n1 or s20 == _n2
+    _k50  = not _belowAll or s50 == _n1 or s50 == _n2
+    _k150 = (not _belowAll or s150 == _n1 or s150 == _n2) and not _above50
+    _k200 = (not _belowAll or s200 == _n1 or s200 == _n2) and not _above50
+    // SMAs — five lines, each on its own lock TF; the 200 is proximity-gated only on a 1h/4h lock
+    queue(s8,   "SMA 8 ("   + f_tfLbl(tf_8)   + ")", c_8,   w_8,   y_8,   show_8 and _k8)
+    queue(s20,  "SMA 20 ("  + f_tfLbl(tf_20)  + ")", c_20,  w_20,  y_20,  show_20 and _k20)
+    queue(s50,  "SMA 50 ("  + f_tfLbl(tf_50)  + ")", c_50,  w_50,  y_50,  show_50 and _k50)
+    queue(s150, "SMA 150 (" + f_tfLbl(tf_150) + ")", c_150, w_150, y_150, show_150 and _k150)
+    queue(s200, "SMA 200 (" + f_tfLbl(tf_200) + ")", c_200, w_200, y_200, show_200 and _k200 and ((tf_200 != "60" and tf_200 != "240") or prox_ok(s200) or _belowAll))
+    // always-on: today's open + yesterday's range (prior levels gated by the master toggle)
+    queue(d_open, "Open",  c_open, w_open, y_open, show_open and not na(d_open), wkState)
+    queue(wk_open, "W Open", c_wopen, w_wopen, y_wopen, show_wopen and not na(wk_open), woState)
+    queue(pdh,    "PDH",   c_pd,   w_pd,   y_pd,   show_levels and show_pdh  and not na(pdh))
+    queue(pdl,    rr_on ? "PDL · RR" : "PDL", rr_on ? c_rr : c_pd, w_pd, y_pd, show_levels and show_pdl and not na(pdl))
+    // prior-WEEK high/low are a primary battleground like PDH/PDL → ALWAYS draw both (2026-10-08).
+    // Previously folded into the nearest-above/below pool, which hid PWH whenever PWL sat between it
+    // and price (so the PDH+PWH confluence near a weekly high never showed). Monthly/quarterly below.
+    queue(pwh,    "PWH",   c_pw,   w_pw,   y_pw,   show_levels and show_pwh  and not na(pwh))
+    queue(pwl,    "PWL",   c_pw,   w_pw,   y_pw,   show_levels and show_pwl  and not na(pwl))
+    // monthly + quarterly draw on their own toggles, like the weekly levels — when one lands
+    // on another line the merge fuses them into ONE tag naming every member, so a level is
+    // never silently hidden just because something else sits at the same price.
+    queue(pmh,    "PMH",   c_pm,   w_pm,   y_pm,   show_levels and show_pmh  and not na(pmh))
+    queue(pml,    "PML",   c_pm,   w_pm,   y_pm,   show_levels and show_pml  and not na(pml))
+    queue(pqh,    "PQH",   c_pq,   w_pq,   y_pq,   show_levels and show_pqh  and not na(pqh))
+    queue(pql,    "PQL",   c_pq,   w_pq,   y_pq,   show_levels and show_pql  and not na(pql))
+    // Y-4H trio — queued like every other level, so a 4h rail and a day rail at the same price
+    // fuse into ONE tag naming both, and the trio wears the same role colours as the rest.
+    queue(y4H,    "Y-4H HIGH",  c_4h, w_4h, y_4h, show_4h and show_y4h and not na(y4H))
+    queue(y4L,    "Y-4H LOW",   c_4h, w_4h, y_4h, show_4h and show_y4l and not na(y4L))
+    queue(y4C,    "Y-4H CLOSE", c_4h, w_4h, y_4h, show_4h and show_y4c and not na(y4C))
+
+    // ── MERGE + DE-OVERLAP + DRAW — lines within merge_pct fuse into one tag naming all members;
+    //    the merged line sits on the member nearest price. Tags too close to merge are nudged up. ──
+    _n = array.size(_qv)
+    if _n > 0
+        _ord = array.sort_indices(_qv, order.ascending)
+        float _gap     = close * lbl_gap
+        float _lastLbl = na
+        _i = 0
+        while _i < _n
+            _s     = array.get(_ord, _i)
+            _hi    = array.get(_qv, _s)
+            _nm    = array.get(_qn, _s)
+            _cnt   = 1
+            _near  = _hi
+            _nearD = math.abs(close - _hi)
+            _col   = array.get(_qc, _s)
+            _wid   = array.get(_qw, _s)
+            _sty   = array.get(_qy, _s)
+            _ovr   = array.get(_qo, _s)
+            _j = _i + 1
+            while _j < _n
+                _k  = array.get(_ord, _j)
+                _v2 = array.get(_qv, _k)
+                if merge_pct > 0 and _v2 <= _hi * (1.0 + merge_pct)
+                    _hi  := _v2
+                    _nm  := _nm + " · " + array.get(_qn, _k)
+                    _cnt := _cnt + 1
+                    if math.abs(close - _v2) < _nearD
+                        _near  := _v2
+                        _nearD := math.abs(close - _v2)
+                        _col   := array.get(_qc, _k)
+                        _wid   := array.get(_qw, _k)
+                        _sty   := array.get(_qy, _k)
+                        _ovr   := array.get(_qo, _k)
+                    _j := _j + 1
+                else
+                    break
+            _sup  = close > _near
+            _draw = by_role ? (_sup ? sup_col : res_col) : _col
+            _w    = _cnt > 1 and _wid < 10 ? _wid + 1 : _wid
+            float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
+            _base = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "")
+            _txt  = _ovr != "" ? _base + "  · " + _ovr : _base + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
+            float _lblY = _near
+            if lbl_gap > 0 and not na(_lastLbl) and _lblY < _lastLbl + _gap
+                _lblY := _lastLbl + _gap
+            _lastLbl := _lblY
+            array.push(_ln, line.new(bar_index - flat_len, _near, bar_index + 6, _near, color = _draw, width = _w, style = _sty, extend = line_full ? extend.left : extend.none))
+            array.push(_lb, label.new(bar_index + 6, _lblY, _txt, style = label.style_label_left, color = _draw, textcolor = f_txtcol(_draw), size = size.small))
+            array.push(_dv, _near)
+            array.push(_dn, _nm)
+            _i := _j
+
+    // ── OPEN BRACKET TAG (Y-4H port) — where the session opened INSIDE the drawn stack is the
+    //    range they intend to play, so the tag names the two DRAWN lines bracketing the open
+    //    (post-merge names, so a fused group reads under its fused name) rather than a price.
+    //    The Open's own group is skipped. If the open sits inside the merge tolerance of a
+    //    drawn line, the tag steps right so it never lands on top of that line's tag. ──
+    if open_btw and not na(d_open) and array.size(_dv) > 0
+        float _oUp  = 1.0e18
+        float _oDn  = -1.0
+        string _oUpN = ""
+        string _oDnN = ""
+        for _k = 0 to array.size(_dv) - 1
+            _gv2 = array.get(_dv, _k)
+            _gn2 = array.get(_dn, _k)
+            if not str.contains(_gn2, "Open")
+                if _gv2 > d_open and _gv2 < _oUp
+                    _oUp  := _gv2
+                    _oUpN := _gn2
+                if _gv2 < d_open and _gv2 > _oDn
+                    _oDn  := _gv2
+                    _oDnN := _gn2
+        _hasUp = _oUp < 1.0e17
+        _hasDn = _oDn > 0
+        _nearD2 = _hasUp and _hasDn ? math.min(_oUp - d_open, d_open - _oDn) : _hasUp ? _oUp - d_open : _hasDn ? d_open - _oDn : 1.0e18
+        _ox = d_open != 0 and _nearD2 / math.abs(d_open) * 100.0 <= merge_pct * 200.0 ? 16 : 6
+        _oTag = _hasUp and _hasDn ? "OPEN BTW " + _oUpN + " and " + _oDnN : _hasDn ? "OPEN ABOVE ALL" : _hasUp ? "OPEN BELOW ALL" : "OPEN"
+        array.push(_lb, label.new(bar_index + _ox, d_open, _oTag, style = label.style_label_left, color = c_open, textcolor = f_txtcol(c_open), size = size.small))
+
+// ── most-recent DAILY gaps drawn as zones — walk back from today, draw the N newest (unfilled) gaps ──
+var box[]   _gbx = array.new_box()
+if barstate.islast
+    if array.size(_gbx) > 0
+        for i = 0 to array.size(_gbx) - 1
+            box.delete(array.get(_gbx, i))
+        array.clear(_gbx)
+    if show_gaps
+        _sz    = array.size(dC)
+        _drawn = 0
+        _gi    = _sz - 1
+        while _gi >= 1 and _drawn < gap_n
+            _pc = array.get(dC, _gi - 1)   // prior session close
+            _o  = array.get(dO, _gi)       // this session open
+            if not na(_pc) and not na(_o) and _pc > 0 and math.abs((_o - _pc) / _pc * 100.0) >= gap_min
+                _up  = _o > _pc
+                _top = math.max(_o, _pc)
+                _bot = math.min(_o, _pc)
+                // fill = price trades back INTO the zone on/after the day it formed
+                _filled = false
+                if gap_unfilled
+                    _fj = _gi
+                    while _fj <= _sz - 1 and not _filled
+                        _lo = array.get(dL, _fj)
+                        _hi = array.get(dH, _fj)
+                        if _up and not na(_lo) and _lo <= _bot
+                            _filled := true
+                        if (not _up) and not na(_hi) and _hi >= _top
+                            _filled := true
+                        _fj := _fj + 1
+                if not (gap_unfilled and _filled)
+                    _gcol = _up ? c_gap_up : c_gap_dn
+                    _gbrd = color.new(_gcol, 70)   // faint outline so the zone reads as a whisper, not a frame
+                    array.push(_gbx, box.new(bar_index - flat_len, _top, bar_index + 6, _bot, border_color = _gbrd, bgcolor = _gcol, extend = line_full ? extend.left : extend.none))
+                    _drawn := _drawn + 1
+            _gi := _gi - 1
+
+// ── Opening range — faint ORH / ORL / midpoint (first N min of the RTH session), each toggleable.
+//    Standalone faint lines (NOT in the level queue, so they stay a whisper and never fuse a tag). ──
+var line  _orhL = na
+var line  _orlL = na
+var line  _ormL = na
+var label _orhT = na
+var label _orlT = na
+var label _ormT = na
+if barstate.islast
+    if not na(_orhL)
+        line.delete(_orhL)
+        _orhL := na
+    if not na(_orlL)
+        line.delete(_orlL)
+        _orlL := na
+    if not na(_ormL)
+        line.delete(_ormL)
+        _ormL := na
+    if not na(_orhT)
+        label.delete(_orhT)
+        _orhT := na
+    if not na(_orlT)
+        label.delete(_orlT)
+        _orlT := na
+    if not na(_ormT)
+        label.delete(_ormT)
+        _ormT := na
+    _orExt = line_full ? extend.left : extend.none
+    if show_orh and not na(orh)
+        _orhL := line.new(bar_index - flat_len, orh, bar_index + 6, orh, color = c_orh, width = w_orh, style = f_style(y_orh), extend = _orExt)
+        if show_or_tags
+            _orhT := label.new(bar_index + 6, orh, "ORH", style = label.style_none, textcolor = c_orh, size = size.tiny, textalign = text.align_left)
+    if show_orl and not na(orl)
+        _orlL := line.new(bar_index - flat_len, orl, bar_index + 6, orl, color = c_orl, width = w_orl, style = f_style(y_orl), extend = _orExt)
+        if show_or_tags
+            _orlT := label.new(bar_index + 6, orl, "ORL", style = label.style_none, textcolor = c_orl, size = size.tiny, textalign = text.align_left)
+    if show_ormid and not na(orMid)
+        _ormL := line.new(bar_index - flat_len, orMid, bar_index + 6, orMid, color = c_ormid, width = w_ormid, style = f_style(y_ormid), extend = _orExt)
+        if show_or_tags
+            _ormT := label.new(bar_index + 6, orMid, "OR mid", style = label.style_none, textcolor = c_ormid, size = size.tiny, textalign = text.align_left)
+
+// ── HUD — the opening-range read: price vs OR, OR width, OR ÷ ADR, Verdict (2026-10-08).
+//    bottom-25% (tighter than ≥75% of the last N ORs) still flags the ★ on the verdict.
+//    Row 5 (2026-10-22): Off high — last price vs the trailing peak daily high, live. ──
+// The peak is a DAILY-context highest-high, so it reads the same on any chart TF; today's
+// forming daily high is part of the window, so a fresh high today reads 0.0% until price fades.
+peakHi = request.security(tid, "D", ta.highest(high, dd_days), lookahead = barmerge.lookahead_off)
+ddPct  = na(peakHi) or peakHi <= 0 ? na : (close / peakHi - 1) * 100.0
+var table _hud = not show_hud ? na : table.new(hud_pos, 2, 4 + (show_wk ? 1 : 0) + (show_dd ? 1 : 0), bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+f_row(int r, string k, string v, color c) =>
+    table.cell(_hud, 0, r, k, text_color = color.silver, text_size = hud_txt, text_halign = text.align_left)
+    table.cell(_hud, 1, r, v, text_color = c, text_size = hud_txt, text_halign = text.align_right)
+if show_hud and barstate.islast
+    _orStat = na(orh) or na(orl) ? "—" : close > orh ? "above ORH ▲" : close < orl ? "below ORL ▼" : "inside range"
+    _orSCol = na(orh) or na(orl) ? color.gray : close > orh ? color.lime : close < orl ? color.red : color.silver
+    _orVerd = orNarrow and orBottom25 ? "NARROW + bottom-25% ★" : orNarrow ? "NARROW" : orWide ? "WIDE" : na(orVsAdr) ? "—" : "normal"
+    _orVCol = (orNarrow and orBottom25) ? color.lime : orNarrow ? #8BC34A : orWide ? color.red : color.white
+    f_row(0, "OR " + or_win + "m", _orStat, _orSCol)
+    f_row(1, "OR width", na(orWpct) ? "—" : str.tostring(orWpct, "#.##") + "%  (" + str.tostring(orW, format.mintick) + ")", color.white)
+    f_row(2, "OR ÷ ADR " + str.tostring(or_adrLen) + "d", na(orVsAdr) ? "—" : str.tostring(orVsAdr, "#.0") + "%", _orVCol)
+    f_row(3, "Verdict", _orVerd, _orVCol)
+    if show_wk
+        f_row(4, "Week", wkState == "" ? "—" : wkState, wkState == "" ? color.gray : wkStateCol)
+    if show_dd
+        _ddTxt = na(ddPct) ? "—" : str.tostring(ddPct, "#.#") + "%  ·  " + str.tostring(peakHi, format.mintick)
+        _ddCol = na(ddPct) ? color.gray : ddPct <= -10.0 ? #EF5350 : ddPct <= -5.0 ? #FF9800 : color.white
+        f_row(show_wk ? 5 : 4, "Off high " + str.tostring(dd_days) + "d", _ddTxt, _ddCol)
+
+// ── ORB entry arrow — one green arrow under the bar where the break fired ──
+plotshape(show_orb and orbFire, title = "ORB entry", style = shape.arrowup, location = location.belowbar, color = c_orb, size = size.normal)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ALERTS (ported from "Prior last 4H") — the qualification is the same one every pine in
+// this setup uses:
+//   RECLAIM   open above the level, wick through it, price back above  → fires IMMEDIATELY.
+//   BREAK     price came from the other side and pushed through        → needs a CONFIRMED
+//             CLOSE at the chart timeframe. An unclosed poke is not a break.
+// The short side is the exact mirror — REJECT fires immediately; BREAKDOWN needs the close.
+// ONE alert per level per direction per session, reset at the day roll.
+// ─────────────────────────────────────────────────────────────────────────────
+// Stateless — current-bar OHLC only, no history reads, so these are safe at any call site.
+f_hold(float v)    => not na(v) and open > v and low  <= v and close > v   // wick + reclaim, no confirm
+f_cross(float v)   => not na(v) and close > v and open <= v                // came from below → confirm
+f_holdDn(float v)  => not na(v) and open < v and high >= v and close < v   // poke + reject, no confirm
+f_crossDn(float v) => not na(v) and close < v and open >= v                // came from above → confirm
+
+f_nl() => "Y-4H H " + str.tostring(y4H, format.mintick) + " · Y-4H L " + str.tostring(y4L, format.mintick) + " · Y-4H C " + str.tostring(y4C, format.mintick) + " · PDH " + str.tostring(pdh, format.mintick) + " · PDL " + str.tostring(pdl, format.mintick) + " · PWH " + str.tostring(pwh, format.mintick) + " · PWL " + str.tostring(pwl, format.mintick)
+
+f_pay(string rule, string dir, string lvlNm, float lvl, float stp, string note) =>
+    '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl() + '"}'
+
+// One fire per level per direction per session. Pine keeps a SEPARATE var per call site, so these
+// have to be explicit globals — a flag inside a helper would be a different flag at each call.
+var bool fHiL = false
+var bool fHiS = false
+var bool fLoL = false
+var bool fLoS = false
+var bool fClL = false
+var bool fClS = false
+var bool fE8  = false
+var bool fE21 = false
+var bool fE50 = false
+var bool fS8  = false
+var bool fS21 = false
+var bool fS50 = false
+var bool fGap = false
+var float mornLow = na
+if ta.change(time("D")) != 0
+    fHiL := false
+    fHiS := false
+    fLoL := false
+    fLoS := false
+    fClL := false
+    fClS := false
+    fE8  := false
+    fE21 := false
+    fE50 := false
+    fS8  := false
+    fS21 := false
+    fS50 := false
+    fGap := false
+// running morning low since the session open — the gap-and-go stop
+mornLow := ta.change(time("D")) != 0 ? low : (na(mornLow) ? low : math.min(mornLow, low))
+
+okLong  = enAl and alLong
+okShort = enAl and alShort
+
+// ── Y-4H HIGH
+hiRec = alHi and f_hold(y4H)
+hiBrk = alHi and f_cross(y4H)
+hiRej = alHi and f_holdDn(y4H)
+hiBdn = alHi and f_crossDn(y4H)
+if okLong and hiRec and not fHiL
+    fHiL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H HIGH", y4H, low, "RECLAIM of yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — opened above it, wicked through, back above. The last level sellers defended is holding as support. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and hiBrk and not fHiL
+    fHiL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H HIGH", y4H, y4H, "BREAK above yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — confirmed " + timeframe.period + " close through the level price came into from below. Stop back under " + str.tostring(y4H, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and hiRej and not fHiS
+    fHiS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H HIGH", y4H, high, "REJECT at yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — poked above and closed back under. The ceiling held. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and hiBdn and not fHiS
+    fHiS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H HIGH", y4H, y4H, "BREAKDOWN through yesterday's last 4h HIGH " + str.tostring(y4H, format.mintick) + " — confirmed " + timeframe.period + " close back below a level that was holding as support. Stop back above " + str.tostring(y4H, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── Y-4H LOW
+loRec = alLo and f_hold(y4L)
+loBrk = alLo and f_cross(y4L)
+loRej = alLo and f_holdDn(y4L)
+loBdn = alLo and f_crossDn(y4L)
+if okLong and loRec and not fLoL
+    fLoL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H LOW", y4L, low, "RECLAIM of yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — opened above it, wicked through, back above. The last level buyers defended is still theirs. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and loBrk and not fLoL
+    fLoL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H LOW", y4L, y4L, "BREAK back above yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — confirmed " + timeframe.period + " close through from underneath. Stop back under " + str.tostring(y4L, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and loRej and not fLoS
+    fLoS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H LOW", y4L, high, "REJECT at yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — poked above a lost level and closed back under. Old support is resistance. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and loBdn and not fLoS
+    fLoS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H LOW", y4L, y4L, "BREAKDOWN through yesterday's last 4h LOW " + str.tostring(y4L, format.mintick) + " — confirmed " + timeframe.period + " close under the last level buyers defended. Stop back above " + str.tostring(y4L, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── GAP-AND-GO — the session OPENED above the prior-day high (PDH) and is HOLDING above it
+//    (closing above both the open and PDH). One fresh momentum long per session, stop = the
+//    morning low. Routed as last4h_long; the feed names it "Gap-and-Go" from this note.
+gapUp   = not na(d_open) and not na(pdh) and d_open > pdh
+gapGo   = alGap and gapUp and close > d_open and close > pdh
+gapFire = okLong and gapGo and not fGap
+if gapFire
+    fGap := true
+    alert(f_pay("last4h_long", "BUY", "PDH gap", pdh, mornLow, "GAP-AND-GO — opened above PDH " + str.tostring(pdh, format.mintick) + " and holding (closing above the open and PDH). Fresh momentum long. Stop = the morning low " + str.tostring(mornLow, format.mintick) + " · invalid on a close back below PDH."), alert.freq_once_per_bar_close)
+plotshape(alMark and gapFire, title = "Gap-and-Go", location = location.belowbar, style = shape.triangleup, color = color.new(color.lime, 0), size = size.small, text = "G&G")
+
+// ── Y-4H CLOSE (off by default)
+clRec = alCl and f_hold(y4C)
+clBrk = alCl and f_cross(y4C)
+clRej = alCl and f_holdDn(y4C)
+clBdn = alCl and f_crossDn(y4C)
+if okLong and clRec and not fClL
+    fClL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H CLOSE", y4C, low, "RECLAIM of yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — wicked under where the session ended and recovered it. Yesterday's closing hand is still in control. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and clBrk and not fClL
+    fClL := true
+    alert(f_pay("last4h_long", "BUY", "Y-4H CLOSE", y4C, y4C, "BREAK above yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — confirmed " + timeframe.period + " close back over where the session ended. Stop back under " + str.tostring(y4C, format.mintick) + "."), alert.freq_once_per_bar_close)
+if okShort and clRej and not fClS
+    fClS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H CLOSE", y4C, high, "REJECT at yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — poked above and closed back under. Stop above the poke " + str.tostring(high, format.mintick) + "."), alert.freq_once_per_bar)
+if okShort and clBdn and not fClS
+    fClS := true
+    alert(f_pay("last4h_short", "SHORT", "Y-4H CLOSE", y4C, y4C, "BREAKDOWN through yesterday's SETTLE " + str.tostring(y4C, format.mintick) + " — confirmed " + timeframe.period + " close below where the session ended. The closing hand changed. Stop back above " + str.tostring(y4C, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── Daily MA reclaims (LONG only) — the 8/21/50 EMA and 8/21/50 SMA holding as support:
+// opened above it, wicked down to it, closed back above. Same reclaim mechanic (f_hold) as the
+// 4h lines, once per MA per session, routed as last4h_long. Stop = the swept wick low.
+e8Rec  = aE8  and f_hold(dEma8)
+e21Rec = aE21 and f_hold(dEma21)
+e50Rec = aE50 and f_hold(dEma50)
+s8Rec  = aS8  and f_hold(dSma8)
+s21Rec = aS21 and f_hold(dSma21)
+s50Rec = aS50 and f_hold(dSma50)
+if okLong and e8Rec and not fE8
+    fE8 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 8 EMA", dEma8, low, "RECLAIM of the daily 8 EMA " + str.tostring(dEma8, format.mintick) + " — wicked down to the daily 8 EMA and closed back above. The fastest trend support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and e21Rec and not fE21
+    fE21 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 21 EMA", dEma21, low, "RECLAIM of the daily 21 EMA " + str.tostring(dEma21, format.mintick) + " — wicked down to the daily 21 EMA and closed back above. The trend's mean support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and e50Rec and not fE50
+    fE50 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 50 EMA", dEma50, low, "RECLAIM of the daily 50 EMA " + str.tostring(dEma50, format.mintick) + " — wicked down to the daily 50 EMA and closed back above. The deeper trend support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and s8Rec and not fS8
+    fS8 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 8 SMA", dSma8, low, "RECLAIM of the daily 8 SMA " + str.tostring(dSma8, format.mintick) + " — wicked down to the daily 8 SMA and closed back above. Fast trend support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and s21Rec and not fS21
+    fS21 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 21 SMA", dSma21, low, "RECLAIM of the daily 21 SMA " + str.tostring(dSma21, format.mintick) + " — wicked down to the daily 21 SMA and closed back above. Trend mean support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+if okLong and s50Rec and not fS50
+    fS50 := true
+    alert(f_pay("last4h_long", "BUY", "Daily 50 SMA", dSma50, low, "RECLAIM of the daily 50 SMA " + str.tostring(dSma50, format.mintick) + " — wicked down to the daily 50 SMA and closed back above. Deeper trend support held. Stop below the swept wick " + str.tostring(low, format.mintick) + "."), alert.freq_once_per_bar)
+
+// Chart marks — same triggers, so what fired is visible without opening the alert log.
+_mkLong  = alMark and okLong  and (hiRec or hiBrk or loRec or loBrk or clRec or clBrk or e8Rec or e21Rec or e50Rec or s8Rec or s21Rec or s50Rec)
+_mkShort = alMark and okShort and (hiRej or hiBdn or loRej or loBdn or clRej or clBdn)
+plotshape(_mkLong,  title = "Long trigger",  style = shape.triangleup,   location = location.belowbar, color = sup_col, size = size.tiny)
+plotshape(_mkShort, title = "Short trigger", style = shape.triangledown, location = location.abovebar, color = res_col, size = size.tiny)
