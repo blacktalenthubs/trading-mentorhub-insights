@@ -165,7 +165,11 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # a 30m close crosses the LOCKED daily TBA while a base pattern is active. The type
     # was never added to this catalog, so every arrival was recorded unknown_type and
     # never delivered (first live fires 2026-10-12/13: PWR, URI, MRNA, VST, AAPL, ZETA).
-    ("swing_tba_breakout", "TBA breakout (swing) — 30m close crossed the locked daily TBA of an active base pattern (flat base / triangle / flag / prior-high shelf). Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
+    # Default ON (trader, 2026-10-27: TBA is the core signal — "it should be on by
+    # default; we shouldn't turn it off by default"). default_enabled=True here is
+    # what _filter_users_by_type_pref + the Settings list read: no pref row = ON,
+    # an explicit OFF row in Settings still mutes it (opt-OUT, like scanner rules).
+    ("swing_tba_breakout", "TBA breakout (swing) — 30m close crossed the locked daily TBA of an active base pattern (flat base / triangle / flag / prior-high shelf). Bind TBA Pine on MASTER. ON by default.", "Swing", True),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.

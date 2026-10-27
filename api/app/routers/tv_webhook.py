@@ -2806,6 +2806,13 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
     Reuses _is_allowed_alert_type so MA-family confluence matching is identical to
     the catalog gate. A user with no pref row for the type = OFF.
 
+    EXCEPTION — catalog default-ON types (default_enabled=True in _BASE_CATALOG,
+    today just swing_tba_breakout; trader, 2026-10-27: TBA "should be on by
+    default — we shouldn't turn it off by default") are opt-OUT like the scanner
+    rules: no pref row = ON, and only an explicit enabled=False row mutes them.
+    Flipping a type's catalog default is therefore the single switch for its
+    default; every other type keeps the opt-in behavior above.
+
     (Master Alerts — the opt-in "receive the admin's whole curated feed" — was RETIRED
     2026-07-02: users decide their own trades; delivery is purely per-user watchlist.)
     """
@@ -2815,18 +2822,28 @@ async def _filter_users_by_type_pref(db, users, alert_type_full: str):
 
     ids = [u.id for u in users]
     rows = (await db.execute(
-        select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type).where(
+        select(UserAlertTypePref.user_id, UserAlertTypePref.alert_type, UserAlertTypePref.enabled).where(
             UserAlertTypePref.user_id.in_(ids),
-            UserAlertTypePref.enabled.is_(True),
         )
     )).all()
     by_user: dict[int, set[str]] = {}
-    for uid, at in rows:
-        by_user.setdefault(uid, set()).add(at)
-    return [
-        u for u in users
-        if _is_allowed_alert_type(alert_type_full, by_user.get(u.id, set()))
-    ]
+    off_by_user: dict[int, set[str]] = {}
+    for uid, at, en in rows:
+        (by_user if en else off_by_user).setdefault(uid, set()).add(at)
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    try:
+        from app.models.alert_type_config import _BASE_CATALOG
+        default_on = base in {k for k, _l, _c, d in _BASE_CATALOG if d}
+    except Exception:
+        default_on = False
+    kept = []
+    for u in users:
+        enabled = by_user.get(u.id, set())
+        if default_on and base not in off_by_user.get(u.id, set()):
+            enabled = enabled | {base}
+        if _is_allowed_alert_type(alert_type_full, enabled):
+            kept.append(u)
+    return kept
 
 
 async def _users_optedin_type(db, alert_type_full: str):

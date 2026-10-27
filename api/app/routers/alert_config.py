@@ -112,6 +112,15 @@ async def list_alert_config(
     except Exception:
         _scanner_rules = set()
     _scanner_rules = set(_scanner_rules)
+    # Catalog default-ON types (default_enabled=True in _BASE_CATALOG — today just
+    # swing_tba_breakout; trader, 2026-10-27: TBA is on by default) are opt-OUT too:
+    # no pref row shows ON here, matching the delivery gate in tv_webhook
+    # (_filter_users_by_type_pref). An explicit OFF row still shows OFF.
+    try:
+        from app.models.alert_type_config import _BASE_CATALOG as _base_catalog
+        _default_on_types = {k for k, _l, _c, _d in _base_catalog if _d}
+    except Exception:
+        _default_on_types = set()
     return [
         {
             "alert_type": r.alert_type,
@@ -119,7 +128,7 @@ async def list_alert_config(
             "category": r.category,
             "trade_group": _group_for(r.alert_type, r.category),
             "direction": _direction_for(r.alert_type),
-            "enabled": enabled_by_type.get(r.alert_type, r.alert_type in _scanner_rules),
+            "enabled": enabled_by_type.get(r.alert_type, r.alert_type in _scanner_rules or r.alert_type in _default_on_types),
             "description": describe_alert_type(r.alert_type),
         }
         for r in rows
