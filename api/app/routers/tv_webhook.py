@@ -929,10 +929,30 @@ _FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "four
     "day_weekly_reclaim", "day_monthly_reclaim", "day_pdlow_reclaim"})
 
 
+# TBA types — NEVER deduped (trader, 2026-10-27: "we should never suppress any
+# TBA signals — these are the core of what we trade"). A TBA breakout is the core
+# entry signal: a 30m close through a LOCKED daily base top. On 2026-10-26 the
+# swing one-entry anchor folded TSLA's breakout @392.79 into the 200-EMA reclaim
+# that fired ~15 min earlier @392.20 (suppressed_reason=dedup_confluence:392.2)
+# and the trade never reached the user. TBA types are exempt from EVERY dedup in
+# this module — the same-bar collapser, the entry-time dedup (swing anchor /
+# confluence / cooldown / chase), anchor seeding, and the per-user identity
+# dedup + daily fire cap — and they never seed an anchor that could suppress a
+# later signal. The Pine fires once per bar-close cross, so there is no
+# self-spam to dedup. Rule enablement still applies: the per-type toggle
+# (_filter_users_by_type_pref) stays the sole on/off gate.
+_TBA_TYPES: frozenset[str] = frozenset({"swing_tba_breakout"})
+
+
+def _is_tba_type(alert_type_full: str) -> bool:
+    base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
+    return base in _TBA_TYPES
+
+
 def _is_collapse_exempt(alert_type_full: str) -> bool:
     base = alert_type_full[3:] if alert_type_full.startswith("tv_") else alert_type_full
     # rc_4h split into rc_4h_long/short/hrec (2026-06-22) — all stay collapse-exempt.
-    return base in _COLLAPSE_EXEMPT_BASE or base in _RC_VALIDATION_TYPES or base in _FOURH_TYPES or base.startswith("rc_4h")
+    return base in _COLLAPSE_EXEMPT_BASE or base in _RC_VALIDATION_TYPES or base in _FOURH_TYPES or base in _TBA_TYPES or base.startswith("rc_4h")
 
 
 def _check_same_bar_collapse(
@@ -1073,7 +1093,8 @@ def _is_entry_dedupable(alert_type_full: str) -> bool:
     if base.startswith("ma_bounce_long_v3"):
         return True
     # RC validation types are fully isolated — never dedupable, never seed the anchor.
-    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES
+    # TBA types likewise (trader, 2026-10-27; see _TBA_TYPES).
+    return base not in _PRICE_LEVEL_TYPES and base not in _MOMENTUM_EXEMPT and base not in _RC_VALIDATION_TYPES and base not in _TBA_TYPES
 
 
 def _seeds_anchor(alert_type_full: str) -> bool:
@@ -1167,6 +1188,10 @@ def _check_entry_time_dedup(
       • `dedup_chase`    — not a new lower level (within/above the anchor band).
     MOMENTUM types always fire (no price level). Read-only — caller records a kept fire."""
     if os.environ.get("V2_ENTRY_DEDUP_ENABLED", "true").lower() in ("0", "false", "no"):
+        return None
+    # TBA breakouts always fire — never folded into the swing anchor, the day
+    # maze, or any other gate in this function (trader, 2026-10-27; see _TBA_TYPES).
+    if _is_tba_type(alert_type_full):
         return None
     base = _dedup_base(alert_type_full)
     # SWING = ONE entry per symbol+direction per SESSION: the LOWEST price. The first swing fires; a
@@ -1303,6 +1328,10 @@ def _record_entry_time_fire(
 ) -> None:
     """Record a KEPT fire — append the price to the session's level set, ratchet the
     anchor, reset the timer. Price-LEVEL + day-trade/MA seed; momentum never seeds."""
+    # TBA fires never seed any anchor (trader, 2026-10-27; see _TBA_TYPES) — a
+    # delivered breakout must not suppress a later swing entry at the same price.
+    if _is_tba_type(alert_type_full):
+        return
     # SWING seeds its OWN anchor for ANY swing fire (incl. momentum types that don't _seeds_anchor),
     # ratcheting to the LOWEST price for longs so the next swing chases DOWN from it (user 2026-08-03).
     if _dedup_style_bucket(alert_type_full) == "swing" and not _dedup_base(alert_type_full).startswith("ema_5_20"):
@@ -2479,7 +2508,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             #   - staged_pdl_held @ 08:35 doesn't block ma_bounce @ 08:45
             #   - staged_mtd_avwap_held doesn't block staged_pdh_held
             # That's the design choice — each setup type is its own signal.
-            if await _alert_already_fired(
+            if not _is_tba_type(alert_type_full) and await _alert_already_fired(
                 db, user.id, sig.symbol, sig.direction,
                 alert_type_full, dedup_window,
                 new_entry=sig.entry, new_stop=sig.stop,
@@ -2494,7 +2523,7 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
 
             # Daily fire cap — drop if this type has already fired N times
             # on this symbol today (regardless of time gap).
-            if await _daily_fire_cap_exceeded(
+            if not _is_tba_type(alert_type_full) and await _daily_fire_cap_exceeded(
                 db, user.id, sig.symbol, alert_type_full, session_date, DAILY_FIRE_CAP,
             ):
                 logger.info(
