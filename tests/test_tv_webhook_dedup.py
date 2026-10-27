@@ -21,8 +21,10 @@ if str(_API_ROOT) not in sys.path:
 from app.routers.tv_webhook import (  # noqa: E402
     _check_entry_time_dedup,
     _entry_dedup_state,
+    _is_collapse_exempt,
     _is_entry_dedupable,
     _is_price_level,
+    _is_tba_type,
     _record_entry_time_fire,
 )
 
@@ -186,3 +188,33 @@ def test_momentum_does_not_seed_anchor():
     same price still fires (momentum is a different axis, not a price level)."""
     assert _fire("MOM", "BUY", 100.0, "tv_rsi_oversold") is None    # fires, no seed
     assert _fire("MOM", "BUY", 100.0, "tv_rc_4h_long") is None      # first dedupable → fires
+
+
+# ── TBA: never deduped (trader, 2026-10-27) ─────────────────────────
+
+
+def test_tba_breakout_classification():
+    """The TBA breakout is never dedupable and never collapses into a same-bar twin."""
+    assert _is_tba_type("tv_swing_tba_breakout")
+    assert not _is_entry_dedupable("tv_swing_tba_breakout")
+    assert _is_collapse_exempt("tv_swing_tba_breakout")
+
+
+def test_tba_fires_after_same_price_swing_reclaim():
+    """2026-10-26 TSLA incident: the 200-EMA reclaim @392.20 seeded the swing
+    anchor and the TBA breakout @392.79 (0.15% away) died as dedup_confluence.
+    Control: a second swing reclaim at the TBA's price IS still deduped —
+    the anchor is real, the TBA is simply exempt from it."""
+    _record_entry_time_fire("TSLA", "BUY", 392.20, "tv_swing_ema200_reclaim", S)
+    res = _check_entry_time_dedup("TSLA", "BUY", 392.79, "tv_swing_sma200_reclaim", S)
+    assert res and res["reason"] == "dedup_confluence"
+    assert _check_entry_time_dedup("TSLA", "BUY", 392.79, "tv_swing_tba_breakout", S) is None
+
+
+def test_tba_does_not_seed_swing_anchor():
+    """A delivered TBA must not become the anchor that suppresses a later swing
+    entry: after the TBA @392.79, a reclaim @393.50 is the session's FIRST
+    dedupable swing fire and passes (had the TBA seeded, 393.50 would read as
+    a worse entry against the 392.79 anchor → dedup_swing_worse)."""
+    _record_entry_time_fire("TSLA", "BUY", 392.79, "tv_swing_tba_breakout", S)
+    assert _check_entry_time_dedup("TSLA", "BUY", 393.50, "tv_swing_sma200_reclaim", S) is None
