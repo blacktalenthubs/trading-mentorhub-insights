@@ -1,4 +1,6 @@
 //@version=5
+// day-signals v2026.10.26.2 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + yesterday's last 4H + opening range, on one chart.
 // A merge of intraday_sma_proximity.pine + levels_proximity.pine (both left in place, superseded).
@@ -44,7 +46,7 @@
 // ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
 // Every line group has its own colour / width / style — change them freely.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("day signals", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
+indicator("day signals v2026.10.26.2", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
 
 // ── SMAs — FIVE lines only: 8 / 20 / 50 / 150 / 200. Each line carries its OWN lock timeframe:
 //    pick any TF in the line's "lock" box (1h, 4h, Daily, Weekly…) and that line follows it on
