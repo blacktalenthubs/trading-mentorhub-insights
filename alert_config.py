@@ -752,7 +752,9 @@ ENABLED_RULES: set[str] = {
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
     # frequency without edge on lower TFs. The 50 stays on the DAILY chart only) ────────
     "ma20_support_1h",
-    "ma50_support_1h",   # re-enabled 2026-10-10 (trader) — was dropped 2026-09-28
+    # "ma50_support_1h",   # DISABLED 2026-10-27 (trader) — 12 delivered on Mon 2026-10-26 alone,
+                         # the top MA stream; cutting for alert volume. Was dropped 2026-09-28,
+                         # re-enabled 2026-10-10. Re-enable by uncommenting.
     "ma200_support_1h",
     # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
     # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
@@ -785,9 +787,12 @@ ENABLED_RULES: set[str] = {
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
     "prior_day_high_breakout",   # PDH breakout
-    "pdh_retest_hold",           # PDH breakout → pullback → retest/hold (2026-10-05). The breakout
-                                 # rule SKIPS gap-ups above PDH and defers the pullback case here, so
-                                 # with this off there was no PDH-retest alert at all (trader flagged SPY).
+    # "pdh_retest_hold",         # DISABLED 2026-10-27 (trader) — 17 delivered on Mon 2026-10-26,
+                                 # the #1 received type of the day; cutting for alert volume.
+                                 # PDH breakout → pullback → retest/hold (2026-10-05). Note: with this
+                                 # off there is no PDH-retest alert at all (the breakout rule skips
+                                 # gap-ups above PDH and defers the pullback case here). Re-enable by
+                                 # uncommenting.
     "prior_day_low_reclaim",     # PDL reclaim
     "pwh_breakout_retest",       # PWH breakout + retest (weekly)
     "pwl_reclaim",               # PWL reclaim (weekly)
