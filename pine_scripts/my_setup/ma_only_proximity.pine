@@ -1,4 +1,6 @@
 //@version=5
+// Proximity MAs · Flat — v2026.10.27.1: level tags + reclaim tags enlarged
+// (defaults raised, large/huge options added). No logic changes.
 // =============================================================================
 // PROXIMITY MAs · FLAT — 8/21/50/100/200 SMA + 5/8/21/50/100/200 EMA as flat levels. NO structural levels.
 // =============================================================================
@@ -48,7 +50,7 @@
 // (PDH/PDL, weekly/monthly) in "Proximity Levels · Structural" to find the day's range instead.
 //
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity MAs · Flat", "Prox MAs", overlay = true, max_lines_count = 60, max_labels_count = 500)
+indicator("Proximity MAs · Flat v2026.10.27.1", "Prox MAs v2026.10.27.1", overlay = true, max_lines_count = 60, max_labels_count = 500)
 
 // ── which MAs ───────────────────────────────────────────────────────────────────
 gMA    = "Moving averages"
@@ -83,7 +85,7 @@ enPend  = input.bool(true, "Show the FORMING signal on the live bar (faint, mark
 rcConf  = input.bool(true,  "Require a confirmed CLOSE for a cross-up reclaim", group = gR, tooltip = "Applies to the CROSS pattern only — price coming from BELOW and ramping through a level, which can fail and close back under. A HOLD reclaim (opened above, wicked, back above) never needed a close and always prints live: price didn't lose the level, it defended a test. OFF = a cross marks intrabar too (repaints).")
 rcUpCol = input.color(#26A69A, "Reclaim", inline = "rc", group = gR)
 rcDnCol = input.color(#EF5350, "Lost",    inline = "rc", group = gR)
-rcSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gR)
+rcSize  = input.string("normal", "Tag size", options = ["tiny", "small", "normal", "large"], group = gR)
 
 // ── level fallback — what to say when the MA stack can't bracket the open ───────
 gL       = "Level fallback (open outside the MA stack)"
@@ -125,7 +127,7 @@ extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", 
 // and dotted made the chart look like the differences meant something they didn't; the ROLE
 // tag and the colour already carry the meaning. Default solid = unbroken lines.
 lineStyle = input.string("solid", "Line style — applies to every line", options = ["solid", "dashed", "dotted"], group = gV, tooltip = "One setting for all of them. Solid draws unbroken lines across the chart. Dashed/dotted make every line broken the same way — the point is that they MATCH, so a style difference never reads as a category difference.")
-tagSize   = input.string("small", "Level tag size", options = ["tiny", "small", "normal"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
+tagSize   = input.string("normal", "Level tag size", options = ["tiny", "small", "normal", "large", "huge"], group = gV, tooltip = "Font for the ▲ SUPPORT / ▼ RESISTANCE tags. Tiny keeps a stack of levels readable without the labels dominating the chart; the LINE is the level, the tag only names it.")
 hudSize   = input.string("small", "HUD text size", options = ["tiny", "small", "normal"], group = gV)
 styleOpen = input.string("match", "Open line style", options = ["match", "solid", "dashed", "dotted"], group = gV, tooltip = "The day's open is context rather than a level, so it can keep its own look. 'match' makes it follow the setting above.")
 labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
@@ -246,7 +248,7 @@ f_xoff(float price) =>
 // EVERYTHING drawable is queued into ONE pool — MAs, PDH/PDL, structural levels — so the merge
 // pass below can collapse a MA and a level sitting at the same price into a single labelled line.
 // Merging only MAs against each other is what left three near-identical lines stacked on the chart.
-_tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+_tagSz = tagSize == "huge" ? size.huge : tagSize == "large" ? size.large : tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
 _hudSz = hudSize == "normal" ? size.normal : hudSize == "tiny" ? size.tiny : size.small
 _lnStyle  = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
 _lnStyleO = styleOpen == "solid" ? line.style_solid : styleOpen == "dashed" ? line.style_dashed : styleOpen == "dotted" ? line.style_dotted : _lnStyle
@@ -468,7 +470,7 @@ if barstate.islast
 // Every ta.crossover/crossunder is evaluated on EVERY bar at global scope (they're stateful —
 // calling them conditionally makes them miss crosses), then the names are assembled for the tag.
 // ═══════════════════════════════════════════════════════════════════════════════
-_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "normal" ? size.normal : size.small
+_rcSz  = rcSize == "tiny" ? size.tiny : rcSize == "large" ? size.large : rcSize == "normal" ? size.normal : size.small
 // ── TWO PATTERNS, GATED DIFFERENTLY — because they carry different risk.
 //
 // STATELESS BY DESIGN. Both tests read only THIS bar's open/high/low/close against the level —
