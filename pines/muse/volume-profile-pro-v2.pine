@@ -1,17 +1,16 @@
 //@version=5
 // Volume Profile · Pro v2 — v2026.10.27.1
 // Volume-by-price levels over the last N bars: POC, Value Area (VAH/VAL),
-// HVN/LVN nodes and rolling/anchored VWAP — drawn as LINES only (the histogram
-// blocks and their volume labels were removed in v2026.10.27.1; the profile
-// math is unchanged). Plus the daily 8/21/50 SMAs, locked to the Daily
-// timeframe and drawn as flat lines with SUPPORT/RESIST labels (day-signals
-// style). Every feature is a toggle you control. Overlay on price.
+// HVN/LVN nodes, rolling/anchored VWAP and daily-locked flat SMA lines
+// (8/21/50/200) — drawn as LINES only (the histogram blocks and their volume
+// labels were removed in v2026.10.27.1; the profile math is unchanged and the
+// profile itself follows the chart timeframe, it is NOT locked to Daily).
+// Overlay on price.
 indicator("Volume Profile · Pro v2 v2026.10.27.1", "VP-pro v2 v2026.10.27.1", overlay = true,
      max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 gP = "Profile"
-lockDaily = input.bool(true, "Lock profile to Daily timeframe", group = gP, tooltip = "On: the WHOLE profile (POC / VAH / VAL, HVN / LVN and the rolling VWAP) is built from Daily bars, whatever the chart timeframe shows. Off: the profile uses the chart timeframe (original behavior). On a Daily chart the lock changes nothing.")
 barsBack = input.int(150, "Bars Back (per current timeframe)", minval = 10, maxval = 5000, group = gP)
 ltfTF = input.timeframe("30", "Lower Timeframe (sub-bars)", group = gP, tooltip = "v2 builds the profile from sub-bars of this timeframe; if the calculation times out, use 60.")
 columns  = input.int(35,  "Columns (price rows)",              minval = 5,  maxval = 200,  group = gP)
@@ -33,34 +32,25 @@ openWidth = input.int(1, "w", minval = 1, maxval = 10, inline = "opn", group = g
 openStyle = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "opn", group = gL)
 showLbls  = input.bool(true, "Show line price labels (POC/VAH/VAL)", group = gL)
 lblSize   = input.string("small", "Line label size", options = ["tiny", "small", "normal"], group = gL)
-histoOffset = input.int(3, "Lines right offset (bars)", tooltip = "Gap (in bars) between the last candle and the right end of the profile lines and their labels. Increase to push them further right.", group = gL)
+histoOffset = input.int(3, "Lines right offset (bars)", tooltip = "Gap (in bars) between the last candle and where the profile lines end. Increase to push the labels further right.", group = gL)
 
 // ── Volume nodes (HVN shelves / LVN fast zones) ──────────────────────────────
 gN = "Volume nodes"
 showHVN   = input.bool(true, "Show HVN lines", inline = "hvn", group = gN)
-hvnColor  = input.color(#000000, "", inline = "hvn", group = gN)
+hvnColor  = input.color(#26A69A, "", inline = "hvn", group = gN)
 showLVN   = input.bool(true, "Show LVN lines", inline = "lvn", group = gN)
-lvnColor  = input.color(#757575, "", inline = "lvn", group = gN)
+lvnColor  = input.color(#EF5350, "", inline = "lvn", group = gN)
 hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gN, tooltip = "A local peak is a shelf only if it's at least this % of the biggest row.")
 lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN, tooltip = "A local valley is a fast/thin zone only if it's at or below this % of the biggest row.")
 nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
-nodeProx  = input.float(0, "Node proximity % (0 = show all)", minval = 0, maxval = 100, group = gN, tooltip = "Draw node lines only within this % of the last price. Keeps far-away nodes from stretching the chart scale on lower timeframes.")
 
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
 
 // ── Rolling VWAP over the same window (the "AVWAP" line) ──────────────────────
 _hlc  = (high + low + close) / 3.0
 _sv   = math.sum(volume, barsBack)
-_svwap = math.sum(_hlc * volume, barsBack)
-avwap = _sv > 0 ? _svwap / _sv : na
-// Daily-lock state: locked AND the chart itself is not Daily → the profile is
-// built from Daily bars (see f_dailyFlat below). On a Daily chart the original
-// chart-timeframe path runs unchanged.
-chartIsDaily = timeframe.period == "D"
-useDaily = lockDaily and not chartIsDaily
-// The same trailing-window VWAP computed on Daily bars (used when locked).
-dAvwap = request.security(syminfo.tickerid, "D", math.sum(((high + low + close) / 3.0) * volume, barsBack) / math.max(math.sum(volume, barsBack), 1e-10))
-plot(showAVWAP ? (useDaily ? dAvwap : avwap) : na, "AVWAP", color = avColor, linewidth = avWidth)
+avwap = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showAVWAP ? avwap : na, "AVWAP", color = avColor, linewidth = avWidth)
 
 // ── Build & draw the profile on the last bar ─────────────────────────────────
 var array<label> vpLbls  = array.new_label()
@@ -93,62 +83,6 @@ if bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index !
         array.push(subL, array.get(ltfL, _s))
 
         array.push(subV, nz(array.get(ltfV, _s)))
-
-// ── Daily-lock data ──────────────────────────────────────────────────────────
-// Runs in a Daily context (via request.security below). Collects, for the last
-// barsBack Daily bars, each day's sub-bars (same LTF as the chart path) plus the
-// day bars themselves, and returns them as ONE flattened array — but only on the
-// Daily series' last bar; older bars return an empty array (the chart reads the
-// values on its own last bar only). Layout:
-// [startTime, nSub, subH…, subL…, subV…, nDay, dayH…, dayL…, dayV…]
-f_dailyFlat() =>
-    var float[] aH = array.new_float(0)
-    var float[] aL = array.new_float(0)
-    var float[] aV = array.new_float(0)
-    var float[] dH = array.new_float(0)
-    var float[] dL = array.new_float(0)
-    var float[] dV = array.new_float(0)
-    var int lastDay = na
-    var float wStart = na
-    _h = request.security_lower_tf(syminfo.tickerid, ltfTF, high)
-    _l = request.security_lower_tf(syminfo.tickerid, ltfTF, low)
-    _v = request.security_lower_tf(syminfo.tickerid, ltfTF, volume)
-    if lockDaily and bar_index >= last_bar_index - barsBack + 1 and (na(lastDay) or bar_index != lastDay)
-        lastDay := bar_index
-        if na(wStart)
-            wStart := time
-        array.push(dH, high)
-        array.push(dL, low)
-        array.push(dV, nz(volume))
-        if ltfSecs < 86400
-            _nn = na(_h) ? 0 : array.size(_h)
-            if _nn > 0
-                for _s = 0 to _nn - 1
-                    array.push(aH, array.get(_h, _s))
-                    array.push(aL, array.get(_l, _s))
-                    array.push(aV, nz(array.get(_v, _s)))
-    _out = array.new_float(0)
-    if barstate.islast and array.size(dH) > 0
-        array.push(_out, wStart)
-        array.push(_out, array.size(aH))
-        if array.size(aH) > 0
-            for _s = 0 to array.size(aH) - 1
-                array.push(_out, array.get(aH, _s))
-            for _s = 0 to array.size(aH) - 1
-                array.push(_out, array.get(aL, _s))
-            for _s = 0 to array.size(aH) - 1
-                array.push(_out, array.get(aV, _s))
-        array.push(_out, array.size(dH))
-        for _s = 0 to array.size(dH) - 1
-            array.push(_out, array.get(dH, _s))
-        for _s = 0 to array.size(dH) - 1
-            array.push(_out, array.get(dL, _s))
-        for _s = 0 to array.size(dH) - 1
-            array.push(_out, array.get(dV, _s))
-    _out
-
-dFlat = request.security(syminfo.tickerid, "D", f_dailyFlat())
-
 if barstate.islast
     // Clear the previous frame (bounded count; redrawn each update).
     if array.size(vpLbls) > 0
@@ -161,67 +95,27 @@ if barstate.islast
     array.clear(vpLines)
 
     _n = math.min(barsBack, bar_index)
-    // Data source: the chart timeframe's own bars (original behavior), or — when
-    // the Daily lock is on and the chart is not Daily — the Daily bars collected
-    // by f_dailyFlat() above. Drawing coordinates follow the source: bar index
-    // normally, bar time when locked (a chart bar is not a day there).
-    dataH = array.new_float(0)
-    dataL = array.new_float(0)
-    dataV = array.new_float(0)
-    float _winHi = na
-    float _winLo = na
-    int _startX = na
-    if useDaily
-        if array.size(dFlat) > 6
-            _startX := int(array.get(dFlat, 0))
-            _nSub = int(array.get(dFlat, 1))
-            _dayOff = 2 + 3 * _nSub
-            _nDay = int(array.get(dFlat, _dayOff))
-            for _d = 0 to _nDay - 1
-                _dH = array.get(dFlat, _dayOff + 1 + _d)
-                _dL = array.get(dFlat, _dayOff + 1 + _nDay + _d)
-                _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
-                _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
-            if _nSub > 0
-                for _s = 0 to _nSub - 1
-                    array.push(dataH, array.get(dFlat, 2 + _s))
-                    array.push(dataL, array.get(dFlat, 2 + _nSub + _s))
-                    array.push(dataV, array.get(dFlat, 2 + 2 * _nSub + _s))
-            else if _nDay > 0
-                for _d = 0 to _nDay - 1
-                    array.push(dataH, array.get(dFlat, _dayOff + 1 + _d))
-                    array.push(dataL, array.get(dFlat, _dayOff + 1 + _nDay + _d))
-                    array.push(dataV, array.get(dFlat, _dayOff + 1 + 2 * _nDay + _d))
-    else
-        if array.size(subH) > 0
-            for _s = 0 to array.size(subH) - 1
-                array.push(dataH, array.get(subH, _s))
-                array.push(dataL, array.get(subL, _s))
-                array.push(dataV, array.get(subV, _s))
-        else if _n >= 1
-            for _f = 0 to _n - 1
-                array.push(dataH, high[_f])
-                array.push(dataL, low[_f])
-                array.push(dataV, nz(volume[_f]))
-        if _n >= 2
-            _winHi := high
-            _winLo := low
-            for _b = 0 to _n - 1
-                _winHi := math.max(_winHi, high[_b])
-                _winLo := math.min(_winLo, low[_b])
-    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0
+    if _n >= 2
         // Window price extent.
-        _hi = _winHi
-        _lo = _winLo
+        _hi = high
+        _lo = low
+        for _b = 0 to _n - 1
+            _hi := math.max(_hi, high[_b])
+            _lo := math.min(_lo, low[_b])
         _rng = _hi - _lo
         if _rng > 0
             _bs = _rng / columns
             vol = array.new_float(columns, 0.0)
+            if array.size(subH) == 0
+                for _f = 0 to _n - 1
+                    array.push(subH, high[_f])
+                    array.push(subL, low[_f])
+                    array.push(subV, nz(volume[_f]))
             // Distribute each bar's volume across the rows its range overlaps, weighted by the overlap.
-            for _b = 0 to array.size(dataH) - 1
-                _bLo = array.get(dataL, _b)
-                _bHi = array.get(dataH, _b)
-                _bV = nz(array.get(dataV, _b))
+            for _b = 0 to array.size(subH) - 1
+                _bLo = array.get(subL, _b)
+                _bHi = array.get(subH, _b)
+                _bV = nz(array.get(subV, _b))
                 _loI = int(math.floor((_bLo - _lo) / _bs))
                 _hiI = int(math.floor((_bHi - _lo) / _bs))
                 _loI := math.max(0, math.min(columns - 1, _loI))
@@ -279,23 +173,21 @@ if barstate.islast
             _val      = _lo + _dn * _bs
             _pocPrice = _lo + (_poc + 0.5) * _bs
 
-            // Lines-only since v2026.10.27.1: the profile math above still runs,
-            // but no histogram blocks are drawn — only the levels and node lines.
-            _anchor  = useDaily ? time + int(histoOffset * chartSecs * 1000) : bar_index + histoOffset
-            _xl = useDaily ? xloc.bar_time : xloc.bar_index
+            // Lines only — the right edge the level lines run to.
+            _anchor  = bar_index + histoOffset
 
             // POC / VAH / VAL lines spanning the window.
-            _xL = useDaily ? int(_startX) : math.max(bar_index - _n + 1, bar_index - 9000)
+            _xL = math.max(bar_index - _n + 1, bar_index - 9000)
             _xR = _anchor
             if showPOC
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
+                    array.push(vpLbls, label.new(_xR, _pocPrice, "POC " + str.tostring(_pocPrice), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(pocColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
             if showVA
-                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, xloc = _xl, color = vaColor, width = vaWidth))
-                array.push(vpLines, line.new(_xL, _val, _xR, _val, xloc = _xl, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _vah, _xR, _vah, color = vaColor, width = vaWidth))
+                array.push(vpLines, line.new(_xL, _val, _xR, _val, color = vaColor, width = vaWidth))
                 if showLbls
-                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
-                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
+                    array.push(vpLbls, label.new(_xR, _vah, "VAH " + str.tostring(_vah), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
+                    array.push(vpLbls, label.new(_xR, _val, "VAL " + str.tostring(_val), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(vaColor, 0), textcolor = color.white, size = f_lblSize(lblSize)))
 
             // Remember the levels so the alert conditions (below) can read them each bar.
             pocLevel := _pocPrice
@@ -313,17 +205,16 @@ if barstate.islast
                     _price = _lo + (_k + 0.5) * _bs
                     _isHVN = _vk >= _vp and _vk >= _vn and _vk >= _hvnMin and _k != _poc
                     _isLVN = _vk <= _vp and _vk <= _vn and _vk <= _lvnMax and _vk > 0 and _k != _poc
-                    _proxOk = nodeProx <= 0 or math.abs(_price - close) * 100.0 / close <= nodeProx
-                    if showHVN and _isHVN and _proxOk
-                        array.push(vpLines, line.new(_xL, _price, _xR, _price, xloc = _xl, color = hvnColor, width = nodeWidth, style = line.style_solid))
+                    if showHVN and _isHVN
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = hvnColor, width = nodeWidth, style = line.style_solid))
                         if showLbls
-                            array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = _xl, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.white, size = size.tiny))
-                    else if showLVN and _isLVN and _proxOk
-                        array.push(vpLines, line.new(_xL, _price, _xR, _price, xloc = _xl, color = lvnColor, width = nodeWidth, style = line.style_solid))
+                            array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.white, size = size.tiny))
+                    else if showLVN and _isLVN
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
-                            array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = _xl, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.white, size = size.tiny))
+                            array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.white, size = size.tiny))
             if showPOC
-                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, xloc = _xl, color = color.red, width = 3, style = line.style_solid))
+                array.push(vpLines, line.new(_xL, _pocPrice, _xR, _pocPrice, color = color.red, width = 3, style = line.style_solid))
                 // ── Alerts: price trading into a key profile level ───────────────────────────
 alertcondition(not na(pocLevel) and low <= pocLevel and high >= pocLevel, "Price at POC", "{{ticker}} is trading at the Volume Profile POC")
 alertcondition(not na(vahLevel) and low <= vahLevel and high >= vahLevel, "Price at VAH", "{{ticker}} is trading at the Value Area High")
@@ -331,6 +222,57 @@ alertcondition(not na(valLevel) and low <= valLevel and high >= valLevel, "Price
 
 
 
+
+// ── Daily SMAs (flat lines, locked to Daily) ────────────────────────────────
+// The 8/21/50/200 daily SMAs drawn FLAT at the current daily value, the way
+// day-signals draws them: green + "SUPPORT" when price is at/above the line,
+// red + "RESIST" when below. The profile above is NOT daily-locked — only
+// these SMA values come from the Daily timeframe.
+gS = "Daily SMAs (flat)"
+showSMAF   = input.bool(true, "Show daily SMA flat lines", group = gS)
+smaL1      = input.int(8,   "SMA 1 length", minval = 1, group = gS)
+smaL2      = input.int(21,  "SMA 2 length", minval = 1, group = gS)
+smaL3      = input.int(50,  "SMA 3 length", minval = 1, group = gS)
+smaL4      = input.int(200, "SMA 4 length", minval = 1, group = gS)
+smaWidth   = input.int(2, "SMA line width", minval = 1, maxval = 6, group = gS)
+showSMALbl = input.bool(true, "Show SMA labels", group = gS)
+
+smaSupCol = #089981
+smaResCol = #F23645
+
+_dSma1 = request.security(syminfo.tickerid, "D", ta.sma(close, smaL1))
+_dSma2 = request.security(syminfo.tickerid, "D", ta.sma(close, smaL2))
+_dSma3 = request.security(syminfo.tickerid, "D", ta.sma(close, smaL3))
+_dSma4 = request.security(syminfo.tickerid, "D", ta.sma(close, smaL4))
+
+var array<line>  smaLines = array.new_line()
+var array<label> smaLbls  = array.new_label()
+
+f_smaFlat(int len, float val) =>
+    if not na(val)
+        _above = close >= val
+        _col = _above ? smaSupCol : smaResCol
+        _x1 = math.max(bar_index - barsBack + 1, bar_index - 9000)
+        _x2 = bar_index + histoOffset + 6
+        array.push(smaLines, line.new(_x1, val, _x2, val, xloc = xloc.bar_index, color = _col, width = smaWidth))
+        if showSMALbl
+            _pct = (close / val - 1) * 100
+            _txt = (_above ? "▲ SUPPORT " : "▼ RESIST ") + "SMA " + str.tostring(len) + " (D) " + str.tostring(val, format.mintick) + " (" + (_pct >= 0 ? "+" : "") + str.tostring(_pct, "#.##") + "%)"
+            array.push(smaLbls, label.new(_x2, val, _txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = _col, textcolor = color.white, size = size.small))
+
+if barstate.islast and showSMAF
+    if array.size(smaLines) > 0
+        for _i = 0 to array.size(smaLines) - 1
+            line.delete(array.get(smaLines, _i))
+    if array.size(smaLbls) > 0
+        for _i = 0 to array.size(smaLbls) - 1
+            label.delete(array.get(smaLbls, _i))
+    array.clear(smaLines)
+    array.clear(smaLbls)
+    f_smaFlat(smaL1, _dSma1)
+    f_smaFlat(smaL2, _dSma2)
+    f_smaFlat(smaL3, _dSma3)
+    f_smaFlat(smaL4, _dSma4)
 
 // ── Anchored VWAP (auto anchor) ─────────────────────────────
 gAV      = "Anchored VWAP"
@@ -399,52 +341,3 @@ if barstate.islast and showOpen and not na(d_open)
 if barstate.islast and showOpen and showLbls and not na(d_open)
     _openLbl := label.new(bar_index + 6, d_open, "Open " + str.tostring(d_open, format.mintick), style = label.style_label_left, color = openColor, textcolor = color.white, size = size.small)
     label.delete(_openLbl[1])
-
-// ── Daily SMAs (locked to Daily, drawn as flat lines) ────────────────────────
-// Same treatment as day-signals: the SMA values come from the Daily timeframe
-// whatever the chart shows, drawn flat across the window with a role label —
-// green "SUPPORT" when the line is under price, red "RESIST" when above.
-gS = "Daily SMAs (flat)"
-showSMAF = input.bool(true, "Show daily SMA flat lines", group = gS)
-smaLen1  = input.int(8,  "SMA 1 length", minval = 1, maxval = 500, inline = "s1", group = gS)
-smaLen2  = input.int(21, "SMA 2 length", minval = 1, maxval = 500, inline = "s2", group = gS)
-smaLen3  = input.int(50, "SMA 3 length", minval = 1, maxval = 500, inline = "s3", group = gS)
-smaWidth = input.int(2, "SMA line width", minval = 1, maxval = 6, group = gS)
-smaLbls  = input.bool(true, "Show SMA labels", group = gS)
-supCol   = color.new(#089981, 0)
-resCol   = color.new(#F23645, 0)
-dSMA1 = request.security(syminfo.tickerid, "D", ta.sma(close, smaLen1))
-dSMA2 = request.security(syminfo.tickerid, "D", ta.sma(close, smaLen2))
-dSMA3 = request.security(syminfo.tickerid, "D", ta.sma(close, smaLen3))
-
-f_smaFlat(float val, int len, int x1, int x2) =>
-    _sup = close >= val
-    _c   = _sup ? supCol : resCol
-    _l   = line.new(x1, val, x2, val, color = _c, width = smaWidth, style = line.style_solid)
-    _pct = str.tostring(math.abs(close / val - 1) * 100, "#.##")
-    _t   = (_sup ? "▲ SUPPORT " : "▼ RESIST ") + "SMA " + str.tostring(len) + " (D) " + str.tostring(val, format.mintick) + " (" + _pct + "%)"
-    _b   = smaLbls ? label.new(x2, val, _t, style = label.style_label_left, color = _c, textcolor = color.white, size = size.small) : na
-    [_l, _b]
-
-var line  _smaL1 = na
-var label _smaB1 = na
-var line  _smaL2 = na
-var label _smaB2 = na
-var line  _smaL3 = na
-var label _smaB3 = na
-if barstate.islast
-    line.delete(_smaL1)
-    label.delete(_smaB1)
-    line.delete(_smaL2)
-    label.delete(_smaB2)
-    line.delete(_smaL3)
-    label.delete(_smaB3)
-    if showSMAF
-        _x1 = bar_index - barsBack + 1
-        _x2 = bar_index + histoOffset + 6
-        if not na(dSMA1)
-            [_smaL1, _smaB1] := f_smaFlat(dSMA1, smaLen1, _x1, _x2)
-        if not na(dSMA2)
-            [_smaL2, _smaB2] := f_smaFlat(dSMA2, smaLen2, _x1, _x2)
-        if not na(dSMA3)
-            [_smaL3, _smaB3] := f_smaFlat(dSMA3, smaLen3, _x1, _x2)
