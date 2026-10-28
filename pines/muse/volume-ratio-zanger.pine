@@ -1,18 +1,24 @@
-// Volume Ratio (Zanger-style) — v2026.10.28.1
+// Volume Ratio (Zanger-style) — v2026.10.28.2
 // Dan Zanger volume pace: today's cumulative volume vs the average day's
 // cumulative volume at the same point in the session, over the last N days,
 // expressed as a %. 100% = exactly on the average day's pace.
 //
+// v2026.10.28.2 — fix: day boundaries on intraday charts are taken from the
+//   daily feed itself (the daily bar's timestamp, constant within the day).
+//   v2026.10.28.1 read time("D") on the chart, which split days into
+//   fragments on a 30m chart — day totals landed at a fraction of the real
+//   day volume (SPY printed 3.8M against a 30.0M day). Caught in value
+//   verification against the daily engine, 2026-10-28.
 // v2026.10.28.1 — works on any chart timeframe (the old build errored off Daily):
 //   Intraday charts: day profiles are stitched from the chart's own bars,
-//     bucketed by bar position inside the day (new day detected by time).
+//     bucketed by bar position inside the day.
 //     The plot traces the pace ratio through each day and lands on the
 //     full-day ratio at the day's last bar.
 //   Daily charts: the original engine — profiles built from lower-TF bars.
 //   Weekly / monthly and higher: the daily ratio (each bar shows its last
 //     day's ratio), fed by request.security("D").
 //@version=5
-indicator("Volume Ratio (Zanger-style) v2026.10.28.1", shorttitle="Vol Ratio", overlay=false, max_bars_back=500)
+indicator("Volume Ratio (Zanger-style) v2026.10.28.2", shorttitle="Vol Ratio", overlay=false, max_bars_back=500)
 
 lenDays  = input.int(20, "Average over (days)", minval=5, maxval=50)
 ltf      = input.timeframe("5", "Intraday resolution (daily charts)")
@@ -88,10 +94,15 @@ var int iSlot = 0
 var int iBucket = 0
 var float iCumToday = 0.0
 
+// Day identity from the daily feed: the current daily bar's timestamp,
+// mapped onto every intraday bar of that day — ta.change() on it fires
+// exactly once per trading day, by construction.
+dayId = request.security(syminfo.tickerid, "D", time)
+
 float iRatio = na
 float iRatioPrev = na
 if isIntra
-    bool newDay = barstate.isfirst or nz(ta.change(time("D")), 1) != 0
+    bool newDay = barstate.isfirst or ta.change(dayId) != 0
     if newDay and not barstate.isfirst
         iSlot   := (iSlot + 1) % lenDays
         iBucket := 0
