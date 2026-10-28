@@ -1,0 +1,158 @@
+// Volume Ratio (Zanger-style) — v2026.10.28.1
+// Dan Zanger volume pace: today's cumulative volume vs the average day's
+// cumulative volume at the same point in the session, over the last N days,
+// expressed as a %. 100% = exactly on the average day's pace.
+//
+// v2026.10.28.1 — works on any chart timeframe (the old build errored off Daily):
+//   Intraday charts: day profiles are stitched from the chart's own bars,
+//     bucketed by bar position inside the day (new day detected by time).
+//     The plot traces the pace ratio through each day and lands on the
+//     full-day ratio at the day's last bar.
+//   Daily charts: the original engine — profiles built from lower-TF bars.
+//   Weekly / monthly and higher: the daily ratio (each bar shows its last
+//     day's ratio), fed by request.security("D").
+//@version=5
+indicator("Volume Ratio (Zanger-style) v2026.10.28.1", shorttitle="Vol Ratio", overlay=false, max_bars_back=500)
+
+lenDays  = input.int(20, "Average over (days)", minval=5, maxval=50)
+ltf      = input.timeframe("5", "Intraday resolution (daily charts)")
+paceBars = input.int(3, "Pace lookback (bars)", minval=1)
+xExtreme = input.float(250, "Extreme at or above %")
+xHigh    = input.float(150, "High at or above %")
+xAvg     = input.float(85, "Average at or above %")
+xLight   = input.float(60, "Light at or above % (below = Dry-up)")
+showTbl  = input.bool(true, "Show panel")
+tblPos   = input.string("Middle Right", "Panel position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Middle Left", "Bottom Left"])
+
+// Average cumulative volume at bucket k (1-based count) across the stored
+// days, excluding the current day's slot. Shared by the daily and intraday
+// engines; each engine passes its own store.
+f_avgCum(float[] store, int[] sizes, int k, int cur, int days, int maxb) =>
+    float sum = 0.0
+    int cnt = 0
+    for s = 0 to days - 1
+        if s != cur
+            sz = array.get(sizes, s)
+            if sz > 0
+                idx = math.min(k, sz) - 1
+                if idx >= 0
+                    sum += array.get(store, s * maxb + idx)
+                    cnt += 1
+    cnt > 0 ? sum / cnt : na
+
+f_cat(r) => r >= xExtreme ? "EXTREME" : r >= xHigh ? "HIGH" : r >= xAvg ? "AVERAGE" : r >= xLight ? "LIGHT" : "DRY-UP"
+f_col(r) => r >= xExtreme ? color.fuchsia : r >= xHigh ? color.lime : r >= xAvg ? color.gray : r >= xLight ? color.yellow : color.aqua
+
+isIntra   = timeframe.isintraday
+isDailyTf = timeframe.isdaily
+
+// ---------------------------------------------------------------------------
+// Daily engine (original): profiles from lower-timeframe bars inside each day
+// ---------------------------------------------------------------------------
+DMAXB = 300
+
+iv = request.security_lower_tf(syminfo.tickerid, ltf, volume)
+
+var dCumStore = array.new_float(lenDays * DMAXB, 0.0)
+var dDaySize  = array.new_int(lenDays, 0)
+
+dSlot = bar_index % lenDays
+dNn   = math.min(array.size(iv), DMAXB)
+if isDailyTf and dNn > 0
+    float run = 0.0
+    for i = 0 to dNn - 1
+        run += nz(array.get(iv, i))
+        array.set(dCumStore, dSlot * DMAXB + i, run)
+    array.set(dDaySize, dSlot, dNn)
+
+// Daily average from real consolidated daily volume
+dAvgFull   = ta.sma(volume[1], lenDays)
+dDayDone   = timenow >= time_close
+dAvgNow    = f_avgCum(dCumStore, dDaySize, dNn, dSlot, lenDays, DMAXB)
+dLiveRatio = dNn > 0 and dAvgNow > 0 ? array.get(dCumStore, dSlot * DMAXB + dNn - 1) / dAvgNow * 100 : na
+dRatio     = dDayDone ? (dAvgFull > 0 ? volume / dAvgFull * 100 : na) : dLiveRatio
+dKp        = dNn - paceBars
+dAvgPrev   = dKp > 0 ? f_avgCum(dCumStore, dDaySize, dKp, dSlot, lenDays, DMAXB) : na
+dRatioPrev = dKp > 0 and dAvgPrev > 0 ? array.get(dCumStore, dSlot * DMAXB + dKp - 1) / dAvgPrev * 100 : na
+dProjVol   = not na(dRatio) ? dAvgFull * dRatio / 100 : na
+
+// ---------------------------------------------------------------------------
+// Intraday engine: profiles stitched from the chart's own bars, one bucket
+// per chart bar, days detected by the daily-bar timestamp changing.
+// ---------------------------------------------------------------------------
+MAXB = 1000
+
+var iCumStore = array.new_float(lenDays * MAXB, 0.0)
+var iDaySize  = array.new_int(lenDays, 0)
+var int iSlot = 0
+var int iBucket = 0
+var float iCumToday = 0.0
+
+float iRatio = na
+float iRatioPrev = na
+if isIntra
+    bool newDay = barstate.isfirst or nz(ta.change(time("D")), 1) != 0
+    if newDay and not barstate.isfirst
+        iSlot   := (iSlot + 1) % lenDays
+        iBucket := 0
+        iCumToday := 0.0
+    iCumToday += nz(volume)
+    int idx = math.min(iBucket, MAXB - 1)
+    array.set(iCumStore, iSlot * MAXB + idx, iCumToday)
+    array.set(iDaySize, iSlot, idx + 1)
+    int k = idx + 1
+    float avgNow = f_avgCum(iCumStore, iDaySize, k, iSlot, lenDays, MAXB)
+    iRatio := avgNow > 0 ? iCumToday / avgNow * 100 : na
+    int kp = k - paceBars
+    if kp > 0
+        float avgPrev = f_avgCum(iCumStore, iDaySize, kp, iSlot, lenDays, MAXB)
+        float cumPrev = array.get(iCumStore, iSlot * MAXB + kp - 1)
+        iRatioPrev := avgPrev > 0 ? cumPrev / avgPrev * 100 : na
+    iBucket += 1
+
+// ---------------------------------------------------------------------------
+// Weekly / monthly and higher: the daily ratio via request.security("D").
+// Each expression is the finished-day ratio for one daily bar: that day's
+// volume over the average of the prior lenDays days (today excluded).
+// ---------------------------------------------------------------------------
+[hRatio, hRatioPrev, hDayVol] = request.security(syminfo.tickerid, "D",
+     [volume / ta.sma(volume[1], lenDays) * 100,
+      volume[paceBars] / ta.sma(volume[paceBars + 1], lenDays) * 100,
+      volume])
+
+// 20-day average full-day volume (completed days only), daily context —
+// used by the intraday projected volume and the panel on higher timeframes.
+avgFullD = request.security(syminfo.tickerid, "D", ta.sma(volume[1], lenDays))
+
+// ---------------------------------------------------------------------------
+// Select the active engine's outputs
+// ---------------------------------------------------------------------------
+dayDoneOut = isDailyTf ? dDayDone : timenow >= time_close("D")
+
+ratioOut     = isDailyTf ? dRatio     : isIntra ? iRatio     : hRatio
+ratioPrevOut = isDailyTf ? dRatioPrev : isIntra ? iRatioPrev : hRatioPrev
+volOut       = isDailyTf ? (dDayDone ? volume : dProjVol) :
+               isIntra   ? (dayDoneOut ? iCumToday : avgFullD * iRatio / 100) :
+               hDayVol
+avgOut       = isDailyTf ? dAvgFull : avgFullD
+
+plot(ratioOut, "Volume ratio %", style=plot.style_columns, color=f_col(nz(ratioOut)))
+hline(100, "Average", color=color.gray, linestyle=hline.style_dashed)
+hline(xHigh, "High", color=color.new(color.lime, 60), linestyle=hline.style_dotted)
+
+pos = tblPos == "Top Right" ? position.top_right : tblPos == "Bottom Right" ? position.bottom_right : tblPos == "Top Left" ? position.top_left : tblPos == "Middle Left" ? position.middle_left : tblPos == "Bottom Left" ? position.bottom_left : position.middle_right
+var table t = table.new(pos, 2, 5, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1)
+
+if showTbl and barstate.islast
+    paceTxt = dayDoneOut ? "closed" : na(ratioPrevOut) or na(ratioOut) ? "-" : ratioOut > ratioPrevOut ? "▲ rising" : ratioOut < ratioPrevOut ? "▼ fading" : "flat"
+    paceCol = paceTxt == "▲ rising" ? color.lime : paceTxt == "▼ fading" ? color.red : color.gray
+    table.cell(t, 0, 0, "Vol Ratio", text_color=color.silver, text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, 0, na(ratioOut) ? "-" : str.tostring(ratioOut, "#") + "%", text_color=f_col(nz(ratioOut)), text_size=size.small)
+    table.cell(t, 0, 1, "Category", text_color=color.silver, text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, 1, na(ratioOut) ? "-" : f_cat(ratioOut), text_color=f_col(nz(ratioOut)), text_size=size.small)
+    table.cell(t, 0, 2, "Pace", text_color=color.silver, text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, 2, paceTxt, text_color=paceCol)
+    table.cell(t, 0, 3, dayDoneOut ? "Day volume" : "Projected vol", text_color=color.silver, text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, 3, na(volOut) ? "-" : str.tostring(volOut / 1e6, "#.0") + "M", text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 4, "Avg day vol", text_color=color.silver, text_size=size.small, text_halign=text.align_left)
+    table.cell(t, 1, 4, na(avgOut) ? "-" : str.tostring(avgOut / 1e6, "#.0") + "M", text_color=color.white, text_size=size.small)
