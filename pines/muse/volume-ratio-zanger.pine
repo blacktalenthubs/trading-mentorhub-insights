@@ -1,8 +1,13 @@
-// Volume Ratio (Zanger-style) — v2026.10.28.3
+// Volume Ratio (Zanger-style) — v2026.10.28.4
 // Dan Zanger volume pace: today's cumulative volume vs the average day's
 // cumulative volume at the same point in the session, over the last N days,
 // expressed as a %. 100% = exactly on the average day's pace.
 //
+// v2026.10.28.4 — no behavior change: the weekly engine's tuple security
+//   call is split into three single-line calls. The multi-line tuple
+//   compiled fine in .1/.2, but the .3 verification paste mangled it in
+//   the editor (syntax error at the tuple's line break); single-line
+//   calls remove that failure mode.
 // v2026.10.28.3 — day boundaries use the chart-read time("D") change (the
 //   Volume Pace pane's idiom), probe-verified on SPY 30m 2026-10-28: it
 //   fires exactly once, at the session's first bar. Two lessons from the
@@ -25,7 +30,7 @@
 //   Weekly / monthly and higher: the daily ratio (each bar shows its last
 //     day's ratio), fed by request.security("D").
 //@version=5
-indicator("Volume Ratio (Zanger-style) v2026.10.28.3", shorttitle="Vol Ratio", overlay=false, max_bars_back=500)
+indicator("Volume Ratio (Zanger-style) v2026.10.28.4", shorttitle="Vol Ratio", overlay=false, max_bars_back=500)
 
 lenDays  = input.int(20, "Average over (days)", minval=5, maxval=50)
 ltf      = input.timeframe("5", "Intraday resolution (daily charts)")
@@ -134,10 +139,9 @@ if isIntra
 // Each expression is the finished-day ratio for one daily bar: that day's
 // volume over the average of the prior lenDays days (today excluded).
 // ---------------------------------------------------------------------------
-[hRatio, hRatioPrev, hDayVol] = request.security(syminfo.tickerid, "D",
-     [volume / ta.sma(volume[1], lenDays) * 100,
-      volume[paceBars] / ta.sma(volume[paceBars + 1], lenDays) * 100,
-      volume])
+hRatio     = request.security(syminfo.tickerid, "D", volume / ta.sma(volume[1], lenDays) * 100)
+hRatioPrev = request.security(syminfo.tickerid, "D", volume[paceBars] / ta.sma(volume[paceBars + 1], lenDays) * 100)
+hDayVol    = request.security(syminfo.tickerid, "D", volume)
 
 // 20-day average full-day volume (completed days only), daily context —
 // used by the intraday projected volume and the panel on higher timeframes.
