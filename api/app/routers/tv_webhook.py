@@ -948,7 +948,7 @@ _FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "four
 # dedup so the comparison is clean — same treatment as TBA. The Pine fires
 # once per support test (its test state must clear before re-firing), so
 # there is no self-spam to dedup here either.
-_TBA_TYPES: frozenset[str] = frozenset({"swing_tba_breakout", "swing_sma8_support", "swing_sma21_support", "swing_sma50_support", "swing_pdl_reclaim", "swing_pdh_breakout", "swing_pwl_reclaim", "swing_pwh_breakout_retest", "swing_pml_reclaim", "swing_pmh_breakout_retest"})
+_TBA_TYPES: frozenset[str] = frozenset({"swing_tba_breakout", "swing_sma8_support", "swing_sma21_support", "swing_sma50_support", "swing_pdl_reclaim", "swing_pdh_breakout", "swing_pwl_reclaim", "swing_pwh_breakout", "swing_pwh_breakout_retest", "swing_pml_reclaim", "swing_pmh_breakout", "swing_pmh_breakout_retest"})
 
 
 def _is_tba_type(alert_type_full: str) -> bool:
