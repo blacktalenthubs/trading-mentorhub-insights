@@ -1,9 +1,13 @@
 //@version=5
-// TBA Patterns + Anchored VWAP — v2026.10.28.1
+// TBA Patterns + Anchored VWAP — v2026.10.29.1
+// v2026.10.29.1 — added the LEVEL webhook family (PDL/PDH · PWL/PWH ·
+// PML/PMH), mirroring the scanner's six level types so the Pine path carries
+// the same set as the scanner path (Victor: "whatever in scanner should be
+// in pine — mirror them; over time I will know which to stick to").
 // v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
 // support, rules swing_sma<N>_support) next to the TBA breakout hook, for
 // Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
-indicator("TBA Patterns + Anchored VWAP v2026.10.28.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+indicator("TBA Patterns + Anchored VWAP v2026.10.29.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -894,6 +898,60 @@ if showSmaHook and barstate.isconfirmed and sup21 and not sup21[1]
     alert(f_supMsg(21, dSma21), alert.freq_once_per_bar_close)
 if showSmaHook and barstate.isconfirmed and sup50 and not sup50[1]
     alert(f_supMsg(50, dSma50), alert.freq_once_per_bar_close)
+
+// ── Level webhook — PDL/PDH · PWL/PWH · PML/PMH (Victor, 2026-10-29) ──
+// Mirror of the scanner's six level types, on the locked prior-period levels
+// (completed day / week / month values, [1] + lookahead_on — fixed all
+// period). LOWS are RECLAIMS: the day opened above the level, price dipped
+// under it inside the lookback, and two consecutive bars now close back
+// above it within 2% (the scanner's hold + staleness shape). PDH is a
+// BREAKOUT: the first close back above the level, only when the day did NOT
+// gap open above it. PWH/PMH are BREAKOUT-RETESTS: price has been closing
+// above the level for at least 2 bars and a bar now tests it from above
+// (low inside the tolerance band) and closes above it. Every event is
+// edge-triggered (condition set completes once per episode). Same
+// never-dedup treatment as the rest of this Pine's webhook family.
+g15 = "Level webhook (PDL/PDH · PWL/PWH · PML/PMH)"
+showLvlHook = input.bool(true, "Send level signals to the swing webhook", group=g15)
+lvlTol      = input.float(0.3, "Retest tolerance % (low within this above the level)", minval=0.05, step=0.05, group=g15) / 100
+lvlLook     = input.int(8, "Reclaim dip lookback (bars)", minval=2, maxval=40, group=g15)
+
+lvlPdh = request.security(syminfo.tickerid, "D", high[1], lookahead=barmerge.lookahead_on)
+lvlPdl = request.security(syminfo.tickerid, "D", low[1],  lookahead=barmerge.lookahead_on)
+lvlPwh = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_on)
+lvlPwl = request.security(syminfo.tickerid, "W", low[1],  lookahead=barmerge.lookahead_on)
+lvlPmh = request.security(syminfo.tickerid, "M", high[1], lookahead=barmerge.lookahead_on)
+lvlPml = request.security(syminfo.tickerid, "M", low[1],  lookahead=barmerge.lookahead_on)
+dayOpen = request.security(syminfo.tickerid, "D", open)
+
+f_lvlMsg(string rule, float stopPx, string note) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stopPx, format.mintick) + '","target_1":"","target_1_label":"","rule":"' + rule + '","direction":"BUY","rsi":"' + (na(Lrsi) ? "" : str.tostring(Lrsi, "#.0")) + '","volume_ratio":"' + (na(vrRatio) ? "" : str.tostring(vrRatio, "#")) + '","note":"' + note + '"}'
+
+// low reclaim: opened above + dipped under inside the lookback + 2 closes back above + within 2%
+f_rec(float lvl) =>
+    not na(lvl) and dayOpen > lvl and ta.lowest(low, lvlLook) < lvl * (1 - 0.0003) and close > lvl and close[1] > lvl and close <= lvl * 1.02
+// high breakout-retest: established above (no close at/below for 2+ bars) + test from above + close above
+f_ret(float lvl) =>
+    not na(lvl) and ta.barssince(close <= lvl) >= 2 and low <= lvl * (1 + lvlTol) and low >= lvl * (1 - lvlTol) and close > lvl
+
+recPdl = f_rec(lvlPdl)
+recPwl = f_rec(lvlPwl)
+recPml = f_rec(lvlPml)
+retPwh = f_ret(lvlPwh)
+retPmh = f_ret(lvlPmh)
+brkPdh = not na(lvlPdh) and dayOpen <= lvlPdh and close > lvlPdh and close[1] <= lvlPdh
+if showLvlHook and barstate.isconfirmed and recPdl and not recPdl[1]
+    alert(f_lvlMsg("swing_pdl_reclaim", lvlPdl * 0.995, "PDL reclaim - dipped under " + str.tostring(lvlPdl, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and brkPdh
+    alert(f_lvlMsg("swing_pdh_breakout", low, "PDH breakout - closed above " + str.tostring(lvlPdh, format.mintick)), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and recPwl and not recPwl[1]
+    alert(f_lvlMsg("swing_pwl_reclaim", lvlPwl * 0.995, "PWL reclaim - dipped under " + str.tostring(lvlPwl, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and retPwh and not retPwh[1]
+    alert(f_lvlMsg("swing_pwh_breakout_retest", low, "PWH breakout retest - tested " + str.tostring(lvlPwh, format.mintick) + " from above, closed above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and recPml and not recPml[1]
+    alert(f_lvlMsg("swing_pml_reclaim", lvlPml * 0.995, "PML reclaim - dipped under " + str.tostring(lvlPml, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and retPmh and not retPmh[1]
+    alert(f_lvlMsg("swing_pmh_breakout_retest", low, "PMH breakout retest - tested " + str.tostring(lvlPmh, format.mintick) + " from above, closed above"), alert.freq_once_per_bar_close)
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
