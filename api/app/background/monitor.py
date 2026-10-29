@@ -34,7 +34,6 @@ from analytics.avwap_signals import AVWAPAlertType, check_avwap_reject, check_av
 from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
-from alert_config import SIGNAL_SYMBOL_ALLOWLIST as _SIGNAL_SYMBOL_ALLOWLIST  # noqa: E402  # hardcoded delivery allowlist (trader, 2026-10-19)
 from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
 from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
 from analytics.focus_gate import focus_tier_of as _focus_tier_of  # noqa: E402  # A/B delivery tier
@@ -1381,17 +1380,12 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         # Set upstream by _merge_confluence — recorded, never delivered.
                         _send_notification = False
 
-                    # Symbol allowlist (trader, 2026-10-19) — HARDCODED + TEMPORARY:
-                    # only SIGNAL_SYMBOL_ALLOWLIST names may deliver. An off-list
-                    # symbol is still recorded (suppressed_reason stamped below) but
-                    # never pushed — no Telegram, email, APNs or SSE. Placed ahead of
-                    # the other delivery gates so every off-list row carries the same
-                    # reason; every gate below keys off _send_notification, so none
-                    # of them can re-enable it. Remove together with the constant in
-                    # alert_config.py to restore full-universe delivery.
-                    if _send_notification and symbol.upper() not in _SIGNAL_SYMBOL_ALLOWLIST:
-                        _send_notification = False
-                        _suppressed = "symbol_not_in_allowlist"
+                    # Symbol allowlist gate REMOVED 2026-10-29 (trader): the
+                    # 2026-10-19 hardcoded 21-name delivery allowlist was killing
+                    # alerts on names he actively trades (SPCX's PDL reclaim was
+                    # recorded but never delivered). Delivery is back to the
+                    # scanned focus universe, gated by the type toggles alone.
+                    # (Constant removed from alert_config.py in the same change.)
 
                     # ENABLED_RULES clamp (2026-09-13) — enforce the redesign at DELIVERY.
                     # evaluate_rules still COMPUTES legacy checks (ma_bounce / ema_bounce /
