@@ -1,0 +1,168 @@
+// © bolofbaba
+//@version=6
+indicator("AVWAP-R · Bases & Recovery TBA", overlay = true, max_lines_count = 100, max_labels_count = 100)
+
+// ── A consolidation finder built around ONE line: the rolling VWAP
+//    (trailing 150, hlc3, volume weighted — identical math and styling to
+//    Anchored VWAPs · Standalone). The VWAP is the whole idea: the finder
+//    marks consolidations that sit below it or on it, against the line
+//    itself. It draws exactly two things: the orange VWAP curve, and the
+//    current consolidation top in the same format as the Zanger-signals
+//    TBA — an aqua width-4 line redrawn on the last bar (60 back / 3
+//    forward) with an aqua "TBA <price>" tag at its right end. No other
+//    labels, no HUD. When the pattern resolves, the TBA clears and the
+//    next base takes over.
+//
+//    FAMILY 1 — RECOVERY (basing BELOW the line). The episode clock starts
+//    when the name loses the VWAP: the search for the base never crosses the
+//    most recent close above the line. The floor is the lowest low of the
+//    lookback; the base starts at the first touch of the floor zone (±2%) —
+//    an undercut wick is a test of the floor, not a new base. The line is the
+//    base top through yesterday; while the base lives, a higher high raises
+//    the line (the break is judged against yesterday's top). The break is a
+//    close over the line — and the episode ends there. This tool is
+//    forward-only: it does not track a recovery after the break or certify
+//    arrivals at the VWAP; it finds the next consolidation and marks its
+//    top for the next technical breakout. Distance to the VWAP is never a
+//    gate (Victor, 2026-10-23): finding the base is the job.
+//
+//    FAMILY 2 — ON-LINE (basing ON a RISING line). Residence proven over the
+//    window: repeated low tags, closes hugging the line, a tight coil, no
+//    close under it. The line drawn is the coil top; a close under the VWAP
+//    kills it (the line itself is the floor and the stop).
+
+gBase    = "Recovery base (below the line)"
+lookback = input.int(25, "Floor lookback (bars)", minval = 10, maxval = 60, group = gBase)
+searchBk = input.int(45, "Episode search (bars)", minval = 20, maxval = 90, group = gBase, tooltip = "The base search never crosses the most recent close above the VWAP inside this window.")
+zonePct  = input.float(2.0, "Floor zone (%)", minval = 0.5, maxval = 4.0, step = 0.25, group = gBase, tooltip = "A low within this % of the floor counts as a touch of the same floor.") / 100.0
+minBase  = input.int(7, "Min base bars", minval = 5, maxval = 30, group = gBase)
+maxRange = input.float(15.0, "Max base range (%)", minval = 5.0, maxval = 40.0, step = 0.5, group = gBase) / 100.0
+
+gOn      = "On-line base (on a rising line)"
+onWin    = input.int(8, "Residence window (bars)", minval = 5, maxval = 20, group = gOn)
+onCoil   = input.float(10.0, "Max coil range (%)", minval = 4.0, maxval = 25.0, step = 0.5, group = gOn) / 100.0
+riseBars = input.int(10, "Rising check (bars)", minval = 3, maxval = 30, group = gOn)
+
+
+// ── AVWAP-R — the referee line, plotted (same orange as the standalone) ──
+showRoll = input.bool(true, "Show rolling VWAP", group = "Rolling VWAP")
+barsBack = 150
+_hlc     = (high + low + close) / 3
+_sv      = math.sum(volume, barsBack)
+rollVWAP = _sv > 0 ? math.sum(_hlc * volume, barsBack) / _sv : na
+plot(showRoll ? rollVWAP : na, "AVWAP-R (rolling)", color = color.new(#FF9800, 0), linewidth = 2)
+
+// ═══ FAMILY 1 — RECOVERY (below the line) ═══
+_floor = ta.lowest(low, lookback)
+// most recent close above the line (bar offset) inside the search window
+_bndOff = searchBk
+for _b = 0 to searchBk
+    if close[_b] > rollVWAP[_b]
+        _bndOff := _b
+        break
+// first touch of the floor zone INSIDE the episode (younger than the bound
+// bar): scan offsets from just inside the bound down to today and keep the
+// OLDEST touch found
+_ftOff = -1
+if _bndOff >= 1
+    for _k = _bndOff - 1 to 0
+        if low[_k] <= _floor * (1.0 + zonePct)
+            _ftOff := _k
+            break
+_baseAge = _ftOff + 1
+_anchBar = bar_index - _ftOff
+_armTop  = _baseAge >= 2 ? ta.highest(high[1], _baseAge - 1) : na
+
+// state machine (0 none · 1 basing) — the break ends the episode; inline only
+var int   _state = 0
+var float _tba   = na
+var float _flr   = na
+_rTrig = false
+
+if _state == 0
+    if _ftOff >= 0 and _baseAge >= minBase and not na(_armTop) and not na(rollVWAP)
+        _rng = (_armTop - _floor) / _floor
+        if _rng <= maxRange and close < _armTop
+            _state := 1
+            _tba   := _armTop
+            _flr   := _floor
+
+if _state == 1
+    if close < _flr * 0.995
+        _state := 0
+        _tba := na
+        _flr := na
+    else if close > _tba
+        _rTrig := true
+        _state := 0
+        _tba := na
+        _flr := na
+    else if high > _tba
+        _tba := high
+
+// ═══ FAMILY 2 — ON-LINE (on a rising line) ═══
+_rising  = not na(rollVWAP) and not na(rollVWAP[riseBars]) and rollVWAP > rollVWAP[riseBars]
+_tags    = 0
+_near    = 0
+_holdsW  = true
+for _j = 0 to onWin - 1
+    if low[_j] <= rollVWAP[_j] * 1.015
+        _tags += 1
+    if math.abs(close[_j] / rollVWAP[_j] - 1.0) <= 0.03
+        _near += 1
+    if close[_j] < rollVWAP[_j] * 0.99
+        _holdsW := false
+_coilRng  = (ta.highest(high, onWin) - ta.lowest(low, onWin)) / ta.lowest(low, onWin)
+_baseTest = _rising and _tags >= 4 and _near >= 6 and _holdsW and _coilRng <= onCoil
+_tagRecent = low <= rollVWAP * 1.015 or low[1] <= rollVWAP[1] * 1.015 or low[2] <= rollVWAP[2] * 1.015
+_holds5 = close >= rollVWAP * 0.99 and close[1] >= rollVWAP[1] * 0.99 and close[2] >= rollVWAP[2] * 0.99 and close[3] >= rollVWAP[3] * 0.99 and close[4] >= rollVWAP[4] * 0.99
+_closePos = close / rollVWAP - 1.0
+_atTest = _rising and _tagRecent and _holds5 and _closePos >= -0.01 and _closePos <= 0.035
+_oTrig    = false
+
+// state machine (0 none · 1 at line · 2 on-line base) — inline only
+var int   _oState = 0
+var float _oTop   = na
+
+if _oState == 0
+    if _baseTest
+        _oState := 2
+        _oTop   := ta.highest(high, onWin)
+    else if _atTest
+        _oState := 1
+
+if _oState == 1
+    if close < rollVWAP * 0.99
+        _oState := 0
+    else if _baseTest
+        _oState := 2
+        _oTop   := ta.highest(high, onWin)
+
+if _oState == 2
+    if close < rollVWAP * 0.99
+        _oState := 0
+        _oTop := na
+    else if close > _oTop
+        _oTrig := true
+        _oState := 0
+        _oTop := na
+    else if high > _oTop
+        _oTop := high
+
+// ── drawing — his Zanger TBA format: aqua width-4 line, last-bar redraw,
+//    60 bars back / 3 forward, aqua "TBA <price>" tag at the right end ──
+var line  _drawLn = na
+var label _drawLb = na
+if barstate.islast
+    line.delete(_drawLn)
+    label.delete(_drawLb)
+    _lvl = _state == 1 ? _tba : _oState == 2 ? _oTop : na
+    if not na(_lvl)
+        _xL = bar_index - 60
+        _xR = bar_index + 3
+        _drawLn := line.new(_xL, _lvl, _xR, _lvl, color = color.aqua, width = 4)
+        _drawLb := label.new(_xR, _lvl, "TBA " + str.tostring(_lvl, format.mintick), style = label.style_label_left, color = color.aqua, textcolor = color.black, size = size.small)
+
+alertcondition(_rTrig, title = "Recovery TBA breakout", message = "{{ticker}} broke out of its below-VWAP base over {{close}}")
+alertcondition(_oState == 2 and _oState[1] != 2, title = "On-line base formed", message = "{{ticker}} formed an on-line base on its rising rolling VWAP")
+alertcondition(_oTrig, title = "On-line base breakout", message = "{{ticker}} broke out of its on-line base over {{close}}")
