@@ -1,5 +1,8 @@
 //@version=5
-// TBA Patterns + Anchored VWAP — v2026.10.29.1
+// TBA Patterns + Anchored VWAP — v2026.10.29.2
+// v2026.10.29.2 — PWH/PMH gain their BREAKOUT alerts next to the retests
+// (Victor: "we need breakout then" — the breakout is the claim, the retest
+// is the proof; both fire). Rules swing_pwh_breakout / swing_pmh_breakout.
 // v2026.10.29.1 — added the LEVEL webhook family (PDL/PDH · PWL/PWH ·
 // PML/PMH), mirroring the scanner's six level types so the Pine path carries
 // the same set as the scanner path (Victor: "whatever in scanner should be
@@ -7,7 +10,7 @@
 // v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
 // support, rules swing_sma<N>_support) next to the TBA breakout hook, for
 // Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
-indicator("TBA Patterns + Anchored VWAP v2026.10.29.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+indicator("TBA Patterns + Anchored VWAP v2026.10.29.2", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -940,16 +943,22 @@ recPml = f_rec(lvlPml)
 retPwh = f_ret(lvlPwh)
 retPmh = f_ret(lvlPmh)
 brkPdh = not na(lvlPdh) and dayOpen <= lvlPdh and close > lvlPdh and close[1] <= lvlPdh
+brkPwh = not na(lvlPwh) and close > lvlPwh and close[1] <= lvlPwh
+brkPmh = not na(lvlPmh) and close > lvlPmh and close[1] <= lvlPmh
 if showLvlHook and barstate.isconfirmed and recPdl and not recPdl[1]
     alert(f_lvlMsg("swing_pdl_reclaim", lvlPdl * 0.995, "PDL reclaim - dipped under " + str.tostring(lvlPdl, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
 if showLvlHook and barstate.isconfirmed and brkPdh
     alert(f_lvlMsg("swing_pdh_breakout", low, "PDH breakout - closed above " + str.tostring(lvlPdh, format.mintick)), alert.freq_once_per_bar_close)
 if showLvlHook and barstate.isconfirmed and recPwl and not recPwl[1]
     alert(f_lvlMsg("swing_pwl_reclaim", lvlPwl * 0.995, "PWL reclaim - dipped under " + str.tostring(lvlPwl, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and brkPwh
+    alert(f_lvlMsg("swing_pwh_breakout", low, "PWH breakout - closed above " + str.tostring(lvlPwh, format.mintick)), alert.freq_once_per_bar_close)
 if showLvlHook and barstate.isconfirmed and retPwh and not retPwh[1]
     alert(f_lvlMsg("swing_pwh_breakout_retest", low, "PWH breakout retest - tested " + str.tostring(lvlPwh, format.mintick) + " from above, closed above"), alert.freq_once_per_bar_close)
 if showLvlHook and barstate.isconfirmed and recPml and not recPml[1]
     alert(f_lvlMsg("swing_pml_reclaim", lvlPml * 0.995, "PML reclaim - dipped under " + str.tostring(lvlPml, format.mintick) + ", closed back above"), alert.freq_once_per_bar_close)
+if showLvlHook and barstate.isconfirmed and brkPmh
+    alert(f_lvlMsg("swing_pmh_breakout", low, "PMH breakout - closed above " + str.tostring(lvlPmh, format.mintick)), alert.freq_once_per_bar_close)
 if showLvlHook and barstate.isconfirmed and retPmh and not retPmh[1]
     alert(f_lvlMsg("swing_pmh_breakout_retest", low, "PMH breakout retest - tested " + str.tostring(lvlPmh, format.mintick) + " from above, closed above"), alert.freq_once_per_bar_close)
 
