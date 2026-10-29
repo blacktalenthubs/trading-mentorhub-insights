@@ -149,6 +149,83 @@ def start_alert_watchdog() -> None:
     logger.info("Alert watchdog armed (stale=%ds, startup grace=%ds)",
                 _WATCHDOG_STALE_SEC, _WATCHDOG_STARTUP_GRACE_SEC)
 
+
+# ---------------------------------------------------------------------------
+# Alerts retention (2026-10-11) — the alerts table grows unboundedly (~99% of
+# Jul-Aug 2026 writes were suppressed rows). A daemon thread (same pattern as
+# the watchdog above) runs a batched purge once a day at 03:30 ET: alerts
+# older than ALERT_RETENTION_DAYS (default 7) are deleted in batches of 1000,
+# each batch its own commit, so the purge never takes one giant lock. Alerts
+# still referenced by ai_auto_trades.alert_id are SKIPPED — that FK is
+# NO ACTION, so deleting a referenced alert fails outright; referenced rows
+# stay until the trades' own lifecycle prunes them. The starter is called
+# from poll_all_users (once per process) instead of main.py's scheduler block
+# so the whole change lives in this file. Set ALERT_RETENTION_ENABLED=0 to
+# disable.
+# ---------------------------------------------------------------------------
+_RETENTION_STARTED = False
+
+
+def run_alert_retention(sync_session_factory) -> int:
+    """One batched purge pass over the alerts table. Returns rows deleted."""
+    from datetime import datetime as _dt, timedelta as _td
+    from sqlalchemy import text as _sa_text
+    days = int(os.environ.get("ALERT_RETENTION_DAYS", "7"))
+    if days <= 0:
+        logger.info("Alert retention: ALERT_RETENTION_DAYS=%d — skipping", days)
+        return 0
+    cutoff = _dt.utcnow() - _td(days=days)
+    batch = 1000
+    total = 0
+    with sync_session_factory() as sess:
+        while True:
+            res = sess.execute(_sa_text(
+                "DELETE FROM alerts WHERE id IN ("
+                "  SELECT a.id FROM alerts a"
+                "  WHERE a.created_at < :cutoff"
+                "    AND NOT EXISTS (SELECT 1 FROM ai_auto_trades t"
+                "                    WHERE t.alert_id = a.id)"
+                "  ORDER BY a.id LIMIT :batch)"
+            ), {"cutoff": cutoff, "batch": batch})
+            sess.commit()
+            n = res.rowcount or 0
+            total += n
+            if n < batch:
+                break
+    logger.info("Alert retention: deleted %d alerts older than %d days", total, days)
+    return total
+
+
+def start_alert_retention(sync_session_factory) -> None:
+    """Daemon thread: run run_alert_retention daily at 03:30 ET. Safe to call
+    on every poll cycle — only the first call arms the thread."""
+    global _RETENTION_STARTED
+    if _RETENTION_STARTED:
+        return
+    _RETENTION_STARTED = True
+    if os.environ.get("ALERT_RETENTION_ENABLED", "true").lower() in ("0", "false", "no"):
+        logger.info("Alert retention DISABLED (ALERT_RETENTION_ENABLED=0)")
+        return
+
+    def _run() -> None:
+        import pytz as _pytz
+        from datetime import datetime as _dt, time as _time, timedelta as _td
+        et = _pytz.timezone("America/New_York")
+        while True:
+            now_et = _dt.now(et)
+            target = et.localize(_dt.combine(now_et.date(), _time(3, 30)))
+            if now_et >= target:
+                target += _td(days=1)
+            time.sleep(max(60.0, (target - now_et).total_seconds()))
+            try:
+                run_alert_retention(sync_session_factory)
+            except Exception:
+                logger.exception("Alert retention failed")
+
+    threading.Thread(target=_run, name="alert-retention", daemon=True).start()
+    logger.info("Alert retention armed (daily 03:30 ET, ALERT_RETENTION_DAYS=%s)",
+                os.environ.get("ALERT_RETENTION_DAYS", "7"))
+
 # Per-alert-type cooldown: prevent same alert type from firing rapidly
 _direction_lock: Dict[tuple, "datetime"] = {}  # {(symbol, alert_type): datetime}
 
@@ -196,6 +273,12 @@ def poll_all_users(sync_session_factory) -> int:
     # scheduler is firing the poll. Purely additive — no effect on the poll's behavior.
     _HEARTBEAT["started_at"] = time.time()
     _HEARTBEAT["cycles"] = float(_HEARTBEAT.get("cycles", 0)) + 1
+    # Alerts retention daemon (2026-10-11): the first poll of the process arms the
+    # daily purge thread; the starter is a no-op on every later call.
+    try:
+        start_alert_retention(sync_session_factory)
+    except Exception:
+        logger.exception("Alert retention starter failed")
     try:
         return _poll_all_users_inner(sync_session_factory)
     except Exception:
@@ -1438,11 +1521,24 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # view shows suppressed_reason IS NULL — i.e. what actually
                     # delivered — and the "Show collapsed" toggle reveals the rest.
                     if not _send_notification:
-                        alert.suppressed_reason = (_suppressed or "not_delivered")[:200]
-                        logger.info(
-                            "NOT DELIVERED: user=%d %s %s — %s",
-                            user_id, signal.symbol, _at_val, alert.suppressed_reason,
-                        )
+                        if _suppressed == "rule_not_enabled":
+                            # Don't persist rule_not_enabled rows at all (trader's
+                            # standing rule: they're ignored everywhere). They were
+                            # ~99% of alert writes in Jul-Aug 2026 — pure storage/CPU
+                            # noise. Expunge just this row; the commit below still
+                            # persists everything else (entries, cooldowns) as today.
+                            if alert in db:
+                                db.expunge(alert)
+                            logger.info(
+                                "NOT RECORDED: user=%d %s %s — rule_not_enabled (not persisted)",
+                                user_id, signal.symbol, _at_val,
+                            )
+                        else:
+                            alert.suppressed_reason = (_suppressed or "not_delivered")[:200]
+                            logger.info(
+                                "NOT DELIVERED: user=%d %s %s — %s",
+                                user_id, signal.symbol, _at_val, alert.suppressed_reason,
+                            )
 
                     # rule_not_enabled rows are pure noise — legacy rule types the
                     # scanner redesign replaced, computed only to be clamped at the
