@@ -1,5 +1,9 @@
 //@version=5
-indicator("TBA Patterns + Anchored VWAP", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+// TBA Patterns + Anchored VWAP — v2026.10.28.1
+// v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
+// support, rules swing_sma<N>_support) next to the TBA breakout hook, for
+// Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
+indicator("TBA Patterns + Anchored VWAP v2026.10.28.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -857,6 +861,39 @@ hookT1 = not na(LresL) and not na(Ltba) and LresL > Ltba * 1.005 ? LresL : na
 hookFire = showHook and La and not na(Ltba) and ta.crossover(close, Ltba)
 if hookFire
     alert(f_hookMsg(Lpat, Ltba, Lstop, hookT1, na(hookT1) ? "" : LresT), alert.freq_once_per_bar_close)
+
+// ── SMA support webhook → swing feed (Victor, 2026-10-28) ──
+// The support family routed a second way — from this Pine instead of the
+// scanner's ma_bounce engine — so the two can be evaluated head-to-head.
+// A bar on the alert chart TF (30m, same binding as the TBA hook) that pulls
+// down to a LOCKED DAILY SMA (8 / 21 / 50) and CLOSES above it fires
+// swing_sma<N>_support. The daily SMAs are the completed daily values
+// ([1] + lookahead_on), so the line is fixed all session. One fire per test:
+// the test state must clear (a bar that does not touch the zone) before the
+// same line can fire again — that is the event definition, not dedup; the
+// desk side treats these types as never-deduped as well (2026-10-28).
+g13 = "SMA support webhook (swing feed)"
+showSmaHook = input.bool(true, "Send 8/21/50 daily SMA support to the swing webhook", group=g13)
+supTol = input.float(0.3, "Support zone % — low within this above the SMA, or a dip below that closes back above", step=0.1, group=g13) / 100
+
+dSma8  = request.security(syminfo.tickerid, "D", ta.sma(close, 8)[1],  lookahead=barmerge.lookahead_on)
+dSma21 = request.security(syminfo.tickerid, "D", ta.sma(close, 21)[1], lookahead=barmerge.lookahead_on)
+dSma50 = request.security(syminfo.tickerid, "D", ta.sma(close, 50)[1], lookahead=barmerge.lookahead_on)
+
+f_supMsg(int len, float lvl) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","interval":"' + timeframe.period + '","price":"' + str.tostring(close, format.mintick) + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(low, format.mintick) + '","target_1":"","target_1_label":"","rule":"swing_sma' + str.tostring(len) + '_support","direction":"BUY","rsi":"' + (na(Lrsi) ? "" : str.tostring(Lrsi, "#.0")) + '","volume_ratio":"' + (na(vrRatio) ? "" : str.tostring(vrRatio, "#")) + '","note":"' + str.tostring(len) + ' SMA daily support - pulled to ' + str.tostring(lvl, format.mintick) + ', closed above"}'
+
+f_supTest(float lvl) => not na(lvl) and close > lvl and low <= lvl * (1 + supTol)
+
+sup8  = f_supTest(dSma8)
+sup21 = f_supTest(dSma21)
+sup50 = f_supTest(dSma50)
+if showSmaHook and barstate.isconfirmed and sup8 and not sup8[1]
+    alert(f_supMsg(8, dSma8), alert.freq_once_per_bar_close)
+if showSmaHook and barstate.isconfirmed and sup21 and not sup21[1]
+    alert(f_supMsg(21, dSma21), alert.freq_once_per_bar_close)
+if showSmaHook and barstate.isconfirmed and sup50 and not sup50[1]
+    alert(f_supMsg(50, dSma50), alert.freq_once_per_bar_close)
 
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
