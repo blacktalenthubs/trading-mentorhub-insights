@@ -166,6 +166,14 @@ _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
     # was never added to this catalog, so every arrival was recorded unknown_type and
     # never delivered (first live fires 2026-10-12/13: PWR, URI, MRNA, VST, AAPL, ZETA).
     ("swing_tba_breakout", "TBA breakout (swing) — 30m close crossed the locked daily TBA of an active base pattern (flat base / triangle / flag / prior-high shelf). Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
+    # SMA support eval (2026-10-28) — the TBA Pine's second webhook family: a 30m bar
+    # pulls to a LOCKED daily SMA (8 / 21 / 50) and closes above it. Routed alongside
+    # the scanner's ma_bounce types so the trader can evaluate Pine-vs-scanner
+    # head-to-head; never deduped (see _TBA_TYPES in tv_webhook). Bind TBA Pine on
+    # MASTER; opt in HERE.
+    ("swing_sma8_support", "8 SMA daily support (Pine) — 30m bar pulled to the locked daily 8 SMA and closed above it. Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
+    ("swing_sma21_support", "21 SMA daily support (Pine) — 30m bar pulled to the locked daily 21 SMA and closed above it. Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
+    ("swing_sma50_support", "50 SMA daily support (Pine) — 30m bar pulled to the locked daily 50 SMA and closed above it. Bind TBA Pine on MASTER; opt in HERE.", "Swing", False),
     ("swing_rsi_30", "RSI 30 reclaim — daily RSI crossed back ABOVE 30 from oversold (the turn is in; longer-hold bottom)", "Swing", False),
     # swing_reclaim.pine (2026-07-30) — the validated HOLD-200/RSI-30 long-hold entry. SMA-only,
     # long-only reclaims (close back above a level after dipping below). Bind the pine on Daily.
@@ -431,6 +439,9 @@ ALERT_TYPE_DESCRIPTIONS: dict[str, str] = {
     "rsi_70": "Daily RSI(14) closed above 70 — momentum/exhaustion gauge at the bullish extreme. A close above 70 often kicks off a parabolic run (e.g. MU → 85 RSI). Fired at the daily close (confirmed, towards EOD), at most once a day. A heads-up to look, not a defended entry; no structural stop of its own.",
     "ema_5_20_cross": "The daily 5 EMA just crossed above the 20 EMA (Steve Burns's 5/20 cross) — a short-term trend flip that frequently starts a sustained up-move. A SWING entry (hold days). Fired at the daily close. STOP = a 5/20 EMA cross-under at the close (≈ the 20 EMA). TARGET = the 70-RSI. (Burns went long AIQ/VGT/QQQ on this exact signal Fri 06-12.)",
     "swing_tba_breakout": "A 30-minute close crossed ABOVE the locked daily TBA — the top of an active base pattern (flat base, ascending triangle, bull flag, or prior-high shelf) from the TBA Patterns Pine. A SWING breakout entry (hold days); STOP = the daily pattern stop carried in the alert, TARGET = the locked resistance above the TBA when one exists. Entry doctrine: the holding retest of the TBA, not the chase.",
+    "swing_sma8_support": "A 30-minute bar pulled down to the LOCKED daily 8 SMA and closed above it — the fast line defended as support, from the TBA Patterns Pine (the Pine routing of the support family, run head-to-head against the scanner's bounce types). A SWING support entry; STOP = the test bar's low carried in the alert, invalid on a close back below the 8 SMA.",
+    "swing_sma21_support": "A 30-minute bar pulled down to the LOCKED daily 21 SMA and closed above it — the mid line defended as support, from the TBA Patterns Pine (the Pine routing of the support family, run head-to-head against the scanner's bounce types). A SWING support entry; STOP = the test bar's low carried in the alert, invalid on a close back below the 21 SMA.",
+    "swing_sma50_support": "A 30-minute bar pulled down to the LOCKED daily 50 SMA and closed above it — the trend line defended as support, from the TBA Patterns Pine (the Pine routing of the support family, run head-to-head against the scanner's bounce types). A SWING support entry; STOP = the test bar's low carried in the alert, invalid on a close back below the 50 SMA.",
     "swing_8ema_w_reclaim": "The WEEK opened above the weekly 8 EMA (the fast trend spine) and price reclaimed it — an early trend re-entry after a pullback (fires a bit more than the 21 EMA-W but still weekly-gated). Long swing entry; stop = a weekly close back below / the swept low.",
     "swing_21ema_w_reclaim": "The WEEK opened above the weekly 21 EMA (it was support) and price reclaimed it — the higher-timeframe trend spine held. Replaces the noisy daily 50/100 SMA reclaims. Long swing entry; stop = a weekly close back below / the swept low.",
     "swing_rsi_30": "Daily RSI crossed back ABOVE the oversold zone (30-35) from below — the bottom-fishing 'turn is in' on a washed-out name. Longer-hold reversal; stop = the swept low. Standalone (doesn't need to be above the 30W).",

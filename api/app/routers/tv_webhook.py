@@ -941,7 +941,14 @@ _FOURH_TYPES: frozenset[str] = frozenset({"fourh_reclaim", "fourh_reject", "four
 # later signal. The Pine fires once per bar-close cross, so there is no
 # self-spam to dedup. Rule enablement still applies: the per-type toggle
 # (_filter_users_by_type_pref) stays the sole on/off gate.
-_TBA_TYPES: frozenset[str] = frozenset({"swing_tba_breakout"})
+#
+# SMA support types (swing_sma8/21/50_support) joined this set 2026-10-28
+# (trader): the TBA Pine's support family is routed alongside the scanner's
+# ma_bounce types for a head-to-head evaluation, and the eval runs with NO
+# dedup so the comparison is clean — same treatment as TBA. The Pine fires
+# once per support test (its test state must clear before re-firing), so
+# there is no self-spam to dedup here either.
+_TBA_TYPES: frozenset[str] = frozenset({"swing_tba_breakout", "swing_sma8_support", "swing_sma21_support", "swing_sma50_support"})
 
 
 def _is_tba_type(alert_type_full: str) -> bool:
