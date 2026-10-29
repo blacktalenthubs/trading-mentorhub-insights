@@ -756,11 +756,13 @@ ENABLED_RULES: set[str] = {
     # time in intraday_rules.py — a broad-market momentum read, NOT a per-name entry. Enabled
     # here so it delivers; it will only ever fire for those four gauges.
     "ema_bounce_8",
-    # Weekly rising 8/20/50/200 SMA support + weekly congestion cluster — DISABLED (2026-10-08,
-    # trader: "largely miss and not useful"). The weekly swing read fired too rarely to be worth the
-    # noise even restricted to SPY/QQQ/SMH. monitor.py / intraday_rules.py still compute them; this
-    # gate just drops delivery, so re-enable by uncommenting.
-    # "wsma8_support", "wsma20_support", "wsma50_support", "wsma200_support",
+    # Weekly rising 8/20/50 SMA support — RE-ENABLED 2026-10-29 (trader: add weekly levels
+    # to the signal set alongside the daily 8/21/50 + TBA). Was DISABLED 2026-10-08 (trader:
+    # "largely miss and not useful"); monitor.py / intraday_rules.py computed them throughout —
+    # this gate only dropped delivery. Still restricted to SPY/QQQ/SMH (WEEKLY_SIGNAL_SYMBOLS).
+    # wsma200 + the weekly congestion cluster stay OFF — the set is 8/20/50 only.
+    "wsma8_support", "wsma20_support", "wsma50_support",
+    # "wsma200_support",
     # "wcluster_support",
 
     # ── Hourly MA support: 20 (rising) + 200 only (2026-09-28 — 50 dropped intraday:
