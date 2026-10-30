@@ -2727,14 +2727,14 @@ async def _persist_unrouted(
     """
     from app.database import async_session_factory
     from app.models.alert import Alert
-from alert_config import symbol_in_hardcode
+    from alert_config import symbol_in_hardcode
 
-# Symbol HARDCODE (trader, 2026-10-29): an off-list symbol's row is always
-# stamped symbol_not_in_hardcode and can never be anchor-rescued into a
-# delivered (suppressed_reason=NULL) row.
-_off_hardcode = not symbol_in_hardcode(sig.symbol)
-if _off_hardcode:
-    suppressed_reason = "symbol_not_in_hardcode"
+    # Symbol HARDCODE (trader, 2026-10-29): an off-list symbol's row is always
+    # stamped symbol_not_in_hardcode and can never be anchor-rescued into a
+    # delivered (suppressed_reason=NULL) row.
+    _off_hardcode = not symbol_in_hardcode(sig.symbol)
+    if _off_hardcode:
+        suppressed_reason = "symbol_not_in_hardcode"
     
     direction = sig.direction or "NOTICE"
     recorded = 0
