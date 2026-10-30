@@ -2576,6 +2576,12 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 and _sig_norm not in _focus_by_user[user.id]
             )
             # Feed the Telegram trade-type tag — notify_user reads sig._trade_type.
+            # Symbol HARDCODE (trader, 2026-10-29) - only SIGNAL_SYMBOL_HARDCODE
+            # names may deliver from any producer. An off-list Pine alert is
+            # recorded with suppressed_reason="symbol_not_in_hardcode" and never
+            # pushed; the hardcode reason wins over focus/grade below.
+            from alert_config import symbol_in_hardcode
+            _not_hardcode = not symbol_in_hardcode(sig.symbol)
             setattr(sig, "_trade_type", _exit["style"])
             alert = Alert(
                 user_id=user.id,
@@ -2603,10 +2609,10 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
                 vwap_slope_pct=_slope_pct,
                 inside_day=1 if getattr(sig, "_tv_inside_day", False) else 0,
                 grade=_alert_grade,
-                suppressed_reason=("not_focus" if _not_focus else (None if _grade_ok else "grade_below_min")),
+                suppressed_reason=("symbol_not_in_hardcode" if _not_hardcode else ("not_focus" if _not_focus else (None if _grade_ok else "grade_below_min"))),
             )
             db.add(alert)
-            if _grade_ok and not _not_focus:
+            if _grade_ok and not _not_focus and not _not_hardcode:
                 pairs.append((user, alert))  # Telegram/email only for routed, in-focus alerts
             persisted += 1
 
@@ -2721,7 +2727,15 @@ async def _persist_unrouted(
     """
     from app.database import async_session_factory
     from app.models.alert import Alert
+from alert_config import symbol_in_hardcode
 
+# Symbol HARDCODE (trader, 2026-10-29): an off-list symbol's row is always
+# stamped symbol_not_in_hardcode and can never be anchor-rescued into a
+# delivered (suppressed_reason=NULL) row.
+_off_hardcode = not symbol_in_hardcode(sig.symbol)
+if _off_hardcode:
+    suppressed_reason = "symbol_not_in_hardcode"
+    
     direction = sig.direction or "NOTICE"
     recorded = 0
     async with async_session_factory() as db:
@@ -2732,7 +2746,7 @@ async def _persist_unrouted(
         # type they turned off. For those users, record B as DELIVERED (suppressed_reason=NULL)
         # instead of suppressed. Fixes the MSFT→reclaim_long(off) / CRDO→ma_bounce(off) misses.
         rescued_ids: set[int] = set()
-        if anchor_type and users:
+        if anchor_type and users and not _off_hardcode:
             from app.models.alert_type_pref import UserAlertTypePref
             _ids = [u.id for u in users]
             _prows = (await db.execute(
