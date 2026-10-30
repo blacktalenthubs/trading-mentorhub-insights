@@ -585,10 +585,27 @@ MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
 # MARKET_GAUGE_SYMBOLS. The rules stay in ENABLED_RULES; they just only run for these symbols.
 WEEKLY_SIGNAL_SYMBOLS = {"SPY", "QQQ", "SMH"}
 
-# Signal symbol allowlist REMOVED 2026-10-29 (trader) — the 2026-10-19 hardcoded
-# 21-name delivery gate (and its check in api/app/background/monitor.py) is gone:
-# it was suppressing delivery on names he actively trades (e.g. SPCX). Delivery
-# now covers the full scanned focus universe, gated by the alert-type toggles.
+# Signal symbol HARDCODE (trader, 2026-10-29) — ONLY these symbols may deliver
+# a signal, from ANY producer. An off-list alert is still recorded with
+# suppressed_reason="symbol_not_in_hardcode" but is never delivered on any
+# channel (desk feed, Telegram, email, APNs, SSE). Enforced at the record
+# layer of every insert path — api/app/background/monitor.py (scanner),
+# api/app/routers/tv_webhook.py (Pine), analytics/breakout_alerts.py — via
+# symbol_in_hardcode() below. The 2026-10-19 version of this gate lived in a
+# single delivery branch of monitor.py and stamped ZERO rows on 2026-10-27/28
+# while 36+ off-list symbols delivered each day through the other paths; the
+# same 21 names are restored here at the trader's direction, this time at the
+# layer no producer can bypass. Edit this set to change the list.
+SIGNAL_SYMBOL_HARDCODE = {
+    "SOXL", "DRAM", "QQQ", "NVDA", "IWM", "SPY", "SNDK", "MU", "LITE", "BE",
+    "AMZN", "GOOGL", "TSLA", "TSM", "SMH", "NBIS", "AMD", "AAPL", "CRDO",
+    "PLTR", "CRWD",
+}
+
+
+def symbol_in_hardcode(symbol) -> bool:
+    """True when *symbol* is on the SIGNAL_SYMBOL_HARDCODE delivery list."""
+    return (symbol or "").strip().upper() in SIGNAL_SYMBOL_HARDCODE
 
 # Weekly rising 20 SMA support (wsma20_support) — a swing signal. Price above and within
 # WSMA20_SUPPORT_MAX_DISTANCE_PCT of a RISING weekly 20 SMA = at weekly support in a weekly
