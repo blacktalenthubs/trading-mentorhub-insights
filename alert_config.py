@@ -596,10 +596,11 @@ WEEKLY_SIGNAL_SYMBOLS = {"SPY", "QQQ", "SMH"}
 # while 36+ off-list symbols delivered each day through the other paths; the
 # same 21 names are restored here at the trader's direction, this time at the
 # layer no producer can bypass. Edit this set to change the list.
+# Amendment (trader, 2026-10-29 evening): META and MSFT added — 23 names.
 SIGNAL_SYMBOL_HARDCODE = {
     "SOXL", "DRAM", "QQQ", "NVDA", "IWM", "SPY", "SNDK", "MU", "LITE", "BE",
     "AMZN", "GOOGL", "TSLA", "TSM", "SMH", "NBIS", "AMD", "AAPL", "CRDO",
-    "PLTR", "CRWD",
+    "PLTR", "CRWD", "META", "MSFT",
 }
 
 
