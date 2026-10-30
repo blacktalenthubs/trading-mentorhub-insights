@@ -35,6 +35,7 @@ from alert_config import SHORT_UNIVERSE as _SHORT_UNIVERSE  # noqa: E402
 from alert_config import ENABLED_RULES as _ENABLED_RULES  # noqa: E402
 from alert_config import SMA1H_SYMBOLS as _SMA1H_SYMBOLS  # noqa: E402
 from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
+from alert_config import symbol_in_hardcode as _symbol_in_hardcode  # noqa: E402  # hardcoded delivery list (trader, 2026-10-29)
 from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
 from analytics.focus_gate import focus_tier_of as _focus_tier_of  # noqa: E402  # A/B delivery tier
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol, in_opening_window as _in_opening_window  # noqa: E402
@@ -1105,7 +1106,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         elif _pw_low > 0 and _last_low <= _pw_low * 1.015 and _last_close > _pw_low:
                             _swing_msg = f"Approaching weekly support ${_pw_low:.2f} — watch for hold"
 
-                        if _swing_msg:
+                        if _swing_msg and _symbol_in_hardcode(symbol):
                             fired_today.add(_sw_key)
                             _user = user_rows.get(user_id)
                             if _user and _user.telegram_enabled and _user.telegram_chat_id:
@@ -1326,7 +1327,7 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     # level — the winner already owns the entry, and a duplicate
                     # would fire the stop/target lifecycle twice.
                     if (signal.direction == "BUY" and signal.alert_type not in _non_entry_types
-                            and not _pre_suppressed):
+                            and not _pre_suppressed and _symbol_in_hardcode(signal.symbol)):
                         try:
                             db.add(ActiveEntry(
                                 user_id=user_id,
@@ -1380,12 +1381,19 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                         # Set upstream by _merge_confluence — recorded, never delivered.
                         _send_notification = False
 
-                    # Symbol allowlist gate REMOVED 2026-10-29 (trader): the
-                    # 2026-10-19 hardcoded 21-name delivery allowlist was killing
-                    # alerts on names he actively trades (SPCX's PDL reclaim was
-                    # recorded but never delivered). Delivery is back to the
-                    # scanned focus universe, gated by the type toggles alone.
-                    # (Constant removed from alert_config.py in the same change.)
+                    # Symbol HARDCODE gate (trader, 2026-10-29) — only
+                    # SIGNAL_SYMBOL_HARDCODE names may deliver, from any
+                    # producer. An off-list symbol is still recorded with
+                    # suppressed_reason="symbol_not_in_hardcode" but never
+                    # pushed. Placed ahead of the other delivery gates so every
+                    # off-list row carries the same reason. (The 2026-10-19
+                    # version of this gate sat in this same chain yet stamped
+                    # zero rows on 2026-10-27/28 — the flow that delivered
+                    # never reached it — so the check is now ALSO enforced at
+                    # the record layer of the TV webhook and breakout paths.)
+                    if _send_notification and not _symbol_in_hardcode(symbol):
+                        _send_notification = False
+                        _suppressed = "symbol_not_in_hardcode"
 
                     # ENABLED_RULES clamp (2026-09-13) — enforce the redesign at DELIVERY.
                     # evaluate_rules still COMPUTES legacy checks (ma_bounce / ema_bounce /

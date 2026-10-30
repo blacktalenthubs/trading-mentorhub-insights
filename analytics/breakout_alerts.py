@@ -137,14 +137,18 @@ def _chat_id():  # pragma: no cover - DB
 def _record_alerts(events, session_date):  # pragma: no cover - DB
     """Insert a Breakout-feed alert row per event for user 3 (so it appears in the signal feeds)."""
     import psycopg2
+    from alert_config import symbol_in_hardcode
     conn = psycopg2.connect(_dsn(), connect_timeout=15); cur = conn.cursor()
     for e in events:
         cur.execute(
             "INSERT INTO alerts (user_id, symbol, alert_type, direction, price, entry, stop, "
-            "target_1, score, message, volume_ratio, session_date, created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW())",
+            "target_1, score, message, volume_ratio, session_date, created_at, suppressed_reason) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW(), %s)",
             (USER_ID, e["sym"], e.get("alert_type") or f"breakout_{e['pattern']}", "BUY", e["price"],
-             e["buy_point"], e["stop"], None, e["score"], e["msg"], e["rvol"], session_date),
+             e["buy_point"], e["stop"], None, e["score"], e["msg"], e["rvol"], session_date,
+             # Symbol HARDCODE (trader, 2026-10-29): off-list rows are recorded
+             # suppressed so no delivery path can pick them up.
+             None if symbol_in_hardcode(e["sym"]) else "symbol_not_in_hardcode"),
         )
     conn.commit(); cur.close(); conn.close()
 
@@ -209,10 +213,14 @@ def run(dry: bool = False) -> dict:  # pragma: no cover - network/DB
             e["earnings_days"] = None
     if not dry and new:
         _record_alerts(new, date)
+        # Symbol HARDCODE (trader, 2026-10-29): off-list breakouts are recorded
+        # suppressed (see _record_alerts) and never pushed to Telegram.
+        from alert_config import symbol_in_hardcode
+        _tg_events = [e for e in new if symbol_in_hardcode(e["sym"])]
         cid = _chat_id()
-        if cid:
+        if cid and _tg_events:
             from alerting.notifier import _send_telegram_to
-            _send_telegram_to(_format(new), cid, parse_mode="HTML")
+            _send_telegram_to(_format(_tg_events), cid, parse_mode="HTML")
         _mark_sent(new)
     return {"scanned": len(syms), "fired": len(new), "events": new}
 
