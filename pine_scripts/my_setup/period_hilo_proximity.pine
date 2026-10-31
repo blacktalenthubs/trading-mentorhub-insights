@@ -1,0 +1,199 @@
+//@version=5
+// =============================================================================
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC — prior-period highs, lows & closes as flat levels,
+// gated to the nearest N above and N below price.
+// =============================================================================
+// Twelve structural levels — the prior 6-month, 3-month, 1-month and 1-week HIGH, LOW and CLOSE —
+// each drawn as a FLAT horizontal line at its settled value, role-colored by where price is NOW:
+// ▲ SUPPORT when price is above the line, ▼ RESISTANCE when below. The price is already on the axis;
+// the word is there so a wall always registers as a wall.
+//
+// PROXIMITY (neighbours): only the N nearest levels ABOVE price and the N nearest BELOW draw
+// (default 3 / 3, each side set independently). The far 6M low can't stretch the axis until price
+// comes near it. A count, not a %, so every symbol shows the same-size near-price set. 0 on a side
+// draws none there (a one-sided read). "Show ALL" ignores proximity.
+//
+// CONFLUENCE / MERGE: levels stacked within ±mergePct collapse into ONE (thicker) line naming all of
+// them ("1W Close · 1M High ·×2") — that stack IS the confluence, flagged with a ·×N count.
+// EQUAL LENGTH: every line ends at the same tag column; only the LABEL fans right when two sit at
+// nearly the same price, so a collision moves text, never a line end.
+//
+// NON-REPAINTING: each value is the SETTLED prior-period extreme (high[1] / low[1] + lookahead_on) —
+// the prior period is already closed, so the line never shifts intrabar.
+//
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
+indicator("Proximity Levels · 6M/3M/1M/1W HLC", "Prox HLC", overlay = true, max_lines_count = 40, max_labels_count = 80)
+
+// ── which levels ──────────────────────────────────────────────────────────────
+gP   = "Levels (prior-period high / low / close)"
+en6  = input.bool(true, "6M high / low / close", group = gP)
+en3  = input.bool(true, "3M high / low / close", group = gP)
+en1m = input.bool(true, "1M high / low / close", group = gP)
+en1w = input.bool(true, "1W high / low / close", group = gP)
+enC  = input.bool(true, "Include the CLOSE levels (uncheck for H/L only)", group = gP)
+
+// ── proximity ─────────────────────────────────────────────────────────────────
+gN       = "Proximity (nearest-N around price)"
+nUp      = input.int(3, "Show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest levels above where price is NOW, and N below — set independently. A count, not a %, so every symbol shows the same-size near-price set. 0 = none that side.")
+nDn      = input.int(3, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
+showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the scale)", group = gN)
+mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
+showPx   = input.bool(true, "Show the price on the tag", group = gN)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+supCol    = input.color(#26A69A, "Support colour (price above the line)",    group = gV)
+resCol    = input.color(#EF5350, "Resistance colour (price below the line)", group = gV)
+wLine     = input.int(4, "Line thickness", group = gV, minval = 1, maxval = 8)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+lineStyle = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gV)
+tagSize   = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── values — SETTLED prior-period highs/lows, non-repainting. f_lvl is request.security ONLY (no
+//    branch inside the helper — that's the shape that bites); the enable is applied to the result. ──
+f_lvl(string tf, float expr) => request.security(syminfo.tickerid, tf, expr, lookahead = barmerge.lookahead_on)
+_h6  = f_lvl("6M", high[1])
+_l6  = f_lvl("6M", low[1])
+_c6  = f_lvl("6M", close[1])
+_h3  = f_lvl("3M", high[1])
+_l3  = f_lvl("3M", low[1])
+_c3  = f_lvl("3M", close[1])
+_h1m = f_lvl("M",  high[1])
+_l1m = f_lvl("M",  low[1])
+_c1m = f_lvl("M",  close[1])
+_h1w = f_lvl("W",  high[1])
+_l1w = f_lvl("W",  low[1])
+_c1w = f_lvl("W",  close[1])
+h6  = en6  ? _h6  : na
+l6  = en6  ? _l6  : na
+c6  = en6  and enC ? _c6  : na
+h3  = en3  ? _h3  : na
+l3  = en3  ? _l3  : na
+c3  = en3  and enC ? _c3  : na
+h1m = en1m ? _h1m : na
+l1m = en1m ? _l1m : na
+c1m = en1m and enC ? _c1m : na
+h1w = en1w ? _h1w : na
+l1w = en1w ? _l1w : na
+c1w = en1w and enC ? _c1w : na
+
+// ── collection + flat-line drawing ──────────────────────────────────────────────
+var line[]   _ln  = array.new_line()
+var label[]  _lb  = array.new_label()
+var float[]  _lvV = array.new_float()
+var string[] _lvN = array.new_string()
+var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
+var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
+// collision fan: how many already-drawn tags sit within lblGap of this price → push the LABEL right
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+f_collect(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_lvV, v)
+        array.push(_lvN, nm)
+
+_tagSz   = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+_lnStyle = lineStyle == "dashed" ? line.style_dashed : lineStyle == "dotted" ? line.style_dotted : line.style_solid
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+f_queue(float v, string nm) =>
+    if not na(v) and v > 0
+        array.push(_qv, v)
+        array.push(_qn, nm)
+// ONE rule, no exemptions: a level draws when it's inside the nearest-N bracket. N means N.
+f_draw(float v, string nm) =>
+    _inBr = v <= _brkHi and v >= _brkLo
+    if not na(v) and v > 0 and (showAll or _inBr)
+        f_queue(v, nm)
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_lvV)
+    array.clear(_lvN)
+    array.clear(_drawnY)
+    array.clear(_qv)
+    array.clear(_qn)
+    f_collect(h6,  "6M High")
+    f_collect(l6,  "6M Low")
+    f_collect(c6,  "6M Close")
+    f_collect(h3,  "3M High")
+    f_collect(l3,  "3M Low")
+    f_collect(c3,  "3M Close")
+    f_collect(h1m, "1M High")
+    f_collect(l1m, "1M Low")
+    f_collect(c1m, "1M Close")
+    f_collect(h1w, "1W High")
+    f_collect(l1w, "1W Low")
+    f_collect(c1w, "1W Close")
+    // ── NEAREST-N bracket — the N closest levels above price and N closest below ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_lvV) > 0
+        for _i = 0 to array.size(_lvV) - 1
+            v = array.get(_lvV, _i)
+            if v > close
+                array.push(_ab, v)
+            else if v < close
+                array.push(_bl, v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
+    _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
+    _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
+    // queue the levels that survive the bracket (ascending, so the merge pass below runs bottom-up)
+    _n = array.size(_lvV)
+    if _n > 0
+        _ord = array.sort_indices(_lvV, order.ascending)
+        for _mi = 0 to _n - 1
+            _ms = array.get(_ord, _mi)
+            f_draw(array.get(_lvV, _ms), array.get(_lvN, _ms))
+
+    // ── ONE MERGE PASS — levels within mergePct collapse into a single line naming both. The line
+    //    sits on the member NEAREST price; the LABEL sits at the line's own end so it can't float off.
+    _qn2 = array.size(_qv)
+    if _qn2 > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qn2
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qcnt = 1
+            _qnear  = _qhi
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qn2
+                _qk  = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if mergePct > 0 and _qv2 <= _qhi * (1.0 + mergePct)
+                    _qhi := _qv2
+                    _qnm := _qnm + " · " + array.get(_qn, _qk)
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qcol = _qsup ? supCol : resCol
+            _qx   = f_xoff(_qnear)                              // residual collisions still fan…
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcol, width = _qcnt > 1 ? wLine + 1 : wLine, style = _lnStyle, extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcol, textcolor = color.white, size = _tagSz))
+            _qi := _qj
