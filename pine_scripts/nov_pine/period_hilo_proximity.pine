@@ -37,6 +37,7 @@ gN       = "Proximity (nearest-N around price)"
 nUp      = input.int(3, "Show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest levels above where price is NOW, and N below — set independently. A count, not a %, so every symbol shows the same-size near-price set. 0 = none that side.")
 nDn      = input.int(3, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
 showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the scale)", group = gN)
+pin6m    = input.bool(true, "Always show the 6M high/low/close (exempt from proximity)", group = gN, tooltip = "The 6-month high/low are the biggest structural walls — pin them on regardless of distance, so the nearest-N can never hide them (like PDH/PDL always-on). They still merge with a coincident level.")
 mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
 showPx   = input.bool(true, "Show the price on the tag", group = gN)
 
@@ -129,9 +130,12 @@ if barstate.islast
     array.clear(_drawnY)
     array.clear(_qv)
     array.clear(_qn)
-    f_collect(h6,  "6M High")
-    f_collect(l6,  "6M Low")
-    f_collect(c6,  "6M Close")
+    // 6M levels: pinned (always drawn, exempt from the nearest-N) unless pin6m is off, in which
+    // case they join the proximity pool like the rest.
+    if not pin6m
+        f_collect(h6,  "6M High")
+        f_collect(l6,  "6M Low")
+        f_collect(c6,  "6M Close")
     f_collect(h3,  "3M High")
     f_collect(l3,  "3M Low")
     f_collect(c3,  "3M Close")
@@ -163,6 +167,11 @@ if barstate.islast
         for _mi = 0 to _n - 1
             _ms = array.get(_ord, _mi)
             f_draw(array.get(_lvV, _ms), array.get(_lvN, _ms))
+    // pinned 6M levels — queued directly so the nearest-N can never hide them (they still merge)
+    if pin6m
+        f_queue(h6, "6M High")
+        f_queue(l6, "6M Low")
+        f_queue(c6, "6M Close")
 
     // ── ONE MERGE PASS — levels within mergePct collapse into a single line naming both. The line
     //    sits on the member NEAREST price; the LABEL sits at the line's own end so it can't float off.
