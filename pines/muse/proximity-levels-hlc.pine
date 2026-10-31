@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.4
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.5
 // Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
 // day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
 // colours). Extended the same evening at Victor's direction with two layers his
@@ -37,7 +37,7 @@
 // + lookahead_on). TO-DATE values move with the current period by design —
 // they are the forming extreme, and they settle into next period's prior line.
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.4", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
+indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.5", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
 
 // ── which levels ──────────────────────────────────────────────────────────────
 gP   = "Levels (prior-period high / low / close)"
@@ -55,6 +55,7 @@ enSW = input.bool(true, "Include last confirmed daily SWING high/low (pivot 5,5)
 //    f_dailyFlat pattern, so the values match VP Pro on the same chart. ──
 gVP    = "Volume profile (daily POC / VAH / VAL)"
 enVP   = input.bool(true, "Include daily POC / VAH / VAL (VP Pro math)", group = gVP)
+pinPOC = input.bool(true, "Always show the POC (pinned like the week/month frames)", group = gVP, tooltip = "ON by default (Victor, 2026-10-30) — the POC is a strength-gauge member, a frame level, not a proximity level: on SPY it missed the drawn set because only 2 slots were kept above price (760.40 / 762.63) and the POC at 766.39 was the third distinct price up. Pinned regardless of proximity + the cap; it still merges with a coincident level. VAH/VAL stay in the proximity pool.")
 vpBars = input.int(150, "Profile bars back (daily)", group = gVP, minval = 10, maxval = 500)
 vpCols = input.int(35, "Profile rows", group = gVP, minval = 5, maxval = 200)
 vpVA   = input.float(70.0, "Value area %", group = gVP, minval = 1, maxval = 100)
@@ -390,8 +391,10 @@ if barstate.islast
     // last confirmed daily swings join the pool too — the "other" levels, red
     f_collect(swH, "Swing High", lineStyle, colOth)
     f_collect(swL, "Swing Low",  lineStyle, colOth)
-    // daily volume-profile levels join the pool — POC red, VAH/VAL orange (VP Pro colours)
-    f_collect(vpPOC, "POC", lineStyle, colPOC)
+    // daily volume-profile levels — VAH/VAL join the pool (orange); the POC is
+    // pinned like the week/month frames unless pinPOC is off (strength-gauge member)
+    if not pinPOC
+        f_collect(vpPOC, "POC", lineStyle, colPOC)
     f_collect(vpVAH, "VAH", lineStyle, colVA)
     f_collect(vpVAL, "VAL", lineStyle, colVA)
     // ── NEAREST-N bracket — the N closest DISTINCT prices above and below. Distinct
@@ -442,6 +445,8 @@ if barstate.islast
         f_queue(h1m, "1M High",  lineStyle, col1M)
         f_queue(l1m, "1M Low",   lineStyle, col1M)
         f_queue(c1m, "1M Close", lineStyle, col1M)
+    if pinPOC
+        f_queue(vpPOC, "POC", lineStyle, colPOC)
     if pin6m
         f_queue(h6, "6M High",  lineStyle, col6M)
         f_queue(l6, "6M Low",   lineStyle, col6M)
