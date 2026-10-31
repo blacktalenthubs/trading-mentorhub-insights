@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.3
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.4
 // Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
 // day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
 // colours). Extended the same evening at Victor's direction with two layers his
@@ -37,7 +37,7 @@
 // + lookahead_on). TO-DATE values move with the current period by design —
 // they are the forming extreme, and they settle into next period's prior line.
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.3", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
+indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.4", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
 
 // ── which levels ──────────────────────────────────────────────────────────────
 gP   = "Levels (prior-period high / low / close)"
@@ -48,6 +48,19 @@ en1w = input.bool(true, "1W high / low / close", group = gP)
 enC  = input.bool(true, "Include the CLOSE levels (uncheck for H/L only)", group = gP)
 enTD = input.bool(true, "Include TO-DATE highs/lows (current period, forming)", group = gP, tooltip = "The current week's / month's / quarter's / half's running high and low — the newer levels price makes inside the period. Drawn dashed. Each follows its period toggle above.")
 enSW = input.bool(true, "Include last confirmed daily SWING high/low (pivot 5,5)", group = gP, tooltip = "The most recent daily pivot high and pivot low. A pivot confirms 5 daily bars after the extreme, so these update late by design.")
+
+// ── volume profile — the DAILY POC / VAH / VAL, computed with VP Pro v2's own
+//    math (150 daily bars, 30m sub-bars, 35 rows, overlap distribution, classic
+//    two-row 70% value-area expansion) and collected through VP Pro's own
+//    f_dailyFlat pattern, so the values match VP Pro on the same chart. ──
+gVP    = "Volume profile (daily POC / VAH / VAL)"
+enVP   = input.bool(true, "Include daily POC / VAH / VAL (VP Pro math)", group = gVP)
+vpBars = input.int(150, "Profile bars back (daily)", group = gVP, minval = 10, maxval = 500)
+vpCols = input.int(35, "Profile rows", group = gVP, minval = 5, maxval = 200)
+vpVA   = input.float(70.0, "Value area %", group = gVP, minval = 1, maxval = 100)
+vpLTF  = input.timeframe("30", "Profile sub-bars (lower timeframe)", group = gVP)
+colPOC = input.color(#FF0000, "POC colour (red, as in VP Pro)", group = gVP)
+colVA  = input.color(#FF9800, "VAH / VAL colour (orange, as in VP Pro)", group = gVP)
 
 // ── proximity ─────────────────────────────────────────────────────────────────
 gN       = "Proximity (nearest-N around price)"
@@ -138,6 +151,147 @@ h1wt = en1w and enTD ? _h1wt : na
 l1wt = en1w and enTD ? _l1wt : na
 swH  = enSW ? _swH : na
 swL  = enSW ? _swL : na
+
+// ── daily volume profile data — VP Pro v2's f_dailyFlat pattern, verbatim in
+//    shape: in a Daily security context, collect the last vpBars days and each
+//    day's lower-timeframe sub-bars, flattened into ONE array returned only on
+//    the daily series' last bar.
+//    Layout: [startTime, nSub, subH…, subL…, subV…, nDay, dayH…, dayL…, dayV…] ──
+f_vpFlat() =>
+    var float[] aH = array.new_float(0)
+    var float[] aL = array.new_float(0)
+    var float[] aV = array.new_float(0)
+    var float[] dH = array.new_float(0)
+    var float[] dL = array.new_float(0)
+    var float[] dV = array.new_float(0)
+    var int lastDay = na
+    var float wStart = na
+    _h = request.security_lower_tf(tid, vpLTF, high)
+    _l = request.security_lower_tf(tid, vpLTF, low)
+    _v = request.security_lower_tf(tid, vpLTF, volume)
+    if enVP and bar_index >= last_bar_index - vpBars + 1 and (na(lastDay) or bar_index != lastDay)
+        lastDay := bar_index
+        if na(wStart)
+            wStart := time
+        array.push(dH, high)
+        array.push(dL, low)
+        array.push(dV, nz(volume))
+        if timeframe.in_seconds(vpLTF) < 86400
+            _nn = na(_h) ? 0 : array.size(_h)
+            if _nn > 0
+                for _s = 0 to _nn - 1
+                    array.push(aH, array.get(_h, _s))
+                    array.push(aL, array.get(_l, _s))
+                    array.push(aV, nz(array.get(_v, _s)))
+    _out = array.new_float(0)
+    if barstate.islast and array.size(dH) > 0
+        array.push(_out, wStart)
+        array.push(_out, array.size(aH))
+        if array.size(aH) > 0
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aH, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aL, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aV, _s))
+        array.push(_out, array.size(dH))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dH, _s))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dL, _s))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dV, _s))
+    _out
+dFlat = request.security(tid, "D", f_vpFlat())
+var float vpPOC = na
+var float vpVAH = na
+var float vpVAL = na
+// Build the profile on the last bar — VP Pro v2's math, step for step: rows
+// across the window's day-bar extent, each sub-bar's volume distributed over
+// the rows its range overlaps (weighted by the overlap), POC = the heaviest
+// row's centre, value area grown two rows at a time from the POC to vpVA%.
+if barstate.islast and enVP and array.size(dFlat) > 6
+    _nSub = int(array.get(dFlat, 1))
+    _dayOff = 2 + 3 * _nSub
+    _nDay = int(array.get(dFlat, _dayOff))
+    dataH = array.new_float(0)
+    dataL = array.new_float(0)
+    dataV = array.new_float(0)
+    float _winHi = na
+    float _winLo = na
+    for _d = 0 to _nDay - 1
+        _dH = array.get(dFlat, _dayOff + 1 + _d)
+        _dL = array.get(dFlat, _dayOff + 1 + _nDay + _d)
+        _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
+        _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
+    if _nSub > 0
+        for _s = 0 to _nSub - 1
+            array.push(dataH, array.get(dFlat, 2 + _s))
+            array.push(dataL, array.get(dFlat, 2 + _nSub + _s))
+            array.push(dataV, array.get(dFlat, 2 + 2 * _nSub + _s))
+    else if _nDay > 0
+        for _d = 0 to _nDay - 1
+            array.push(dataH, array.get(dFlat, _dayOff + 1 + _d))
+            array.push(dataL, array.get(dFlat, _dayOff + 1 + _nDay + _d))
+            array.push(dataV, array.get(dFlat, _dayOff + 1 + 2 * _nDay + _d))
+    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0
+        _rng = _winHi - _winLo
+        if _rng > 0
+            _bs = _rng / vpCols
+            vol = array.new_float(vpCols, 0.0)
+            for _b = 0 to array.size(dataH) - 1
+                _bLo = array.get(dataL, _b)
+                _bHi = array.get(dataH, _b)
+                _bV = nz(array.get(dataV, _b))
+                _loI = int(math.floor((_bLo - _winLo) / _bs))
+                _hiI = int(math.floor((_bHi - _winLo) / _bs))
+                _loI := math.max(0, math.min(vpCols - 1, _loI))
+                _hiI := math.max(0, math.min(vpCols - 1, _hiI))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _winLo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to vpCols - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vpVA / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, vpCols - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+            vpVAH := _winLo + (_up + 1) * _bs
+            vpVAL := _winLo + _dn * _bs
+            vpPOC := _winLo + (_poc + 0.5) * _bs
 
 // ── collection + flat-line drawing ──────────────────────────────────────────────
 var line[]   _ln  = array.new_line()
@@ -236,6 +390,10 @@ if barstate.islast
     // last confirmed daily swings join the pool too — the "other" levels, red
     f_collect(swH, "Swing High", lineStyle, colOth)
     f_collect(swL, "Swing Low",  lineStyle, colOth)
+    // daily volume-profile levels join the pool — POC red, VAH/VAL orange (VP Pro colours)
+    f_collect(vpPOC, "POC", lineStyle, colPOC)
+    f_collect(vpVAH, "VAH", lineStyle, colVA)
+    f_collect(vpVAL, "VAL", lineStyle, colVA)
     // ── NEAREST-N bracket — the N closest DISTINCT prices above and below. Distinct
     //    matters: when the week's, month's and quarter's to-date lows are the same
     //    print, that is ONE level wearing three names, not three levels — counting
