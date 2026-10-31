@@ -43,6 +43,7 @@ nDn      = input.int(3, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n
 showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the scale)", group = gN)
 farCapPct = input.float(12.0, "Hide anything farther than ± % from price (0 = off)", group = gN, minval = 0, maxval = 60, step = 0.5, tooltip = "'Nearest' isn't the same as 'near': in a trend the 3rd-nearest level below can still be 30% away, which only compresses the scale. This drops any level beyond this % from price even if it's inside the nearest-N. 0 = off.") / 100.0
 keepNearest = input.bool(true, "Always keep the CLOSEST line each side (ignore the cap for the nearest wall)", group = gN, tooltip = "So you always know where the first wall up and the first floor down are. The single nearest level above price and nearest below are kept even when they're past the distance cap — the cap then only trims the 2nd/3rd. Respects the ABOVE/BELOW counts: a side set to 0 still draws nothing.")
+pin1w    = input.bool(true, "Always show the prior-WEEK high/low/close (the most recent frame)", group = gN, tooltip = "ON by default — the prior week is the most recent completed period, so its high/low/close is the frame price is working inside right now. Pinned regardless of proximity + the cap so you always have that range; they still merge with a coincident level.")
 pin6m    = input.bool(false, "Always show the 6M high/low/close (exempt from proximity + the far cap)", group = gN, tooltip = "OFF by default — the 6M levels obey proximity and the distance cap like everything else, so a far 6M low stays hidden until price comes near it. Turn ON to pin the 6-month walls regardless of distance (like PDH/PDL always-on).")
 mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
 showPx   = input.bool(true, "Show the price on the tag", group = gN)
@@ -152,9 +153,12 @@ if barstate.islast
     f_collect(h1m, "1M High")
     f_collect(l1m, "1M Low")
     f_collect(c1m, "1M Close")
-    f_collect(h1w, "1W High")
-    f_collect(l1w, "1W Low")
-    f_collect(c1w, "1W Close")
+    // 1W levels: pinned (always drawn — the most recent frame) unless pin1w is off, in which case
+    // they join the proximity pool like the rest.
+    if not pin1w
+        f_collect(h1w, "1W High")
+        f_collect(l1w, "1W Low")
+        f_collect(c1w, "1W Close")
     // ── NEAREST-N bracket — the N closest levels above price and N closest below ──
     _ab = array.new_float()
     _bl = array.new_float()
@@ -179,7 +183,11 @@ if barstate.islast
         for _mi = 0 to _n - 1
             _ms = array.get(_ord, _mi)
             f_draw(array.get(_lvV, _ms), array.get(_lvN, _ms))
-    // pinned 6M levels — queued directly so the nearest-N can never hide them (they still merge)
+    // pinned levels — queued directly so proximity + the cap can never hide them (they still merge)
+    if pin1w
+        f_queue(h1w, "1W High")
+        f_queue(l1w, "1W Low")
+        f_queue(c1w, "1W Close")
     if pin6m
         f_queue(h6, "6M High")
         f_queue(l6, "6M Low")
