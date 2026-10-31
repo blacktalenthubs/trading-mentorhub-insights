@@ -1,5 +1,5 @@
 //@version=5
-// DAILY VOLUME PROFILE LEVELS — POC / VAH / VAL — v2026.10.30.2
+// DAILY VOLUME PROFILE LEVELS — POC / VAH / VAL — v2026.10.31.1
 // ═════════════════════════════════════════════════════════════════════════════
 // ONLY the daily volume profile's three levels, drawn as flat lines with tags:
 // the POC (red), the Value Area High and Low (orange). Nothing else.
@@ -19,8 +19,16 @@
 // Validated against VP Pro on SPY (2026-10-30): POC 766.39, VAH 777.27,
 // VAL 729.39 — exact. Keep these settings in step with VP Pro's if you change
 // them there (bars back / rows / VA%).
+//
+// ANY-TIMEFRAME FIX (v2026.10.31.1): the Daily path's sub-bar request is now
+// clamped to the chart timeframe (VP Pro v2's own LTF guard, applied inside
+// f_vpFlat). Before, it asked for 30-minute sub-bars unconditionally; on any
+// chart finer than 30 minutes (15m, 5m, …) Pine refuses a sub-bar timeframe
+// that is not lower than the chart timeframe (RE10066) and the indicator
+// failed to load. On sub-2-minute charts the Daily profile falls back to the
+// daily bars themselves. The unlocked path below already had this guard.
 // ═════════════════════════════════════════════════════════════════════════════
-indicator("Daily VP Levels · POC/VAH/VAL v2026.10.30.2", "Daily VP Levels", overlay = true, max_lines_count = 10, max_labels_count = 10)
+indicator("Daily VP Levels · POC/VAH/VAL v2026.10.31.1", "Daily VP Levels", overlay = true, max_lines_count = 10, max_labels_count = 10)
 
 gP = "Profile (VP Pro settings)"
 lockDaily = input.bool(true, "Lock profile to Daily timeframe", group = gP, tooltip = "ON (default here): the profile is ALWAYS the daily one — last N daily bars — whatever the chart shows. OFF: UNLOCKED, VP Pro's original behaviour — the profile is built from the CHART's own timeframe (last N bars of whatever you are viewing: 150 hours on a 1H chart, 150 15-minute bars on a 15m chart), using the sub-bars below it. On a Daily chart the two modes are identical.")
@@ -46,6 +54,17 @@ f_sz(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.nor
 //    collect the last barsBack days and each day's sub-bars, flattened into ONE
 //    array returned only on the daily series' last bar.
 //    Layout: [startTime, nSub, subH…, subL…, subV…, nDay, dayH…, dayL…, dayV…] ──
+// LTF guard for the Daily path — VP Pro v2's own pattern: never request
+// sub-bars on a timeframe that is not lower than the CHART timeframe (RE10066
+// kills the script on 15m / 5m charts). Declared here, before the
+// request.security call below, in chart scope; f_vpFlat reads them from
+// inside the Daily context. flatUseSub: on sub-2-minute charts, 150 days of
+// sub-bars can exceed Pine's 100k-element array cap, so the profile falls
+// back to the daily bars there (the _nSub == 0 path already does that).
+flatLtfSecs   = timeframe.in_seconds(ltfTF)
+flatChartSecs = timeframe.in_seconds(timeframe.period)
+effFlatLTF    = flatLtfSecs < flatChartSecs ? ltfTF : timeframe.period
+flatUseSub    = flatChartSecs >= 120
 f_vpFlat() =>
     var float[] aH = array.new_float(0)
     var float[] aL = array.new_float(0)
@@ -55,9 +74,9 @@ f_vpFlat() =>
     var float[] dV = array.new_float(0)
     var int lastDay = na
     var float wStart = na
-    _h = request.security_lower_tf(tid, ltfTF, high)
-    _l = request.security_lower_tf(tid, ltfTF, low)
-    _v = request.security_lower_tf(tid, ltfTF, volume)
+    _h = request.security_lower_tf(tid, effFlatLTF, high)
+    _l = request.security_lower_tf(tid, effFlatLTF, low)
+    _v = request.security_lower_tf(tid, effFlatLTF, volume)
     if lockDaily and bar_index >= last_bar_index - barsBack + 1 and (na(lastDay) or bar_index != lastDay)
         lastDay := bar_index
         if na(wStart)
@@ -65,7 +84,7 @@ f_vpFlat() =>
         array.push(dH, high)
         array.push(dL, low)
         array.push(dV, nz(volume))
-        if timeframe.in_seconds(ltfTF) < 86400
+        if flatUseSub and timeframe.in_seconds(effFlatLTF) < 86400
             _nn = na(_h) ? 0 : array.size(_h)
             if _nn > 0
                 for _s = 0 to _nn - 1
