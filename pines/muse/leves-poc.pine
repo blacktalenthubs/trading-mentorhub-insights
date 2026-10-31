@@ -1,0 +1,511 @@
+//@version=5
+// =============================================================================
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.31.1
+// Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
+// day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
+// colours). Extended the same evening at Victor's direction with two layers his
+// hand-drawn lines kept adding:
+//   • TO-DATE levels — the CURRENT week's / month's / quarter's / half's running
+//     high & low (forming, drawn dashed, tags WTD / MTD / QTD / HTD). These are
+//     the "newer levels not covered by the intervals": price responds to levels
+//     made inside the current period, weeks before that period settles.
+//   • SWING levels — the last CONFIRMED daily pivot high / low (5,5). A pivot
+//     confirms 5 daily bars after its extreme, so the line updates late by
+//     design — it is the last swing the market has actually proven.
+// =============================================================================
+// Structural levels — the prior 6-month, 3-month, 1-month and 1-week HIGH, LOW
+// and CLOSE — each drawn as a FLAT horizontal line at its settled value.
+// COLOURS are BY PERIOD (Victor, 2026-10-30): 6M black, 3M blue, 1M yellow,
+// 1W green, swings red; to-date lines wear their period's colour, dashed.
+// The ROLE is carried by the tag word: ▲ SUPPORT when price is above the
+// line, ▼ RESISTANCE when below.
+//
+// PROXIMITY (neighbours): only the N nearest levels ABOVE price and the N
+// nearest BELOW draw (default 3 / 3, each side set independently). A count, not
+// a %, so every symbol shows the same-size near-price set. 0 on a side draws
+// none there. "Show ALL" ignores proximity.
+// DISTANCE CAP: anything farther than ±farCapPct from price is dropped even if
+// inside the nearest-N (default 12%). BUT the single CLOSEST line each side is
+// always kept (keepNearest, default on).
+//
+// CONFLUENCE / MERGE: levels stacked within ±mergePct collapse into ONE
+// (thicker) line naming all of them ("1W Close · 1M High ·×2").
+// EQUAL LENGTH: every line ends at the same tag column; only the LABEL fans
+// right when two sit at nearly the same price.
+//
+// NON-REPAINTING: prior-period values are SETTLED (high[1] / low[1] / close[1]
+// + lookahead_on). TO-DATE values move with the current period by design —
+// they are the forming extreme, and they settle into next period's prior line.
+// VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
+//
+// ANY-TIMEFRAME FIX (v2026.10.31.1): the volume-profile sub-bar request is now
+// clamped to the chart timeframe, using VP Pro v2's own LTF guard. v.5 asked
+// for 30-minute sub-bars unconditionally; on any chart finer than 30 minutes
+// (15m, 5m, …) Pine refuses a sub-bar timeframe that is not lower than the
+// chart timeframe (RE10066) and the whole indicator failed to load. Now the
+// sub-bars are the finer of the requested TF and the chart TF, and on
+// sub-2-minute charts the profile falls back to the daily bars themselves.
+indicator("LEVES_POC v2026.10.31.1", "LEVES_POC", overlay = true, max_lines_count = 40, max_labels_count = 80)
+
+// ── which levels ──────────────────────────────────────────────────────────────
+gP   = "Levels (prior-period high / low / close)"
+en6  = input.bool(true, "6M high / low / close", group = gP)
+en3  = input.bool(true, "3M high / low / close", group = gP)
+en1m = input.bool(true, "1M high / low / close", group = gP)
+en1w = input.bool(true, "1W high / low / close", group = gP)
+enC  = input.bool(true, "Include the CLOSE levels (uncheck for H/L only)", group = gP)
+enTD = input.bool(true, "Include TO-DATE highs/lows (current period, forming)", group = gP, tooltip = "The current week's / month's / quarter's / half's running high and low — the newer levels price makes inside the period. Drawn dashed. Each follows its period toggle above.")
+enSW = input.bool(true, "Include last confirmed daily SWING high/low (pivot 5,5)", group = gP, tooltip = "The most recent daily pivot high and pivot low. A pivot confirms 5 daily bars after the extreme, so these update late by design.")
+
+// ── volume profile — the DAILY POC / VAH / VAL, computed with VP Pro v2's own
+//    math (150 daily bars, 30m sub-bars, 35 rows, overlap distribution, classic
+//    two-row 70% value-area expansion) and collected through VP Pro's own
+//    f_dailyFlat pattern, so the values match VP Pro on the same chart. ──
+gVP    = "Volume profile (daily POC / VAH / VAL)"
+enVP   = input.bool(true, "Include daily POC / VAH / VAL (VP Pro math)", group = gVP)
+pinPOC = input.bool(true, "Always show the POC (pinned like the week/month frames)", group = gVP, tooltip = "ON by default (Victor, 2026-10-30) — the POC is a strength-gauge member, a frame level, not a proximity level: on SPY it missed the drawn set because only 2 slots were kept above price (760.40 / 762.63) and the POC at 766.39 was the third distinct price up. Pinned regardless of proximity + the cap; it still merges with a coincident level. VAH/VAL stay in the proximity pool.")
+vpBars = input.int(150, "Profile bars back (daily)", group = gVP, minval = 10, maxval = 500)
+vpCols = input.int(35, "Profile rows", group = gVP, minval = 5, maxval = 200)
+vpVA   = input.float(70.0, "Value area %", group = gVP, minval = 1, maxval = 100)
+vpLTF  = input.timeframe("30", "Profile sub-bars (lower timeframe)", group = gVP)
+colPOC = input.color(#FF0000, "POC colour (red, as in VP Pro)", group = gVP)
+colVA  = input.color(#FF9800, "VAH / VAL colour (orange, as in VP Pro)", group = gVP)
+
+// ── proximity ─────────────────────────────────────────────────────────────────
+gN       = "Proximity (nearest-N around price)"
+nUp      = input.int(3, "Show ABOVE price", group = gN, minval = 0, maxval = 8, inline = "n", tooltip = "The N nearest levels above where price is NOW, and N below — set independently. A count, not a %. 0 = none that side.")
+nDn      = input.int(3, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
+showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the scale)", group = gN)
+farCapPct = input.float(12.0, "Hide anything farther than ± % from price (0 = off)", group = gN, minval = 0, maxval = 60, step = 0.5, tooltip = "'Nearest' isn't the same as 'near': in a trend the 3rd-nearest level below can still be 30% away, which only compresses the scale. This drops any level beyond this % from price even if it's inside the nearest-N. 0 = off.") / 100.0
+keepNearest = input.bool(true, "Always keep the CLOSEST line each side (ignore the cap for the nearest wall)", group = gN, tooltip = "So you always know where the first wall up and the first floor down are. Respects the ABOVE/BELOW counts: a side set to 0 still draws nothing.")
+pin1w    = input.bool(true, "Always show the prior-WEEK high/low/close (the most recent frame)", group = gN, tooltip = "ON by default — the prior week is the most recent completed period, so its high/low/close is the frame price is working inside right now. Pinned regardless of proximity + the cap; they still merge with a coincident level.")
+pin1m    = input.bool(true, "Always show the prior-MONTH high/low/close (same as the week)", group = gN, tooltip = "ON by default (Victor, 2026-10-30) — the goal is to trade the current market off PAST, settled data. On 2026-10-30 SPY's bounce came at the prior-month low (749.60, settled since Oct 1), but the level was hidden: three to-date copies of that day's fresh low (750.36) ate all three below-slots in the nearest-N count. The prior month is a settled frame like the prior week — pinned regardless of proximity + the cap; it still merges with a coincident level.")
+pin6m    = input.bool(false, "Always show the 6M high/low/close (exempt from proximity + the far cap)", group = gN, tooltip = "OFF by default — the 6M levels obey proximity and the distance cap like everything else. Turn ON to pin the 6-month walls regardless of distance.")
+mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
+showPx   = input.bool(true, "Show the price on the tag", group = gN)
+
+// ── style ───────────────────────────────────────────────────────────────────────
+gV        = "Style"
+col6M     = input.color(#000000, "6M colour (black)", group = gV)
+col3M     = input.color(#2962FF, "3M colour (blue)", group = gV)
+col1M     = input.color(#FFD600, "1M monthly colour (yellow)", group = gV)
+col1W     = input.color(#089981, "1W weekly colour (green)", group = gV)
+colOth    = input.color(#EF5350, "Other levels colour — swings (red)", group = gV)
+wLine     = input.int(4, "Line thickness", group = gV, minval = 1, maxval = 8)
+lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
+extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
+lineStyle = input.string("solid", "Line style (settled + swing)", options = ["solid", "dashed", "dotted"], group = gV)
+tdStyle   = input.string("dashed", "Line style (to-date, forming)", options = ["solid", "dashed", "dotted"], group = gV)
+tagSize   = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gV)
+labelX    = input.int(8, "Tag column — bars right of the last bar", group = gV, minval = 2, maxval = 40)
+lblGap    = input.float(0.5, "Fan tags apart when within ± % of each other", group = gV, minval = 0.05, maxval = 5, step = 0.05) / 100.0
+lblStep   = input.int(4, "  Fan step (bars per collision)", group = gV, minval = 1, maxval = 40)
+
+// ── values — SETTLED prior-period highs/lows/closes, non-repainting. f_lvl is
+//    request.security ONLY (no branch inside the helper); the enable is applied
+//    to the result. To-date reads the SAME periods with no [1] — the running
+//    extreme of the period still forming. ──
+tid = syminfo.tickerid
+f_lvl(string tf, float expr) => request.security(tid, tf, expr, lookahead = barmerge.lookahead_on)
+_h6  = f_lvl("6M", high[1])
+_l6  = f_lvl("6M", low[1])
+_c6  = f_lvl("6M", close[1])
+_h3  = f_lvl("3M", high[1])
+_l3  = f_lvl("3M", low[1])
+_c3  = f_lvl("3M", close[1])
+_h1m = f_lvl("M",  high[1])
+_l1m = f_lvl("M",  low[1])
+_c1m = f_lvl("M",  close[1])
+_h1w = f_lvl("W",  high[1])
+_l1w = f_lvl("W",  low[1])
+_c1w = f_lvl("W",  close[1])
+// to-date (forming) extremes of the current periods
+_h6t  = f_lvl("6M", high)
+_l6t  = f_lvl("6M", low)
+_h3t  = f_lvl("3M", high)
+_l3t  = f_lvl("3M", low)
+_h1mt = f_lvl("M",  high)
+_l1mt = f_lvl("M",  low)
+_h1wt = f_lvl("W",  high)
+_l1wt = f_lvl("W",  low)
+// last confirmed daily swing high / low — pivot helpers in the day-signals
+// shape (a function evaluated inside the daily security context)
+f_swh() =>
+    _ph = ta.pivothigh(5, 5)
+    ta.valuewhen(not na(_ph), _ph, 0)
+f_swl() =>
+    _pl = ta.pivotlow(5, 5)
+    ta.valuewhen(not na(_pl), _pl, 0)
+_swH = request.security(tid, "D", f_swh(), lookahead = barmerge.lookahead_on)
+_swL = request.security(tid, "D", f_swl(), lookahead = barmerge.lookahead_on)
+h6  = en6  ? _h6  : na
+l6  = en6  ? _l6  : na
+c6  = en6  and enC ? _c6  : na
+h3  = en3  ? _h3  : na
+l3  = en3  ? _l3  : na
+c3  = en3  and enC ? _c3  : na
+h1m = en1m ? _h1m : na
+l1m = en1m ? _l1m : na
+c1m = en1m and enC ? _c1m : na
+h1w = en1w ? _h1w : na
+l1w = en1w ? _l1w : na
+c1w = en1w and enC ? _c1w : na
+h6t  = en6  and enTD ? _h6t  : na
+l6t  = en6  and enTD ? _l6t  : na
+h3t  = en3  and enTD ? _h3t  : na
+l3t  = en3  and enTD ? _l3t  : na
+h1mt = en1m and enTD ? _h1mt : na
+l1mt = en1m and enTD ? _l1mt : na
+h1wt = en1w and enTD ? _h1wt : na
+l1wt = en1w and enTD ? _l1wt : na
+swH  = enSW ? _swH : na
+swL  = enSW ? _swL : na
+
+// ── daily volume profile data — VP Pro v2's f_dailyFlat pattern, verbatim in
+//    shape: in a Daily security context, collect the last vpBars days and each
+//    day's lower-timeframe sub-bars, flattened into ONE array returned only on
+//    the daily series' last bar.
+//    Layout: [startTime, nSub, subH…, subL…, subV…, nDay, dayH…, dayL…, dayV…] ──
+// LTF guard — VP Pro v2's own pattern (its lines 74–77): never request sub-bars
+// on a timeframe that is not lower than the CHART timeframe; Pine throws
+// RE10066 and the script will not load at all (v.5 died on 15m charts for
+// exactly this). Computed here in chart scope; f_vpFlat reads these globals
+// from inside the Daily security context, the same way VP Pro's f_dailyFlat
+// reads its global ltfSecs. vpUseSub: on sub-2-minute charts, 150 days of
+// sub-bars can exceed Pine's 100k-element array cap, so the profile falls
+// back to the daily bars there (the _nSub == 0 path below already does that).
+vpLtfSecs   = timeframe.in_seconds(vpLTF)
+vpChartSecs = timeframe.in_seconds(timeframe.period)
+effVpLTF    = vpLtfSecs < vpChartSecs ? vpLTF : timeframe.period
+vpUseSub    = vpChartSecs >= 120
+f_vpFlat() =>
+    var float[] aH = array.new_float(0)
+    var float[] aL = array.new_float(0)
+    var float[] aV = array.new_float(0)
+    var float[] dH = array.new_float(0)
+    var float[] dL = array.new_float(0)
+    var float[] dV = array.new_float(0)
+    var int lastDay = na
+    var float wStart = na
+    _h = request.security_lower_tf(tid, effVpLTF, high)
+    _l = request.security_lower_tf(tid, effVpLTF, low)
+    _v = request.security_lower_tf(tid, effVpLTF, volume)
+    if enVP and bar_index >= last_bar_index - vpBars + 1 and (na(lastDay) or bar_index != lastDay)
+        lastDay := bar_index
+        if na(wStart)
+            wStart := time
+        array.push(dH, high)
+        array.push(dL, low)
+        array.push(dV, nz(volume))
+        if vpUseSub and timeframe.in_seconds(effVpLTF) < 86400
+            _nn = na(_h) ? 0 : array.size(_h)
+            if _nn > 0
+                for _s = 0 to _nn - 1
+                    array.push(aH, array.get(_h, _s))
+                    array.push(aL, array.get(_l, _s))
+                    array.push(aV, nz(array.get(_v, _s)))
+    _out = array.new_float(0)
+    if barstate.islast and array.size(dH) > 0
+        array.push(_out, wStart)
+        array.push(_out, array.size(aH))
+        if array.size(aH) > 0
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aH, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aL, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aV, _s))
+        array.push(_out, array.size(dH))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dH, _s))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dL, _s))
+        for _s = 0 to array.size(dH) - 1
+            array.push(_out, array.get(dV, _s))
+    _out
+dFlat = request.security(tid, "D", f_vpFlat())
+var float vpPOC = na
+var float vpVAH = na
+var float vpVAL = na
+// Build the profile on the last bar — VP Pro v2's math, step for step: rows
+// across the window's day-bar extent, each sub-bar's volume distributed over
+// the rows its range overlaps (weighted by the overlap), POC = the heaviest
+// row's centre, value area grown two rows at a time from the POC to vpVA%.
+if barstate.islast and enVP and array.size(dFlat) > 6
+    _nSub = int(array.get(dFlat, 1))
+    _dayOff = 2 + 3 * _nSub
+    _nDay = int(array.get(dFlat, _dayOff))
+    dataH = array.new_float(0)
+    dataL = array.new_float(0)
+    dataV = array.new_float(0)
+    float _winHi = na
+    float _winLo = na
+    for _d = 0 to _nDay - 1
+        _dH = array.get(dFlat, _dayOff + 1 + _d)
+        _dL = array.get(dFlat, _dayOff + 1 + _nDay + _d)
+        _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
+        _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
+    if _nSub > 0
+        for _s = 0 to _nSub - 1
+            array.push(dataH, array.get(dFlat, 2 + _s))
+            array.push(dataL, array.get(dFlat, 2 + _nSub + _s))
+            array.push(dataV, array.get(dFlat, 2 + 2 * _nSub + _s))
+    else if _nDay > 0
+        for _d = 0 to _nDay - 1
+            array.push(dataH, array.get(dFlat, _dayOff + 1 + _d))
+            array.push(dataL, array.get(dFlat, _dayOff + 1 + _nDay + _d))
+            array.push(dataV, array.get(dFlat, _dayOff + 1 + 2 * _nDay + _d))
+    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0
+        _rng = _winHi - _winLo
+        if _rng > 0
+            _bs = _rng / vpCols
+            vol = array.new_float(vpCols, 0.0)
+            for _b = 0 to array.size(dataH) - 1
+                _bLo = array.get(dataL, _b)
+                _bHi = array.get(dataH, _b)
+                _bV = nz(array.get(dataV, _b))
+                _loI = int(math.floor((_bLo - _winLo) / _bs))
+                _hiI = int(math.floor((_bHi - _winLo) / _bs))
+                _loI := math.max(0, math.min(vpCols - 1, _loI))
+                _hiI := math.max(0, math.min(vpCols - 1, _hiI))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _winLo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to vpCols - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vpVA / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, vpCols - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+            vpVAH := _winLo + (_up + 1) * _bs
+            vpVAL := _winLo + _dn * _bs
+            vpPOC := _winLo + (_poc + 0.5) * _bs
+
+// ── collection + flat-line drawing ──────────────────────────────────────────────
+var line[]   _ln  = array.new_line()
+var label[]  _lb  = array.new_label()
+var float[]  _lvV = array.new_float()
+var string[] _lvN = array.new_string()
+var string[] _lvS = array.new_string()
+var color[]  _lvC = array.new_color()
+var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
+var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
+var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
+var float    _nearAb = na                  // the single closest level ABOVE price (kept even past the cap)
+var float    _nearBl = na                  // the single closest level BELOW price
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+// collision fan: how many already-drawn tags sit within lblGap of this price → push the LABEL right
+f_xoff(float price) =>
+    _cnt = 0
+    if array.size(_drawnY) > 0
+        for _k = 0 to array.size(_drawnY) - 1
+            if math.abs(array.get(_drawnY, _k) - price) / price <= lblGap
+                _cnt := _cnt + 1
+    array.push(_drawnY, price)
+    labelX + math.min(_cnt, 6) * lblStep
+f_collect(float v, string nm, string sty, color col) =>
+    if not na(v) and v > 0
+        array.push(_lvV, v)
+        array.push(_lvN, nm)
+        array.push(_lvS, sty)
+        array.push(_lvC, col)
+
+_tagSz = tagSize == "normal" ? size.normal : tagSize == "small" ? size.small : size.tiny
+var float[]  _qv = array.new_float()
+var string[] _qn = array.new_string()
+var string[] _qY = array.new_string()
+var color[]  _qC = array.new_color()
+f_queue(float v, string nm, string sty, color col) =>
+    if not na(v) and v > 0
+        array.push(_qv, v)
+        array.push(_qn, nm)
+        array.push(_qY, sty)
+        array.push(_qC, col)
+// ONE rule, no exemptions: a level draws when it's inside the nearest-N bracket. N means N.
+f_draw(float v, string nm, string sty, color col) =>
+    _inBr = v <= _brkHi and v >= _brkLo
+    _isNearest = keepNearest and (v == _nearAb or v == _nearBl)   // closest wall each side — kept past the cap
+    _cap  = farCapPct <= 0 or _isNearest or (not na(v) and close > 0 and math.abs(close - v) / close <= farCapPct)
+    if not na(v) and v > 0 and (showAll or (_inBr and _cap))
+        f_queue(v, nm, sty, col)
+
+if barstate.islast
+    for _l in _ln
+        line.delete(_l)
+    for _b in _lb
+        label.delete(_b)
+    array.clear(_ln)
+    array.clear(_lb)
+    array.clear(_lvV)
+    array.clear(_lvN)
+    array.clear(_lvS)
+    array.clear(_lvC)
+    array.clear(_drawnY)
+    array.clear(_qv)
+    array.clear(_qn)
+    array.clear(_qY)
+    array.clear(_qC)
+    // 6M levels: pinned (always drawn, exempt from the nearest-N) unless pin6m is off, in which
+    // case they join the proximity pool like the rest.
+    if not pin6m
+        f_collect(h6,  "6M High",  lineStyle, col6M)
+        f_collect(l6,  "6M Low",   lineStyle, col6M)
+        f_collect(c6,  "6M Close", lineStyle, col6M)
+    f_collect(h3,  "3M High",  lineStyle, col3M)
+    f_collect(l3,  "3M Low",   lineStyle, col3M)
+    f_collect(c3,  "3M Close", lineStyle, col3M)
+    // 1M levels: pinned like the week (see pin1m) unless the pin is off, in which
+    // case they join the proximity pool like the rest.
+    if not pin1m
+        f_collect(h1m, "1M High",  lineStyle, col1M)
+        f_collect(l1m, "1M Low",   lineStyle, col1M)
+        f_collect(c1m, "1M Close", lineStyle, col1M)
+    // 1W levels: pinned (always drawn — the most recent frame) unless pin1w is off, in which case
+    // they join the proximity pool like the rest.
+    if not pin1w
+        f_collect(h1w, "1W High",  lineStyle, col1W)
+        f_collect(l1w, "1W Low",   lineStyle, col1W)
+        f_collect(c1w, "1W Close", lineStyle, col1W)
+    // to-date levels — the forming extremes join the same pool, dashed, in their period's colour
+    f_collect(h6t,  "HTD High", tdStyle, col6M)
+    f_collect(l6t,  "HTD Low",  tdStyle, col6M)
+    f_collect(h3t,  "QTD High", tdStyle, col3M)
+    f_collect(l3t,  "QTD Low",  tdStyle, col3M)
+    f_collect(h1mt, "MTD High", tdStyle, col1M)
+    f_collect(l1mt, "MTD Low",  tdStyle, col1M)
+    f_collect(h1wt, "WTD High", tdStyle, col1W)
+    f_collect(l1wt, "WTD Low",  tdStyle, col1W)
+    // last confirmed daily swings join the pool too — the "other" levels, red
+    f_collect(swH, "Swing High", lineStyle, colOth)
+    f_collect(swL, "Swing Low",  lineStyle, colOth)
+    // daily volume-profile levels — VAH/VAL join the pool (orange); the POC is
+    // pinned like the week/month frames unless pinPOC is off (strength-gauge member)
+    if not pinPOC
+        f_collect(vpPOC, "POC", lineStyle, colPOC)
+    f_collect(vpVAH, "VAH", lineStyle, colVA)
+    f_collect(vpVAL, "VAL", lineStyle, colVA)
+    // ── NEAREST-N bracket — the N closest DISTINCT prices above and below. Distinct
+    //    matters: when the week's, month's and quarter's to-date lows are the same
+    //    print, that is ONE level wearing three names, not three levels — counting
+    //    the copies starved settled levels (SPY's PML, 2026-10-30) out of the set. ──
+    _ab = array.new_float()
+    _bl = array.new_float()
+    if array.size(_lvV) > 0
+        for _i = 0 to array.size(_lvV) - 1
+            v = array.get(_lvV, _i)
+            if v > close
+                _dupA = false
+                if array.size(_ab) > 0
+                    for _k = 0 to array.size(_ab) - 1
+                        if math.abs(array.get(_ab, _k) - v) <= v * mergePct
+                            _dupA := true
+                if not _dupA
+                    array.push(_ab, v)
+            else if v < close
+                _dupB = false
+                if array.size(_bl) > 0
+                    for _k = 0 to array.size(_bl) - 1
+                        if math.abs(array.get(_bl, _k) - v) <= v * mergePct
+                            _dupB := true
+                if not _dupB
+                    array.push(_bl, v)
+    array.sort(_ab, order.ascending)     // nearest-above first
+    array.sort(_bl, order.descending)    // nearest-below first
+    _nearAb := array.size(_ab) > 0 ? array.get(_ab, 0) : na   // closest wall up / down — kept past the cap
+    _nearBl := array.size(_bl) > 0 ? array.get(_bl, 0) : na
+    // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
+    _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
+    _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
+    // queue the levels that survive the bracket (ascending, so the merge pass below runs bottom-up)
+    _n = array.size(_lvV)
+    if _n > 0
+        _ord = array.sort_indices(_lvV, order.ascending)
+        for _mi = 0 to _n - 1
+            _ms = array.get(_ord, _mi)
+            f_draw(array.get(_lvV, _ms), array.get(_lvN, _ms), array.get(_lvS, _ms), array.get(_lvC, _ms))
+    // pinned levels — queued directly so proximity + the cap can never hide them (they still merge)
+    if pin1w
+        f_queue(h1w, "1W High",  lineStyle, col1W)
+        f_queue(l1w, "1W Low",   lineStyle, col1W)
+        f_queue(c1w, "1W Close", lineStyle, col1W)
+    if pin1m
+        f_queue(h1m, "1M High",  lineStyle, col1M)
+        f_queue(l1m, "1M Low",   lineStyle, col1M)
+        f_queue(c1m, "1M Close", lineStyle, col1M)
+    if pinPOC
+        f_queue(vpPOC, "POC", lineStyle, colPOC)
+    if pin6m
+        f_queue(h6, "6M High",  lineStyle, col6M)
+        f_queue(l6, "6M Low",   lineStyle, col6M)
+        f_queue(c6, "6M Close", lineStyle, col6M)
+
+    // ── ONE MERGE PASS — levels within mergePct collapse into a single line naming both. The line
+    //    sits on the member NEAREST price and wears that member's style; the LABEL sits at the
+    //    line's own end so it can't float off. ──
+    _qn2 = array.size(_qv)
+    if _qn2 > 0
+        _qord = array.sort_indices(_qv, order.ascending)
+        _qi = 0
+        while _qi < _qn2
+            _qs   = array.get(_qord, _qi)
+            _qhi  = array.get(_qv, _qs)
+            _qnm  = array.get(_qn, _qs)
+            _qsty = array.get(_qY, _qs)
+            _qcolr = array.get(_qC, _qs)
+            _qcnt = 1
+            _qnear  = _qhi
+            _qnearD = math.abs(close - _qhi)
+            _qj = _qi + 1
+            while _qj < _qn2
+                _qk  = array.get(_qord, _qj)
+                _qv2 = array.get(_qv, _qk)
+                if mergePct > 0 and _qv2 <= _qhi * (1.0 + mergePct)
+                    _qhi := _qv2
+                    _qnm := _qnm + " · " + array.get(_qn, _qk)
+                    _qcnt := _qcnt + 1
+                    if math.abs(close - _qv2) < _qnearD
+                        _qnear  := _qv2
+                        _qnearD := math.abs(close - _qv2)
+                        _qsty   := array.get(_qY, _qk)
+                        _qcolr  := array.get(_qC, _qk)
+                    _qj := _qj + 1
+                else
+                    break
+            _qsup = close > _qnear
+            _qx   = f_xoff(_qnear)                              // residual collisions still fan…
+            array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcolr, width = _qcnt > 1 ? wLine + 1 : wLine, style = f_style(_qsty), extend = extendAll ? extend.both : extend.none))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcolr, textcolor = _qcolr == col1M ? color.black : color.white, size = _tagSz))
+            _qi := _qj
