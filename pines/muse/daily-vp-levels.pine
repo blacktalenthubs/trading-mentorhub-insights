@@ -1,5 +1,5 @@
 //@version=5
-// DAILY VOLUME PROFILE LEVELS — POC / VAH / VAL — v2026.10.30.1
+// DAILY VOLUME PROFILE LEVELS — POC / VAH / VAL — v2026.10.30.2
 // ═════════════════════════════════════════════════════════════════════════════
 // ONLY the daily volume profile's three levels, drawn as flat lines with tags:
 // the POC (red), the Value Area High and Low (orange). Nothing else.
@@ -8,8 +8,11 @@
 // (2026-10-30): the levels are useful enough to deserve their own indicator,
 // and the Prox chart was getting cluttered. Toggle this one on/off on its own.
 //
-// The math is VP Pro v2's own, unchanged: last 150 DAILY bars (whatever the
-// chart timeframe shows), 30-minute sub-bars collected through VP Pro's
+// The math is VP Pro v2's own, unchanged: last 150 bars, 30-minute sub-bars
+// collected through VP Pro's collection patterns. "Lock profile to Daily"
+// defaults ON — the profile is the daily one on any chart. Turn it OFF to
+// unlock VP Pro's original behaviour: the profile of the chart's own
+// timeframe (last 150 bars of whatever you are viewing).
 // f_dailyFlat pattern, 35 price rows, each sub-bar's volume distributed over
 // the rows its range overlaps, POC = the heaviest row's centre, and the value
 // area grown two rows at a time from the POC until it holds 70% of the volume.
@@ -17,10 +20,11 @@
 // VAL 729.39 — exact. Keep these settings in step with VP Pro's if you change
 // them there (bars back / rows / VA%).
 // ═════════════════════════════════════════════════════════════════════════════
-indicator("Daily VP Levels · POC/VAH/VAL v2026.10.30.1", "Daily VP Levels", overlay = true, max_lines_count = 10, max_labels_count = 10)
+indicator("Daily VP Levels · POC/VAH/VAL v2026.10.30.2", "Daily VP Levels", overlay = true, max_lines_count = 10, max_labels_count = 10)
 
 gP = "Profile (VP Pro settings)"
-barsBack = input.int(150, "Bars back (daily)", group = gP, minval = 10, maxval = 500)
+lockDaily = input.bool(true, "Lock profile to Daily timeframe", group = gP, tooltip = "ON (default here): the profile is ALWAYS the daily one — last N daily bars — whatever the chart shows. OFF: UNLOCKED, VP Pro's original behaviour — the profile is built from the CHART's own timeframe (last N bars of whatever you are viewing: 150 hours on a 1H chart, 150 15-minute bars on a 15m chart), using the sub-bars below it. On a Daily chart the two modes are identical.")
+barsBack = input.int(150, "Bars back", group = gP, minval = 10, maxval = 500)
 columns  = input.int(35, "Price rows", group = gP, minval = 5, maxval = 200)
 vaPct    = input.float(70.0, "Value area %", group = gP, minval = 1, maxval = 100)
 ltfTF    = input.timeframe("30", "Sub-bars (lower timeframe)", group = gP)
@@ -54,7 +58,7 @@ f_vpFlat() =>
     _h = request.security_lower_tf(tid, ltfTF, high)
     _l = request.security_lower_tf(tid, ltfTF, low)
     _v = request.security_lower_tf(tid, ltfTF, volume)
-    if bar_index >= last_bar_index - barsBack + 1 and (na(lastDay) or bar_index != lastDay)
+    if lockDaily and bar_index >= last_bar_index - barsBack + 1 and (na(lastDay) or bar_index != lastDay)
         lastDay := bar_index
         if na(wStart)
             wStart := time
@@ -89,39 +93,93 @@ f_vpFlat() =>
     _out
 dFlat = request.security(tid, "D", f_vpFlat())
 
+// ── unlocked (chart-timeframe) path — VP Pro v2's original collection: sub-bars
+//    of a lower timeframe for each of the last barsBack CHART bars. Only runs
+//    when the Daily lock is off (or the chart itself is Daily, where the two
+//    paths coincide). LTF guard: never request a TF higher than the chart TF. ──
+chartIsDaily = timeframe.period == "D"
+useDaily = lockDaily and not chartIsDaily
+ltfSecs = timeframe.in_seconds(ltfTF)
+chartSecs = timeframe.in_seconds(timeframe.period)
+effLtfTF = ltfSecs < chartSecs ? ltfTF : timeframe.period
+ltfH = request.security_lower_tf(tid, effLtfTF, high)
+ltfL = request.security_lower_tf(tid, effLtfTF, low)
+ltfV = request.security_lower_tf(tid, effLtfTF, volume)
+ltfN = na(ltfH) ? 0 : array.size(ltfH)
+var float[] subH = array.new_float(0)
+var float[] subL = array.new_float(0)
+var float[] subV = array.new_float(0)
+var int lastSubBar = na
+if not useDaily and bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index != lastSubBar) and ltfN > 0
+    lastSubBar := bar_index
+    for _s = 0 to ltfN - 1
+        array.push(subH, array.get(ltfH, _s))
+        array.push(subL, array.get(ltfL, _s))
+        array.push(subV, nz(array.get(ltfV, _s)))
+
 var float vpPOC = na
 var float vpVAH = na
 var float vpVAL = na
-var int vpStart = na
 
-// ── build + draw on the last bar — VP Pro v2's math, step for step ──
+// ── build + draw on the last bar — VP Pro v2's math, step for step. Data comes
+//    from the Daily path when locked (or the chart path when unlocked); the
+//    profile build itself is identical either way. ──
 var array<line> _lines = array.new_line()
 var array<label> _lbls = array.new_label()
-if barstate.islast and array.size(dFlat) > 6
-    _nSub = int(array.get(dFlat, 1))
-    _dayOff = 2 + 3 * _nSub
-    _nDay = int(array.get(dFlat, _dayOff))
+if barstate.islast
     dataH = array.new_float(0)
     dataL = array.new_float(0)
     dataV = array.new_float(0)
     float _winHi = na
     float _winLo = na
-    for _d = 0 to _nDay - 1
-        _dH = array.get(dFlat, _dayOff + 1 + _d)
-        _dL = array.get(dFlat, _dayOff + 1 + _nDay + _d)
-        _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
-        _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
-    if _nSub > 0
-        for _s = 0 to _nSub - 1
-            array.push(dataH, array.get(dFlat, 2 + _s))
-            array.push(dataL, array.get(dFlat, 2 + _nSub + _s))
-            array.push(dataV, array.get(dFlat, 2 + 2 * _nSub + _s))
-    else if _nDay > 0
-        for _d = 0 to _nDay - 1
-            array.push(dataH, array.get(dFlat, _dayOff + 1 + _d))
-            array.push(dataL, array.get(dFlat, _dayOff + 1 + _nDay + _d))
-            array.push(dataV, array.get(dFlat, _dayOff + 1 + 2 * _nDay + _d))
-    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0
+    int _xL = na
+    int _xR = na
+    _xl = xloc.bar_index
+    if useDaily
+        if array.size(dFlat) > 6
+            _nSub = int(array.get(dFlat, 1))
+            _dayOff = 2 + 3 * _nSub
+            _nDay = int(array.get(dFlat, _dayOff))
+            for _d = 0 to _nDay - 1
+                _dH = array.get(dFlat, _dayOff + 1 + _d)
+                _dL = array.get(dFlat, _dayOff + 1 + _nDay + _d)
+                _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
+                _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
+            if _nSub > 0
+                for _s = 0 to _nSub - 1
+                    array.push(dataH, array.get(dFlat, 2 + _s))
+                    array.push(dataL, array.get(dFlat, 2 + _nSub + _s))
+                    array.push(dataV, array.get(dFlat, 2 + 2 * _nSub + _s))
+            else if _nDay > 0
+                for _d = 0 to _nDay - 1
+                    array.push(dataH, array.get(dFlat, _dayOff + 1 + _d))
+                    array.push(dataL, array.get(dFlat, _dayOff + 1 + _nDay + _d))
+                    array.push(dataV, array.get(dFlat, _dayOff + 1 + 2 * _nDay + _d))
+            _xl := xloc.bar_time
+            _xL := int(array.get(dFlat, 0))
+            _xR := time + int(histoOffset * timeframe.in_seconds(timeframe.period) * 1000)
+    else
+        _n = math.min(barsBack, bar_index)
+        if array.size(subH) > 0
+            for _s = 0 to array.size(subH) - 1
+                array.push(dataH, array.get(subH, _s))
+                array.push(dataL, array.get(subL, _s))
+                array.push(dataV, array.get(subV, _s))
+        else if _n >= 1
+            for _f = 0 to _n - 1
+                array.push(dataH, high[_f])
+                array.push(dataL, low[_f])
+                array.push(dataV, nz(volume[_f]))
+        if _n >= 2
+            _winHi := high
+            _winLo := low
+            for _b = 0 to _n - 1
+                _winHi := math.max(_winHi, high[_b])
+                _winLo := math.min(_winLo, low[_b])
+        _xl := xloc.bar_index
+        _xL := math.max(bar_index - _n + 1, bar_index - 9000)
+        _xR := bar_index + histoOffset
+    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0 and not na(_xL)
         _rng = _winHi - _winLo
         if _rng > 0
             _bs = _rng / columns
@@ -179,9 +237,7 @@ if barstate.islast and array.size(dFlat) > 6
             vpVAH := _winLo + (_up + 1) * _bs
             vpVAL := _winLo + _dn * _bs
             vpPOC := _winLo + (_poc + 0.5) * _bs
-            vpStart := int(array.get(dFlat, 0))
             // redraw: clear the previous frame, then draw the three lines flat
-            // across the profile window (time-based x, so any chart timeframe works)
             if array.size(_lines) > 0
                 for _i = 0 to array.size(_lines) - 1
                     line.delete(array.get(_lines, _i))
@@ -190,19 +246,18 @@ if barstate.islast and array.size(dFlat) > 6
                 for _i = 0 to array.size(_lbls) - 1
                     label.delete(array.get(_lbls, _i))
                 array.clear(_lbls)
-            _xR = time + int(histoOffset * timeframe.in_seconds(timeframe.period) * 1000)
             if showPOC and not na(vpPOC)
-                array.push(_lines, line.new(vpStart, vpPOC, _xR, vpPOC, xloc = xloc.bar_time, color = pocColor, width = pocWidth))
+                array.push(_lines, line.new(_xL, vpPOC, _xR, vpPOC, xloc = _xl, color = pocColor, width = pocWidth))
                 _t = (close >= vpPOC ? "▲ SUPPORT " : "▼ RESIST ") + "POC " + str.tostring(vpPOC, format.mintick)
-                array.push(_lbls, label.new(_xR, vpPOC, _t, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = pocColor, textcolor = color.white, size = f_sz(lblSize)))
+                array.push(_lbls, label.new(_xR, vpPOC, _t, xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = pocColor, textcolor = color.white, size = f_sz(lblSize)))
             if showVA and not na(vpVAH)
-                array.push(_lines, line.new(vpStart, vpVAH, _xR, vpVAH, xloc = xloc.bar_time, color = vaColor, width = vaWidth))
+                array.push(_lines, line.new(_xL, vpVAH, _xR, vpVAH, xloc = _xl, color = vaColor, width = vaWidth))
                 _t = (close >= vpVAH ? "▲ SUPPORT " : "▼ RESIST ") + "VAH " + str.tostring(vpVAH, format.mintick)
-                array.push(_lbls, label.new(_xR, vpVAH, _t, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
+                array.push(_lbls, label.new(_xR, vpVAH, _t, xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
             if showVA and not na(vpVAL)
-                array.push(_lines, line.new(vpStart, vpVAL, _xR, vpVAL, xloc = xloc.bar_time, color = vaColor, width = vaWidth))
+                array.push(_lines, line.new(_xL, vpVAL, _xR, vpVAL, xloc = _xl, color = vaColor, width = vaWidth))
                 _t = (close >= vpVAL ? "▲ SUPPORT " : "▼ RESIST ") + "VAL " + str.tostring(vpVAL, format.mintick)
-                array.push(_lbls, label.new(_xR, vpVAL, _t, xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
+                array.push(_lbls, label.new(_xR, vpVAL, _t, xloc = _xl, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
 
 // hidden plots so the values show in the Data Window and other scripts can read them
 plot(vpPOC, "POC", display = display.none)
