@@ -13,7 +13,9 @@
 // near-price set. 0 on a side draws none there (a one-sided read). "Show ALL" ignores proximity.
 // DISTANCE CAP: "nearest" isn't "near" — in a trend the 3rd-nearest level can still be 30% away and
 // only compress the scale, so anything farther than ±farCapPct from price is dropped even if it's
-// inside the nearest-N (default 12%). A far 6M low stays hidden until price comes near it.
+// inside the nearest-N (default 12%). BUT the single CLOSEST line each side is always kept (keepNearest,
+// default on) — so you always know where the first wall up and first floor down are; the cap only
+// trims the 2nd/3rd. (A side's count set to 0 still draws nothing there.)
 //
 // CONFLUENCE / MERGE: levels stacked within ±mergePct collapse into ONE (thicker) line naming all of
 // them ("1W Close · 1M High ·×2") — that stack IS the confluence, flagged with a ·×N count.
@@ -40,6 +42,7 @@ nUp      = input.int(3, "Show ABOVE price", group = gN, minval = 0, maxval = 8, 
 nDn      = input.int(3, "BELOW", group = gN, minval = 0, maxval = 8, inline = "n")
 showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the scale)", group = gN)
 farCapPct = input.float(12.0, "Hide anything farther than ± % from price (0 = off)", group = gN, minval = 0, maxval = 60, step = 0.5, tooltip = "'Nearest' isn't the same as 'near': in a trend the 3rd-nearest level below can still be 30% away, which only compresses the scale. This drops any level beyond this % from price even if it's inside the nearest-N. 0 = off.") / 100.0
+keepNearest = input.bool(true, "Always keep the CLOSEST line each side (ignore the cap for the nearest wall)", group = gN, tooltip = "So you always know where the first wall up and the first floor down are. The single nearest level above price and nearest below are kept even when they're past the distance cap — the cap then only trims the 2nd/3rd. Respects the ABOVE/BELOW counts: a side set to 0 still draws nothing.")
 pin6m    = input.bool(false, "Always show the 6M high/low/close (exempt from proximity + the far cap)", group = gN, tooltip = "OFF by default — the 6M levels obey proximity and the distance cap like everything else, so a far 6M low stays hidden until price comes near it. Turn ON to pin the 6-month walls regardless of distance (like PDH/PDL always-on).")
 mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
 showPx   = input.bool(true, "Show the price on the tag", group = gN)
@@ -93,6 +96,8 @@ var string[] _lvN = array.new_string()
 var float[]  _drawnY = array.new_float()   // prices already tagged this bar (collision fan)
 var float    _brkHi = 1.0e18               // Nth-nearest ABOVE price — bracket top
 var float    _brkLo = -1.0                 // Nth-nearest BELOW price — bracket bottom
+var float    _nearAb = na                  // the single closest level ABOVE price (kept even past the cap)
+var float    _nearBl = na                  // the single closest level BELOW price
 // collision fan: how many already-drawn tags sit within lblGap of this price → push the LABEL right
 f_xoff(float price) =>
     _cnt = 0
@@ -118,7 +123,8 @@ f_queue(float v, string nm) =>
 // ONE rule, no exemptions: a level draws when it's inside the nearest-N bracket. N means N.
 f_draw(float v, string nm) =>
     _inBr = v <= _brkHi and v >= _brkLo
-    _cap  = farCapPct <= 0 or (not na(v) and close > 0 and math.abs(close - v) / close <= farCapPct)
+    _isNearest = keepNearest and (v == _nearAb or v == _nearBl)   // closest wall each side — kept past the cap
+    _cap  = farCapPct <= 0 or _isNearest or (not na(v) and close > 0 and math.abs(close - v) / close <= farCapPct)
     if not na(v) and v > 0 and (showAll or (_inBr and _cap))
         f_queue(v, nm)
 
@@ -161,6 +167,8 @@ if barstate.islast
                 array.push(_bl, v)
     array.sort(_ab, order.ascending)     // nearest-above first
     array.sort(_bl, order.descending)    // nearest-below first
+    _nearAb := array.size(_ab) > 0 ? array.get(_ab, 0) : na   // closest wall up / down — kept past the cap
+    _nearBl := array.size(_bl) > 0 ? array.get(_bl, 0) : na
     // 0 on a side means "draw none there": collapse that bound so nothing can satisfy it
     _brkHi := nUp <= 0 or array.size(_ab) == 0 ? (nUp <= 0 ? -1.0 : 1.0e18) : array.get(_ab, math.min(nUp, array.size(_ab)) - 1)
     _brkLo := nDn <= 0 or array.size(_bl) == 0 ? (nDn <= 0 ? 1.0e18 : -1.0) : array.get(_bl, math.min(nDn, array.size(_bl)) - 1)
