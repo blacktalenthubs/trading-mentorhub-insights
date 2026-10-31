@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.2
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.30.3
 // Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
 // day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
 // colours). Extended the same evening at Victor's direction with two layers his
@@ -37,7 +37,7 @@
 // + lookahead_on). TO-DATE values move with the current period by design —
 // they are the forming extreme, and they settle into next period's prior line.
 // VISUAL ONLY — no alertcondition, nothing emitted to the platform webhook.
-indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.2", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
+indicator("Proximity Levels · HLC +TD/Swing v2026.10.30.3", "Prox HLC+", overlay = true, max_lines_count = 40, max_labels_count = 80)
 
 // ── which levels ──────────────────────────────────────────────────────────────
 gP   = "Levels (prior-period high / low / close)"
@@ -57,6 +57,7 @@ showAll  = input.bool(false, "Show ALL (ignore proximity — will compress the s
 farCapPct = input.float(12.0, "Hide anything farther than ± % from price (0 = off)", group = gN, minval = 0, maxval = 60, step = 0.5, tooltip = "'Nearest' isn't the same as 'near': in a trend the 3rd-nearest level below can still be 30% away, which only compresses the scale. This drops any level beyond this % from price even if it's inside the nearest-N. 0 = off.") / 100.0
 keepNearest = input.bool(true, "Always keep the CLOSEST line each side (ignore the cap for the nearest wall)", group = gN, tooltip = "So you always know where the first wall up and the first floor down are. Respects the ABOVE/BELOW counts: a side set to 0 still draws nothing.")
 pin1w    = input.bool(true, "Always show the prior-WEEK high/low/close (the most recent frame)", group = gN, tooltip = "ON by default — the prior week is the most recent completed period, so its high/low/close is the frame price is working inside right now. Pinned regardless of proximity + the cap; they still merge with a coincident level.")
+pin1m    = input.bool(true, "Always show the prior-MONTH high/low/close (same as the week)", group = gN, tooltip = "ON by default (Victor, 2026-10-30) — the goal is to trade the current market off PAST, settled data. On 2026-10-30 SPY's bounce came at the prior-month low (749.60, settled since Oct 1), but the level was hidden: three to-date copies of that day's fresh low (750.36) ate all three below-slots in the nearest-N count. The prior month is a settled frame like the prior week — pinned regardless of proximity + the cap; it still merges with a coincident level.")
 pin6m    = input.bool(false, "Always show the 6M high/low/close (exempt from proximity + the far cap)", group = gN, tooltip = "OFF by default — the 6M levels obey proximity and the distance cap like everything else. Turn ON to pin the 6-month walls regardless of distance.")
 mergePct = input.float(0.20, "Confluence — merge levels within (%) into one line", group = gN, minval = 0.0, maxval = 2, step = 0.05, tooltip = "CONFLUENCE: levels within this % of each other collapse into ONE thicker line naming all of them, flagged ·×N. 0 = draw each separately.") / 100.0
 showPx   = input.bool(true, "Show the price on the tag", group = gN)
@@ -211,9 +212,12 @@ if barstate.islast
     f_collect(h3,  "3M High",  lineStyle, col3M)
     f_collect(l3,  "3M Low",   lineStyle, col3M)
     f_collect(c3,  "3M Close", lineStyle, col3M)
-    f_collect(h1m, "1M High",  lineStyle, col1M)
-    f_collect(l1m, "1M Low",   lineStyle, col1M)
-    f_collect(c1m, "1M Close", lineStyle, col1M)
+    // 1M levels: pinned like the week (see pin1m) unless the pin is off, in which
+    // case they join the proximity pool like the rest.
+    if not pin1m
+        f_collect(h1m, "1M High",  lineStyle, col1M)
+        f_collect(l1m, "1M Low",   lineStyle, col1M)
+        f_collect(c1m, "1M Close", lineStyle, col1M)
     // 1W levels: pinned (always drawn — the most recent frame) unless pin1w is off, in which case
     // they join the proximity pool like the rest.
     if not pin1w
@@ -232,16 +236,31 @@ if barstate.islast
     // last confirmed daily swings join the pool too — the "other" levels, red
     f_collect(swH, "Swing High", lineStyle, colOth)
     f_collect(swL, "Swing Low",  lineStyle, colOth)
-    // ── NEAREST-N bracket — the N closest levels above price and N closest below ──
+    // ── NEAREST-N bracket — the N closest DISTINCT prices above and below. Distinct
+    //    matters: when the week's, month's and quarter's to-date lows are the same
+    //    print, that is ONE level wearing three names, not three levels — counting
+    //    the copies starved settled levels (SPY's PML, 2026-10-30) out of the set. ──
     _ab = array.new_float()
     _bl = array.new_float()
     if array.size(_lvV) > 0
         for _i = 0 to array.size(_lvV) - 1
             v = array.get(_lvV, _i)
             if v > close
-                array.push(_ab, v)
+                _dupA = false
+                if array.size(_ab) > 0
+                    for _k = 0 to array.size(_ab) - 1
+                        if math.abs(array.get(_ab, _k) - v) <= v * mergePct
+                            _dupA := true
+                if not _dupA
+                    array.push(_ab, v)
             else if v < close
-                array.push(_bl, v)
+                _dupB = false
+                if array.size(_bl) > 0
+                    for _k = 0 to array.size(_bl) - 1
+                        if math.abs(array.get(_bl, _k) - v) <= v * mergePct
+                            _dupB := true
+                if not _dupB
+                    array.push(_bl, v)
     array.sort(_ab, order.ascending)     // nearest-above first
     array.sort(_bl, order.descending)    // nearest-below first
     _nearAb := array.size(_ab) > 0 ? array.get(_ab, 0) : na   // closest wall up / down — kept past the cap
@@ -261,6 +280,10 @@ if barstate.islast
         f_queue(h1w, "1W High",  lineStyle, col1W)
         f_queue(l1w, "1W Low",   lineStyle, col1W)
         f_queue(c1w, "1W Close", lineStyle, col1W)
+    if pin1m
+        f_queue(h1m, "1M High",  lineStyle, col1M)
+        f_queue(l1m, "1M Low",   lineStyle, col1M)
+        f_queue(c1m, "1M Close", lineStyle, col1M)
     if pin6m
         f_queue(h6, "6M High",  lineStyle, col6M)
         f_queue(l6, "6M Low",   lineStyle, col6M)
