@@ -1,0 +1,27 @@
+//@version=5
+// =============================================================================
+// HEIKIN ASHI OVERLAY — v2026.11.01.1
+// Draws Heikin Ashi candles ON a regular-candle chart. The Ashi candles are
+// computed from the chart's REAL bars and plotted with plotcandle, so the
+// chart type stays "Candles" and every other indicator on the chart keeps
+// reading real opens / closes — day-signals' Open line, PML, LEVES_POC role
+// tags and the SMAs all stay true. (Switching the CHART itself to Heikin Ashi
+// feeds Ashi bars to every indicator instead: SPY's real Friday open 761.5
+// read as 769.36 and PML 749.60 read as 748.24 on 2026-10-31.)
+// To hide the real candles underneath: chart Settings -> Symbol -> untick or
+// fully fade Body / Borders / Wick.
+// =============================================================================
+indicator("Heikin Ashi Overlay v2026.11.01.1", shorttitle = "HA Overlay v2026.11.01.1", overlay = true)
+
+grp    = "Colours"
+upCol  = input.color(#089981, "Up",   group = grp, inline = "c")
+dnCol  = input.color(#F23645, "Down", group = grp, inline = "c")
+
+haClose = (open + high + low + close) / 4.0
+var float haOpen = na
+haOpen := na(haOpen[1]) ? (open + close) / 2.0 : (haOpen[1] + haClose[1]) / 2.0
+haHigh  = math.max(high, haOpen, haClose)
+haLow   = math.min(low,  haOpen, haClose)
+
+bodyCol = haClose >= haOpen ? upCol : dnCol
+plotcandle(haOpen, haHigh, haLow, haClose, color = bodyCol, wickcolor = bodyCol, bordercolor = bodyCol)
