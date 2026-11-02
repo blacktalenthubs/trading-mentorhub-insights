@@ -585,18 +585,16 @@ MARKET_GAUGE_SYMBOLS = {"SPY", "QQQ", "DRAM", "IWM"}
 # MARKET_GAUGE_SYMBOLS. The rules stay in ENABLED_RULES; they just only run for these symbols.
 WEEKLY_SIGNAL_SYMBOLS = {"SPY", "QQQ", "SMH"}
 
-# Signal symbol HARDCODE (trader, 2026-10-29) — ONLY these symbols may deliver
-# a signal, from ANY producer. An off-list alert is still recorded with
-# suppressed_reason="symbol_not_in_hardcode" but is never delivered on any
-# channel (desk feed, Telegram, email, APNs, SSE). Enforced at the record
-# layer of every insert path — api/app/background/monitor.py (scanner),
-# api/app/routers/tv_webhook.py (Pine), analytics/breakout_alerts.py — via
-# symbol_in_hardcode() below. The 2026-10-19 version of this gate lived in a
-# single delivery branch of monitor.py and stamped ZERO rows on 2026-10-27/28
-# while 36+ off-list symbols delivered each day through the other paths; the
-# same 21 names are restored here at the trader's direction, this time at the
-# layer no producer can bypass. Edit this set to change the list.
-# Amendment (trader, 2026-10-29 evening): META and MSFT added — 23 names.
+# Signal symbol HARDCODE — REMOVED (trader, 2026-11-02). The 2026-10-29 gate
+# (only the 23 SIGNAL_SYMBOL_HARDCODE names may deliver; off-list alerts are
+# recorded with suppressed_reason="symbol_not_in_hardcode" and never delivered
+# on any channel) is retired at the trader's direction: every symbol delivers
+# again, from every producer — api/app/background/monitor.py (scanner),
+# api/app/routers/tv_webhook.py (Pine), analytics/breakout_alerts.py. The gate
+# cost real signals, e.g. COST's flat-base TBA breakout on 2026-11-02 was
+# recorded but never delivered. symbol_in_hardcode() stays as an always-True
+# stub so every existing call site keeps working unchanged; the retired list
+# is kept below for reference / easy rollback.
 SIGNAL_SYMBOL_HARDCODE = {
     "SOXL", "DRAM", "QQQ", "NVDA", "IWM", "SPY", "SNDK", "MU", "LITE", "BE",
     "AMZN", "GOOGL", "TSLA", "TSM", "SMH", "NBIS", "AMD", "AAPL", "CRDO",
@@ -605,8 +603,8 @@ SIGNAL_SYMBOL_HARDCODE = {
 
 
 def symbol_in_hardcode(symbol) -> bool:
-    """True when *symbol* is on the SIGNAL_SYMBOL_HARDCODE delivery list."""
-    return (symbol or "").strip().upper() in SIGNAL_SYMBOL_HARDCODE
+    """Gate removed 2026-11-02: every symbol may deliver. Always True."""
+    return True
 
 # Weekly rising 20 SMA support (wsma20_support) — a swing signal. Price above and within
 # WSMA20_SUPPORT_MAX_DISTANCE_PCT of a RISING weekly 20 SMA = at weekly support in a weekly
