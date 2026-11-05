@@ -38,6 +38,7 @@ from alert_config import HOURLY_VP_SYMBOLS as _HOURLY_VP_SYMBOLS  # noqa: E402
 from alert_config import symbol_in_hardcode as _symbol_in_hardcode  # noqa: E402  # hardcoded delivery list (trader, 2026-10-29)
 from analytics.focus_gate import focus_symbols as _focus_symbols  # noqa: E402  # focus-driven gate
 from analytics.focus_gate import focus_tier_of as _focus_tier_of  # noqa: E402  # A/B delivery tier
+from analytics.focus_gate import master_symbols as _master_symbols  # noqa: E402  # master-universe (2026-11-04)
 from analytics.market_hours import is_market_hours, is_market_hours_for_symbol, in_opening_window as _in_opening_window  # noqa: E402
 
 logger = logging.getLogger("monitor")
@@ -310,22 +311,33 @@ SCANNER_UNIVERSE: list[str] = [
 ]
 
 def scan_universe() -> list[str]:
-    """The symbols the scanner polls = the trader's FOCUS stars, PERIOD — managed entirely in
-    the app (star a name to add it, no code edit). Crypto is no hardcoded special case: BTC/ETH
-    scan 24/7 because they're starred, like anything else. The hardcoded SCANNER_UNIVERSE is only
-    a last-resort fallback for when the focus read fails or comes back empty, so the money path
-    is never left with nothing.
+    """The symbols the scanner polls = MASTER ∪ the trader's FOCUS stars.
 
-    2026-10-02 (trader): "i thought these are managed from the focus tab?" — yes; removed the
-    crypto canary so the universe is purely focus-driven. focus_symbols() is DB-backed with a
-    5-min cache + a static fallback of its own, so this adds no new hard dependency to the poll."""
+    2026-11-04 (trader decision): "whatever we have in master should be used — we
+    only keep updating master — master should be in sync with scanner as well."
+    The platform MASTER watchlist (master@busytradersdesk) is the single curated
+    universe, so it is now the scanner's base set. Focus stars stay as an additive
+    personal layer (they carry the A/B delivery tiers), so no name the trader
+    currently gets can drop out: the union only ever widens. The hardcoded
+    SCANNER_UNIVERSE remains the last-resort fallback for when BOTH reads come
+    back empty, so the money path is never left with nothing.
+
+    (History: 2026-09-30→2026-11-04 the universe was focus-stars-only, managed by
+    starring in the app; 2026-10-02 removed the crypto canary so BTC/ETH scanned
+    because they're starred. focus_symbols()/master_symbols() are DB-backed with
+    5-min caches, so this adds no new hard dependency to the poll.)"""
     try:
         focus = {s.upper() for s in _focus_symbols()}
     except Exception:
         focus = set()
-    if not focus:
-        return list(SCANNER_UNIVERSE)      # focus read failed/empty → emergency fallback only
-    return sorted(focus)
+    try:
+        master = {s.upper() for s in _master_symbols()}
+    except Exception:
+        master = set()
+    universe = focus | master
+    if not universe:
+        return list(SCANNER_UNIVERSE)      # both reads failed/empty → emergency fallback only
+    return sorted(universe)
 
 
 # 1 alert / stock / TYPE / day — (user_id, symbol, alert_type) that already delivered
@@ -523,11 +535,16 @@ def _poll_all_users_inner(sync_session_factory) -> int:
         # Gather all unique symbols across Pro users (dedup fetches)
         user_symbols: Dict[int, List[str]] = {}
         all_symbols: set[str] = set()
-        # The universe is FOCUS-driven (2026-09-30): scan_universe() = the trader's focus
-        # stars ∪ the crypto canary, so names are added by starring in the app (no code
-        # edit). ENFORCED for every user (per-user watchlists still bypassed); computed
-        # once per poll so all users evaluate the same controlled set.
+        # The universe is MASTER ∪ FOCUS (2026-11-04 trader decision — Master is the
+        # single list): scan_universe() = the platform master watchlist ∪ the trader's
+        # focus stars, so names are added by updating Master (or by starring, for the
+        # personal tier layer). ENFORCED for every scanned user (per-user watchlists
+        # still bypassed); computed once per poll so all users evaluate the same set.
         _scan_syms = scan_universe()
+        # Master membership for the focus-tier gate below: a scanned Master name that
+        # is not a personal focus star delivers on the B lane instead of being held
+        # back as not_in_focus. Cached (5 min) inside focus_gate — cheap to call here.
+        _master_syms = _master_symbols()
         for user_id in pro_users:
             user_symbols[user_id] = list(_scan_syms)
             all_symbols.update(_scan_syms)
@@ -1516,7 +1533,13 @@ def _poll_all_users_inner(sync_session_factory) -> int:
                     _deliver_push = _send_notification
                     if _send_notification:
                         _tier = _focus_tier_of(symbol)
-                        if _tier is None:                      # not in focus → don't deliver
+                        if _tier is None and (symbol or "").upper() in _master_syms:
+                            # MASTER-universe name (2026-11-04: Master is the single
+                            # list) — not a personal focus star, so it delivers on the
+                            # B lane (feed + push outside the opening window) instead
+                            # of being held back as not_in_focus.
+                            _tier = 2
+                        if _tier is None:                      # not in focus/master → don't deliver
                             _send_notification = False
                             _deliver_push = False
                             _suppressed = "not_in_focus"

@@ -3008,6 +3008,27 @@ async def _filter_users_by_open_bracket_allowlist(db, users, sig, alert_type_ful
     return [u for u in users if u.id not in dropped]
 
 
+def _admin_master_matching(rows, user_emails, target_norm, norm, master_email, admin_emails) -> set[int]:
+    """Admin user_ids to ADD to a symbol's watcher set under the MASTER-as-single-
+    universe rule (trader decision 2026-11-04, after the ISRG/ZTS miss: the TBA Pine
+    fired, the webhook delivered, ~400 users got copies — but the admin got NO row,
+    because the names sit on the platform MASTER watchlist, not his personal one).
+
+    rows = (user_id, symbol) watchlist pairs for ALL users (incl. the master
+    account); user_emails = (user_id, email) pairs; target_norm = norm(symbol).
+    Returns the admin ids iff the target sits on the MASTER account's watchlist —
+    the admin's effective list is personal ∪ master. Pure (no DB/IO) so it is
+    unit-testable; every non-admin user's routing is untouched by construction."""
+    _master = (master_email or "").strip().lower()
+    _admins = {(e or "").strip().lower() for e in admin_emails}
+    master_uids = {uid for uid, em in user_emails if (em or "").strip().lower() == _master}
+    if not master_uids:
+        return set()
+    if not any(uid in master_uids and norm(sym) == target_norm for uid, sym in rows):
+        return set()
+    return {uid for uid, em in user_emails if (em or "").strip().lower() in _admins}
+
+
 async def _users_watching(db, symbol: str):
     """Return the users an alert for `symbol` should fan out to.
 
@@ -3061,6 +3082,23 @@ async def _users_watching(db, symbol: str):
     rows = (await db.execute(select(WatchlistItem.user_id, WatchlistItem.symbol))).all()
     users_with_wl = {uid for uid, _sym in rows}                    # curated any list
     matching = {uid for uid, sym in rows if _norm(sym) == target}  # watch THIS symbol
+    # MASTER-as-single-universe (trader decision 2026-11-04): the admin also
+    # "watches" every symbol on the platform MASTER watchlist — his effective list
+    # is personal ∪ master, so a Master-only name (ISRG, ZTS, …) can no longer
+    # produce zero rows for him while other users get copies. Scoped to
+    # ADMIN_EMAILS only; every other user routes exactly as before, and the master
+    # account itself stays excluded as a recipient in the stmt below.
+    try:
+        from app.dependencies import ADMIN_EMAILS
+
+        _emails = (await db.execute(select(User.id, User.email))).all()
+        matching |= _admin_master_matching(
+            rows, _emails, target, _norm, MASTER_WATCHLIST_EMAIL, ADMIN_EMAILS
+        )
+    except Exception:
+        logger.warning(
+            "TV webhook: master-universe union skipped for %s", symbol, exc_info=True
+        )
 
     stmt = (
         select(User)
