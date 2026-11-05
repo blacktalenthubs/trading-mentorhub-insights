@@ -54,6 +54,46 @@ def focus_symbols(force: bool = False) -> set[str]:
     return syms
 
 
+# The platform MASTER watchlist account — the single curated universe (trader
+# decision 2026-11-04: "whatever we have in master should be used — we only keep
+# updating master"). Its OWN env for the same reason as _FOCUS_EMAIL above.
+_MASTER_EMAIL = os.environ.get("MASTER_ACCOUNT_EMAIL", "master@busytradersdesk")
+_master_cache: dict = {"at": 0.0, "syms": None}
+
+
+def master_symbols(force: bool = False) -> set[str]:
+    """The uppercase set of ALL symbols on the MASTER watchlist account (no focus
+    filter — Master membership itself is the curation). 5-min cached, same pattern
+    as focus_symbols(). On any DB issue returns an EMPTY set: there is no static
+    stand-in for the master list, and inventing one would silently fake the
+    universe. Callers union this with their own source, so empty just means "no
+    master contribution this cycle" — never a narrower-than-before universe."""
+    now = time.time()
+    if not force and _master_cache["syms"] is not None and (now - _master_cache["at"]) < _TTL_SEC:
+        return _master_cache["syms"]
+    syms: set[str] | None = None
+    try:
+        dsn = os.environ.get("DATABASE_URL")
+        if dsn:
+            import psycopg2
+            conn = psycopg2.connect(dsn, connect_timeout=8)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT UPPER(w.symbol) FROM watchlist w JOIN users u ON u.id = w.user_id "
+                "WHERE lower(u.email) = lower(%s)",
+                (_MASTER_EMAIL,),
+            )
+            syms = {r[0] for r in cur.fetchall()}
+            cur.close(); conn.close()
+    except Exception:
+        syms = None
+    if syms is None:
+        syms = set()
+    _master_cache["syms"] = syms
+    _master_cache["at"] = now
+    return syms
+
+
 def focus_tiers(force: bool = False) -> dict[str, int]:
     """{UPPER(symbol): tier} for the admin's focus names — tier 1 = A (core, Telegram),
     2 = B (watch, app feed only). A focus row with a NULL focus_tier is treated as A (1)
