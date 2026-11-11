@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.10.31.1
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.11.10.1
 // Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
 // day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
 // colours). Extended the same evening at Victor's direction with two layers his
@@ -45,7 +45,16 @@
 // chart timeframe (RE10066) and the whole indicator failed to load. Now the
 // sub-bars are the finer of the requested TF and the chart TF, and on
 // sub-2-minute charts the profile falls back to the daily bars themselves.
-indicator("LEVES_POC v2026.10.31.1", "LEVES_POC", overlay = true, max_lines_count = 40, max_labels_count = 80)
+//
+// NA-FLAT FIX (v2026.11.10.1): on some charts the daily flat array comes back
+// na — the daily series has not started at the chart's first bars — and the
+// profile build measured it with array.size() unguarded: "Cannot call array
+// methods when id of array is na" on bar 0, and the indicator died. Charts
+// whose daily data starts at bar 0 never hit it, which is why it only showed
+// on some charts. The length now goes through the file's own na-safe ternary
+// (the same shape as the _h guard inside f_vpFlat), so a na flat array reads
+// as length 0 and the profile simply skips that bar.
+indicator("LEVES_POC v2026.11.10.1", "LEVES_POC", overlay = true, max_lines_count = 40, max_labels_count = 80)
 
 // ── which levels ──────────────────────────────────────────────────────────────
 gP   = "Levels (prior-period high / low / close)"
@@ -224,6 +233,7 @@ f_vpFlat() =>
             array.push(_out, array.get(dV, _s))
     _out
 dFlat = request.security(tid, "D", f_vpFlat())
+_dLen = na(dFlat) ? 0 : array.size(dFlat)   // na where the daily series has not started yet — never array.size() a possibly-na array
 var float vpPOC = na
 var float vpVAH = na
 var float vpVAL = na
@@ -231,7 +241,7 @@ var float vpVAL = na
 // across the window's day-bar extent, each sub-bar's volume distributed over
 // the rows its range overlaps (weighted by the overlap), POC = the heaviest
 // row's centre, value area grown two rows at a time from the POC to vpVA%.
-if barstate.islast and enVP and array.size(dFlat) > 6
+if barstate.islast and enVP and _dLen > 6
     _nSub = int(array.get(dFlat, 1))
     _dayOff = 2 + 3 * _nSub
     _nDay = int(array.get(dFlat, _dayOff))
