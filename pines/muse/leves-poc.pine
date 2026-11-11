@@ -1,6 +1,6 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.11.10.1
+// PROXIMITY LEVELS · 6M / 3M / 1M / 1W HLC + TD/SWING — v2026.11.10.2
 // Base: Claude's "Proximity Levels · 6M/3M/1M/1W HLC" (2026-10-30), built on the
 // day-signals patterns (settled [1] + lookahead_on fetch, one merge queue, role
 // colours). Extended the same evening at Victor's direction with two layers his
@@ -15,8 +15,10 @@
 // =============================================================================
 // Structural levels — the prior 6-month, 3-month, 1-month and 1-week HIGH, LOW
 // and CLOSE — each drawn as a FLAT horizontal line at its settled value.
-// COLOURS are BY PERIOD (Victor, 2026-10-30): 6M black, 3M blue, 1M yellow,
-// 1W green, swings red; to-date lines wear their period's colour, dashed.
+// ONE COLOUR ONLY (Victor, 2026-11-10): every line is BLACK. Fixed (settled)
+// lines are solid; changing (to-date, forming) lines are dashed. The period
+// and the level are carried by the tag word, not by colour. (Supersedes the
+// by-period colour scheme of 2026-10-30.)
 // The ROLE is carried by the tag word: ▲ SUPPORT when price is above the
 // line, ▼ RESISTANCE when below.
 //
@@ -54,7 +56,7 @@
 // on some charts. The length now goes through the file's own na-safe ternary
 // (the same shape as the _h guard inside f_vpFlat), so a na flat array reads
 // as length 0 and the profile simply skips that bar.
-indicator("LEVES_POC v2026.11.10.1", "LEVES_POC", overlay = true, max_lines_count = 40, max_labels_count = 80)
+indicator("LEVES_POC v2026.11.10.2", "LEVES_POC", overlay = true, max_lines_count = 40, max_labels_count = 80)
 
 // ── which levels ──────────────────────────────────────────────────────────────
 gP   = "Levels (prior-period high / low / close)"
@@ -77,8 +79,8 @@ vpBars = input.int(150, "Profile bars back (daily)", group = gVP, minval = 10, m
 vpCols = input.int(35, "Profile rows", group = gVP, minval = 5, maxval = 200)
 vpVA   = input.float(70.0, "Value area %", group = gVP, minval = 1, maxval = 100)
 vpLTF  = input.timeframe("30", "Profile sub-bars (lower timeframe)", group = gVP)
-colPOC = input.color(#FF0000, "POC colour (red, as in VP Pro)", group = gVP)
-colVA  = input.color(#FF9800, "VAH / VAL colour (orange, as in VP Pro)", group = gVP)
+colPOC = input.color(#000000, "POC colour", group = gVP)
+colVA  = input.color(#000000, "VAH / VAL colour", group = gVP)
 
 // ── proximity ─────────────────────────────────────────────────────────────────
 gN       = "Proximity (nearest-N around price)"
@@ -95,11 +97,11 @@ showPx   = input.bool(true, "Show the price on the tag", group = gN)
 
 // ── style ───────────────────────────────────────────────────────────────────────
 gV        = "Style"
-col6M     = input.color(#000000, "6M colour (black)", group = gV)
-col3M     = input.color(#2962FF, "3M colour (blue)", group = gV)
-col1M     = input.color(#FFD600, "1M monthly colour (yellow)", group = gV)
-col1W     = input.color(#089981, "1W weekly colour (green)", group = gV)
-colOth    = input.color(#EF5350, "Other levels colour — swings (red)", group = gV)
+col6M     = input.color(#000000, "6M colour", group = gV)
+col3M     = input.color(#000000, "3M colour", group = gV)
+col1M     = input.color(#000000, "1M monthly colour", group = gV)
+col1W     = input.color(#000000, "1W weekly colour", group = gV)
+colOth    = input.color(#000000, "Other levels colour — swings", group = gV)
 wLine     = input.int(4, "Line thickness", group = gV, minval = 1, maxval = 8)
 lineLen   = input.int(80, "Line length (bars back, when NOT extended)", group = gV, minval = 10, maxval = 500)
 extendAll = input.bool(false, "Extend lines across the whole chart (infinite)", group = gV)
@@ -517,5 +519,5 @@ if barstate.islast
             _qsup = close > _qnear
             _qx   = f_xoff(_qnear)                              // residual collisions still fan…
             array.push(_ln, line.new(bar_index - lineLen, _qnear, bar_index + _qx, _qnear, color = _qcolr, width = _qcnt > 1 ? wLine + 1 : wLine, style = f_style(_qsty), extend = extendAll ? extend.both : extend.none))
-            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcolr, textcolor = _qcolr == col1M ? color.black : color.white, size = _tagSz))
+            array.push(_lb, label.new(bar_index + _qx, _qnear, (_qsup ? "▲ SUPPORT  " : "▼ RESISTANCE  ") + _qnm + (_qcnt > 1 ? "  ·×" + str.tostring(_qcnt) : "") + (showPx ? "  " + str.tostring(_qnear, format.mintick) : ""), style = label.style_label_left, color = _qcolr, textcolor = color.white, size = _tagSz))
             _qi := _qj
