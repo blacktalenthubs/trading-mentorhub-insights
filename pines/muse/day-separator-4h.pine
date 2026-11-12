@@ -1,5 +1,5 @@
 //@version=5
-// day-separator-4h v2026.11.11.1 — version is in the indicator title too: if the chart legend
+// day-separator-4h v2026.11.11.2 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // DAY SEPARATOR — built for the 24h chart on the 4h timeframe.
@@ -12,7 +12,7 @@
 //     the two candles the day's levels are built from
 // Display only. No levels, no alerts.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Day Separator — 4H v2026.11.11.1", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Day Separator — 4H v2026.11.11.2", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 gDay      = "Day blocks"
 show_tint = input.bool(true, "Alternate day tint", group = gDay)
@@ -43,7 +43,7 @@ dow_names = array.from("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 mon_names = array.from("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 if new_day
     if show_div
-        array.push(divs, line.new(bar_index, low, bar_index, high, extend = extend.y, color = c_div, style = line.style_dashed, width = 1))
+        array.push(divs, line.new(bar_index, low, bar_index, high, extend = extend.both, color = c_div, style = line.style_dashed, width = 1))
         if array.size(divs) > keep_days
             line.delete(array.shift(divs))
     if show_tag
