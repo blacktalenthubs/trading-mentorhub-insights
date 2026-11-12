@@ -1,0 +1,58 @@
+//@version=5
+// day-separator-4h v2026.11.11.1 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY SEPARATOR — built for the 24h chart on the 4h timeframe.
+// A full day on the continuous 24h grid is SIX 4h candles: 00:00 / 04:00 / 08:00 /
+// 12:00 / 16:00 / 20:00 ET. This script makes each day read as one block:
+//   • alternating background tint, one shade per day
+//   • a dashed vertical divider on the day's first candle (00:00 ET)
+//   • a date tag over the day's first candle ("Wed 11 Nov")
+//   • a small tick under the two REGULAR-SESSION candles (08:00 and 12:00 ET) —
+//     the two candles the day's levels are built from
+// Display only. No levels, no alerts.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Day Separator — 4H v2026.11.11.1", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+gDay      = "Day blocks"
+show_tint = input.bool(true, "Alternate day tint", group = gDay)
+tint_a    = input.color(color.new(#2962FF, 95), "Day tint A", group = gDay)
+tint_b    = input.color(color.new(#FF9800, 95), "Day tint B", group = gDay)
+show_div  = input.bool(true, "Divider line at day start", group = gDay)
+c_div     = input.color(color.new(#787B86, 0), "Divider colour", group = gDay)
+show_tag  = input.bool(true, "Date tag", group = gDay)
+keep_days = input.int(120, "Days of dividers/tags to keep", minval = 10, maxval = 400, group = gDay)
+
+gRth      = "Session candles"
+mark_rth  = input.bool(true, "Tick under the two session candles (08:00 / 12:00 ET)", group = gRth)
+c_rth     = input.color(color.new(#787B86, 0), "Tick colour", group = gRth)
+
+// ── day tracking — the day rolls on the 00:00 ET candle of the 24h grid ──
+new_day = nz(ta.change(time("D")), 1) != 0
+var int day_no = 0
+if new_day
+    day_no += 1
+
+// ── background tint — one shade per day ──
+bgcolor(show_tint ? (day_no % 2 == 0 ? tint_a : tint_b) : na, title = "Day tint")
+
+// ── divider + date tag on the day's first candle, oldest deleted past the keep count ──
+var line[]  divs = array.new_line()
+var label[] tags = array.new_label()
+dow_names = array.from("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+mon_names = array.from("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+if new_day
+    if show_div
+        array.push(divs, line.new(bar_index, low, bar_index, high, extend = extend.y, color = c_div, style = line.style_dashed, width = 1))
+        if array.size(divs) > keep_days
+            line.delete(array.shift(divs))
+    if show_tag
+        _txt = array.get(dow_names, dayofweek(time, "America/New_York") - 1) + " " + str.tostring(dayofmonth(time, "America/New_York")) + " " + array.get(mon_names, month(time, "America/New_York") - 1)
+        array.push(tags, label.new(bar_index, high, _txt, yloc = yloc.abovebar, style = label.style_none, textcolor = color.new(#434651, 0), size = size.small))
+        if array.size(tags) > keep_days
+            label.delete(array.shift(tags))
+
+// ── the two regular-session 4h candles: 08:00 ET and 12:00 ET ──
+h_et = hour(time, "America/New_York")
+is_session_candle = timeframe.period == "240" and (h_et == 8 or h_et == 12)
+plotshape(mark_rth and is_session_candle, title = "Session candle", style = shape.triangleup, location = location.belowbar, color = c_rth, size = size.tiny)
