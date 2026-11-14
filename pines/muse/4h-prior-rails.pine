@@ -1,5 +1,5 @@
 //@version=6
-// 4h-prior-rails v2026.11.14.1 — version is in the indicator title too: if the chart legend
+// 4h-prior-rails v2026.11.14.2 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // 4H PRIOR RAILS — the HIGH and LOW of BOTH regular-session 4H candles (A = first,
@@ -23,11 +23,12 @@
 //     today's own 4H candles. Assumes exactly two RTH 4H bars per session; an
 //     early-close session prints one bar and shifts the A/B split for older sessions.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Prior Rails · v2026.11.14.1", shorttitle = "4H Prior Rails", overlay = true, max_lines_count = 100, max_labels_count = 60, max_bars_back = 500)
+indicator("4H Prior Rails · v2026.11.14.2", shorttitle = "4H Prior Rails", overlay = true, max_lines_count = 100, max_labels_count = 60, max_bars_back = 500)
 
 // ── Inputs ──
 gMap        = "Rails"
 lookback    = input.int(5, "Lookback sessions", minval = 1, maxval = 10, group = gMap, tooltip = "Rails are drawn for this many sessions back — both 4H candles (A and B), HIGH and LOW each, so up to 4 rails per session.")
+extend_bars = input.int(10, "Extend rails past the last bar (bars)", minval = 0, maxval = 50, group = gMap, tooltip = "How far still-alive rails reach past the right edge of the chart, so the line and its label stay readable for backtesting. Dead rails still end at their death bar.")
 show_lbl    = input.bool(true, "Show labels", group = gMap)
 lbl_size_in = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gMap)
 lbl_size    = lbl_size_in == "tiny" ? size.tiny : lbl_size_in == "normal" ? size.normal : size.small
@@ -116,7 +117,7 @@ if barstate.islast
                     color colFlp = isHigh ? c_sup : c_res
                     string nm = sess + " 4H-" + (isB ? "B" : "A") + (isHigh ? " HIGH " : " LOW ") + str.tostring(p, format.mintick)
                     if na(flipJ)
-                        int endX = math.max(bar_index, startBar + 1)
+                        int endX = bar_index + extend_bars
                         array.push(_ln, line.new(startBar, p, endX, p, color = colNat, width = rail_w, style = line.style_solid))
                         if show_lbl
                             array.push(_aP, p)
@@ -127,7 +128,7 @@ if barstate.islast
                         if flipBar > startBar
                             array.push(_ln, line.new(startBar, p, flipBar, p, color = colNat, width = rail_w, style = line.style_solid))
                         if na(deathJ)
-                            int endX2 = math.max(bar_index, flipBar + 1)
+                            int endX2 = bar_index + extend_bars
                             array.push(_ln, line.new(flipBar, p, endX2, p, color = colFlp, width = rail_w, style = line.style_solid))
                             if show_lbl
                                 array.push(_aP, p)
@@ -151,4 +152,4 @@ if barstate.islast
                 ly := _lastY + _gap
             _lastY := ly
             color lc = array.get(_aC, oi)
-            array.push(_lb, label.new(bar_index + 2, ly, array.get(_aT, oi), style = label.style_label_left, color = lc, textcolor = f_txtcol(lc), size = lbl_size))
+            array.push(_lb, label.new(bar_index + extend_bars + 2, ly, array.get(_aT, oi), style = label.style_label_left, color = lc, textcolor = f_txtcol(lc), size = lbl_size))
