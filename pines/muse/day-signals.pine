@@ -1,5 +1,5 @@
 //@version=5
-// day-signals v2026.11.03.1 — version is in the indicator title too: if the chart legend
+// day-signals v2026.11.14.1 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // DAY PROXIMITY — intraday SMAs + prior D/W/M/Q levels + yesterday's last 4H + opening range, on one chart.
@@ -21,6 +21,10 @@
 //     payloads routed to the Day feed as last4h_long / last4h_short. Y-4H HIGH + LOW alert by
 // DEFAULTS (Victor, 2026-10-26): everything OFF except SMA 20 (locked 1h) and the Y-4H
 // HIGH + LOW lines and their alerts; every line solid, width 4.
+// COLOURS (Victor, 2026-11-14): per-line is the DEFAULT — every line keeps the colour set
+// on its own row (Zanger MA colours on the SMAs: 8 green, 20 purple, 50 yellow, 200 red)
+// and a fused line keeps the width set on its row (no +1 bump). The green/red role mode
+// (colour by price location) is still there under Style → Line color, just not the default.
 //     default (CLOSE optional), plus the gap-and-go over PDH and daily 8/21/50 EMA/SMA reclaims.
 //     Lines are display unless a TradingView alert is bound on the study.
 //   • RUMIReversal (RR): today opened UNDER the PDL and a bar on the confirm TF (default 5m)
@@ -48,7 +52,7 @@
 // ([1] + lookahead_on, non-repainting); the opening range is locked to a base TF (lookahead_on).
 // Every line group has its own colour / width / style — change them freely.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("day signals v2026.11.03.1", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
+indicator("day signals v2026.11.14.1", overlay = true, max_labels_count = 80, max_lines_count = 50, max_boxes_count = 30, max_bars_back = 800)
 
 // ── SMAs — FIVE lines only: 8 / 20 / 50 / 150 / 200. Each line carries its OWN lock timeframe:
 //    pick any TF in the line's "lock" box (1h, 4h, Daily, Weekly…) and that line follows it on
@@ -56,7 +60,7 @@ indicator("day signals v2026.11.03.1", overlay = true, max_labels_count = 80, ma
 gMa         = "SMAs (8 / 20 / 50 / 150 / 200 — lock TF per line)"
 show_8      = input.bool(false, "SMA 8",   group = gMa, inline = "s8")
 tf_8        = input.timeframe("60", "lock", group = gMa, inline = "s8")
-c_8         = input.color(#FF0000, "", group = gMa, inline = "s8")
+c_8         = input.color(#43A047, "", group = gMa, inline = "s8")
 w_8         = input.int(4, "w", minval = 1, maxval = 10, group = gMa, inline = "s8")
 y_8         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s8")
 show_20     = input.bool(true, "SMA 20",  group = gMa, inline = "s20")
@@ -66,17 +70,17 @@ w_20        = input.int(4, "w", minval = 1, maxval = 10, group = gMa, inline = "
 y_20        = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s20")
 show_50     = input.bool(false, "SMA 50",  group = gMa, inline = "s50")
 tf_50       = input.timeframe("D", "lock", group = gMa, inline = "s50")
-c_50        = input.color(#2962FF, "", group = gMa, inline = "s50")
+c_50        = input.color(#FFEB3B, "", group = gMa, inline = "s50")
 w_50        = input.int(4, "w", minval = 1, maxval = 10, group = gMa, inline = "s50")
 y_50        = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s50")
 show_150    = input.bool(false, "SMA 150", group = gMa, inline = "s150")
 tf_150      = input.timeframe("D", "lock", group = gMa, inline = "s150")
-c_150       = input.color(#F9A825, "", group = gMa, inline = "s150")
+c_150       = input.color(#FB8C00, "", group = gMa, inline = "s150")
 w_150       = input.int(4, "w", minval = 1, maxval = 10, group = gMa, inline = "s150")
 y_150       = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s150")
 show_200    = input.bool(false, "SMA 200", group = gMa, inline = "s200")
 tf_200      = input.timeframe("D", "lock", group = gMa, inline = "s200")
-c_200       = input.color(#000000, "", group = gMa, inline = "s200")
+c_200       = input.color(#FF0000, "", group = gMa, inline = "s200")
 w_200       = input.int(4, "w", minval = 1, maxval = 10, group = gMa, inline = "s200")
 y_200       = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = gMa, inline = "s200")
 
@@ -119,13 +123,14 @@ y_wopen      = input.string("solid", "", options = ["solid", "dashed", "dotted"]
 
 // ── Prior last 4H — yesterday's FINAL 4h candle (ported from "Prior last 4H"). The trio is
 //    FROZEN at the session roll and queued with the other levels, so it fuses into the same
-//    merged tags and wears the same role colours (green above / red below) as every line. ──
+//    merged tags and wears its own per-line colour like every line (role colours only if
+//    Style → Line color is switched to role mode). ──
 g4h          = "Prior last 4H (Y-4H)"
 show_4h      = input.bool(true, "Show Y-4H trio (master)", group = g4h)
 show_y4h     = input.bool(true, "Y-4H HIGH", group = g4h, inline = "l4")
 show_y4l     = input.bool(true, "Y-4H LOW",  group = g4h, inline = "l4")
 show_y4c     = input.bool(false, "Y-4H CLOSE", group = g4h, inline = "l4")
-c_4h         = input.color(#787B86, "", group = g4h, inline = "l4", tooltip = "Only used in per-line colour mode — in role mode (the default) the trio is green above / red below like every other line.")
+c_4h         = input.color(#787B86, "", group = g4h, inline = "l4", tooltip = "The trio's own colour in per-line mode (the default). In role mode the trio is green above / red below like every other line.")
 w_4h         = input.int(4, "w", minval = 1, maxval = 10, group = g4h, inline = "l4")
 y_4h         = input.string("solid", "", options = ["solid", "dashed", "dotted"], group = g4h, inline = "l4")
 open_btw     = input.bool(false, "Open bracket tag (OPEN BTW the two drawn lines around the open)", group = g4h, tooltip = "The Y-4H open read: where the session opened INSIDE the level stack is the range they intend to play — the tag names the two drawn lines bracketing the open instead of repeating its price.")
@@ -200,7 +205,7 @@ sma_prox  = input.bool(true, "SMA proximity display rules", group = gPx, tooltip
 
 // ── Style — colour mode, line extent, merge + de-overlap ──
 gSt        = "Style"
-color_mode = input.string("role (support / resistance)", "Line color", options = ["per-line", "role (support / resistance)"], group = gSt, tooltip = "role (DEFAULT — the Y-4H way) = EVERY line wears the same two colours by price location: green when price is above the line (support), red when below (resistance). per-line = each line wears the colour set above.")
+color_mode = input.string("per-line", "Line color", options = ["per-line", "role (support / resistance)"], group = gSt, tooltip = "per-line (DEFAULT — Victor, 2026-11-14) = each line wears the colour set on its own row and keeps it. role = EVERY line wears the same two colours by price location: green when price is above the line (support), red when below (resistance).")
 sup_col    = input.color(#26A69A, "role · support (price above)",    group = gSt, inline = "c")
 res_col    = input.color(#EF5350, "role · resistance (price below)", group = gSt, inline = "c")
 flat_len   = input.int(60, "Flat line length (bars back)", minval = 10, maxval = 500, group = gSt)
@@ -499,7 +504,7 @@ if barstate.islast
     queue(pqh,    "PQH",   c_pq,   w_pq,   y_pq,   show_levels and show_pqh  and not na(pqh))
     queue(pql,    "PQL",   c_pq,   w_pq,   y_pq,   show_levels and show_pql  and not na(pql))
     // Y-4H trio — queued like every other level, so a 4h rail and a day rail at the same price
-    // fuse into ONE tag naming both, and the trio wears the same role colours as the rest.
+    // fuse into ONE tag naming both, and the trio wears its own colour like the rest.
     queue(y4H,    "Y-4H HIGH",  c_4h, w_4h, y_4h, show_4h and show_y4h and not na(y4H))
     queue(y4L,    "Y-4H LOW",   c_4h, w_4h, y_4h, show_4h and show_y4l and not na(y4L))
     queue(y4C,    "Y-4H CLOSE", c_4h, w_4h, y_4h, show_4h and show_y4c and not na(y4C))
@@ -543,7 +548,7 @@ if barstate.islast
                     break
             _sup  = close > _near
             _draw = by_role ? (_sup ? sup_col : res_col) : _col
-            _w    = _cnt > 1 and _wid < 10 ? _wid + 1 : _wid
+            _w    = _wid
             float _pct = close > 0 ? math.abs(close - _near) / close * 100.0 : float(na)
             _base = (_sup ? "▲ SUPPORT  " : "▼ RESIST  ") + _nm + (_cnt > 1 ? "  ·×" + str.tostring(_cnt) : "")
             _txt  = _ovr != "" ? _base + "  · " + _ovr : _base + "  " + str.tostring(_near, format.mintick) + (na(_pct) ? "" : "  (" + str.tostring(_pct, "#.##") + "%)")
