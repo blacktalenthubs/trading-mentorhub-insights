@@ -1,0 +1,154 @@
+//@version=6
+// 4h-prior-rails v2026.11.14.1 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
+// ─────────────────────────────────────────────────────────────────────────────
+// 4H PRIOR RAILS — the HIGH and LOW of BOTH regular-session 4H candles (A = first,
+// B = second) from each of the last N sessions, drawn on the DAILY chart as a living
+// map: every rail is born at its candle's price, flips role on a daily CLOSE through
+// it, and dies on a daily close back through it.
+//
+//   • HIGH rail: RESISTANCE (red) while daily closes stay under it → a daily close
+//     OVER it flips it to SUPPORT (green) → a later daily close back UNDER it kills it.
+//   • LOW rail: SUPPORT (green) while daily closes stay over it → a daily close UNDER
+//     it flips it to RESISTANCE (red) → a later daily close back OVER it kills it.
+//   • A rail draws from the bar AFTER its candle's session to its death bar (or the
+//     last bar while it is alive); a flip changes the colour at the flip bar, so a
+//     flipped rail is two segments. One label per rail at its right end, e.g.
+//     "Tue 4H-B HIGH 691.53".
+//   • Judged on SETTLED daily closes only — today's forming close never flips or
+//     kills a rail, so the map cannot repaint intraday.
+//   • The 4H values come off the regular-session ticker (extended-hours prints never
+//     leak in), settled [n] + lookahead exactly like day-signals' Y-4H trio, and are
+//     FROZEN at the session roll — read live, the offsets would walk forward through
+//     today's own 4H candles. Assumes exactly two RTH 4H bars per session; an
+//     early-close session prints one bar and shifts the A/B split for older sessions.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("4H Prior Rails · v2026.11.14.1", shorttitle = "4H Prior Rails", overlay = true, max_lines_count = 100, max_labels_count = 60, max_bars_back = 500)
+
+// ── Inputs ──
+gMap        = "Rails"
+lookback    = input.int(5, "Lookback sessions", minval = 1, maxval = 10, group = gMap, tooltip = "Rails are drawn for this many sessions back — both 4H candles (A and B), HIGH and LOW each, so up to 4 rails per session.")
+show_lbl    = input.bool(true, "Show labels", group = gMap)
+lbl_size_in = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gMap)
+lbl_size    = lbl_size_in == "tiny" ? size.tiny : lbl_size_in == "normal" ? size.normal : size.small
+
+// ── Fixed style (per spec): resistance red, support green, width 2 ──
+c_res  = #FF0000
+c_sup  = #43A047
+rail_w = 2
+f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+f_dow(int d) => d == 2 ? "Mon" : d == 3 ? "Tue" : d == 4 ? "Wed" : d == 5 ? "Thu" : d == 6 ? "Fri" : d == 7 ? "Sat" : d == 1 ? "Sun" : "?"
+
+// ── values ──
+tid    = syminfo.tickerid
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+// Prior regular-session 4H candles — settled [n] + lookahead on the RTH ticker, the same
+// idiom as day-signals' Y-4H trio, widened to the last 20 candles (10 sessions × A/B).
+// Offset 1 = yesterday's B candle, offset 2 = yesterday's A, offset 3 = the B before, …
+[h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20] = request.security(rthTid, "240", [high[1], high[2], high[3], high[4], high[5], high[6], high[7], high[8], high[9], high[10], high[11], high[12], high[13], high[14], high[15], high[16], high[17], high[18], high[19], high[20]], lookahead = barmerge.lookahead_on)
+[l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20] = request.security(rthTid, "240", [low[1], low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9], low[10], low[11], low[12], low[13], low[14], low[15], low[16], low[17], low[18], low[19], low[20]], lookahead = barmerge.lookahead_on)
+// Settled daily closes (the lifecycle judges) + each past session's weekday (the labels) —
+// same settled-[1] idiom as day-signals' f_pcl.
+[c1, c2, c3, c4, c5, c6, c7, c8, c9, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10] = request.security(tid, "D", [close[1], close[2], close[3], close[4], close[5], close[6], close[7], close[8], close[9], dayofweek[1], dayofweek[2], dayofweek[3], dayofweek[4], dayofweek[5], dayofweek[6], dayofweek[7], dayofweek[8], dayofweek[9], dayofweek[10]], lookahead = barmerge.lookahead_on)
+dC     = array.from(c1, c2, c3, c4, c5, c6, c7, c8, c9)              // dC[j-1] = close[j]
+dowArr = array.from(w1, w2, w3, w4, w5, w6, w7, w8, w9, w10)         // dowArr[k-1] = weekday of the session k back
+
+// FROZEN at the session roll (day-signals' Y-4H guard): at the instant a new day begins,
+// offsets 1…20 ARE the completed candles of the sessions behind us, so they are captured
+// there and held all day. Newest first: fzH[0] = yesterday's B HIGH, fzH[1] = A's HIGH, …
+var float[] fzH = array.new_float()
+var float[] fzL = array.new_float()
+if ta.change(time("D")) != 0 or array.size(fzH) == 0
+    fzH := array.from(h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13, h14, h15, h16, h17, h18, h19, h20)
+    fzL := array.from(l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20)
+
+// ── Lifecycle of one rail, judged on the settled daily closes AFTER its source session
+//    (close[k-1] first … close[1] last). Returns [flipJ, deathJ] = how many sessions back
+//    the flip / death close sits (na = never). One flip only; death can only follow a flip.
+//    An exact touch (close == rail) changes nothing. ──
+f_life(float p, bool isHigh, int k) =>
+    int flipJ  = na
+    int deathJ = na
+    if k >= 2 and not na(p)
+        bool flipped = false
+        bool dead    = false
+        for s = 1 to k - 1
+            int   j  = k - s
+            float cj = array.get(dC, j - 1)
+            if not dead and not na(cj)
+                if not flipped
+                    if (isHigh and cj > p) or (not isHigh and cj < p)
+                        flipped := true
+                        flipJ   := j
+                else
+                    if (isHigh and cj < p) or (not isHigh and cj > p)
+                        dead   := true
+                        deathJ := j
+    [flipJ, deathJ]
+
+// ── draw — everything is rebuilt on the last bar (day-signals' delete-then-redraw) ──
+var line[]  _ln = array.new_line()
+var label[] _lb = array.new_label()
+if barstate.islast
+    if array.size(_ln) > 0
+        for i = 0 to array.size(_ln) - 1
+            line.delete(array.get(_ln, i))
+        array.clear(_ln)
+    if array.size(_lb) > 0
+        for i = 0 to array.size(_lb) - 1
+            label.delete(array.get(_lb, i))
+        array.clear(_lb)
+    float[]  _aP = array.new_float()    // alive rails' label prices — placed in one stacked pass below
+    string[] _aT = array.new_string()
+    color[]  _aC = array.new_color()
+    for k = 1 to lookback
+        string sess = f_dow(array.get(dowArr, k - 1))
+        int startBar = bar_index - k + 1
+        if startBar >= 0
+            for part = 0 to 3
+                bool isB    = part < 2
+                bool isHigh = part % 2 == 0
+                int  idx    = 2 * (k - 1) + (isB ? 0 : 1)
+                float p     = isHigh ? array.get(fzH, idx) : array.get(fzL, idx)
+                if not na(p)
+                    [flipJ, deathJ] = f_life(p, isHigh, k)
+                    color colNat = isHigh ? c_res : c_sup
+                    color colFlp = isHigh ? c_sup : c_res
+                    string nm = sess + " 4H-" + (isB ? "B" : "A") + (isHigh ? " HIGH " : " LOW ") + str.tostring(p, format.mintick)
+                    if na(flipJ)
+                        int endX = math.max(bar_index, startBar + 1)
+                        array.push(_ln, line.new(startBar, p, endX, p, color = colNat, width = rail_w, style = line.style_solid))
+                        if show_lbl
+                            array.push(_aP, p)
+                            array.push(_aT, nm)
+                            array.push(_aC, colNat)
+                    else
+                        int flipBar = bar_index - flipJ
+                        if flipBar > startBar
+                            array.push(_ln, line.new(startBar, p, flipBar, p, color = colNat, width = rail_w, style = line.style_solid))
+                        if na(deathJ)
+                            int endX2 = math.max(bar_index, flipBar + 1)
+                            array.push(_ln, line.new(flipBar, p, endX2, p, color = colFlp, width = rail_w, style = line.style_solid))
+                            if show_lbl
+                                array.push(_aP, p)
+                                array.push(_aT, nm)
+                                array.push(_aC, colFlp)
+                        else
+                            int deathBar = bar_index - deathJ
+                            array.push(_ln, line.new(flipBar, p, deathBar, p, color = colFlp, width = rail_w, style = line.style_solid))
+                            if show_lbl
+                                array.push(_lb, label.new(deathBar + 1, p, nm, style = label.style_label_left, color = colFlp, textcolor = f_txtcol(colFlp), size = lbl_size))
+    // Alive rails' labels — one right-edge column, nudged apart vertically the way
+    // day-signals stacks its tags (the line stays on its true price; only the text shifts).
+    if show_lbl and array.size(_aP) > 0
+        _ord = array.sort_indices(_aP, order.ascending)
+        float _gap   = close * 0.0008
+        float _lastY = na
+        for n = 0 to array.size(_aP) - 1
+            int   oi = array.get(_ord, n)
+            float ly = array.get(_aP, oi)
+            if not na(_lastY) and ly < _lastY + _gap
+                ly := _lastY + _gap
+            _lastY := ly
+            color lc = array.get(_aC, oi)
+            array.push(_lb, label.new(bar_index + 2, ly, array.get(_aT, oi), style = label.style_label_left, color = lc, textcolor = f_txtcol(lc), size = lbl_size))
