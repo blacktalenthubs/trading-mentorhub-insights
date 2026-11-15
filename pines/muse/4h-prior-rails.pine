@@ -1,5 +1,5 @@
 //@version=6
-// 4h-prior-rails v2026.11.14.2 — version is in the indicator title too: if the chart legend
+// 4h-prior-rails v2026.11.14.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // 4H PRIOR RAILS — the HIGH and LOW of BOTH regular-session 4H candles (A = first,
@@ -17,18 +17,24 @@
 //     "Tue 4H-B HIGH 691.53".
 //   • Judged on SETTLED daily closes only — today's forming close never flips or
 //     kills a rail, so the map cannot repaint intraday.
+//   • Settings can turn off any one group on its own: the A candle, the B candle,
+//     the HIGH rails, or the LOW rails.
 //   • The 4H values come off the regular-session ticker (extended-hours prints never
 //     leak in), settled [n] + lookahead exactly like day-signals' Y-4H trio, and are
 //     FROZEN at the session roll — read live, the offsets would walk forward through
 //     today's own 4H candles. Assumes exactly two RTH 4H bars per session; an
 //     early-close session prints one bar and shifts the A/B split for older sessions.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4H Prior Rails · v2026.11.14.2", shorttitle = "4H Prior Rails", overlay = true, max_lines_count = 100, max_labels_count = 60, max_bars_back = 500)
+indicator("4H Prior Rails · v2026.11.14.3", shorttitle = "4H Prior Rails", overlay = true, max_lines_count = 100, max_labels_count = 60, max_bars_back = 500)
 
 // ── Inputs ──
 gMap        = "Rails"
 lookback    = input.int(5, "Lookback sessions", minval = 1, maxval = 10, group = gMap, tooltip = "Rails are drawn for this many sessions back — both 4H candles (A and B), HIGH and LOW each, so up to 4 rails per session.")
 extend_bars = input.int(10, "Extend rails past the last bar (bars)", minval = 0, maxval = 50, group = gMap, tooltip = "How far still-alive rails reach past the right edge of the chart, so the line and its label stay readable for backtesting. Dead rails still end at their death bar.")
+showA       = input.bool(true, "Show 4H-A rails (first 4H candle)", group = gMap)
+showB       = input.bool(true, "Show 4H-B rails (second 4H candle)", group = gMap)
+showHigh    = input.bool(true, "Show HIGH rails", group = gMap)
+showLow     = input.bool(true, "Show LOW rails", group = gMap)
 show_lbl    = input.bool(true, "Show labels", group = gMap)
 lbl_size_in = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gMap)
 lbl_size    = lbl_size_in == "tiny" ? size.tiny : lbl_size_in == "normal" ? size.normal : size.small
@@ -109,9 +115,10 @@ if barstate.islast
             for part = 0 to 3
                 bool isB    = part < 2
                 bool isHigh = part % 2 == 0
+                bool on     = (isB ? showB : showA) and (isHigh ? showHigh : showLow)
                 int  idx    = 2 * (k - 1) + (isB ? 0 : 1)
                 float p     = isHigh ? array.get(fzH, idx) : array.get(fzL, idx)
-                if not na(p)
+                if on and not na(p)
                     [flipJ, deathJ] = f_life(p, isHigh, k)
                     color colNat = isHigh ? c_res : c_sup
                     color colFlp = isHigh ? c_sup : c_res
