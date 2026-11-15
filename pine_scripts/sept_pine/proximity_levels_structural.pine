@@ -3,7 +3,7 @@
 // PROXIMITY LEVELS · STRUCTURAL + FLAT SMAs — the horizontal battle lines.
 // =============================================================================
 // The structural prices a level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC ·
-// yesterday's inner 4h H/L · the SECOND-prior 4h H/L · the O'Neil base pivot · plus the daily flat
+// the last two 4h candles (each H/L) · the O'Neil base pivot · plus the daily flat
 // 8/21/50/200 SMA. Two tiers: an ALWAYS-ON frame (day rails + weekly + 4h candles) that never hides,
 // and a PROXIMITY-GATED set (monthly / quarterly / pivot / SMAs) that draws only when price is near it.
 //
@@ -18,8 +18,8 @@
 //        • Percent band — only levels within ± base % of price. Anti-compression: when the nearest
 //          neighbor is far, it's SKIPPED instead of squeezing the whole axis to fit it.
 //        • Both — the union of the two.
-//   2. ALWAYS-ON (ignore mode/distance): PDH/PDL · the WEEKLY trio (PWH/PWL/PWC) · the 4h candles
-//      (inner + second-prior). The frame price trades inside now — it must never be hidden. Monthly,
+//   2. ALWAYS-ON (ignore mode/distance): PDH/PDL · the WEEKLY trio (PWH/PWL/PWC) · the last two
+//      4h candles (each H/L). The frame price trades inside now — it must never be hidden. Monthly,
 //      quarterly, the pivot and the SMAs stay gated (% band default) so a far level can't compress the axis.
 //   3. CONFLUENCE: levels stacked within ±0.4% merge into ONE thicker line whose label names every
 //      member + a ·×N count ("PWH + PMH ·×2") — a wall reads at a glance.
@@ -50,8 +50,8 @@ enPMC = input.bool(true, "PMC", group = gC, inline = "pm")
 enPQH = input.bool(true, "PQH", group = gC, inline = "pq")
 enPQL = input.bool(true, "PQL", group = gC, inline = "pq")
 enPQC = input.bool(true, "PQC", group = gC, inline = "pq")
-en4h  = input.bool(true, "Yesterday's INNER 4h high / low (the two that aren't PDH/PDL)", group = gC, tooltip = "Yesterday's two RTH 4h candles give 4 prices. The outer high IS PDH and the outer low IS PDL (already drawn) — this adds the INNER pair, the mid-range 4h reaction levels.")
-en4h2 = input.bool(true, "The SECOND-prior 4h candle's high / low", group = gC, tooltip = "The 4h candle before yesterday's final one — where the session approached its finish from. Named '2ND 4H …'. Always drawn (exempt from proximity) so you always have the recent 4h structure.")
+en4h  = input.bool(true, "Last 4h candle — high / low", group = gC, tooltip = "The most recent completed RTH 4h candle's own high and low (named '4H H / 4H L'). Always drawn (exempt from proximity). An edge is skipped only if PDH/PDL is enabled AND equals it — the day rail already draws it.")
+en4h2 = input.bool(true, "Second-prior 4h candle — high / low", group = gC, tooltip = "The 4h candle before that one — its own high and low (named '2ND 4H H / 2ND 4H L'). Together the two toggles draw the last TWO 4h candles. Always drawn (exempt from proximity); an edge equal to an enabled PDH/PDL is skipped as a dup.")
 
 // ── moving averages — flat 8/21/50/200 SMA, daily-locked. Gated by the % proximity band. ────────
 gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily, % proximity-gated)"
@@ -116,15 +116,19 @@ if na(_yh1) or _newBlk4h
     _yl1 := _pl1
     _yh2 := _ph2
     _yl2 := _pl2
-innerHigh = not na(_yh1) and not na(_yh2) ? math.min(_yh1, _yh2) : na
-innerLow  = not na(_yl1) and not na(_yl2) ? math.max(_yl1, _yl2) : na
-// only show an inner level when it's meaningfully off PDH/PDL (degenerate day = both 4h highs equal → skip the dup)
-_show4hH = en4h and not na(innerHigh) and (na(pdh) or math.abs(innerHigh - pdh) / pdh > 0.0005)
-_show4hL = en4h and not na(innerLow)  and (na(pdl) or math.abs(innerLow  - pdl) / pdl > 0.0005)
-// the SECOND-prior 4h candle's raw high/low (frozen above as _yh2/_yl2). Show only when meaningfully
-// off PDH/PDL (its extreme can BE the day rail on a two-candle session).
-_show4h2H = en4h2 and not na(_yh2) and (na(pdh) or math.abs(_yh2 - pdh) / pdh > 0.0005)
-_show4h2L = en4h2 and not na(_yl2) and (na(pdl) or math.abs(_yl2 - pdl) / pdl > 0.0005)
+// Draw the TWO actual 4h candles, each as its own high + low — NOT a derived min/max.
+// (The old "inner" model collapsed both candles into a single min/max pair built from the
+// SAME prices as the 2nd candle, so "2ND 4H" could never render as a distinct line — it
+// always either equalled the inner pair or the day rail.) Skip a candle edge only when the
+// corresponding day rail is ENABLED and the edge equals it (the rail already draws it); if
+// the rail is toggled off, always draw the edge so no level is left as an empty hole.
+f_offRail(float v, float rail, bool railOn) => not railOn or na(rail) or math.abs(v - rail) / rail > 0.0005
+// candle 1 = yesterday's LAST completed 4h candle
+_show4hH  = en4h  and not na(_yh1) and f_offRail(_yh1, pdh, enPDH)
+_show4hL  = en4h  and not na(_yl1) and f_offRail(_yl1, pdl, enPDL)
+// candle 2 = the SECOND-prior 4h candle
+_show4h2H = en4h2 and not na(_yh2) and f_offRail(_yh2, pdh, enPDH)
+_show4h2L = en4h2 and not na(_yl2) and f_offRail(_yl2, pdl, enPDL)
 // Daily 8/21/50/200 SMA — locked to the daily, SETTLED [1] + lookahead_on (the ma_only_proximity idiom):
 // yesterday's closed daily SMA, flat all session, non-repainting, identical on any chart TF.
 [sma8, sma21, sma50, sma200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 8)[1], ta.sma(close, 21)[1], ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
@@ -185,8 +189,8 @@ if barstate.islast
     f_cand(pwh, "PWH", enPWH, true)
     f_cand(pwl, "PWL", enPWL, true)
     f_cand(pwc, "PWC", enPWC, true)
-    f_cand(innerHigh, "4H H",     _show4hH,  true)
-    f_cand(innerLow,  "4H L",     _show4hL,  true)
+    f_cand(_yh1,      "4H H",     _show4hH,  true)
+    f_cand(_yl1,      "4H L",     _show4hL,  true)
     f_cand(_yh2,      "2ND 4H H", _show4h2H, true)
     f_cand(_yl2,      "2ND 4H L", _show4h2L, true)
     // GATED by the % proximity band: the farther monthly / quarterly / pivot / SMAs draw only near price.
