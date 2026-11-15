@@ -5,7 +5,7 @@
 // The structural prices a level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC ·
 // 6M H/L/C · the current period's TO-DATE highs/lows (WTD/MTD/QTD/HTD, forming) · the last confirmed
 // daily SWING H/L (pivot 5,5) · the daily volume-profile POC/VAH/VAL · the last two 4h candles (each
-// H/L) · the O'Neil base pivot · plus the daily flat 8/21/50/200 SMA. Two tiers: an ALWAYS-ON frame
+// H/L) · the O'Neil base pivot · plus the daily flat 8/21/50/200 SMA + rolling VWAP. Two tiers: an ALWAYS-ON frame
 // (the last two 4h candles, + the 8 SMA anchor) that never hides, and a PROXIMITY-GATED set
 // (everything else) that draws only when price is near it — all of it merges in confluence.
 //
@@ -74,6 +74,11 @@ vpBars = input.int(150, "Profile bars back (daily)", group = gVP, minval = 10, m
 vpCols = input.int(35, "Profile rows", group = gVP, minval = 5, maxval = 200)
 vpVA   = input.float(70.0, "Value area %", group = gVP, minval = 1, maxval = 100)
 vpLTF  = input.timeframe("30", "Profile sub-bars (lower timeframe)", group = gVP)
+
+// ── rolling VWAP — flat, daily-locked, proximity-gated ────────────────────────────────────────────
+gVW    = "Rolling VWAP (flat · daily-locked · gated)"
+enVWAP = input.bool(true, "Rolling VWAP level", group = gVW, tooltip = "An N-day rolling volume-weighted average price — sum(hlc3·vol) / sum(vol) over the last N DAILY bars. Locked to the daily and drawn FLAT at yesterday's settled value (non-repainting, same on any chart TF), exactly like the SMAs. A volume-weighted fair-value anchor; role-coloured and mergeable, proximity-gated like the rest.")
+vwapLen = input.int(20, "  Rolling length (daily bars)", group = gVW, minval = 5, maxval = 300, tooltip = "How many daily bars the VWAP rolls over. 20 ≈ a month of value, a close-tracking dynamic mean; 50 ≈ a quarter; 150 ≈ the long-term value line (matches the profile window).")
 
 // ── moving averages — flat 8/21/50/200 SMA, daily-locked. Gated by the % proximity band. ────────
 gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily — 8 is the always-on anchor, 21/50/200 proximity-gated)"
@@ -159,6 +164,12 @@ _show4h2L = en4h2 and not na(_yl2) and f_offRail(_yl2, pdl, enPDL)
 // Daily 8/21/50/200 SMA — locked to the daily, SETTLED [1] + lookahead_on (the ma_only_proximity idiom):
 // yesterday's closed daily SMA, flat all session, non-repainting, identical on any chart TF.
 [sma8, sma21, sma50, sma200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 8)[1], ta.sma(close, 21)[1], ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
+// Rolling N-day VWAP — same daily-locked / settled[1] / lookahead_on idiom as the SMAs: yesterday's
+// closed rolling VWAP, flat all session, non-repainting, identical on any chart TF. sum(hlc3·vol)/sum(vol).
+// A helper so the [1] history-reference lands on a function-call result (as ta.sma(...)[1] does), not a
+// parenthesized expression — the latter can be rejected at compile.
+f_rvwap(int n) => math.sum(hlc3 * volume, n) / math.max(math.sum(volume, n), 1e-10)
+rvwap = request.security(syminfo.tickerid, "D", f_rvwap(vwapLen)[1], lookahead = barmerge.lookahead_on)
 
 // ── daily volume profile — VP Pro v2's math (overlap-distributed rows, two-row 70% value-area
 //    growth), collected through VP Pro's f_dailyFlat pattern so the values match VP Pro on the
@@ -376,6 +387,7 @@ if barstate.islast
     f_cand(sma21,  "21 SMA",  enS21,  false)
     f_cand(sma50,  "50 SMA",  enS50,  false)
     f_cand(sma200, "200 SMA", enS200, false)
+    f_cand(rvwap,  "VWAP",    enVWAP, false)   // rolling N-day VWAP, flat + daily-locked, gated
     // 6M (half-year) prior frame — gated like monthly/quarterly
     f_cand(h6, "6M High",  en6H, false)
     f_cand(l6, "6M Low",   en6L, false)
