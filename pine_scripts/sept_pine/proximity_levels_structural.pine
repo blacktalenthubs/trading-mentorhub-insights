@@ -4,8 +4,8 @@
 // =============================================================================
 // The structural prices a level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC ·
 // the last two 4h candles (each H/L) · the O'Neil base pivot · plus the daily flat
-// 8/21/50/200 SMA. Two tiers: an ALWAYS-ON frame (day rails + weekly + 4h candles) that never hides,
-// and a PROXIMITY-GATED set (monthly / quarterly / pivot / SMAs) that draws only when price is near it.
+// 8/21/50/200 SMA. Two tiers: an ALWAYS-ON frame (the last two 4h candles) that never hides,
+// and a PROXIMITY-GATED set (daily / weekly / monthly / quarterly / pivot / SMAs) that draws only when price is near it.
 //
 // EVERYTHING is a FLAT line, role-colored by where price is NOW: green ▲ = SUPPORT (price above it),
 // red ▼ = RESISTANCE (price below it). RTH-accurate (regular-session ticker, so extended-hours
@@ -18,9 +18,9 @@
 //        • Percent band — only levels within ± base % of price. Anti-compression: when the nearest
 //          neighbor is far, it's SKIPPED instead of squeezing the whole axis to fit it.
 //        • Both — the union of the two.
-//   2. ALWAYS-ON (ignore mode/distance): PDH/PDL · the WEEKLY trio (PWH/PWL/PWC) · the last two
-//      4h candles (each H/L). The frame price trades inside now — it must never be hidden. Monthly,
-//      quarterly, the pivot and the SMAs stay gated (% band default) so a far level can't compress the axis.
+//   2. ALWAYS-ON (ignore mode/distance): ONLY the last two 4h candles (each H/L) — the frame
+//      price trades inside now, which must never be hidden. Everything else (daily / weekly /
+//      monthly / quarterly / pivot / SMAs) stays gated so a far level can't compress the axis.
 //   3. CONFLUENCE: levels stacked within ±0.4% merge into ONE thicker line whose label names every
 //      member + a ·×N count ("PWH + PMH ·×2") — a wall reads at a glance.
 //
@@ -181,19 +181,20 @@ if barstate.islast
     array.clear(_dv)
     array.clear(_dn)
     array.clear(_drawnY)
-    // candidates — PDH/PDL ALWAYS draw; everything else obeys the nearest-N bracket
-    // ALWAYS drawn (exempt from proximity): the day rails, the WEEKLY trio, and the 4h candles —
-    // the frame price is working inside right now, which must never be hidden by distance.
-    f_cand(pdh, "PDH", enPDH, true)
-    f_cand(pdl, "PDL", enPDL, true)
-    f_cand(pwh, "PWH", enPWH, true)
-    f_cand(pwl, "PWL", enPWL, true)
-    f_cand(pwc, "PWC", enPWC, true)
+    // candidates — ONLY the two 4h candles are always-on (the immediate frame price works
+    // inside right now). EVERYTHING else — the day rails, the weekly / monthly / quarterly
+    // levels, the pivot and the SMAs — obeys the proximity gate, so a far level draws only
+    // when price is near it and can never compress the axis.
     f_cand(_yh1,      "4H H",     _show4hH,  true)
     f_cand(_yl1,      "4H L",     _show4hL,  true)
     f_cand(_yh2,      "2ND 4H H", _show4h2H, true)
     f_cand(_yl2,      "2ND 4H L", _show4h2L, true)
-    // GATED by the % proximity band: the farther monthly / quarterly / pivot / SMAs draw only near price.
+    // GATED by the proximity mode / % band: daily, weekly, monthly, quarterly, pivot, SMAs.
+    f_cand(pdh, "PDH", enPDH, false)
+    f_cand(pdl, "PDL", enPDL, false)
+    f_cand(pwh, "PWH", enPWH, false)
+    f_cand(pwl, "PWL", enPWL, false)
+    f_cand(pwc, "PWC", enPWC, false)
     f_cand(pmh, "PMH", enPMH, false)
     f_cand(pml, "PML", enPML, false)
     f_cand(pmc, "PMC", enPMC, false)
