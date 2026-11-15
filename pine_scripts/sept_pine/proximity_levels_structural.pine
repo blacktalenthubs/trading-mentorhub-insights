@@ -1,11 +1,11 @@
 //@version=5
 // =============================================================================
-// PROXIMITY LEVELS · STRUCTURAL ONLY — the horizontal battle lines. NO MAs, at all.
+// PROXIMITY LEVELS · STRUCTURAL + FLAT SMAs — the horizontal battle lines.
 // =============================================================================
-// The levels half of Proximity Levels · Pure, on its own. Nothing but the structural prices a
-// level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC · yesterday's inner
-// 4h H/L · the O'Neil base pivot. No SMA, no EMA, no MA confluence tags — if you want the moving
-// averages, run "Proximity MAs · Flat" alongside this.
+// The structural prices a level trader reacts to: PDH/PDL · PWH/PWL/PWC · PMH/PML/PMC · PQH/PQL/PQC ·
+// yesterday's inner 4h H/L · the SECOND-prior 4h H/L · the O'Neil base pivot · plus the daily flat
+// 8/21/50/200 SMA. Two tiers: an ALWAYS-ON frame (day rails + weekly + 4h candles) that never hides,
+// and a PROXIMITY-GATED set (monthly / quarterly / pivot / SMAs) that draws only when price is near it.
 //
 // EVERYTHING is a FLAT line, role-colored by where price is NOW: green ▲ = SUPPORT (price above it),
 // red ▼ = RESISTANCE (price below it). RTH-accurate (regular-session ticker, so extended-hours
@@ -18,7 +18,9 @@
 //        • Percent band — only levels within ± base % of price. Anti-compression: when the nearest
 //          neighbor is far, it's SKIPPED instead of squeezing the whole axis to fit it.
 //        • Both — the union of the two.
-//   2. PDH/PDL always draw regardless of mode/distance — they're the day's rails.
+//   2. ALWAYS-ON (ignore mode/distance): PDH/PDL · the WEEKLY trio (PWH/PWL/PWC) · the 4h candles
+//      (inner + second-prior). The frame price trades inside now — it must never be hidden. Monthly,
+//      quarterly, the pivot and the SMAs stay gated (% band default) so a far level can't compress the axis.
 //   3. CONFLUENCE: levels stacked within ±0.4% merge into ONE thicker line whose label names every
 //      member + a ·×N count ("PWH + PMH ·×2") — a wall reads at a glance.
 //
@@ -28,7 +30,7 @@ indicator("proximity-pine-daysignal", overlay = true, max_lines_count = 60, max_
 
 // ── proximity + confluence ──────────────────────────────────────────────────────
 gN        = "Proximity"
-proxMode  = input.string("Nearest N (neighbors)", "Proximity mode", options = ["Nearest N (neighbors)", "Percent band", "Both — union"], group = gN, tooltip = "How to choose which levels draw. Nearest N = the count-based neighbor bracket (N above + N below). Percent band = only levels within ± base % of price, so a far neighbor is skipped instead of compressing the axis. Both = the union of the two.")
+proxMode  = input.string("Percent band", "Proximity mode", options = ["Nearest N (neighbors)", "Percent band", "Both — union"], group = gN, tooltip = "How to choose which GATED levels draw (monthly / quarterly / pivot / SMAs — the always-on set below ignores this). Percent band (default) = only levels within ± base % of price, so a far monthly low is skipped instead of compressing the axis. Nearest N = the count-based neighbor bracket. Both = the union.")
 nBracket  = input.int(3, "  Nearest N — levels above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Nearest-N mode: draw the N closest levels ABOVE price and the N closest BELOW, so every symbol shows the same-size near-price set. A % band can't do that (5% is $50 on a $1000 stock and $1.50 on a $30 one).")
 basePct   = input.float(3.0, "  Percent band — draw levels within ± % of price", group = gN, minval = 0.1, maxval = 30, step = 0.1, tooltip = "Percent-band / Both mode: only levels within ± this % of the CURRENT price draw. This is the anti-compression control — a neighbor 15% away is skipped rather than squeezing the whole chart to fit it. PDH/PDL still always draw.") / 100.0
 farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5, tooltip = "Safety valve: if the nearest level is far enough to compress the axis, hide anything beyond ± this %. 0 = off.") / 100.0
@@ -49,6 +51,14 @@ enPQH = input.bool(true, "PQH", group = gC, inline = "pq")
 enPQL = input.bool(true, "PQL", group = gC, inline = "pq")
 enPQC = input.bool(true, "PQC", group = gC, inline = "pq")
 en4h  = input.bool(true, "Yesterday's INNER 4h high / low (the two that aren't PDH/PDL)", group = gC, tooltip = "Yesterday's two RTH 4h candles give 4 prices. The outer high IS PDH and the outer low IS PDL (already drawn) — this adds the INNER pair, the mid-range 4h reaction levels.")
+en4h2 = input.bool(true, "The SECOND-prior 4h candle's high / low", group = gC, tooltip = "The 4h candle before yesterday's final one — where the session approached its finish from. Named '2ND 4H …'. Always drawn (exempt from proximity) so you always have the recent 4h structure.")
+
+// ── moving averages — flat 8/21/50/200 SMA, daily-locked. Gated by the % proximity band. ────────
+gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily, % proximity-gated)"
+enS8   = input.bool(true, "8 SMA",   inline = "sma", group = gS, tooltip = "Daily 8/21/50/200 SMA, locked to the daily and drawn FLAT at yesterday's settled value (non-repainting). Role-coloured and mergeable like the levels. These obey the % proximity band — they draw only when price is near them.")
+enS21  = input.bool(true, "21 SMA",  inline = "sma", group = gS)
+enS50  = input.bool(true, "50 SMA",  inline = "sma", group = gS)
+enS200 = input.bool(true, "200 SMA", inline = "sma", group = gS)
 
 // ── pivot (O'Neil base high) ────────────────────────────────────────────────────
 gPV     = "Pivot (O'Neil base high)"
@@ -111,6 +121,13 @@ innerLow  = not na(_yl1) and not na(_yl2) ? math.max(_yl1, _yl2) : na
 // only show an inner level when it's meaningfully off PDH/PDL (degenerate day = both 4h highs equal → skip the dup)
 _show4hH = en4h and not na(innerHigh) and (na(pdh) or math.abs(innerHigh - pdh) / pdh > 0.0005)
 _show4hL = en4h and not na(innerLow)  and (na(pdl) or math.abs(innerLow  - pdl) / pdl > 0.0005)
+// the SECOND-prior 4h candle's raw high/low (frozen above as _yh2/_yl2). Show only when meaningfully
+// off PDH/PDL (its extreme can BE the day rail on a two-candle session).
+_show4h2H = en4h2 and not na(_yh2) and (na(pdh) or math.abs(_yh2 - pdh) / pdh > 0.0005)
+_show4h2L = en4h2 and not na(_yl2) and (na(pdl) or math.abs(_yl2 - pdl) / pdl > 0.0005)
+// Daily 8/21/50/200 SMA — locked to the daily, SETTLED [1] + lookahead_on (the ma_only_proximity idiom):
+// yesterday's closed daily SMA, flat all session, non-repainting, identical on any chart TF.
+[sma8, sma21, sma50, sma200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 8)[1], ta.sma(close, 21)[1], ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
 
 // ── collection + flat-line drawing (with confluence clustering) ─────────────────
 var line[]   _ln = array.new_line()
@@ -161,11 +178,18 @@ if barstate.islast
     array.clear(_dn)
     array.clear(_drawnY)
     // candidates — PDH/PDL ALWAYS draw; everything else obeys the nearest-N bracket
+    // ALWAYS drawn (exempt from proximity): the day rails, the WEEKLY trio, and the 4h candles —
+    // the frame price is working inside right now, which must never be hidden by distance.
     f_cand(pdh, "PDH", enPDH, true)
     f_cand(pdl, "PDL", enPDL, true)
-    f_cand(pwh, "PWH", enPWH, false)
-    f_cand(pwl, "PWL", enPWL, false)
-    f_cand(pwc, "PWC", enPWC, false)
+    f_cand(pwh, "PWH", enPWH, true)
+    f_cand(pwl, "PWL", enPWL, true)
+    f_cand(pwc, "PWC", enPWC, true)
+    f_cand(innerHigh, "4H H",     _show4hH,  true)
+    f_cand(innerLow,  "4H L",     _show4hL,  true)
+    f_cand(_yh2,      "2ND 4H H", _show4h2H, true)
+    f_cand(_yl2,      "2ND 4H L", _show4h2L, true)
+    // GATED by the % proximity band: the farther monthly / quarterly / pivot / SMAs draw only near price.
     f_cand(pmh, "PMH", enPMH, false)
     f_cand(pml, "PML", enPML, false)
     f_cand(pmc, "PMC", enPMC, false)
@@ -173,8 +197,10 @@ if barstate.islast
     f_cand(pql, "PQL", enPQL, false)
     f_cand(pqc, "PQC", enPQC, false)
     f_cand(pivot, "PIVOT", enPivot, false)
-    f_cand(innerHigh, "4H H", _show4hH, false)
-    f_cand(innerLow,  "4H L", _show4hL, false)
+    f_cand(sma8,   "8 SMA",   enS8,   false)
+    f_cand(sma21,  "21 SMA",  enS21,  false)
+    f_cand(sma50,  "50 SMA",  enS50,  false)
+    f_cand(sma200, "200 SMA", enS200, false)
     // ── NEAREST-N bracket — the N closest above price and N closest below ──
     _ab = array.new_float()
     _bl = array.new_float()
