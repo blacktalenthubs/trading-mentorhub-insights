@@ -13,11 +13,13 @@
 //
 // Three show-rules keep it clean but never blind:
 //   1. PROXIMITY MODE picks which levels draw:
-//        • Nearest N (neighbors) — the N closest ABOVE and N closest BELOW price (a count, so a
-//          $1000 stock and a $30 stock both show the same-size near-price set).
-//        • Percent band — only levels within ± base % of price. Anti-compression: when the nearest
-//          neighbor is far, it's SKIPPED instead of squeezing the whole axis to fit it.
+//        • Nearest N (neighbors) — DEFAULT. The N closest ABOVE and N closest BELOW price (a count, so
+//          a $1000 stock and a $30 stock both show the same-size near-price set, never a wall of lines).
+//        • Percent band — only levels within ± base % of price (on a $750 name a few % is a wide net).
 //        • Both — the union of the two.
+//      A FAR CAP (default ±8%) trims whatever mode you pick: a level farther than the cap is dropped
+//      even if it's a Nearest-N neighbor — if the closest level is 12% away it isn't in play, so it's
+//      hidden rather than allowed to compress the axis. Set the cap to 0 to let the count stand alone.
 //   2. ALWAYS-ON (ignore mode/distance): ONLY the last two 4h candles (each H/L) — the frame
 //      price trades inside now, which must never be hidden. Everything else (daily / weekly /
 //      monthly / quarterly / pivot / SMAs) stays gated so a far level can't compress the axis.
@@ -30,10 +32,10 @@ indicator("proximity-pine-daysignal", overlay = true, max_lines_count = 60, max_
 
 // ── proximity + confluence ──────────────────────────────────────────────────────
 gN        = "Proximity"
-proxMode  = input.string("Percent band", "Proximity mode", options = ["Nearest N (neighbors)", "Percent band", "Both — union"], group = gN, tooltip = "How to choose which GATED levels draw (monthly / quarterly / pivot / SMAs — the always-on set below ignores this). Percent band (default) = only levels within ± base % of price, so a far monthly low is skipped instead of compressing the axis. Nearest N = the count-based neighbor bracket. Both = the union.")
+proxMode  = input.string("Nearest N (neighbors)", "Proximity mode", options = ["Nearest N (neighbors)", "Percent band", "Both — union"], group = gN, tooltip = "How to choose which GATED levels draw (everything except the two 4h candles). Nearest N (default) = just the N closest levels ABOVE and N closest BELOW price — a hard count, so the chart never fills with far lines and every symbol shows the same-size near-price set. Percent band = levels within ± base % of price instead (on a $750 name a few % is a wide net). Both = the union. The far cap below trims whatever mode you pick.")
 nBracket  = input.int(3, "  Nearest N — levels above & below price", group = gN, minval = 1, maxval = 8, tooltip = "Nearest-N mode: draw the N closest levels ABOVE price and the N closest BELOW, so every symbol shows the same-size near-price set. A % band can't do that (5% is $50 on a $1000 stock and $1.50 on a $30 one).")
 basePct   = input.float(3.0, "  Percent band — draw levels within ± % of price", group = gN, minval = 0.1, maxval = 30, step = 0.1, tooltip = "Percent-band / Both mode: only levels within ± this % of the CURRENT price draw. This is the anti-compression control — a neighbor 15% away is skipped rather than squeezing the whole chart to fit it. PDH/PDL still always draw.") / 100.0
-farCapPct = input.float(0, "  Optional cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5, tooltip = "Safety valve: if the nearest level is far enough to compress the axis, hide anything beyond ± this %. 0 = off.") / 100.0
+farCapPct = input.float(8, "  Far cap — never show anything farther than ± % (0 = off)", group = gN, minval = 0, maxval = 30, step = 0.5, tooltip = "Anti-compression trim applied on TOP of the mode above: drop any level farther than ± this % from price, even if it's one of the Nearest-N neighbors. So if the closest level above is 12% away it's simply hidden (a level that far isn't in play and would squeeze the axis). Default 8%. Set 0 to turn the trim off and let Nearest-N show its count regardless of distance.") / 100.0
 confPct   = input.float(0.4, "Confluence — merge levels within ± % into one", group = gN, minval = 0.05, maxval = 3, step = 0.05) / 100.0
 showAll   = input.bool(false, "Show ALL levels (ignore proximity — will compress the scale)", group = gN)
 
