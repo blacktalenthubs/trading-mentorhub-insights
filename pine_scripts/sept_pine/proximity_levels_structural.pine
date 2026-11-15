@@ -20,9 +20,11 @@
 //      A FAR CAP (default ±8%) trims whatever mode you pick: a level farther than the cap is dropped
 //      even if it's a Nearest-N neighbor — if the closest level is 12% away it isn't in play, so it's
 //      hidden rather than allowed to compress the axis. Set the cap to 0 to let the count stand alone.
-//   2. ALWAYS-ON (ignore mode/distance): ONLY the last two 4h candles (each H/L) — the frame
-//      price trades inside now, which must never be hidden. Everything else (daily / weekly /
-//      monthly / quarterly / pivot / SMAs) stays gated so a far level can't compress the axis.
+//   2. ALWAYS-ON (ignore mode/distance): the last two 4h candles (each H/L) — the frame price
+//      trades inside now — PLUS the 8 SMA (its anchor toggle, default on), so a strongly trending
+//      name that has run far from every MA still keeps its nearest-SMA reference instead of showing
+//      only 4h lines. Everything else (daily / weekly / monthly / quarterly / pivot / 21·50·200 SMA)
+//      stays gated so a far level can't compress the axis.
 //   3. CONFLUENCE: levels stacked within ±0.4% merge into ONE thicker line whose label names every
 //      member + a ·×N count ("PWH + PMH ·×2") — a wall reads at a glance.
 //
@@ -56,11 +58,12 @@ en4h  = input.bool(true, "Last 4h candle — high / low", group = gC, tooltip = 
 en4h2 = input.bool(true, "Second-prior 4h candle — high / low", group = gC, tooltip = "The 4h candle before that one — its own high and low (named '2ND 4H H / 2ND 4H L'). Together the two toggles draw the last TWO 4h candles. Always drawn (exempt from proximity); an edge equal to an enabled PDH/PDL is skipped as a dup.")
 
 // ── moving averages — flat 8/21/50/200 SMA, daily-locked. Gated by the % proximity band. ────────
-gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily, % proximity-gated)"
-enS8   = input.bool(true, "8 SMA",   inline = "sma", group = gS, tooltip = "Daily 8/21/50/200 SMA, locked to the daily and drawn FLAT at yesterday's settled value (non-repainting). Role-coloured and mergeable like the levels. These obey the % proximity band — they draw only when price is near them.")
+gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily — 8 is the always-on anchor, 21/50/200 proximity-gated)"
+enS8   = input.bool(true, "8 SMA",   inline = "sma", group = gS, tooltip = "Daily 8/21/50/200 SMA, locked to the daily and drawn FLAT at yesterday's settled value (non-repainting). Role-coloured and mergeable like the levels. The 21/50/200 obey the proximity gate; the 8 is handled by the anchor toggle below.")
 enS21  = input.bool(true, "21 SMA",  inline = "sma", group = gS)
 enS50  = input.bool(true,  "50 SMA",  inline = "sma", group = gS)
 enS200 = input.bool(false, "200 SMA", inline = "sma", group = gS)
+s8Anchor = input.bool(true, "Always show the 8 SMA (trend anchor — ignore proximity + far cap)", group = gS, tooltip = "In a strong trend price can run far from every MA, so the proximity gate / far cap hide them all and you're left with only the 4h levels. The 8 SMA is ALWAYS the nearest SMA to price (above all of them in an uptrend, below all in a downtrend), so it's the right single anchor to keep. ON = the 8 SMA always draws (when 8 SMA is enabled above), regardless of distance. OFF = the 8 SMA is proximity-gated like the others.")
 
 // ── pivot (O'Neil base high) ────────────────────────────────────────────────────
 gPV     = "Pivot (O'Neil base high)"
@@ -204,7 +207,7 @@ if barstate.islast
     f_cand(pql, "PQL", enPQL, false)
     f_cand(pqc, "PQC", enPQC, false)
     f_cand(pivot, "PIVOT", enPivot, false)
-    f_cand(sma8,   "8 SMA",   enS8,   false)
+    f_cand(sma8,   "8 SMA",   enS8,   s8Anchor)   // trend anchor — always-on when toggled, so a far-trending name keeps ≥1 SMA
     f_cand(sma21,  "21 SMA",  enS21,  false)
     f_cand(sma50,  "50 SMA",  enS50,  false)
     f_cand(sma200, "200 SMA", enS200, false)
