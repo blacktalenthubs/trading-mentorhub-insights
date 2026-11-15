@@ -39,17 +39,17 @@ showAll   = input.bool(false, "Show ALL levels (ignore proximity — will compre
 
 // ── which structural levels ─────────────────────────────────────────────────────
 gC    = "Levels (uncheck any one to hide it)"
-enPDH = input.bool(true, "PDH", group = gC, inline = "pd")
-enPDL = input.bool(true, "PDL", group = gC, inline = "pd")
-enPWH = input.bool(true, "PWH", group = gC, inline = "pw")
-enPWL = input.bool(true, "PWL", group = gC, inline = "pw")
-enPWC = input.bool(true, "PWC", group = gC, inline = "pw")
-enPMH = input.bool(true, "PMH", group = gC, inline = "pm")
-enPML = input.bool(true, "PML", group = gC, inline = "pm")
-enPMC = input.bool(true, "PMC", group = gC, inline = "pm")
-enPQH = input.bool(true, "PQH", group = gC, inline = "pq")
-enPQL = input.bool(true, "PQL", group = gC, inline = "pq")
-enPQC = input.bool(true, "PQC", group = gC, inline = "pq")
+enPDH = input.bool(false, "PDH", group = gC, inline = "pd")
+enPDL = input.bool(false, "PDL", group = gC, inline = "pd")
+enPWH = input.bool(true,  "PWH", group = gC, inline = "pw")
+enPWL = input.bool(true,  "PWL", group = gC, inline = "pw")
+enPWC = input.bool(false, "PWC", group = gC, inline = "pw")
+enPMH = input.bool(false, "PMH", group = gC, inline = "pm")
+enPML = input.bool(false, "PML", group = gC, inline = "pm")
+enPMC = input.bool(false, "PMC", group = gC, inline = "pm")
+enPQH = input.bool(false, "PQH", group = gC, inline = "pq")
+enPQL = input.bool(false, "PQL", group = gC, inline = "pq")
+enPQC = input.bool(false, "PQC", group = gC, inline = "pq")
 en4h  = input.bool(true, "Last 4h candle — high / low", group = gC, tooltip = "The most recent completed RTH 4h candle's own high and low (named '4H H / 4H L'). Always drawn (exempt from proximity). An edge is skipped only if PDH/PDL is enabled AND equals it — the day rail already draws it.")
 en4h2 = input.bool(true, "Second-prior 4h candle — high / low", group = gC, tooltip = "The 4h candle before that one — its own high and low (named '2ND 4H H / 2ND 4H L'). Together the two toggles draw the last TWO 4h candles. Always drawn (exempt from proximity); an edge equal to an enabled PDH/PDL is skipped as a dup.")
 
@@ -57,12 +57,12 @@ en4h2 = input.bool(true, "Second-prior 4h candle — high / low", group = gC, to
 gS    = "SMAs (flat 8 / 21 / 50 / 200 · daily, % proximity-gated)"
 enS8   = input.bool(true, "8 SMA",   inline = "sma", group = gS, tooltip = "Daily 8/21/50/200 SMA, locked to the daily and drawn FLAT at yesterday's settled value (non-repainting). Role-coloured and mergeable like the levels. These obey the % proximity band — they draw only when price is near them.")
 enS21  = input.bool(true, "21 SMA",  inline = "sma", group = gS)
-enS50  = input.bool(true, "50 SMA",  inline = "sma", group = gS)
-enS200 = input.bool(true, "200 SMA", inline = "sma", group = gS)
+enS50  = input.bool(true,  "50 SMA",  inline = "sma", group = gS)
+enS200 = input.bool(false, "200 SMA", inline = "sma", group = gS)
 
 // ── pivot (O'Neil base high) ────────────────────────────────────────────────────
 gPV     = "Pivot (O'Neil base high)"
-enPivot = input.bool(true, "Base-high pivot as a level", group = gPV, tooltip = "The highest high of the last N pivot-TF bars, drawn flat. Weekly = the O'Neil base high.")
+enPivot = input.bool(false, "Base-high pivot as a level", group = gPV, tooltip = "The highest high of the last N pivot-TF bars, drawn flat. Weekly = the O'Neil base high.")
 pivotTf = input.timeframe("W", "Pivot timeframe", group = gPV)
 baseLen = input.int(7, "Base length (bars of the pivot TF)", group = gPV, minval = 3, maxval = 40)
 
