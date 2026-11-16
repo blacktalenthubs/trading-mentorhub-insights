@@ -1,0 +1,144 @@
+//@version=5
+// crt-regular-session v2026.11.16.1 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
+// ─────────────────────────────────────────────────────────────────────────────
+// CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
+//
+//   The problem this solves: the usual CRT / HTF-candle overlays build the higher-
+//   timeframe candle from the 24-HOUR feed, so the prior candle's HIGH and LOW
+//   include pre- and post-market prints. On a name that spikes overnight, the CRT
+//   "liquidity" lines sit at extended-hours extremes that regular-session price
+//   never traded — the levels are wrong for an RTH trader.
+//
+//   The fix: every HTF candle's High / Low / Open / Close is read through a
+//   REGULAR-SESSION ticker (ticker.new(..., session.regular)), so extended-hours
+//   ticks can't leak into the range. Same idiom the proximity-levels pine uses.
+//
+//   What it draws — for each higher-timeframe candle (default DAILY), once it has
+//   completed, its three CRT levels are drawn as flat lines across the NEXT
+//   candle's span (the range price is being traded against — the Power-of-3
+//   playground):
+//     • CRT HIGH  — the prior candle's RTH high  (liquidity / resistance above)
+//     • CRT LOW   — the prior candle's RTH low   (liquidity / support below)
+//     • CRT MID   — the 50% equilibrium of that range
+//   Optional SWEEP marks: when the active candle trades through the prior high
+//   (purge up) or prior low (purge down) and the sweep is the manipulation leg,
+//   a small tag flags it.
+//
+//   NON-REPAINTING: the prior candle is SETTLED (high[1]/low[1] + lookahead_on),
+//   so historical lines never move. The active candle's sweep test uses the live
+//   high/low vs those settled levels. VISUAL ONLY — no alertcondition emitted.
+//   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
+//   Weekly on a Daily); it must not be lower than the chart timeframe.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("CRT · Regular Session · v2026.11.16.1", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── Inputs ──
+gC   = "CRT"
+htf     = input.timeframe("D", "CRT candle timeframe", group = gC, tooltip = "The higher-timeframe candle whose high/low/mid become the CRT levels. Daily on a 1h/4h chart, Weekly on a Daily. Must be ONE STEP UP from the chart timeframe, never lower.")
+nShow   = input.int(10, "Candles to display (most recent)", minval = 1, maxval = 120, group = gC)
+showMid = input.bool(true, "Show the CRT mid (50% equilibrium)", group = gC)
+rightPad = input.int(2, "Extend lines right (bars past the active candle)", minval = 0, maxval = 40, group = gC)
+
+gSw  = "Sweeps (manipulation leg)"
+showSweep = input.bool(true, "Flag when the active candle sweeps the prior high / low", group = gSw, tooltip = "A sweep = the active candle trades BEYOND the prior candle's high (purge up) or low (purge down) — the Power-of-3 manipulation leg that grabs liquidity before the real move. Marked once per side per candle, at the bar the level is first taken.")
+sweepHiCol = input.color(#EF5350, "Sweep ↑ (high taken)", group = gSw, inline = "sw")
+sweepLoCol = input.color(#26A69A, "Sweep ↓ (low taken)",  group = gSw, inline = "sw")
+
+gV   = "Style"
+hiCol   = input.color(color.white,  "CRT High colour",  group = gV, inline = "h")
+loCol   = input.color(#26A69A,       "CRT Low colour",   group = gV, inline = "l")
+midCol  = input.color(color.new(color.gray, 0), "CRT Mid colour", group = gV, inline = "m")
+wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gV)
+lineStyleIn = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gV)
+midStyleIn  = input.string("dotted", "Mid line style", options = ["solid", "dashed", "dotted"], group = gV)
+showLbl = input.bool(true, "Show level labels (CRT High / Low / Mid)", group = gV)
+tagSize = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gV)
+
+f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+_lineStyle = f_style(lineStyleIn)
+_midStyle  = f_style(midStyleIn)
+_tagSz     = tagSize == "normal" ? size.normal : tagSize == "tiny" ? size.tiny : size.small
+
+// ── Regular-session HTF candle — the whole point: high/low from RTH only ──
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+// SETTLED prior completed candle (non-repainting). high[1]/low[1] on the HTF = the candle
+// that just finished; with lookahead_on it is locked in as soon as the new candle opens.
+[pH, pL] = request.security(rthTid, htf, [high[1], low[1]], lookahead = barmerge.lookahead_on)
+mid = na(pH) or na(pL) ? na : (pH + pL) / 2.0
+
+// A new HTF candle has opened on the chart (works on any chart TF ≤ htf).
+newC = timeframe.change(htf)
+
+// ── State: the active candle's three lines (+ labels), extended each bar ──
+var line  hiLn = na
+var line  loLn = na
+var line  miLn = na
+var label hiLb = na
+var label loLb = na
+var label miLb = na
+var int   segStart = na        // bar_index where the active segment began
+var bool  sweptHi = false      // already flagged this candle's high sweep?
+var bool  sweptLo = false
+
+// history (older candles' finished segments), trimmed to nShow
+var array<line>  oldLn = array.new_line()
+var array<label> oldLb = array.new_label()
+
+f_retire(_ln, _lb) =>
+    if not na(_ln)
+        array.push(oldLn, _ln)
+    if not na(_lb)
+        array.push(oldLb, _lb)
+
+// each candle contributes up to 3 lines + 3 labels; keep the most recent nShow
+f_trim() =>
+    _max = nShow * 3
+    while array.size(oldLn) > _max
+        line.delete(array.shift(oldLn))
+    while array.size(oldLb) > _max
+        label.delete(array.shift(oldLb))
+
+if newC and not na(pH) and not na(pL)
+    // retire the segment that just closed, then open a fresh one at the new candle's start
+    f_retire(hiLn, hiLb)
+    f_retire(loLn, loLb)
+    f_retire(miLn, miLb)
+    f_trim()
+    segStart := bar_index
+    _x2 = bar_index + rightPad
+    hiLn := line.new(segStart, pH, _x2, pH, color = hiCol, width = wLine, style = _lineStyle)
+    loLn := line.new(segStart, pL, _x2, pL, color = loCol, width = wLine, style = _lineStyle)
+    miLn := showMid ? line.new(segStart, mid, _x2, mid, color = midCol, width = 1, style = _midStyle) : na
+    if showLbl
+        hiLb := label.new(_x2, pH, "CRT High", style = label.style_label_left, color = color.new(hiCol, 80), textcolor = hiCol, size = _tagSz)
+        loLb := label.new(_x2, pL, "CRT Low",  style = label.style_label_left, color = color.new(loCol, 80), textcolor = loCol, size = _tagSz)
+        miLb := showMid ? label.new(_x2, mid, "CRT Mid", style = label.style_label_left, color = color.new(midCol, 85), textcolor = midCol, size = _tagSz) : na
+    else
+        hiLb := na
+        loLb := na
+        miLb := na
+    sweptHi := false
+    sweptLo := false
+
+// extend the active segment to the live edge each bar
+if not na(hiLn)
+    _x2 = bar_index + rightPad
+    line.set_x2(hiLn, _x2)
+    line.set_x2(loLn, _x2)
+    if not na(miLn)
+        line.set_x2(miLn, _x2)
+    if showLbl and not na(hiLb)
+        label.set_x(hiLb, _x2)
+        label.set_x(loLb, _x2)
+        if not na(miLb)
+            label.set_x(miLb, _x2)
+
+// ── Sweeps — the manipulation leg: active candle takes the prior high / low ──
+if showSweep and not na(hiLn)
+    if not sweptHi and not na(pH) and high > pH
+        sweptHi := true
+        label.new(bar_index, pH, "⤒ swept", style = label.style_label_down, yloc = yloc.price, color = color.new(sweepHiCol, 15), textcolor = color.white, size = size.tiny)
+    if not sweptLo and not na(pL) and low < pL
+        sweptLo := true
+        label.new(bar_index, pL, "⤓ swept", style = label.style_label_up, yloc = yloc.price, color = color.new(sweepLoCol, 15), textcolor = color.white, size = size.tiny)
