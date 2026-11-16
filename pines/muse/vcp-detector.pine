@@ -1,0 +1,204 @@
+//@version=5
+// vcp-detector v2026.11.15.1 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
+// ─────────────────────────────────────────────────────────────────────────────
+// VCP DETECTOR — Minervini's Volatility Contraction Pattern on the DAILY chart.
+//
+//   • SMAs 8 / 21 / 50 / 200 in Victor's colours (8 green, 21 purple, 50 yellow,
+//     200 red). The pattern is judged against them, not the other way round.
+//   • SWINGS come from confirmed pivots only (ta.pivothigh / ta.pivotlow), so a
+//     completed contraction never repaints. The live leg is marked "forming" —
+//     a pivot needs its right-side bars before it counts, so the newest
+//     contraction is always provisional until it confirms.
+//   • A CONTRACTION is one pullback inside the base: a pivot high down to the
+//     next pivot low, measured in %. The base is anchored on the highest pivot
+//     high of the lookback; a confirmed pivot high more than 1% over the anchor
+//     ends the base (breakout or a new, higher base) and the sequence restarts.
+//   • The HUD scores the same checks the manual screen uses: trend template
+//     (over the 50, 50 over the 200, 200 rising, within 30% of the 52-week
+//     high), at least N contractions, each one no deeper than the tighten
+//     ratio × the one before it, the final contraction under the max, volume
+//     in the final leg dried up vs the first leg, and price coiled within the
+//     proximity % under the pivot. Every check shows ✓ or ✗ — a name that
+//     fails one check reads FORMING, not READY, and the HUD says which one.
+//   • The PIVOT (base high) draws as a line with its price tag; the BUY ZONE
+//     is the band from the pivot to 5% over it. Each completed contraction
+//     gets a label at its low with its depth, so the sequence reads on the
+//     chart itself: -18.2% → -6.0% → -4.0%.
+//   • States: NO PATTERN / FORMING / READY (coil at the pivot) / BROKE OUT
+//     (close over the pivot with a live sequence). Alerts for READY and for
+//     the pivot break. This flags candidates — the chart still decides.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("VCP Detector · v2026.11.15.1", shorttitle = "VCP Detector", overlay = true, max_lines_count = 60, max_labels_count = 60, max_bars_back = 500)
+
+// ── Inputs ──
+gSma   = "SMAs"
+showSma = input.bool(true, "Show SMAs 8/21/50/200", group = gSma)
+gPat   = "Pattern"
+pivLen = input.int(5, "Pivot length (left = right bars)", minval = 2, maxval = 15, group = gPat, tooltip = "Bars on each side before a swing counts as confirmed. Bigger = fewer, larger contractions.")
+lookback = input.int(150, "Base lookback (bars)", minval = 40, maxval = 400, group = gPat)
+minLegs  = input.int(2, "Minimum contractions", minval = 2, maxval = 6, group = gPat)
+tighten  = input.float(0.78, "Tighten ratio (each leg ≤ prev × this)", minval = 0.3, maxval = 1.0, step = 0.01, group = gPat)
+finalMax = input.float(12.0, "Final contraction max %", minval = 2.0, maxval = 40.0, step = 0.5, group = gPat)
+dryMax   = input.float(0.85, "Volume dry-up (final leg ≤ first × this)", minval = 0.3, maxval = 1.5, step = 0.05, group = gPat)
+proxPct  = input.float(10.0, "Ready: within % under the pivot", minval = 1.0, maxval = 30.0, step = 0.5, group = gPat)
+minLegPct = input.float(2.0, "Ignore legs shallower than %", minval = 0.5, maxval = 10.0, step = 0.5, group = gPat, tooltip = "Noise filter: micro-dips do not count as contractions.")
+gDraw  = "Drawings"
+showDraw = input.bool(true, "Show pivot, buy zone and leg labels", group = gDraw)
+
+// ── SMAs ──
+s8   = ta.sma(close, 8)
+s21  = ta.sma(close, 21)
+s50  = ta.sma(close, 50)
+s200 = ta.sma(close, 200)
+plot(showSma ? s8 : na,   "SMA 8",   color = #43A047, linewidth = 2)
+plot(showSma ? s21 : na,  "SMA 21",  color = #AB47BC, linewidth = 2)
+plot(showSma ? s50 : na,  "SMA 50",  color = #FFEB3B, linewidth = 2)
+plot(showSma ? s200 : na, "SMA 200", color = #FF0000, linewidth = 2)
+
+// ── Swing state ──
+var float anchorHigh = na          // the base high = the pivot
+var int   anchorBar  = na
+var float legHigh    = na          // pivot high the live leg fell from
+var int   legHighBar = na
+var float runLow     = na          // lowest low since legHigh (the forming leg)
+var float baseLow    = na          // lowest confirmed leg low in the base
+var float cumVol     = 0.0
+var float volAtHigh  = na          // cumVol snapshot at the leg-high event
+var int   barAtHigh  = na
+var array<float> depths  = array.new_float()   // completed contraction depths %
+var array<float> legVols = array.new_float()   // avg daily volume of each leg
+var array<line>  zig     = array.new_line()
+var array<label> legLbl  = array.new_label()
+var line  pivotLine = na
+var box   buyZone   = na
+var label pivotLbl  = na
+
+cumVol += nz(volume, 0.0)
+
+ph = ta.pivothigh(high, pivLen, pivLen)
+pl = ta.pivotlow(low, pivLen, pivLen)
+
+f_reset(_h, _b) =>
+    anchorHigh := _h
+    anchorBar  := _b
+    baseLow    := na
+    array.clear(depths)
+    array.clear(legVols)
+    for i = 0 to array.size(zig) - 1
+        line.delete(array.get(zig, i))
+    for i = 0 to array.size(legLbl) - 1
+        label.delete(array.get(legLbl, i))
+    array.clear(zig)
+    array.clear(legLbl)
+
+// pivot high event (confirmed pivLen bars after the high itself)
+if not na(ph)
+    phBar = bar_index - pivLen
+    if na(anchorHigh) or ph > anchorHigh * 1.01
+        f_reset(ph, phBar)
+    legHigh    := ph
+    legHighBar := phBar
+    runLow     := na
+    volAtHigh  := cumVol
+    barAtHigh  := bar_index
+
+// track the forming leg's low
+if not na(legHigh) and bar_index > legHighBar
+    runLow := na(runLow) ? low : math.min(runLow, low)
+
+// pivot low event: the leg from legHigh completes
+if not na(pl) and not na(legHigh)
+    plBar = bar_index - pivLen
+    if plBar > legHighBar and pl < legHigh
+        depth = (legHigh - pl) / legHigh * 100
+        if depth >= minLegPct
+            array.push(depths, depth)
+            bars = math.max(bar_index - barAtHigh, 1)
+            array.push(legVols, (cumVol - volAtHigh) / bars)
+            baseLow := na(baseLow) ? pl : math.min(baseLow, pl)
+            if showDraw
+                ln = line.new(legHighBar, legHigh, plBar, pl, color = color.new(color.gray, 35), width = 1)
+                array.push(zig, ln)
+                lb = label.new(plBar, pl, "-" + str.tostring(depth, "#.#") + "%", style = label.style_label_up, color = color.new(#37474F, 0), textcolor = color.white, size = size.small)
+                array.push(legLbl, lb)
+                if array.size(zig) > 12
+                    line.delete(array.shift(zig))
+                    label.delete(array.shift(legLbl))
+        legHigh := na
+        runLow  := na
+
+// ── Checks ──
+nLegs    = array.size(depths)
+hi52     = ta.highest(high, 250)
+ttAbove  = not na(s200) and close > s50
+ttStack  = not na(s200) and s50 > s200
+ttRising = not na(s200[20]) and s200 > s200[20]
+ttNear   = not na(hi52) and close >= hi52 * 0.70
+template = ttAbove and ttStack and ttRising and ttNear
+
+tightOk = true
+if nLegs >= 2
+    for i = 1 to nLegs - 1
+        if array.get(depths, i) > array.get(depths, i - 1) * tighten
+            tightOk := false
+
+lastDepth  = nLegs > 0 ? array.get(depths, nLegs - 1) : na
+finalOk    = nLegs > 0 and lastDepth <= finalMax
+volRatio   = array.size(legVols) >= 2 ? array.get(legVols, array.size(legVols) - 1) / math.max(array.get(legVols, 0), 1.0) : na
+volOk      = not na(volRatio) and volRatio <= dryMax
+formDepth  = not na(legHigh) and not na(runLow) and legHigh > runLow ? (legHigh - runLow) / legHigh * 100 : na
+distPivot  = not na(anchorHigh) ? (close / anchorHigh - 1) * 100 : na
+baseFresh  = not na(anchorBar) and bar_index - anchorBar <= lookback
+proxOk     = not na(distPivot) and distPivot <= 0 and distPivot >= -proxPct
+brokeOut   = not na(anchorHigh) and close > anchorHigh and nLegs >= minLegs and template and baseFresh
+
+ready = template and baseFresh and nLegs >= minLegs and tightOk and finalOk and volOk and proxOk and not brokeOut
+forming = template and baseFresh and nLegs >= minLegs and not ready and not brokeOut
+stateTxt = brokeOut ? "BROKE OUT" : ready ? "READY" : forming ? "FORMING" : "NO PATTERN"
+stateCol = brokeOut ? #00E676 : ready ? #00E676 : forming ? #FFCA28 : color.silver
+
+// sequence string, e.g. "18.2 → 6.0 → 4.0 → 3.1*"
+seqTxt = "—"
+if nLegs > 0
+    seqTxt := ""
+    for i = 0 to nLegs - 1
+        seqTxt += (i > 0 ? " → " : "") + str.tostring(array.get(depths, i), "#.#")
+if not na(formDepth) and formDepth >= minLegPct
+    seqTxt += (nLegs > 0 ? " → " : "") + str.tostring(formDepth, "#.#") + "*"
+
+baseWks  = not na(anchorBar) ? (bar_index - anchorBar) / 5.0 : na
+baseDep  = not na(anchorHigh) and not na(baseLow) ? (anchorHigh - baseLow) / anchorHigh * 100 : na
+chk(b) => b ? "✓" : "✗"
+
+// ── Pivot line + buy zone (rebuilt each bar so they track the live edge) ──
+if showDraw and not na(anchorHigh) and baseFresh
+    line.delete(pivotLine)
+    box.delete(buyZone)
+    label.delete(pivotLbl)
+    pivotLine := line.new(anchorBar, anchorHigh, bar_index + 10, anchorHigh, color = #29B6F6, width = 2)
+    buyZone   := box.new(anchorBar, anchorHigh * 1.05, bar_index + 10, anchorHigh, border_color = na, bgcolor = color.new(#00E676, 88))
+    pivotLbl  := label.new(bar_index + 10, anchorHigh, "PIVOT " + str.tostring(anchorHigh, "#.##"), style = label.style_label_left, color = #29B6F6, textcolor = color.white, size = size.small)
+else if not showDraw
+    line.delete(pivotLine)
+    box.delete(buyZone)
+    label.delete(pivotLbl)
+
+// ── HUD ──
+var table hud = table.new(position.top_right, 2, 7, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1)
+f_cell(r, k, v, c) =>
+    table.cell(hud, 0, r, k, text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+    table.cell(hud, 1, r, v, text_color = c, text_size = size.small, text_halign = text.align_right)
+
+if barstate.islast
+    f_cell(0, "VCP", stateTxt, stateCol)
+    f_cell(1, "Sequence", seqTxt, color.white)
+    f_cell(2, "Pivot", na(anchorHigh) ? "—" : str.tostring(anchorHigh, "#.##") + " · " + str.tostring(distPivot, "#.#") + "%", color.white)
+    f_cell(3, "Tighten / Final", chk(tightOk) + " / " + (na(lastDepth) ? "—" : str.tostring(lastDepth, "#.#") + "% " + chk(finalOk)), color.white)
+    f_cell(4, "Volume", na(volRatio) ? "—" : str.tostring(volRatio, "#.##") + "× " + chk(volOk), color.white)
+    f_cell(5, "Base", na(baseWks) ? "—" : str.tostring(baseWks, "#.#") + " wk · " + (na(baseDep) ? "—" : str.tostring(baseDep, "#.#") + "% deep"), color.white)
+    f_cell(6, "Trend", chk(ttAbove) + " 50 · " + chk(ttStack) + " stack · " + chk(ttRising) + " 200↑ · " + chk(ttNear) + " highs", color.white)
+
+// ── Alerts ──
+alertcondition(ready and not ready[1], title = "VCP Ready", message = "{{ticker}} VCP READY — coil at pivot {{close}}, sequence in HUD")
+alertcondition(brokeOut and not brokeOut[1], title = "VCP Pivot Break", message = "{{ticker}} broke its VCP pivot {{close}}")
