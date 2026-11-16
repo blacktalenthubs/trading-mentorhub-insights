@@ -1,5 +1,5 @@
 //@version=5
-// htf-candle-overlay-rth v2026.11.16.4 — version is in the indicator title too: if the chart legend
+// htf-candle-overlay-rth v2026.11.16.5 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // HTF CANDLE OVERLAY · REGULAR SESSION — the higher-timeframe candles drawn as a
@@ -27,13 +27,17 @@
 //
 //   NON-REPAINTING: completed candles are SETTLED ([1] + lookahead_on) and never
 //   move. The forming candle is live by design (lookahead_off). VISUAL ONLY — no
-//   alertcondition. Set the HTF one step ABOVE the chart (Daily on a 1h/4h chart).
+//   alertcondition. AUTO (default) makes the projected candles follow the chart
+//   timeframe — a daily chart shows daily candles with weekday labels, a weekly
+//   chart shows weekly candles. Turn Auto off to pin a fixed timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("HTF Candle Overlay · RTH · v2026.11.16.4", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
+indicator("HTF Candle Overlay · RTH · v2026.11.16.5", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
 
 // ── Inputs ──
 gC   = "Higher-timeframe candles"
-htf      = input.timeframe("D", "Timeframe", group = gC, tooltip = "The candle to project. Daily on a 1h/4h chart, Weekly on a Daily. Must be ONE STEP UP from the chart timeframe.")
+autoTf    = input.bool(true, "Auto — match the chart timeframe", group = gC, tooltip = "ON (default): the projected candles use YOUR CHART's timeframe — a daily chart shows daily candles (with weekday labels), a weekly chart shows weekly candles. OFF: use the fixed timeframe below, so you can pin it to Daily/Weekly regardless of the chart.")
+htfManual = input.timeframe("D", "Timeframe (when Auto is off)", group = gC, tooltip = "Used only when Auto is off. The candle to project — e.g. Daily on a 1h/4h chart, Weekly on a Daily.")
+htf = autoTf ? timeframe.period : htfManual
 nCandles = input.int(8, "No. of candles (incl. the live one)", minval = 2, maxval = 60, group = gC)
 startOffset = input.int(25, "Start offset (bars right of price)", minval = 2, maxval = 300, group = gC, tooltip = "How far to the right of the last bar the projection starts, so it sits clear of live price.")
 bodyW    = input.int(3, "Candle body width (bars)", minval = 1, maxval = 12, group = gC)
