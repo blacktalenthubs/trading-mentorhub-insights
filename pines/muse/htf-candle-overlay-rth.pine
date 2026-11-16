@@ -1,5 +1,5 @@
 //@version=5
-// htf-candle-overlay-rth v2026.11.16.3 — version is in the indicator title too: if the chart legend
+// htf-candle-overlay-rth v2026.11.16.4 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // HTF CANDLE OVERLAY · REGULAR SESSION — the higher-timeframe candles drawn as a
@@ -20,14 +20,16 @@
 //     • wick  = high/low tails ABOVE and BELOW the body only (never a line
 //       through the body), matching the body colour — looks like a real candle
 //     • the rightmost candle is the CURRENT forming HTF candle (updates live)
-//     • per-candle day/time label + a timeframe tag
+//     • per-candle label: weekday (MON…FRI) on the DAILY htf, clock (HH:mm) on
+//       intraday; on weekly+ there is no per-candle label (every weekly candle
+//       starts Monday), just the timeframe tag
 //     • optional dashed line at the current HTF open, projected across to the candles
 //
 //   NON-REPAINTING: completed candles are SETTLED ([1] + lookahead_on) and never
 //   move. The forming candle is live by design (lookahead_off). VISUAL ONLY — no
 //   alertcondition. Set the HTF one step ABOVE the chart (Daily on a 1h/4h chart).
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("HTF Candle Overlay · RTH · v2026.11.16.3", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
+indicator("HTF Candle Overlay · RTH · v2026.11.16.4", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
 
 // ── Inputs ──
 gC   = "Higher-timeframe candles"
@@ -82,7 +84,11 @@ if timeframe.change(htf) and not na(po) and not na(ph)
 f_dow(int t) =>
     d = dayofweek(t, tz)
     d == dayofweek.monday ? "MON" : d == dayofweek.tuesday ? "TUE" : d == dayofweek.wednesday ? "WED" : d == dayofweek.thursday ? "THU" : d == dayofweek.friday ? "FRI" : d == dayofweek.saturday ? "SAT" : "SUN"
-f_tlabel(int t) => timeframe.in_seconds(htf) < 86400 ? str.format_time(t, "HH:mm", tz) : f_dow(t)
+// label per candle: intraday → clock, daily → weekday, weekly+ → none (every
+// weekly candle opens Monday, so a weekday label would just repeat "MON").
+f_tlabel(int t) =>
+    _secs = timeframe.in_seconds(htf)
+    _secs < 86400 ? str.format_time(t, "HH:mm", tz) : _secs < 604800 ? f_dow(t) : ""
 
 // ── drawing objects (rebuilt each last bar) ──
 var array<box>   _bx = array.new_box()
@@ -105,7 +111,9 @@ f_candle(int slot, float o, float h, float l, float c, int t, bool forming) =>
     // solid body (forming candle a touch lighter so you can tell it's still live)
     array.push(_bx, box.new(cL, top, cR, bot, border_color = bcol, border_width = 1, bgcolor = forming ? color.new(bcol, 35) : color.new(bcol, 0)))
     if showTimeLbl
-        array.push(_lb, label.new(ctr, l, f_tlabel(t), style = label.style_label_up, color = color.new(color.black, 100), textcolor = color.new(#B2B5BE, 0), size = _lblSz))
+        _txt = f_tlabel(t)
+        if _txt != ""
+            array.push(_lb, label.new(ctr, l, _txt, style = label.style_label_up, color = color.new(color.black, 100), textcolor = color.new(#B2B5BE, 0), size = _lblSz))
     ctr
 
 if barstate.islast
