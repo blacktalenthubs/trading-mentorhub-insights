@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.16.2 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.16.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -32,22 +32,22 @@
 //   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
 //   Weekly on a Daily); it must not be lower than the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("CRT · Regular Session · v2026.11.16.2", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("CRT · Regular Session · v2026.11.16.3", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ──
 gC   = "CRT"
 htf     = input.timeframe("D", "CRT candle timeframe", group = gC, tooltip = "The higher-timeframe candle whose high/low/mid become the CRT levels. Daily on a 1h/4h chart, Weekly on a Daily. Must be ONE STEP UP from the chart timeframe, never lower.")
 nShow   = input.int(10, "Candles to display (most recent)", minval = 1, maxval = 120, group = gC)
-showMid = input.bool(true, "Show the CRT mid (50% equilibrium)", group = gC)
+showMid = input.bool(false, "Show the CRT mid (50% equilibrium)", group = gC)
 rightPad = input.int(2, "Extend lines right (bars past the active candle)", minval = 0, maxval = 40, group = gC)
 
 gSw  = "Sweeps (manipulation leg)"
-showSweep = input.bool(true, "Flag when the active candle sweeps the prior high / low", group = gSw, tooltip = "A sweep = the active candle trades BEYOND the prior candle's high (purge up) or low (purge down) — the Power-of-3 manipulation leg that grabs liquidity before the real move. Marked once per side per candle, at the bar the level is first taken.")
+showSweep = input.bool(false, "Flag when the active candle sweeps the prior high / low", group = gSw, tooltip = "A sweep = the active candle trades BEYOND the prior candle's high (purge up) or low (purge down) — the Power-of-3 manipulation leg that grabs liquidity before the real move. Marked once per side per candle, at the bar the level is first taken.")
 sweepHiCol = input.color(#EF5350, "Sweep ↑ (high taken)", group = gSw, inline = "sw")
 sweepLoCol = input.color(#26A69A, "Sweep ↓ (low taken)",  group = gSw, inline = "sw")
 
 gV   = "Style"
-hiCol   = input.color(color.white,  "CRT High colour",  group = gV, inline = "h")
+hiCol   = input.color(#EF5350,      "CRT High colour",  group = gV, inline = "h")
 loCol   = input.color(#26A69A,       "CRT Low colour",   group = gV, inline = "l")
 midCol  = input.color(color.new(color.gray, 0), "CRT Mid colour", group = gV, inline = "m")
 wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gV)
