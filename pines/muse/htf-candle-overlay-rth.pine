@@ -1,5 +1,5 @@
 //@version=5
-// htf-candle-overlay-rth v2026.11.16.2 — version is in the indicator title too: if the chart legend
+// htf-candle-overlay-rth v2026.11.16.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // HTF CANDLE OVERLAY · REGULAR SESSION — the higher-timeframe candles drawn as a
@@ -16,8 +16,9 @@
 //
 //   Draws the last N higher-timeframe candles (default DAILY) as real body+wick
 //   candlesticks, offset to the right of the current bar so they sit in clean air:
-//     • body  = open↔close box, green when up / red when down (regular colours)
-//     • wick  = high↔low line, matching the body colour
+//     • body  = solid open↔close box, green when up / red when down (regular colours)
+//     • wick  = high/low tails ABOVE and BELOW the body only (never a line
+//       through the body), matching the body colour — looks like a real candle
 //     • the rightmost candle is the CURRENT forming HTF candle (updates live)
 //     • per-candle day/time label + a timeframe tag
 //     • optional dashed line at the current HTF open, projected across to the candles
@@ -26,7 +27,7 @@
 //   move. The forming candle is live by design (lookahead_off). VISUAL ONLY — no
 //   alertcondition. Set the HTF one step ABOVE the chart (Daily on a 1h/4h chart).
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("HTF Candle Overlay · RTH · v2026.11.16.2", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
+indicator("HTF Candle Overlay · RTH · v2026.11.16.3", shorttitle = "HTF RTH", overlay = true, max_boxes_count = 120, max_lines_count = 200, max_labels_count = 200)
 
 // ── Inputs ──
 gC   = "Higher-timeframe candles"
@@ -96,8 +97,13 @@ f_candle(int slot, float o, float h, float l, float c, int t, bool forming) =>
     bcol = up ? bodyUp : bodyDn
     top  = math.max(o, c)
     bot  = math.min(o, c)
-    array.push(_wk, line.new(ctr, h, ctr, l, color = bcol, width = 1))
-    array.push(_bx, box.new(cL, top, cR, bot, border_color = bcol, border_width = 1, bgcolor = forming ? color.new(bcol, 55) : color.new(bcol, 10)))
+    // wick as two tails — above and below the body only, so no line crosses the body
+    if h > top
+        array.push(_wk, line.new(ctr, h, ctr, top, color = bcol, width = 1))
+    if l < bot
+        array.push(_wk, line.new(ctr, bot, ctr, l, color = bcol, width = 1))
+    // solid body (forming candle a touch lighter so you can tell it's still live)
+    array.push(_bx, box.new(cL, top, cR, bot, border_color = bcol, border_width = 1, bgcolor = forming ? color.new(bcol, 35) : color.new(bcol, 0)))
     if showTimeLbl
         array.push(_lb, label.new(ctr, l, f_tlabel(t), style = label.style_label_up, color = color.new(color.black, 100), textcolor = color.new(#B2B5BE, 0), size = _lblSz))
     ctr
