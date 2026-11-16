@@ -1,5 +1,5 @@
 //@version=5
-// vcp-detector v2026.11.15.2 — version is in the indicator title too: if the chart legend
+// vcp-detector v2026.11.15.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // VCP DETECTOR — Minervini's Volatility Contraction Pattern on the DAILY chart.
@@ -29,7 +29,7 @@
 //     (close over the pivot with a live sequence). Alerts for READY and for
 //     the pivot break. This flags candidates — the chart still decides.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("VCP Detector · v2026.11.15.2", shorttitle = "VCP Detector", overlay = true, max_lines_count = 60, max_labels_count = 60, max_bars_back = 500)
+indicator("VCP Detector · v2026.11.15.3", shorttitle = "VCP Detector", overlay = true, max_lines_count = 60, max_labels_count = 60, max_bars_back = 500)
 
 // ── Inputs ──
 gSma   = "SMAs"
@@ -89,10 +89,12 @@ if not na(ph)
         baseLow    := na
         array.clear(depths)
         array.clear(legVols)
-        for j = 0 to array.size(zig) - 1
-            line.delete(array.get(zig, j))
-        for j = 0 to array.size(legLbl) - 1
-            label.delete(array.get(legLbl, j))
+        if array.size(zig) > 0
+            for j = 0 to array.size(zig) - 1
+                line.delete(array.get(zig, j))
+        if array.size(legLbl) > 0
+            for j = 0 to array.size(legLbl) - 1
+                label.delete(array.get(legLbl, j))
         array.clear(zig)
         array.clear(legLbl)
     legHigh    := ph
