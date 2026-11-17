@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.16.5 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.16.6 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -27,7 +27,7 @@
 //   a small tag flags it.
 //
 //   CONFLUENCE TAGS (default "Confluence only"): the pine also computes the key
-//   structural levels — prior week / month / quarter H-L, the 50 / 200 SMA, and
+//   structural levels — prior week / month / quarter H-L, the 8/21/50/200 SMA, and
 //   the last swing H/L, all RTH — and tags a CRT high/low ONLY when it sits within
 //   the tolerance of one of them, naming what it lines up with ("CRT Low · PWL ·
 //   200 SMA"). No confluence → no tag, just the line. The CRT candle's OWN
@@ -39,7 +39,7 @@
 //   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
 //   Weekly on a Daily); it must not be lower than the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("CRT · Regular Session · v2026.11.16.5", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("CRT · Regular Session · v2026.11.16.6", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ──
 gC   = "CRT"
@@ -68,7 +68,7 @@ confTol = input.float(0.3, "Confluence tolerance %", minval = 0.05, maxval = 3.0
 cfWeek  = input.bool(true,  "vs prior week H/L",    group = gCf, inline = "cf1")
 cfMonth = input.bool(true,  "vs prior month H/L",   group = gCf, inline = "cf1")
 cfQtr   = input.bool(false, "vs prior quarter H/L", group = gCf, inline = "cf2")
-cfSma   = input.bool(true,  "vs 50 / 200 SMA",      group = gCf, inline = "cf2")
+cfSma   = input.bool(true,  "vs 8 / 21 / 50 / 200 SMA", group = gCf, inline = "cf2")
 cfSwing = input.bool(true,  "vs swing H/L (pivot 5,5)", group = gCf)
 
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
@@ -92,7 +92,7 @@ newC = timeframe.change(htf)
 [cfPwh, cfPwl]  = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [cfPmh, cfPml]  = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [cfPqh, cfPql]  = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
-[cfS50, cfS200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
+[cfS8, cfS21, cfS50, cfS200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 8)[1], ta.sma(close, 21)[1], ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
 f_swh() =>
     _p = ta.pivothigh(5, 5)
     ta.valuewhen(not na(_p), _p, 0)
@@ -118,6 +118,10 @@ f_conf(float lvl) =>
             _o := _o + (_o == "" ? "" : " · ") + "PQH"
         if cfQtr and f_hit(lvl, cfPql)
             _o := _o + (_o == "" ? "" : " · ") + "PQL"
+        if cfSma and f_hit(lvl, cfS8)
+            _o := _o + (_o == "" ? "" : " · ") + "8 SMA"
+        if cfSma and f_hit(lvl, cfS21)
+            _o := _o + (_o == "" ? "" : " · ") + "21 SMA"
         if cfSma and f_hit(lvl, cfS50)
             _o := _o + (_o == "" ? "" : " · ") + "50 SMA"
         if cfSma and f_hit(lvl, cfS200)
