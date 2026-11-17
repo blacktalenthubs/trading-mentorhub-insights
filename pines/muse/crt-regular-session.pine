@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.16.6 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.16.7 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -27,7 +27,7 @@
 //   a small tag flags it.
 //
 //   CONFLUENCE TAGS (default "Confluence only"): the pine also computes the key
-//   structural levels — prior week / month / quarter H-L, the 8/21/50/200 SMA, and
+//   structural levels — prior day (non-daily CRT only) / week / month / quarter H-L, the 8/21/50/200 SMA, and
 //   the last swing H/L, all RTH — and tags a CRT high/low ONLY when it sits within
 //   the tolerance of one of them, naming what it lines up with ("CRT Low · PWL ·
 //   200 SMA"). No confluence → no tag, just the line. The CRT candle's OWN
@@ -39,7 +39,7 @@
 //   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
 //   Weekly on a Daily); it must not be lower than the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("CRT · Regular Session · v2026.11.16.6", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("CRT · Regular Session · v2026.11.16.7", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ──
 gC   = "CRT"
@@ -65,6 +65,7 @@ tagSize = input.string("small", "Label size", options = ["tiny", "small", "norma
 gCf  = "Confluence tags"
 tagMode = input.string("Confluence only", "Show CRT tags", options = ["Confluence only", "All", "None"], group = gCf, tooltip = "Confluence only (default): a CRT high/low gets a tag ONLY when it lines up (within the tolerance) with one of the structural levels ticked below — and the tag names what it confluences with, so only the levels that actually matter are labelled. All: tag every CRT level. None: lines only, no tags.")
 confTol = input.float(0.3, "Confluence tolerance %", minval = 0.05, maxval = 3.0, step = 0.05, group = gCf, tooltip = "How close (as a % of price) a CRT level must sit to a structural level to count as confluent.") / 100.0
+cfDay   = input.bool(false, "vs prior day H/L (PDH/PDL · auto-skipped on a daily CRT)", group = gCf, tooltip = "Only meaningful when the CRT timeframe is NOT daily (weekly or 4h CRT). On a daily CRT the CRT high/low IS the prior-day high/low, so this is skipped to avoid self-confluence.")
 cfWeek  = input.bool(true,  "vs prior week H/L",    group = gCf, inline = "cf1")
 cfMonth = input.bool(true,  "vs prior month H/L",   group = gCf, inline = "cf1")
 cfQtr   = input.bool(false, "vs prior quarter H/L", group = gCf, inline = "cf2")
@@ -89,6 +90,8 @@ newC = timeframe.change(htf)
 // ── Confluence pool — structural levels a CRT line can line up with (RTH, settled, non-repainting).
 //    The CRT candle's OWN timeframe prior H/L is deliberately NOT here (that would be self-confluence);
 //    we check against OTHER structure: prior week / month / quarter H-L, the 50/200 SMA, and swings. ──
+_crtIsDaily     = timeframe.in_seconds(htf) == 86400   // on a daily CRT, PDH/PDL == the CRT level itself → skip it
+[cfPdh, cfPdl]  = request.security(rthTid, "D",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [cfPwh, cfPwl]  = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [cfPmh, cfPml]  = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
 [cfPqh, cfPql]  = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
@@ -106,6 +109,10 @@ f_hit(float lvl, float ref) => not na(ref) and ref > 0 and math.abs(lvl - ref) /
 f_conf(float lvl) =>
     string _o = ""
     if not na(lvl) and lvl > 0
+        if cfDay and not _crtIsDaily and f_hit(lvl, cfPdh)
+            _o := _o + (_o == "" ? "" : " · ") + "PDH"
+        if cfDay and not _crtIsDaily and f_hit(lvl, cfPdl)
+            _o := _o + (_o == "" ? "" : " · ") + "PDL"
         if cfWeek and f_hit(lvl, cfPwh)
             _o := _o + (_o == "" ? "" : " · ") + "PWH"
         if cfWeek and f_hit(lvl, cfPwl)
