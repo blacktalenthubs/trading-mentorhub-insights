@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.16.3 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.16.4 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -32,7 +32,7 @@
 //   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
 //   Weekly on a Daily); it must not be lower than the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("CRT · Regular Session · v2026.11.16.3", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("CRT · Regular Session · v2026.11.16.4", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ──
 gC   = "CRT"
@@ -53,7 +53,7 @@ midCol  = input.color(color.new(color.gray, 0), "CRT Mid colour", group = gV, in
 wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gV)
 lineStyleIn = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gV)
 midStyleIn  = input.string("dotted", "Mid line style", options = ["solid", "dashed", "dotted"], group = gV)
-showLbl = input.bool(true, "Show level labels (CRT High / Low / Mid)", group = gV)
+showLbl = input.bool(false, "Show level labels (CRT High / Low / Mid)", group = gV)
 tagSize = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gV)
 
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
