@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.16.4 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.16.5 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -26,13 +26,20 @@
 //   (purge up) or prior low (purge down) and the sweep is the manipulation leg,
 //   a small tag flags it.
 //
+//   CONFLUENCE TAGS (default "Confluence only"): the pine also computes the key
+//   structural levels — prior week / month / quarter H-L, the 50 / 200 SMA, and
+//   the last swing H/L, all RTH — and tags a CRT high/low ONLY when it sits within
+//   the tolerance of one of them, naming what it lines up with ("CRT Low · PWL ·
+//   200 SMA"). No confluence → no tag, just the line. The CRT candle's OWN
+//   timeframe prior H/L is excluded so a level never confluences with itself.
+//
 //   NON-REPAINTING: the prior candle is SETTLED (high[1]/low[1] + lookahead_on),
 //   so historical lines never move. The active candle's sweep test uses the live
 //   high/low vs those settled levels. VISUAL ONLY — no alertcondition emitted.
 //   Set the CRT timeframe to one step ABOVE your chart (Daily on a 1h/4h chart,
 //   Weekly on a Daily); it must not be lower than the chart timeframe.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("CRT · Regular Session · v2026.11.16.4", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("CRT · Regular Session · v2026.11.16.5", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 // ── Inputs ──
 gC   = "CRT"
@@ -53,8 +60,16 @@ midCol  = input.color(color.new(color.gray, 0), "CRT Mid colour", group = gV, in
 wLine   = input.int(2, "Line width", minval = 1, maxval = 6, group = gV)
 lineStyleIn = input.string("solid", "Line style", options = ["solid", "dashed", "dotted"], group = gV)
 midStyleIn  = input.string("dotted", "Mid line style", options = ["solid", "dashed", "dotted"], group = gV)
-showLbl = input.bool(false, "Show level labels (CRT High / Low / Mid)", group = gV)
 tagSize = input.string("small", "Label size", options = ["tiny", "small", "normal"], group = gV)
+
+gCf  = "Confluence tags"
+tagMode = input.string("Confluence only", "Show CRT tags", options = ["Confluence only", "All", "None"], group = gCf, tooltip = "Confluence only (default): a CRT high/low gets a tag ONLY when it lines up (within the tolerance) with one of the structural levels ticked below — and the tag names what it confluences with, so only the levels that actually matter are labelled. All: tag every CRT level. None: lines only, no tags.")
+confTol = input.float(0.3, "Confluence tolerance %", minval = 0.05, maxval = 3.0, step = 0.05, group = gCf, tooltip = "How close (as a % of price) a CRT level must sit to a structural level to count as confluent.") / 100.0
+cfWeek  = input.bool(true,  "vs prior week H/L",    group = gCf, inline = "cf1")
+cfMonth = input.bool(true,  "vs prior month H/L",   group = gCf, inline = "cf1")
+cfQtr   = input.bool(false, "vs prior quarter H/L", group = gCf, inline = "cf2")
+cfSma   = input.bool(true,  "vs 50 / 200 SMA",      group = gCf, inline = "cf2")
+cfSwing = input.bool(true,  "vs swing H/L (pivot 5,5)", group = gCf)
 
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 _lineStyle = f_style(lineStyleIn)
@@ -70,6 +85,48 @@ mid = na(pH) or na(pL) ? na : (pH + pL) / 2.0
 
 // A new HTF candle has opened on the chart (works on any chart TF ≤ htf).
 newC = timeframe.change(htf)
+
+// ── Confluence pool — structural levels a CRT line can line up with (RTH, settled, non-repainting).
+//    The CRT candle's OWN timeframe prior H/L is deliberately NOT here (that would be self-confluence);
+//    we check against OTHER structure: prior week / month / quarter H-L, the 50/200 SMA, and swings. ──
+[cfPwh, cfPwl]  = request.security(rthTid, "W",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[cfPmh, cfPml]  = request.security(rthTid, "M",  [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[cfPqh, cfPql]  = request.security(rthTid, "3M", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[cfS50, cfS200] = request.security(syminfo.tickerid, "D", [ta.sma(close, 50)[1], ta.sma(close, 200)[1]], lookahead = barmerge.lookahead_on)
+f_swh() =>
+    _p = ta.pivothigh(5, 5)
+    ta.valuewhen(not na(_p), _p, 0)
+f_swl() =>
+    _p = ta.pivotlow(5, 5)
+    ta.valuewhen(not na(_p), _p, 0)
+[cfSwH, cfSwL]  = request.security(rthTid, "D", [f_swh(), f_swl()], lookahead = barmerge.lookahead_on)
+
+// names every structural level a CRT price sits within confTol of; "" = no confluence
+f_hit(float lvl, float ref) => not na(ref) and ref > 0 and math.abs(lvl - ref) / lvl <= confTol
+f_conf(float lvl) =>
+    string _o = ""
+    if not na(lvl) and lvl > 0
+        if cfWeek and f_hit(lvl, cfPwh)
+            _o := _o + (_o == "" ? "" : " · ") + "PWH"
+        if cfWeek and f_hit(lvl, cfPwl)
+            _o := _o + (_o == "" ? "" : " · ") + "PWL"
+        if cfMonth and f_hit(lvl, cfPmh)
+            _o := _o + (_o == "" ? "" : " · ") + "PMH"
+        if cfMonth and f_hit(lvl, cfPml)
+            _o := _o + (_o == "" ? "" : " · ") + "PML"
+        if cfQtr and f_hit(lvl, cfPqh)
+            _o := _o + (_o == "" ? "" : " · ") + "PQH"
+        if cfQtr and f_hit(lvl, cfPql)
+            _o := _o + (_o == "" ? "" : " · ") + "PQL"
+        if cfSma and f_hit(lvl, cfS50)
+            _o := _o + (_o == "" ? "" : " · ") + "50 SMA"
+        if cfSma and f_hit(lvl, cfS200)
+            _o := _o + (_o == "" ? "" : " · ") + "200 SMA"
+        if cfSwing and f_hit(lvl, cfSwH)
+            _o := _o + (_o == "" ? "" : " · ") + "Swing H"
+        if cfSwing and f_hit(lvl, cfSwL)
+            _o := _o + (_o == "" ? "" : " · ") + "Swing L"
+    _o
 
 // ── State: the active candle's three lines (+ labels), extended each bar ──
 var line  hiLn = na
@@ -115,14 +172,19 @@ if newC and not na(pH) and not na(pL)
     hiLn := line.new(originStart, pH, _x2, pH, color = hiCol, width = wLine, style = _lineStyle)
     loLn := line.new(originStart, pL, _x2, pL, color = loCol, width = wLine, style = _lineStyle)
     miLn := showMid ? line.new(originStart, mid, _x2, mid, color = midCol, width = 1, style = _midStyle) : na
-    if showLbl
-        hiLb := label.new(_x2, pH, "CRT High", style = label.style_label_left, color = color.new(hiCol, 80), textcolor = hiCol, size = _tagSz)
-        loLb := label.new(_x2, pL, "CRT Low",  style = label.style_label_left, color = color.new(loCol, 80), textcolor = loCol, size = _tagSz)
-        miLb := showMid ? label.new(_x2, mid, "CRT Mid", style = label.style_label_left, color = color.new(midCol, 85), textcolor = midCol, size = _tagSz) : na
-    else
-        hiLb := na
-        loLb := na
-        miLb := na
+    // tags: in "Confluence only" a CRT level is labelled ONLY when it lines up with a structural
+    // level, and the tag names it (e.g. "CRT Low  · PWL · 200 SMA"). "All" tags every level; "None" none.
+    hiConf = f_conf(pH)
+    loConf = f_conf(pL)
+    hiLb := na
+    loLb := na
+    miLb := na
+    if tagMode == "All" or (tagMode == "Confluence only" and hiConf != "")
+        hiLb := label.new(_x2, pH, "CRT High" + (hiConf == "" ? "" : "  · " + hiConf), style = label.style_label_left, color = color.new(hiCol, 80), textcolor = hiCol, size = _tagSz)
+    if tagMode == "All" or (tagMode == "Confluence only" and loConf != "")
+        loLb := label.new(_x2, pL, "CRT Low" + (loConf == "" ? "" : "  · " + loConf), style = label.style_label_left, color = color.new(loCol, 80), textcolor = loCol, size = _tagSz)
+    if showMid and tagMode == "All"
+        miLb := label.new(_x2, mid, "CRT Mid", style = label.style_label_left, color = color.new(midCol, 85), textcolor = midCol, size = _tagSz)
     sweptHi := false
     sweptLo := false
 
@@ -133,11 +195,12 @@ if not na(hiLn)
     line.set_x2(loLn, _x2)
     if not na(miLn)
         line.set_x2(miLn, _x2)
-    if showLbl and not na(hiLb)
+    if not na(hiLb)
         label.set_x(hiLb, _x2)
+    if not na(loLb)
         label.set_x(loLb, _x2)
-        if not na(miLb)
-            label.set_x(miLb, _x2)
+    if not na(miLb)
+        label.set_x(miLb, _x2)
 
 // ── Sweeps — the manipulation leg: active candle takes the prior high / low ──
 if showSweep and not na(hiLn)
