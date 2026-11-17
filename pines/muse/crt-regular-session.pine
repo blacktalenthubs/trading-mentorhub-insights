@@ -1,5 +1,5 @@
 //@version=5
-// crt-regular-session v2026.11.17.2 — version is in the indicator title too: if the chart legend
+// crt-regular-session v2026.11.17.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // CRT · REGULAR SESSION — Candle Range Theory / Power-of-3 overlay, RTH-ONLY.
@@ -44,7 +44,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // max_bars_back sized explicitly: the monthly / quarterly confluence securities need ~a year of
 // history to resolve, which overflows Pine's auto-inferred buffer (365) on candle close otherwise.
-indicator("CRT · Regular Session · v2026.11.17.2", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 2000)
+indicator("CRT · Regular Session · v2026.11.17.3", shorttitle = "CRT RTH", overlay = true, max_lines_count = 500, max_labels_count = 500, max_bars_back = 2000)
 
 // ── Inputs ──
 gC   = "CRT"
@@ -80,6 +80,11 @@ cfMonth = input.bool(true,  "vs prior month H/L",   group = gCf, inline = "cf1")
 cfQtr   = input.bool(false, "vs prior quarter H/L", group = gCf, inline = "cf2")
 cfSma   = input.bool(true,  "vs 8 / 21 / 50 / 200 SMA", group = gCf, inline = "cf2")
 cfSwing = input.bool(true,  "vs swing H/L (pivot 5,5)", group = gCf)
+
+gN   = "Nearby levels (no CRT)"
+showNear = input.bool(true, "Draw a structural level price sits at even when no CRT is there", group = gN, tooltip = "When price is within the % below of one of the structural levels ticked under 'Confluence tags' (PDH/PDL, PWH/PWL, PMH/PML, PQH/PQL, the SMAs, swing H/L) but NO CRT line sits there, draw that level as a dashed support/resistance rail tagged 'PQL · support · no CRT' etc. So you still see you're at a key level when no CRT candle made one. A level a CRT line already covers is left to that CRT line + its confluence tag — no duplicate. NOTE: the pool follows the Confluence-tags toggles, so e.g. quarterly (PQH/PQL) must be ticked there to show.")
+nearPct  = input.float(0.3, "  … when price is within ± %", minval = 0.05, maxval = 3.0, step = 0.05, group = gN) / 100.0
+nearLen  = input.int(60, "  Nearby-level line length (bars back)", minval = 5, maxval = 300, group = gN)
 
 f_style(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 _lineStyle = f_style(lineStyleIn)
@@ -163,6 +168,7 @@ var array<float>  oldVal  = array.new_float()
 var array<string> oldSide = array.new_string()
 var array<int>    oldX2   = array.new_int()      // each line's BASE right edge, so an auto-extend can retract
 var array<label>  allLb   = array.new_label()   // confluence tags, rebuilt each last bar
+var array<line>   nearLn  = array.new_line()     // "nearby structural level, no CRT" rails, rebuilt each last bar
 
 f_retire(_ln, _side) =>
     if not na(_ln)
@@ -219,10 +225,34 @@ f_drawTag(float _v, string _s, int _x) =>
     if f_wantTag(_s, _conf)
         array.push(allLb, label.new(_x, _v, _txt, style = label.style_label_left, color = color.new(f_tagCol(_s), 80), textcolor = f_tagCol(_s), size = _tagSz))
 
+// ── Nearby structural level with NO CRT — so you still see you're sitting at a key level ──
+// true when a CRT line (active or historical) already sits within confTol of this price — then the
+// CRT line + its confluence tag already represent the level and no orphan rail is needed.
+f_hasCrt(float v) =>
+    bool _h = false
+    if not na(hiLn)
+        _h := f_hit(v, pH) or f_hit(v, pL) or (not na(miLn) and f_hit(v, mid))
+    if not _h and array.size(oldVal) > 0
+        for _k = 0 to array.size(oldVal) - 1
+            if f_hit(v, array.get(oldVal, _k))
+                _h := true
+    _h
+// draw the level as a dashed support/resistance rail + tag, only when price is near it and no CRT covers it
+f_nearDraw(float v, string nm, bool en) =>
+    if showNear and en and not na(v) and v > 0 and math.abs(close - v) / close <= nearPct and not f_hasCrt(v)
+        _sup = close > v
+        _col = _sup ? loCol : hiCol        // support below price = CRT-low green; resistance above = CRT-high red
+        _x2  = bar_index + rightPad
+        array.push(nearLn, line.new(bar_index - nearLen, v, _x2, v, color = color.new(_col, 20), width = 1, style = line.style_dashed))
+        array.push(allLb, label.new(_x2, v, nm + "  · " + (_sup ? "support" : "resist") + "  · no CRT", style = label.style_label_left, color = color.new(_col, 80), textcolor = _col, size = _tagSz))
+
 if barstate.islast
     for _l in allLb
         label.delete(_l)
     array.clear(allLb)
+    for _nl in nearLn
+        line.delete(_nl)
+    array.clear(nearLn)
     _edge = bar_index + rightPad
     // 1) reset every historical line to full opacity (un-hides anything the merge pass collapsed last
     //    tick), then auto-extend it by PRICE LOCATION: stretch only the extCount lines nearest ABOVE and
@@ -312,6 +342,22 @@ if barstate.islast
                             if b != _pIdx
                                 line.set_color(array.get(_mLn, b), color.new(f_tagCol(_sa), 100))
                 f_drawTag(array.get(_mV, _pIdx), array.get(_mS, _pIdx), line.get_x2(array.get(_mLn, _pIdx)))
+    // 4) nearby structural levels with NO CRT line — drawn AFTER the CRT pass so f_hasCrt sees the final
+    //    set. Same pool / toggles as the confluence tags: a level price is sitting at but no CRT made.
+    f_nearDraw(cfPdh, "PDH", cfDay)
+    f_nearDraw(cfPdl, "PDL", cfDay)
+    f_nearDraw(cfPwh, "PWH", cfWeek)
+    f_nearDraw(cfPwl, "PWL", cfWeek)
+    f_nearDraw(cfPmh, "PMH", cfMonth)
+    f_nearDraw(cfPml, "PML", cfMonth)
+    f_nearDraw(cfPqh, "PQH", cfQtr)
+    f_nearDraw(cfPql, "PQL", cfQtr)
+    f_nearDraw(cfS8,   "8 SMA",   cfSma)
+    f_nearDraw(cfS21,  "21 SMA",  cfSma)
+    f_nearDraw(cfS50,  "50 SMA",  cfSma)
+    f_nearDraw(cfS200, "200 SMA", cfSma)
+    f_nearDraw(cfSwH, "Swing H", cfSwing)
+    f_nearDraw(cfSwL, "Swing L", cfSwing)
 
 // ── Sweeps — the manipulation leg: active candle takes the prior high / low ──
 if showSweep and not na(hiLn)
