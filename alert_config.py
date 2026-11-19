@@ -773,9 +773,11 @@ ENABLED_RULES: set[str] = {
     # the 20 is the fast trend, the 200 the structural level; the 50 in between just adds
     # frequency without edge on lower TFs. The 50 stays on the DAILY chart only) ────────
     "ma20_support_1h",
-    # "ma50_support_1h",   # DISABLED 2026-10-27 (trader) — 12 delivered on Mon 2026-10-26 alone,
-                         # the top MA stream; cutting for alert volume. Was dropped 2026-09-28,
-                         # re-enabled 2026-10-10. Re-enable by uncommenting.
+    "ma50_support_1h",   # RE-ENABLED 2026-11-18 (trader) — the SMA 1h set is back to
+                         # 20/50/200 support ("SMA 1h reclaims" = the support side of the
+                         # 1h SMA family; there is no *_reclaim_1h type in this codebase).
+                         # Was disabled 2026-10-27 for alert volume (12 delivered Mon
+                         # 2026-10-26 alone) — the trader accepts that volume again.
     "ma200_support_1h",
     # ── Hourly volume-profile — OFF (2026-09-25, trader: "quite a lot and noisy").
     # Volume-profile alerts are now strictly DAILY + WEEKLY (weekly = weekly_vp_alerts.py).
@@ -807,6 +809,11 @@ ENABLED_RULES: set[str] = {
     "avwap_reject", "avwap_h_reject", "avwap_r_reject",
 
     # ── Prior-level breakouts + reclaims ────────────────────────────────────────
+    # Trader-confirmed ON 2026-11-18 (PDH break / PDL reclaim / PWH break / PWL reclaim):
+    # prior_day_high_breakout, prior_day_low_reclaim, pwl_reclaim below, and the PWH
+    # break — whose scanner form is pwh_breakout_retest (the breakout + its retest;
+    # there is no plain pwh_breakout rule in the scanner, weekly_high_breakout is
+    # NOTICE_ONLY context and stays that way).
     "prior_day_high_breakout",   # PDH breakout
     # "pdh_retest_hold",         # DISABLED 2026-10-27 (trader) — 17 delivered on Mon 2026-10-26,
                                  # the #1 received type of the day; cutting for alert volume.
