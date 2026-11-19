@@ -149,8 +149,8 @@ plot(showE200 ? ema200 : na, "200 EMA", color=color.new(colE200, 0), linewidth=2
 //    (locked to emaTf when emaLock is on), extended across the chart, instead of sloping MA curves.
 //    Read them like levels: a flat line + a right-side value tag. The 200 stays dotted. ──
 gFlat    = "Flat SMA lines"
-flatLen  = input.int(120, "Line length (bars back)", minval = 10, maxval = 500, group = gFlat)
-flatFull = input.bool(true, "Extend across the whole chart", group = gFlat, tooltip = "ON = each line runs edge-to-edge; OFF = only the fixed bars-back length.")
+flatLen  = input.int(50, "Line length (bars back)", minval = 10, maxval = 500, group = gFlat, tooltip = "How far LEFT of price each flat SMA line runs. Kept short by default so the SMAs read as compact level marks near price, not full-width bands.")
+flatFull = input.bool(false, "Extend across the whole chart", group = gFlat, tooltip = "OFF (default) = each line is a short segment near price (the fixed bars-back length) so the chart stays clean; ON = each line runs edge-to-edge.")
 flatTag  = input.bool(true, "Show value tags", group = gFlat, tooltip = "The right-side SMA name + value label. Uncheck to keep just the lines.")
 flatTagOff = input.int(16, "Tag column offset (bars right)", minval = 0, maxval = 120, group = gFlat, tooltip = "Push the SMA value tags into their OWN column, right of the TBA / support / resistance tags, so a confluence doesn't stack them on top of each other.")
 flatTagGap = input.float(0.35, "De-overlap tags within (%)", minval = 0.0, maxval = 2.0, step = 0.05, group = gFlat, tooltip = "When two SMA tags sit closer than this % of price, nudge them apart vertically so both read. The LINE stays on its true value.") / 100.0
