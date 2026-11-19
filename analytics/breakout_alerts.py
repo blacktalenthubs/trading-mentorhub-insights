@@ -73,6 +73,53 @@ def detect(df, cfg=CONFIG) -> list[dict]:
     return out
 
 
+def detect_pine_tba(df) -> list[dict]:
+    """Pine TBA port (patterns/pine_tba.py — the TBA Patterns Pine's engine on daily bars):
+    the pattern is LOCKED from the completed daily bars (df minus today's forming bar),
+    and the event fires when today's price crosses that locked TBA — the scanner stand-in
+    for the Pine webhook's 30m close cross (this job runs :00/:30). Fires as the already-
+    registered `swing_tba_breakout` type (catalog: api/app/models/alert_type_config.py),
+    so the TV/Premium path is no longer the only producer. Stop = the Pine's afterBrk
+    stopF: max(today's low, pattern stop). Only tight setups (risk <= 8%, the Pine's
+    maxRisk / the scanner's max_setup_risk_pct) alert."""
+    from patterns.pine_tba import detect_locked, locked_resistance, MAX_RISK
+    if df is None or len(df) < 30:
+        return []
+    locked = df.iloc[:-1]
+    hit = detect_locked(locked)
+    if not hit:
+        return []
+    tba, pat_stop = hit["tba"], hit["stop"]
+    prev = float(locked["Close"].iloc[-1])
+    price = float(df["Close"].iloc[-1])
+    if not (prev <= tba < price):                    # not a fresh cross today
+        return []
+    today_low = float(df["Low"].iloc[-1])
+    # Pine afterBrk stop = max(breakout bar low, pattern stop) — but only when the
+    # breakout bar actually traded at/below the TBA; on a gap cross its low sits ABOVE
+    # the buy point, and a stop above the entry is not a stop. Fall back to the
+    # pattern stop there (the scanner's detectors do the same: stop < buy point).
+    if pat_stop is not None:
+        stop = max(today_low, pat_stop) if today_low < tba else pat_stop
+    else:
+        stop = today_low if today_low < tba else tba * (1 - MAX_RISK)
+    risk = (tba - stop) / tba * 100.0 if tba else 999
+    if risk > MAX_RISK * 100.0 or risk < 0:
+        return []
+    avg_vol = float(locked["Volume"].iloc[-50:].mean()) if len(locked) >= 10 else 0.0
+    rvol = round(float(df["Volume"].iloc[-1]) / avg_vol, 2) if avg_vol > 0 else 0.0
+    day_change = (price - prev) / prev * 100.0 if prev else None
+    return [{
+        "pattern": hit["pattern"], "buy_point": round(tba, 2), "stop": round(stop, 2),
+        "tight_stop": round(tba * (1 - CONFIG.tight_stop_pct), 2),
+        "price": round(price, 2), "risk_pct": round(risk, 1), "rvol": rvol,
+        "day_change": round(day_change, 1) if day_change is not None else None,
+        "big_day": bool(day_change is not None and day_change >= CONFIG.big_day_pct),
+        "score": 0, "reason": f"{hit['pattern']} breakout over {tba:.2f} (Pine TBA port)",
+        "target_1": locked_resistance(locked, tba),
+    }]
+
+
 def detect_retest(df, bp, cfg=CONFIG):
     """A previously-broken level `bp` that price pulled back to and HELD. The last bar must close
     ABOVE bp (holding) AND its low must have come back within retest_tol of bp (the pullback touch)."""
@@ -145,7 +192,7 @@ def _record_alerts(events, session_date):  # pragma: no cover - DB
             "target_1, score, message, volume_ratio, session_date, created_at, suppressed_reason) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, NOW(), %s)",
             (USER_ID, e["sym"], e.get("alert_type") or f"breakout_{e['pattern']}", "BUY", e["price"],
-             e["buy_point"], e["stop"], None, e["score"], e["msg"], e["rvol"], session_date,
+             e["buy_point"], e["stop"], e.get("target_1"), e["score"], e["msg"], e["rvol"], session_date,
              # Symbol HARDCODE (trader, 2026-10-29): off-list rows are recorded
              # suppressed so no delivery path can pick them up.
              None if symbol_in_hardcode(e["sym"]) else "symbol_not_in_hardcode"),
@@ -156,6 +203,10 @@ def _record_alerts(events, session_date):  # pragma: no cover - DB
 def _format(events) -> str:
     lines = ["<b>📈 Breakout signals</b> (TBA crossed)"]
     for e in events:
+        if e.get("alert_type") == "swing_tba_breakout":   # Pine TBA port — locked daily TBA cross
+            lines.append(f"• <b>{e['sym']}</b> TBA breakout — {e['pattern']} over ${e['buy_point']:.2f} · "
+                         f"stop ${e['stop']:.2f} · risk {e['risk_pct']:.1f}% · now ${e['price']:.2f}")
+            continue
         if e.get("pattern") == "tba_retest":        # pulled back to a broken level and held
             lines.append(f"• <b>{e['sym']}</b> TBA retest — pulled back to ${e['buy_point']:.2f} &amp; held "
                          f"(now ${e['price']:.2f}) · stop ${e['stop']:.2f} · risk {e['risk_pct']:.1f}%")
@@ -179,11 +230,19 @@ def run(dry: bool = False) -> dict:  # pragma: no cover - network/DB
     events = []
     for sym in syms:
         try:
-            for ev in detect(_fetch(sym), CONFIG):
+            _df = _fetch(sym)
+            for ev in detect(_df, CONFIG):
                 ev["sym"] = sym.upper()
                 ev["alert_type"] = f"breakout_{ev['pattern']}"
                 ev["key"] = f"{ev['sym']}:{ev['pattern']}:{date}"
                 ev["msg"] = f"{_label(ev['pattern'])} breakout — crossed TBA {ev['buy_point']:.2f}. {ev['reason']}"
+                events.append(ev)
+            # Pine TBA port: same cross, Pine-spec pattern/stop, registered swing type.
+            for ev in detect_pine_tba(_df):
+                ev["sym"] = sym.upper()
+                ev["alert_type"] = "swing_tba_breakout"
+                ev["key"] = f"{ev['sym']}:swing_tba_breakout:{date}"
+                ev["msg"] = f"{ev['pattern']} breakout over {ev['buy_point']:.2f}. {ev['reason']}"
                 events.append(ev)
         except Exception:
             pass
