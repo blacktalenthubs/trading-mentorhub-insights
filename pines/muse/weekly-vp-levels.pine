@@ -1,0 +1,277 @@
+//@version=5
+// WEEKLY VOLUME PROFILE LEVELS — POC / VAH / VAL / HVN / LVN — v2026.11.21.1
+// ═════════════════════════════════════════════════════════════════════════════
+// The WEEKLY volume profile's levels, LOCKED for the week and drawn flat on
+// any lower timeframe, so price reactions at the weekly POC / VAH / VAL and
+// the weekly nodes can be watched on a 15m / 1H / 4H / daily chart.
+//
+// The lock: the profile is built from the last 150 COMPLETED weekly bars —
+// the current forming week is NOT in the window. The levels you see on
+// Monday morning are the ones that stay all week; they roll once, when a
+// new week starts. Lines span the current week only.
+//
+// The math is vp-sma's own, unchanged (Victor's TradingView script): 35
+// price rows, each sub-bar's volume distributed over the rows its range
+// overlaps, POC = the heaviest row's centre, the value area grown two rows
+// at a time from the POC until it holds 70% of the volume, HVN = a local
+// peak row at >= 55% of the peak row, LVN = a local valley row at <= 25%.
+// Sub-bars are 30 minutes, collected through vp-sma's collection patterns
+// (the f_dailyFlat pattern from Daily VP Levels, moved to the Weekly
+// timeframe). On charts finer than 30 minutes the sub-bars cannot be
+// requested (RE10066), so the profile falls back to the weekly bars
+// themselves — the POC can sit a few ticks off the weekly chart's read
+// there; on 30m and higher charts the sub-bars are used and it matches.
+//
+// Sibling of Daily VP Levels v2026.10.31.1 — same build, Weekly lock.
+// ═════════════════════════════════════════════════════════════════════════════
+indicator("Weekly VP Levels · POC/VAH/VAL/HVN/LVN v2026.11.21.1", "Weekly VP Levels", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+gP = "Profile (vp-sma settings)"
+weeksBack = input.int(150, "Weeks back (completed weeks only)", group = gP, minval = 10, maxval = 500)
+columns   = input.int(35, "Price rows", group = gP, minval = 5, maxval = 200)
+vaPct     = input.float(70.0, "Value area %", group = gP, minval = 1, maxval = 100)
+ltfTF     = input.timeframe("30", "Sub-bars (lower timeframe)", group = gP)
+hvnPct    = input.float(55.0, "HVN >= % of the peak row", group = gP, minval = 10, maxval = 100)
+lvnPct    = input.float(25.0, "LVN <= % of the peak row", group = gP, minval = 1, maxval = 90)
+
+gL = "Lines"
+showPOC  = input.bool(true, "Show POC", group = gL)
+showVA   = input.bool(true, "Show VAH / VAL", group = gL)
+showHVN  = input.bool(true, "Show HVN", group = gL)
+showLVN  = input.bool(true, "Show LVN", group = gL)
+pocColor = input.color(color.red, "POC colour", group = gL)
+vaColor  = input.color(color.orange, "VAH / VAL colour", group = gL)
+hvnColor = input.color(color.green, "HVN colour", group = gL)
+lvnColor = input.color(color.red, "LVN colour", group = gL)
+pocWidth = input.int(3, "POC line width", group = gL, minval = 1, maxval = 6)
+vaWidth  = input.int(2, "VAH / VAL line width", group = gL, minval = 1, maxval = 6)
+nodeWidth = input.int(2, "HVN / LVN line width", group = gL, minval = 1, maxval = 6)
+lblSize  = input.string("small", "Tag size", options = ["tiny", "small", "normal"], group = gL)
+rightPad = input.int(6, "Tags right offset (bars)", group = gL)
+
+tid = syminfo.tickerid
+f_sz(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : size.normal
+
+// ── data — vp-sma's f_dailyFlat pattern moved to a Weekly security context:
+//    collect the last weeksBack+1 weekly bars and each week's sub-bars,
+//    flattened into ONE array returned only on the weekly series' last bar.
+//    The +1 is the current forming week: it is collected but EXCLUDED at
+//    build time (its sub-bar count travels in the array), which is the lock.
+//    Layout: [curWeekStart, nSub, subH…, subL…, subV…, nWk, wkH…, wkL…, wkV…,
+//             curWkSubN, subComplete] ──
+// LTF guard — vp-sma's own pattern: never request sub-bars on a timeframe
+// that is not lower than the CHART timeframe (RE10066 kills the script on
+// 15m / 5m charts). Declared in chart scope; f_wkFlat reads them from inside
+// the Weekly context. wkUseSub: below a 30-minute effective sub-bar, 151
+// weeks of sub-bars can exceed Pine's array cap, so the profile falls back
+// to the weekly bars there (the nSubKept == 0 path already does that).
+flatLtfSecs   = timeframe.in_seconds(ltfTF)
+flatChartSecs = timeframe.in_seconds(timeframe.period)
+effFlatLTF    = flatLtfSecs < flatChartSecs ? ltfTF : timeframe.period
+wkUseSub      = timeframe.in_seconds(effFlatLTF) >= 1800
+SUB_CAP       = 30000
+f_wkFlat() =>
+    var float[] aH = array.new_float(0)
+    var float[] aL = array.new_float(0)
+    var float[] aV = array.new_float(0)
+    var float[] wH = array.new_float(0)
+    var float[] wL = array.new_float(0)
+    var float[] wV = array.new_float(0)
+    var int lastWk = na
+    var float curStart = na
+    var int curSubN = 0
+    var int subDone = 1
+    _h = request.security_lower_tf(tid, effFlatLTF, high)
+    _l = request.security_lower_tf(tid, effFlatLTF, low)
+    _v = request.security_lower_tf(tid, effFlatLTF, volume)
+    if bar_index >= last_bar_index - (weeksBack + 1) + 1 and (na(lastWk) or bar_index != lastWk)
+        lastWk := bar_index
+        curStart := time
+        curSubN := 0
+        array.push(wH, high)
+        array.push(wL, low)
+        array.push(wV, nz(volume))
+        if wkUseSub and timeframe.in_seconds(effFlatLTF) < 604800
+            _nn = na(_h) ? 0 : array.size(_h)
+            if _nn > 0
+                if array.size(aH) + _nn > SUB_CAP
+                    subDone := 0
+                else
+                    for _s = 0 to _nn - 1
+                        array.push(aH, array.get(_h, _s))
+                        array.push(aL, array.get(_l, _s))
+                        array.push(aV, nz(array.get(_v, _s)))
+                    curSubN := _nn
+    _out = array.new_float(0)
+    if barstate.islast and array.size(wH) > 0
+        array.push(_out, curStart)
+        array.push(_out, array.size(aH))
+        if array.size(aH) > 0
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aH, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aL, _s))
+            for _s = 0 to array.size(aH) - 1
+                array.push(_out, array.get(aV, _s))
+        array.push(_out, array.size(wH))
+        for _s = 0 to array.size(wH) - 1
+            array.push(_out, array.get(wH, _s))
+        for _s = 0 to array.size(wH) - 1
+            array.push(_out, array.get(wL, _s))
+        for _s = 0 to array.size(wH) - 1
+            array.push(_out, array.get(wV, _s))
+        array.push(_out, curSubN)
+        array.push(_out, subDone)
+    _out
+wkFlat = request.security(tid, "W", f_wkFlat())
+
+var float vpPOC = na
+var float vpVAH = na
+var float vpVAL = na
+
+// ── build + draw on the last bar — vp-sma's math, step for step. The window
+//    is the collected weeks MINUS the current forming week (the lock). ──
+var array<line> _lines = array.new_line()
+var array<label> _lbls = array.new_label()
+if barstate.islast
+    dataH = array.new_float(0)
+    dataL = array.new_float(0)
+    dataV = array.new_float(0)
+    float _winHi = na
+    float _winLo = na
+    int _xL = na
+    int _xR = na
+    if array.size(wkFlat) > 6
+        _nSub = int(array.get(wkFlat, 1))
+        _wkOff = 2 + 3 * _nSub
+        _nWk = int(array.get(wkFlat, _wkOff))
+        _curSubN = int(array.get(wkFlat, _wkOff + 1 + 3 * _nWk))
+        _subDone = int(array.get(wkFlat, _wkOff + 2 + 3 * _nWk))
+        _nWkKept = _nWk - 1
+        _nSubKept = _subDone == 1 ? _nSub - _curSubN : 0
+        if _nWkKept >= 2
+            for _d = 0 to _nWkKept - 1
+                _dH = array.get(wkFlat, _wkOff + 1 + _d)
+                _dL = array.get(wkFlat, _wkOff + 1 + _nWk + _d)
+                _winHi := na(_winHi) ? _dH : math.max(_winHi, _dH)
+                _winLo := na(_winLo) ? _dL : math.min(_winLo, _dL)
+            if _nSubKept > 0
+                for _s = 0 to _nSubKept - 1
+                    array.push(dataH, array.get(wkFlat, 2 + _s))
+                    array.push(dataL, array.get(wkFlat, 2 + _nSub + _s))
+                    array.push(dataV, array.get(wkFlat, 2 + 2 * _nSub + _s))
+            else
+                for _d = 0 to _nWkKept - 1
+                    array.push(dataH, array.get(wkFlat, _wkOff + 1 + _d))
+                    array.push(dataL, array.get(wkFlat, _wkOff + 1 + _nWk + _d))
+                    array.push(dataV, array.get(wkFlat, _wkOff + 1 + 2 * _nWk + _d))
+            _xL := int(array.get(wkFlat, 0))
+            _xR := time + int(rightPad * timeframe.in_seconds(timeframe.period) * 1000)
+    if not na(_winHi) and not na(_winLo) and array.size(dataH) > 0 and not na(_xL)
+        _rng = _winHi - _winLo
+        if _rng > 0
+            _bs = _rng / columns
+            vol = array.new_float(columns, 0.0)
+            for _b = 0 to array.size(dataH) - 1
+                _bLo = array.get(dataL, _b)
+                _bHi = array.get(dataH, _b)
+                _bV = nz(array.get(dataV, _b))
+                _loI = int(math.floor((_bLo - _winLo) / _bs))
+                _hiI = int(math.floor((_bHi - _winLo) / _bs))
+                _loI := math.max(0, math.min(columns - 1, _loI))
+                _hiI := math.max(0, math.min(columns - 1, _hiI))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _winLo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to columns - 1
+                _v = array.get(vol, _k)
+                _total += _v
+                if _v > _maxV
+                    _maxV := _v
+                    _poc  := _k
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaPct / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, columns - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+            vpVAH := _winLo + (_up + 1) * _bs
+            vpVAL := _winLo + _dn * _bs
+            vpPOC := _winLo + (_poc + 0.5) * _bs
+            // nodes — vp-sma's candidate rules on the same rows
+            _hvnMin = _maxV * hvnPct / 100.0
+            _lvnMax = _maxV * lvnPct / 100.0
+            _hP = array.new_float(0)
+            _lP = array.new_float(0)
+            if columns >= 3
+                for _k = 1 to columns - 2
+                    _vk = array.get(vol, _k)
+                    _vp = array.get(vol, _k - 1)
+                    _vn = array.get(vol, _k + 1)
+                    _price = _winLo + (_k + 0.5) * _bs
+                    _isHVN = _vk >= _vp and _vk >= _vn and _vk >= _hvnMin and _k != _poc
+                    _isLVN = _vk <= _vp and _vk <= _vn and _vk <= _lvnMax and _vk > 0 and _k != _poc
+                    if _isHVN
+                        array.push(_hP, _price)
+                    else if _isLVN
+                        array.push(_lP, _price)
+            // redraw: clear the previous frame, then draw this week's locked set
+            if array.size(_lines) > 0
+                for _i = 0 to array.size(_lines) - 1
+                    line.delete(array.get(_lines, _i))
+                array.clear(_lines)
+            if array.size(_lbls) > 0
+                for _i = 0 to array.size(_lbls) - 1
+                    label.delete(array.get(_lbls, _i))
+                array.clear(_lbls)
+            if showPOC and not na(vpPOC)
+                array.push(_lines, line.new(_xL, vpPOC, _xR, vpPOC, xloc = xloc.bar_time, color = pocColor, width = pocWidth))
+                array.push(_lbls, label.new(_xR, vpPOC, "Wk POC " + str.tostring(vpPOC, format.mintick), xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = pocColor, textcolor = color.white, size = f_sz(lblSize)))
+            if showVA and not na(vpVAH)
+                array.push(_lines, line.new(_xL, vpVAH, _xR, vpVAH, xloc = xloc.bar_time, color = vaColor, width = vaWidth))
+                array.push(_lbls, label.new(_xR, vpVAH, "Wk VAH " + str.tostring(vpVAH, format.mintick), xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
+            if showVA and not na(vpVAL)
+                array.push(_lines, line.new(_xL, vpVAL, _xR, vpVAL, xloc = xloc.bar_time, color = vaColor, width = vaWidth))
+                array.push(_lbls, label.new(_xR, vpVAL, "Wk VAL " + str.tostring(vpVAL, format.mintick), xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = vaColor, textcolor = color.white, size = f_sz(lblSize)))
+            if showHVN and array.size(_hP) > 0
+                for _i = 0 to array.size(_hP) - 1
+                    _p = array.get(_hP, _i)
+                    array.push(_lines, line.new(_xL, _p, _xR, _p, xloc = xloc.bar_time, color = hvnColor, width = nodeWidth))
+                    array.push(_lbls, label.new(_xR, _p, "Wk HVN", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = hvnColor, textcolor = color.white, size = f_sz(lblSize)))
+            if showLVN and array.size(_lP) > 0
+                for _i = 0 to array.size(_lP) - 1
+                    _p = array.get(_lP, _i)
+                    array.push(_lines, line.new(_xL, _p, _xR, _p, xloc = xloc.bar_time, color = lvnColor, width = nodeWidth, style = line.style_dotted))
+                    array.push(_lbls, label.new(_xR, _p, "Wk LVN", xloc = xloc.bar_time, yloc = yloc.price, style = label.style_label_left, color = lvnColor, textcolor = color.white, size = f_sz(lblSize)))
+
+// hidden plots so the values show in the Data Window and other scripts can read them
+plot(vpPOC, "Wk POC", display = display.none)
+plot(vpVAH, "Wk VAH", display = display.none)
+plot(vpVAL, "Wk VAL", display = display.none)
