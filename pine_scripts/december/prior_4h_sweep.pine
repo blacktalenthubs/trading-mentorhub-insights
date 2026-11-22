@@ -91,6 +91,11 @@ rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
 newCandle = (ta.change(pH) != 0 or ta.change(pL) != 0) and not na(pH) and not na(pL)
 
 // ── Per-candle sweep state + one-fire-per-side dedup (reset at each 4h roll) ──
+// We only care about the most-recent closed 4h candle and the one forming now —
+// no historical trail. The entry/stop marks are wiped at every 4h roll so the
+// chart shows the CURRENT setup only.
+var line[]  sigLn = array.new_line()
+var label[] sigLb = array.new_label()
 var bool  armedHi = false
 var bool  armedLo = false
 var float wickHi  = na
@@ -100,6 +105,12 @@ var bool  fManipL = false
 var bool  fBreakL = false
 var bool  fBreakS = false
 if newCandle
+    for _l in sigLn
+        line.delete(_l)
+    for _b in sigLb
+        label.delete(_b)
+    array.clear(sigLn)
+    array.clear(sigLb)
     armedHi := false
     armedLo := false
     wickHi  := na
@@ -115,15 +126,16 @@ f_nl() => "4H H " + str.tostring(pH, format.mintick) + " · 4H L " + str.tostrin
 f_pay(string rule, string dir, string lvlNm, float lvl, float stp, string note) =>
     '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl() + '"}'
 
-// ── Draw an entry label + its stop line (persistent; TV caps at max counts) ──
-f_sig(bool isLong, string typ, float entryPx, float stopPx, color dirCol, color stopC, int pad, string tszS, bool drawSL) =>
+// ── Draw an entry label + its stop line. Both are tracked in sigLn/sigLb and
+//    wiped at the next 4h roll, so only the current candle's setup is ever shown.
+//    One label (it already names the SL) + one dashed stop line — nothing else.
+f_sig(bool isLong, string typ, float entryPx, float stopPx, color dirCol, color stopC, int pad, string tszS, bool drawSL, line[] lnArr, label[] lbArr) =>
     _tsz = f_tsz(tszS)
     _y   = isLong ? low : high
     _st  = isLong ? label.style_label_up : label.style_label_down
-    label.new(bar_index, _y, (isLong ? "LONG" : "SHORT") + " · " + typ + "\n@ " + str.tostring(entryPx, format.mintick) + "   SL " + str.tostring(stopPx, format.mintick), style = _st, color = dirCol, textcolor = color.white, size = _tsz)
+    array.push(lbArr, label.new(bar_index, _y, (isLong ? "LONG" : "SHORT") + " · " + typ + "\n@ " + str.tostring(entryPx, format.mintick) + "   SL " + str.tostring(stopPx, format.mintick), style = _st, color = dirCol, textcolor = color.white, size = _tsz))
     if drawSL
-        line.new(bar_index, stopPx, bar_index + pad, stopPx, color = stopC, width = 1, style = line.style_dashed)
-        label.new(bar_index + pad, stopPx, "SL " + str.tostring(stopPx, format.mintick), style = label.style_label_left, color = color.new(stopC, 100), textcolor = stopC, size = size.tiny)
+        array.push(lnArr, line.new(bar_index, stopPx, bar_index + pad, stopPx, color = stopC, width = 1, style = line.style_dashed))
 
 // ── Signals — evaluate only on CONFIRMED bars so nothing repaints intrabar ───
 conf = barstate.isconfirmed and not na(pH) and not na(pL)
@@ -146,25 +158,25 @@ if conf
     if manipS and not fManipS
         fManipS := true
         if showMarks
-            f_sig(false, "sweep", close, wickHi, shortCol, stopCol, rightPad, tagSize, showStop)
+            f_sig(false, "sweep", close, wickHi, shortCol, stopCol, rightPad, tagSize, showStop, sigLn, sigLb)
         if enAl and alShort
             alert(f_pay("p4h_short", "SHORT", "4H HIGH", pH, wickHi, "SWEEP + REJECT of the prior 4h HIGH " + str.tostring(pH, format.mintick) + " — wicked above and closed back under. Fade the liquidity grab. Stop above the swept wick " + str.tostring(wickHi, format.mintick) + ". Target the prior 4h LOW " + str.tostring(pL, format.mintick) + "."), alert.freq_once_per_bar_close)
     if breakL and not fBreakL
         fBreakL := true
         if showMarks
-            f_sig(true, "break", close, pL, longCol, stopCol, rightPad, tagSize, showStop)
+            f_sig(true, "break", close, pL, longCol, stopCol, rightPad, tagSize, showStop, sigLn, sigLb)
         if enAl and alLong
             alert(f_pay("p4h_long", "BUY", "4H HIGH", pH, pL, "CLEAN BREAK above the prior 4h HIGH " + str.tostring(pH, format.mintick) + " — confirmed " + timeframe.period + " close through, no reclaim. Stop at the prior 4h LOW " + str.tostring(pL, format.mintick) + "."), alert.freq_once_per_bar_close)
     if manipL and not fManipL
         fManipL := true
         if showMarks
-            f_sig(true, "sweep", close, wickLo, longCol, stopCol, rightPad, tagSize, showStop)
+            f_sig(true, "sweep", close, wickLo, longCol, stopCol, rightPad, tagSize, showStop, sigLn, sigLb)
         if enAl and alLong
             alert(f_pay("p4h_long", "BUY", "4H LOW", pL, wickLo, "SWEEP + RECLAIM of the prior 4h LOW " + str.tostring(pL, format.mintick) + " — wicked below and closed back over. Fade the liquidity grab. Stop below the swept wick " + str.tostring(wickLo, format.mintick) + ". Target the prior 4h HIGH " + str.tostring(pH, format.mintick) + "."), alert.freq_once_per_bar_close)
     if breakS and not fBreakS
         fBreakS := true
         if showMarks
-            f_sig(false, "break", close, pH, shortCol, stopCol, rightPad, tagSize, showStop)
+            f_sig(false, "break", close, pH, shortCol, stopCol, rightPad, tagSize, showStop, sigLn, sigLb)
         if enAl and alShort
             alert(f_pay("p4h_short", "SHORT", "4H LOW", pL, pH, "CLEAN BREAKDOWN below the prior 4h LOW " + str.tostring(pL, format.mintick) + " — confirmed " + timeframe.period + " close through, no reclaim. Stop at the prior 4h HIGH " + str.tostring(pH, format.mintick) + "."), alert.freq_once_per_bar_close)
 
