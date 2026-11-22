@@ -1,0 +1,336 @@
+//@version=5
+// Volume Profile · Weekly + Daily — both the WEEKLY and the DAILY volume-by-price
+// structure (POC / VAH / VAL / HVN / LVN) on one chart, so you can read where the two
+// timeframes agree (confluence = strongest S/R) without loading two indicators.
+//
+//   • Weekly set  — over the last N weeks, drawn BOLD / solid, tagged "W-…"
+//   • Daily set   — over the last N days,  drawn thinner / dashed, tagged "D-…"
+//
+// Both are built from the SAME fine sub-bars (Lower Timeframe below), windowed by weekly
+// vs daily periods — so each set matches the single-TF Volume Profile you'd load on its own.
+// Non-cluttered by design: lines only (no histogram), one shared length, right-side tags.
+indicator("Volume Profile · Weekly + Daily", "VP W+D", overlay = true,
+     max_labels_count = 500, max_lines_count = 500)
+
+// ── Shared ───────────────────────────────────────────────────────────────────
+gS = "Shared"
+ltfTF   = input.timeframe("30", "Lower Timeframe (sub-bars)", group = gS, tooltip = "The fine timeframe the profiles are built from. If the calc times out on a low chart TF, raise this (e.g. 60).")
+columns = input.int(35, "Columns (price rows)", minval = 5, maxval = 200, group = gS)
+vaPct   = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gS)
+hvnPct  = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gS, tooltip = "A local peak is a shelf only if it's at least this % of the biggest (POC) row.")
+lvnPct  = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gS, tooltip = "A local valley is a fast/thin zone only if it's at or below this % of the biggest row.")
+lineLen = input.int(120, "Line length (bars left of price)", minval = 10, maxval = 5000, group = gS, tooltip = "Every level line runs this many bars to the LEFT of price; all the same length, tag at the right end.")
+rightPad = input.int(8, "Right padding (bars past price)", minval = 0, maxval = 60, group = gS)
+tagSize = input.string("small", "Tag text size", options = ["tiny", "small", "normal", "large"], group = gS)
+showTags = input.bool(true, "Show price tags", group = gS)
+
+// ── Proximity (de-clutter the nodes around current price) ────────────────────
+gPx       = "Proximity (de-clutter nodes)"
+proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = for HVN/LVN nodes, keep the N nearest ABOVE price and the N nearest BELOW price, hiding the rest far away (e.g. SPY's deep W-HVN stack down to 505). POC / VAH / VAL are ALWAYS shown. Applies to both the weekly and daily node sets.")
+proxBelow = input.int(3, "Nodes to keep BELOW price", minval = 0, maxval = 30, group = gPx, tooltip = "How many of the nearest nodes below current price to keep (per set). 0 = hide all below.")
+proxAbove = input.int(3, "Nodes to keep ABOVE price (0 = all)", minval = 0, maxval = 30, group = gPx, tooltip = "How many of the nearest nodes above current price to keep (per set). Capping this stops far-away upper nodes from stretching the chart's auto-scale (shrinking the candles). 0 = keep every node above.")
+
+// ── Weekly profile (big-picture structure) ───────────────────────────────────
+gW = "Weekly profile (bold / solid · W- tags)"
+showW   = input.bool(true, "Show weekly", group = gW)
+wBars   = input.int(150, "Weekly window (weeks)", minval = 4, maxval = 2000, group = gW)
+wPoc    = input.bool(true, "POC",     inline = "w1", group = gW)
+wVa     = input.bool(true, "VAH/VAL", inline = "w1", group = gW)
+wHvn    = input.bool(true, "HVN",     inline = "w1", group = gW)
+wLvn    = input.bool(true, "LVN",     inline = "w1", group = gW)
+wPocCol = input.color(#D32F2F, "POC", inline = "w2", group = gW)
+wVaCol  = input.color(#F57C00, "VA",  inline = "w2", group = gW)
+wHvnCol = input.color(#00897B, "HVN", inline = "w2", group = gW)
+wLvnCol = input.color(#C62828, "LVN", inline = "w2", group = gW)
+wWidth  = input.int(3, "Weekly line width", inline = "ws", minval = 1, maxval = 6, group = gW)
+wStyle  = input.string("solid", "style", options = ["solid", "dashed", "dotted"], inline = "ws", group = gW)
+wExtendR = input.int(16, "Weekly extra right extension (bars)", minval = 0, maxval = 200, group = gW, tooltip = "The weekly lines run this many bars FURTHER RIGHT than the daily lines, so the W- tag sits to the right of the D- tag when a weekly and daily level overlap — both stay readable. 0 = same right edge as daily.")
+
+// ── Daily profile (tactical structure) ───────────────────────────────────────
+gD = "Daily profile (thin / dashed · D- tags)"
+showD   = input.bool(true, "Show daily", group = gD)
+dBars   = input.int(150, "Daily window (days)", minval = 5, maxval = 2000, group = gD, tooltip = "150 matches the standalone daily Volume Profile (Bars Back 150). Lower it (e.g. 40–60) for a tighter, more tactical daily read.")
+dPoc    = input.bool(true, "POC",     inline = "d1", group = gD)
+dVa     = input.bool(true, "VAH/VAL", inline = "d1", group = gD)
+dHvn    = input.bool(true, "HVN",     inline = "d1", group = gD)
+dLvn    = input.bool(true, "LVN",     inline = "d1", group = gD)
+dPocCol = input.color(#EF9A9A, "POC", inline = "d2", group = gD)
+dVaCol  = input.color(#FFCC80, "VA",  inline = "d2", group = gD)
+dHvnCol = input.color(#80CBC4, "HVN", inline = "d2", group = gD)
+dLvnCol = input.color(#EF9A9A, "LVN", inline = "d2", group = gD)
+dWidth  = input.int(1, "Daily line width", inline = "ds", minval = 1, maxval = 6, group = gD)
+dStyle  = input.string("dashed", "style", options = ["solid", "dashed", "dotted"], inline = "ds", group = gD, tooltip = "Default dashed so the daily set is easy to tell apart from the bold weekly set.")
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
+f_lnStyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+
+// Build a volume profile from fine sub-bars (h/l/v). Pure: no globals, all via params.
+// Returns [pocPrice, vah, val, hvnPrices[], lvnPrices[]]. Prices na / arrays empty when not enough data.
+f_profile(h, l, v, cols, vaP, hvP, lvP) =>
+    _hvnP = array.new_float()
+    _lvnP = array.new_float()
+    float _pocPrice = na
+    float _vah = na
+    float _val = na
+    _nb = array.size(h)
+    if _nb >= 2
+        _hi = array.get(h, 0)
+        _lo = array.get(l, 0)
+        for _b = 0 to _nb - 1
+            _hi := math.max(_hi, array.get(h, _b))
+            _lo := math.min(_lo, array.get(l, _b))
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / cols
+            vol = array.new_float(cols, 0.0)
+            // distribute each sub-bar's volume across the rows its range overlaps, weighted by overlap
+            for _b = 0 to _nb - 1
+                _bLo = array.get(l, _b)
+                _bHi = array.get(h, _b)
+                _bV  = nz(array.get(v, _b))
+                _loI = math.max(0, math.min(cols - 1, int(math.floor((_bLo - _lo) / _bs))))
+                _hiI = math.max(0, math.min(cols - 1, int(math.floor((_bHi - _lo) / _bs))))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _lo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+            // totals, POC, peak row
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to cols - 1
+                _vv = array.get(vol, _k)
+                _total += _vv
+                if _vv > _maxV
+                    _maxV := _vv
+                    _poc  := _k
+            // value area: grow out from POC comparing the next two rows up vs down
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaP / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, cols - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+            _vah := _lo + (_up + 1) * _bs
+            _val := _lo + _dn * _bs
+            _pocPrice := _lo + (_poc + 0.5) * _bs
+            // HVN shelves / LVN valleys (exclude the POC row)
+            _hvnMin = _maxV * hvP / 100.0
+            _lvnMax = _maxV * lvP / 100.0
+            for _k = 1 to cols - 2
+                _vk = array.get(vol, _k)
+                _vp = array.get(vol, _k - 1)
+                _vn = array.get(vol, _k + 1)
+                _price = _lo + (_k + 0.5) * _bs
+                _isHVN = _vk >= _vp and _vk >= _vn and _vk >= _hvnMin and _k != _poc
+                _isLVN = _vk <= _vp and _vk <= _vn and _vk <= _lvnMax and _vk > 0 and _k != _poc
+                if _isHVN
+                    array.push(_hvnP, _price)
+                else if _isLVN
+                    array.push(_lvnP, _price)
+    [_pocPrice, _vah, _val, _hvnP, _lvnP]
+
+// Draw one flat level line + right-side tag into the shared stores.
+f_level(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag) =>
+    if not na(price)
+        array.push(ln, line.new(xl, price, xr, price, color = c, width = w, style = f_lnStyle(sty)))
+        if tag
+            array.push(lb, label.new(xr, price, txt + " " + str.tostring(price, format.mintick), style = label.style_label_left, color = c, textcolor = color.white, size = f_lblSize(tsz)))
+
+// Proximity cutoffs for a node set: keep the keepBelow nearest below px and the keepAbove nearest above.
+// Returns [belowThr, aboveThr]: a below-node shows when price >= belowThr; an above-node when price <= aboveThr.
+f_proxThresh(hvnP, lvnP, px, keepBelow, keepAbove) =>
+    _bel = array.new_float()
+    _abv = array.new_float()
+    if array.size(hvnP) > 0
+        for _i = 0 to array.size(hvnP) - 1
+            _p = array.get(hvnP, _i)
+            if _p < px
+                array.push(_bel, _p)
+            else
+                array.push(_abv, _p)
+    if array.size(lvnP) > 0
+        for _i = 0 to array.size(lvnP) - 1
+            _p = array.get(lvnP, _i)
+            if _p < px
+                array.push(_bel, _p)
+            else
+                array.push(_abv, _p)
+    array.sort(_bel, order.descending)  // nearest-below first
+    array.sort(_abv, order.ascending)   // nearest-above first
+    _belThr = keepBelow <= 0 ? 1e18 : array.size(_bel) >= keepBelow ? array.get(_bel, keepBelow - 1) : -1e18
+    _abvThr = keepAbove <= 0 ? 1e18 : array.size(_abv) >= keepAbove ? array.get(_abv, keepAbove - 1) : 1e18
+    [_belThr, _abvThr]
+
+// Draw every node in a price array, honoring the proximity gate (proxOn): px = current price.
+f_nodes(ln, lb, xl, xr, prices, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
+    if array.size(prices) > 0
+        for _i = 0 to array.size(prices) - 1
+            _p = array.get(prices, _i)
+            _show = not proxOn or (_p >= px ? _p <= abvThr : _p >= belThr)
+            if _show
+                f_level(ln, lb, xl, xr, _p, txt, c, w, sty, tsz, tag)
+
+// ── Fine sub-bars, tagged with their weekly + daily period (for windowing) ───
+chartSecs = timeframe.in_seconds(timeframe.period)
+ltfSecs   = timeframe.in_seconds(ltfTF)
+effLtfTF  = ltfSecs < chartSecs ? ltfTF : timeframe.period
+ltfH = request.security_lower_tf(syminfo.tickerid, effLtfTF, high)
+ltfL = request.security_lower_tf(syminfo.tickerid, effLtfTF, low)
+ltfV = request.security_lower_tf(syminfo.tickerid, effLtfTF, volume)
+ltfN = na(ltfH) ? 0 : array.size(ltfH)
+
+wPeriod = request.security(syminfo.tickerid, "W", time, lookahead = barmerge.lookahead_off)
+dPeriod = request.security(syminfo.tickerid, "D", time, lookahead = barmerge.lookahead_off)
+
+var float[] subH  = array.new_float(0)
+var float[] subL  = array.new_float(0)
+var float[] subV  = array.new_float(0)
+var int[]   subW  = array.new_int(0)   // weekly-period tag per sub-bar
+var int[]   subD  = array.new_int(0)   // daily-period  tag per sub-bar
+var int[]   wPer  = array.new_int(0)   // last wBars distinct weekly periods
+var int[]   dPer  = array.new_int(0)   // last dBars distinct daily periods
+var int _lastW = na
+var int _lastD = na
+var int lastBar = na
+
+// track the last wBars weekly periods and dBars daily periods → their oldest start = each window start
+if not na(wPeriod) and (na(_lastW) or wPeriod != _lastW)
+    _lastW := wPeriod
+    array.push(wPer, wPeriod)
+    while array.size(wPer) > wBars
+        array.shift(wPer)
+if not na(dPeriod) and (na(_lastD) or dPeriod != _lastD)
+    _lastD := dPeriod
+    array.push(dPer, dPeriod)
+    while array.size(dPer) > dBars
+        array.shift(dPer)
+wWinStart = array.size(wPer) > 0 ? array.get(wPer, 0) : na
+dWinStart = array.size(dPer) > 0 ? array.get(dPer, 0) : na
+// master window start = the earlier of the two (weekly is usually earlier)
+_masterStart = na(wWinStart) ? dWinStart : na(dWinStart) ? wWinStart : math.min(wWinStart, dWinStart)
+
+// bound collection to roughly the weekly window (+buffer); the prune below makes it exact
+_wRatio  = math.max(1.0, timeframe.in_seconds("W") / chartSecs)
+_maxBars = int(wBars * _wRatio * 1.2) + 10
+if bar_index >= last_bar_index - _maxBars and (na(lastBar) or bar_index != lastBar) and ltfN > 0
+    lastBar := bar_index
+    for _s = 0 to ltfN - 1
+        array.push(subH, array.get(ltfH, _s))
+        array.push(subL, array.get(ltfL, _s))
+        array.push(subV, nz(array.get(ltfV, _s)))
+        array.push(subW, wPeriod)
+        array.push(subD, dPeriod)
+// drop sub-bars older than the master window start (NB: Pine `and` does not short-circuit → nested if)
+if not na(_masterStart)
+    _prune = array.size(subW) > 0
+    while _prune
+        if array.get(subW, 0) < _masterStart
+            array.shift(subH)
+            array.shift(subL)
+            array.shift(subV)
+            array.shift(subW)
+            array.shift(subD)
+            _prune := array.size(subW) > 0
+        else
+            _prune := false
+
+// ── Draw both profiles on the last bar ───────────────────────────────────────
+var array<line>  vpLn = array.new_line()
+var array<label> vpLb = array.new_label()
+
+// latest weekly levels kept for the alert conditions
+var float wPocLvl = na
+var float wVahLvl = na
+var float wValLvl = na
+
+if barstate.islast
+    if array.size(vpLn) > 0
+        for _i = 0 to array.size(vpLn) - 1
+            line.delete(array.get(vpLn, _i))
+    if array.size(vpLb) > 0
+        for _i = 0 to array.size(vpLb) - 1
+            label.delete(array.get(vpLb, _i))
+    array.clear(vpLn)
+    array.clear(vpLb)
+
+    _xL = math.max(bar_index - lineLen, bar_index - 9000)
+    _xR  = bar_index + rightPad
+    _xRW = bar_index + rightPad + wExtendR   // weekly lines/tags extend further right so W- tags clear the D- tags
+    _nSub = array.size(subH)
+
+    // Weekly profile: sub-bars whose weekly tag is within the weekly window.
+    if showW and _nSub > 0 and not na(wWinStart)
+        wH = array.new_float()
+        wL = array.new_float()
+        wV = array.new_float()
+        for _i = 0 to _nSub - 1
+            if array.get(subW, _i) >= wWinStart
+                array.push(wH, array.get(subH, _i))
+                array.push(wL, array.get(subL, _i))
+                array.push(wV, array.get(subV, _i))
+        [wP, wVah, wVal, wHvnP, wLvnP] = f_profile(wH, wL, wV, columns, vaPct, hvnPct, lvnPct)
+        wPocLvl := wP
+        wVahLvl := wVah
+        wValLvl := wVal
+        [wBelThr, wAbvThr] = f_proxThresh(wHvnP, wLvnP, close, proxBelow, proxAbove)
+        if wHvn
+            f_nodes(vpLn, vpLb, _xL, _xRW, wHvnP, "W-HVN", wHvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
+        if wLvn
+            f_nodes(vpLn, vpLb, _xL, _xRW, wLvnP, "W-LVN", wLvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
+        if wVa
+            f_level(vpLn, vpLb, _xL, _xRW, wVah, "W-VAH", wVaCol, wWidth, wStyle, tagSize, showTags)
+            f_level(vpLn, vpLb, _xL, _xRW, wVal, "W-VAL", wVaCol, wWidth, wStyle, tagSize, showTags)
+        if wPoc
+            f_level(vpLn, vpLb, _xL, _xRW, wP, "W-POC", wPocCol, wWidth, wStyle, tagSize, showTags)
+
+    // Daily profile: sub-bars whose daily tag is within the daily window.
+    if showD and _nSub > 0 and not na(dWinStart)
+        dH = array.new_float()
+        dL = array.new_float()
+        dV = array.new_float()
+        for _i = 0 to _nSub - 1
+            if array.get(subD, _i) >= dWinStart
+                array.push(dH, array.get(subH, _i))
+                array.push(dL, array.get(subL, _i))
+                array.push(dV, array.get(subV, _i))
+        [dP, dVah, dVal, dHvnP, dLvnP] = f_profile(dH, dL, dV, columns, vaPct, hvnPct, lvnPct)
+        [dBelThr, dAbvThr] = f_proxThresh(dHvnP, dLvnP, close, proxBelow, proxAbove)
+        if dHvn
+            f_nodes(vpLn, vpLb, _xL, _xR, dHvnP, "D-HVN", dHvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
+        if dLvn
+            f_nodes(vpLn, vpLb, _xL, _xR, dLvnP, "D-LVN", dLvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
+        if dVa
+            f_level(vpLn, vpLb, _xL, _xR, dVah, "D-VAH", dVaCol, dWidth, dStyle, tagSize, showTags)
+            f_level(vpLn, vpLb, _xL, _xR, dVal, "D-VAL", dVaCol, dWidth, dStyle, tagSize, showTags)
+        if dPoc
+            f_level(vpLn, vpLb, _xL, _xR, dP, "D-POC", dPocCol, dWidth, dStyle, tagSize, showTags)
+
+// ── Alerts on the WEEKLY key levels (the structural ones) ────────────────────
+alertcondition(not na(wPocLvl) and low <= wPocLvl and high >= wPocLvl, "Price at weekly POC", "{{ticker}} trading at the weekly Volume Profile POC")
+alertcondition(not na(wVahLvl) and low <= wVahLvl and high >= wVahLvl, "Price at weekly VAH", "{{ticker}} trading at the weekly Value Area High")
+alertcondition(not na(wValLvl) and low <= wValLvl and high >= wValLvl, "Price at weekly VAL", "{{ticker}} trading at the weekly Value Area Low")

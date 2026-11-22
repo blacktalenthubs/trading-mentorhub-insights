@@ -3,15 +3,17 @@
 // Value Area (VAH/VAL) and a rolling/anchored VWAP. Every feature is a toggle you
 // control: columns, value-area %, histogram width/direction/offset, volume labels,
 // and the colours/opacities/widths of the blocks and lines. Overlay on price.
-indicator("Volume Profile · Pro v2", "VP-pro v2", overlay = true,
+indicator("vp-lock", overlay = true,
      max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
 
 // ── Profile ──────────────────────────────────────────────────────────────────
 gP = "Profile"
-barsBack = input.int(150, "Bars Back (per current timeframe)", minval = 10, maxval = 5000, group = gP)
-ltfTF = input.timeframe("30", "Lower Timeframe (sub-bars)", group = gP, tooltip = "v2 builds the profile from sub-bars of this timeframe; if the calculation times out, use 60.")
+barsBack = input.int(150, "Bars Back (per current timeframe)", minval = 10, maxval = 5000, group = gP, tooltip = "Window size, counted in bars of the profile's source timeframe: the CHART TF when unlocked, or the Lock timeframe below when locked.")
+ltfTF = input.timeframe("30", "Lower Timeframe (sub-bars)", group = gP, tooltip = "Unlocked only: v2 builds the profile from sub-bars of this timeframe; if the calculation times out, use 60.")
 columns  = input.int(35,  "Columns (price rows)",              minval = 5,  maxval = 200,  group = gP)
 vaPct    = input.float(70, "Value Area %",                     minval = 1,  maxval = 100,  group = gP)
+lockVP   = input.bool(false, "Lock profile to a fixed timeframe", group = gP, tooltip = "OFF (default) = window is the last 'Bars Back' CHART bars. ON = window is the last 'Bars Back' bars of the Lock timeframe below, so a 1h/4h chart shows the SAME profile you'd see on that higher timeframe. EITHER way the profile is built from the SAME fine sub-bars (Lower Timeframe above), so lock-to-weekly reproduces the unlocked weekly profile exactly — same POC/VAH/VAL/HVN/LVN.")
+vpLockTF = input.timeframe("W", "  …lock timeframe (window)", group = gP, tooltip = "The higher timeframe whose periods define the window when locked (e.g. W = last 'Bars Back' weeks). Granularity stays fine (the Lower Timeframe sub-bars) — this only sets how the window is measured. On a low chart TF with a big window the sub-bar feed can be heavy; if it times out, raise Lower Timeframe (e.g. 60) or lower Bars Back.")
 
 // ── Histogram (the blocks) ───────────────────────────────────────────────────
 gH = "Histogram"
@@ -50,9 +52,9 @@ vaBarColor = input.color(#2962FF, "Value-area row color", group = gVA)
 // ── Volume nodes (HVN shelves / LVN fast zones) ──────────────────────────────
 gN = "Volume nodes"
 showHVN   = input.bool(true, "Show HVN lines", inline = "hvn", group = gN)
-hvnColor  = input.color(#000000, "", inline = "hvn", group = gN)
+hvnColor  = input.color(#26A69A, "", inline = "hvn", group = gN)
 showLVN   = input.bool(true, "Show LVN lines", inline = "lvn", group = gN)
-lvnColor  = input.color(#757575, "", inline = "lvn", group = gN)
+lvnColor  = input.color(#EF5350, "", inline = "lvn", group = gN)
 hvnPct    = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gN, tooltip = "A local peak is a shelf only if it's at least this % of the biggest row.")
 lvnPct    = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gN, tooltip = "A local valley is a fast/thin zone only if it's at or below this % of the biggest row.")
 nodeWidth = input.int(1, "Node line width", minval = 1, maxval = 6, group = gN)
@@ -91,8 +93,13 @@ ltfN = na(ltfH) ? 0 : array.size(ltfH)
 var float[] subH = array.new_float(0)
 var float[] subL = array.new_float(0)
 var float[] subV = array.new_float(0)
+var int[]   subP = array.new_int(0)   // lock-TF period tag per sub-bar (locked windowing only)
+var int[]   vpPer = array.new_int(0)  // last `barsBack` distinct lock-TF periods (locked only)
 var int lastSubBar = na
-if bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index != lastSubBar) and ltfN > 0
+var int _lastPer = na
+
+// ── UNLOCKED (original engine, unchanged): fine sub-bars over the last `barsBack` CHART bars. ──
+if not lockVP and bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index != lastSubBar) and ltfN > 0
 
     lastSubBar := bar_index
     for _s = 0 to ltfN - 1
@@ -102,6 +109,39 @@ if bar_index >= last_bar_index - barsBack + 1 and (na(lastSubBar) or bar_index !
         array.push(subL, array.get(ltfL, _s))
 
         array.push(subV, nz(array.get(ltfV, _s)))
+
+// ── LOCKED: the SAME fine sub-bars, but windowed by the LOCK timeframe's periods (last `barsBack`
+// of them). Lock-to-weekly reproduces the unlocked weekly profile exactly — fine granularity, weekly window.
+_vpPeriod = request.security(syminfo.tickerid, lockVP ? vpLockTF : timeframe.period, time, lookahead = barmerge.lookahead_off)
+if lockVP and not na(_vpPeriod) and (na(_lastPer) or _vpPeriod != _lastPer)
+    _lastPer := _vpPeriod
+    array.push(vpPer, _vpPeriod)
+    while array.size(vpPer) > barsBack
+        array.shift(vpPer)
+_winStart = array.size(vpPer) > 0 ? array.get(vpPer, 0) : na
+// Bound collection to roughly the window (+buffer) so history stays cheap; the period-prune below makes it exact.
+_tfRatio = math.max(1.0, timeframe.in_seconds(lockVP ? vpLockTF : timeframe.period) / chartSecs)
+_maxBars = int(barsBack * _tfRatio * 1.2) + 10
+if lockVP and bar_index >= last_bar_index - _maxBars and (na(lastSubBar) or bar_index != lastSubBar) and ltfN > 0
+    lastSubBar := bar_index
+    for _s = 0 to ltfN - 1
+        array.push(subH, array.get(ltfH, _s))
+        array.push(subL, array.get(ltfL, _s))
+        array.push(subV, nz(array.get(ltfV, _s)))
+        array.push(subP, _vpPeriod)
+if lockVP and not na(_winStart)
+    // NB: Pine `and` does NOT short-circuit, so guard array.get with a nested if (never read index 0 of an empty array).
+    _prune = array.size(subP) > 0
+    while _prune
+        if array.get(subP, 0) < _winStart
+            array.shift(subH)
+            array.shift(subL)
+            array.shift(subV)
+            array.shift(subP)
+            _prune := array.size(subP) > 0
+        else
+            _prune := false
+
 if barstate.islast
     // Clear the previous frame (bounded count; redrawn each update).
     if array.size(vpBoxes) > 0
@@ -118,22 +158,31 @@ if barstate.islast
     array.clear(vpLines)
 
     _n = math.min(barsBack, bar_index)
-    if _n >= 2
-        // Window price extent.
+    // Fallback: if the sub-bar feed returned nothing (illiquid / TF unavailable), use chart bars.
+    if array.size(subH) == 0 and _n >= 1
+        for _f = 0 to _n - 1
+            array.push(subH, high[_f])
+            array.push(subL, low[_f])
+            array.push(subV, nz(volume[_f]))
+    _ready = lockVP ? array.size(subH) >= 2 : _n >= 2
+    if _ready
+        // Window price extent — locked: from the collected sub-bars; unlocked: the chart window (original).
         _hi = high
         _lo = low
-        for _b = 0 to _n - 1
-            _hi := math.max(_hi, high[_b])
-            _lo := math.min(_lo, low[_b])
+        if lockVP and array.size(subH) > 0
+            _hi := array.get(subH, 0)
+            _lo := array.get(subL, 0)
+            for _b = 0 to array.size(subH) - 1
+                _hi := math.max(_hi, array.get(subH, _b))
+                _lo := math.min(_lo, array.get(subL, _b))
+        else
+            for _b = 0 to _n - 1
+                _hi := math.max(_hi, high[_b])
+                _lo := math.min(_lo, low[_b])
         _rng = _hi - _lo
         if _rng > 0
             _bs = _rng / columns
             vol = array.new_float(columns, 0.0)
-            if array.size(subH) == 0
-                for _f = 0 to _n - 1
-                    array.push(subH, high[_f])
-                    array.push(subL, low[_f])
-                    array.push(subV, nz(volume[_f]))
             // Distribute each bar's volume across the rows its range overlaps, weighted by the overlap.
             for _b = 0 to array.size(subH) - 1
                 _bLo = array.get(subL, _b)
@@ -219,7 +268,7 @@ if barstate.islast
                         array.push(vpLbls, label.new(_lx, (_top + _bot) / 2.0, f_volTxt(_v), xloc = xloc.bar_index, yloc = yloc.price, style = _st, color = color.new(color.gray, 100), textcolor = volLblColor, size = f_lblSize(volLblSize)))
 
             // POC / VAH / VAL lines spanning the window.
-            _xL = math.max(bar_index - _n + 1, bar_index - 9000)
+            _xL = math.max(lockVP ? bar_index - _maxBars : bar_index - _n + 1, bar_index - 9000)
             _xR = _anchor
             if showPOC
                 if showLbls
@@ -252,7 +301,7 @@ if barstate.islast
                         if showLbls
                             array.push(vpLbls, label.new(_xL, _price, "HVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(hvnColor, 0), textcolor = color.white, size = size.tiny))
                     else if showLVN and _isLVN
-                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_solid))
+                        array.push(vpLines, line.new(_xL, _price, _xR, _price, color = lvnColor, width = nodeWidth, style = line.style_dotted))
                         if showLbls
                             array.push(vpLbls, label.new(_xL, _price, "LVN", xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_right, color = color.new(lvnColor, 0), textcolor = color.white, size = size.tiny))
             if showPOC
