@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.9 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.10 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -36,26 +36,32 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.9", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.10", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
 
-// Every line can be hidden and restyled (solid / dashed / dotted) in
-// the settings. A merged line takes the settings of its
-// highest-priority VISIBLE member and is tagged with the visible
+// Every line can be hidden, restyled (solid / dashed / dotted) and
+// re-weighted (width 1–10) in the settings — checkbox, style and
+// width sit on one row per line. A merged line takes the settings of
+// its highest-priority VISIBLE member and is tagged with the visible
 // names only; hide every member and the line is not drawn at all.
-gL = "Lines — show / hide · style"
+gL = "Lines — show / hide · style · width"
 showHigh   = input.bool(true,  "HIGH",  inline = "lh", group = gL)
 styleHigh  = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lh", group = gL)
+widthHigh  = input.int(2, "", minval = 1, maxval = 10, inline = "lh", group = gL)
 showLow    = input.bool(true,  "LOW",   inline = "ll", group = gL)
 styleLow   = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "ll", group = gL)
+widthLow   = input.int(2, "", minval = 1, maxval = 10, inline = "ll", group = gL)
 showOpen   = input.bool(true,  "OPEN",  inline = "lo", group = gL)
 styleOpen  = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lo", group = gL)
+widthOpen  = input.int(1, "", minval = 1, maxval = 10, inline = "lo", group = gL)
 showClose  = input.bool(true,  "CLOSE", inline = "lc", group = gL)
 styleClose = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lc", group = gL)
+widthClose = input.int(1, "", minval = 1, maxval = 10, inline = "lc", group = gL)
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "When the forming candle wicks through the prior high or low and price comes back inside, draw a line at the wick's extreme tagged STOP — the level that kills the reclaim.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
+widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
 
 c_high  = #FF0000
 c_low   = #43A047
@@ -119,7 +125,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     string[] nm = array.from("HIGH", "LOW", "OPEN", "CLOSE")
     float[]  pr = array.from(pH, pL, pO, pC)
     color[]  cl = array.from(c_high, c_low, c_open, c_close)
-    int[]    wd = array.from(2, 2, 1, 1)
+    int[]    wd = array.from(widthHigh, widthLow, widthOpen, widthClose)
     bool[]   en = array.from(showHigh, showLow, showOpen, showClose)
     string[] sy = array.from(styleHigh, styleLow, styleOpen, styleClose)
     int[]    ix = array.from(0, 1, 2, 3)
@@ -176,8 +182,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     // reclaim. Drawn only while that manipulation wick stands.
     if showStop and not na(fH) and not na(fL) and not na(fC)
         if fH > pH and fC < pH
-            array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = 1, style = f_lstyle(styleStop)))
+            array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
             array.push(_lb, label.new(tEnd, fH, "STOP " + str.tostring(fH, format.mintick), xloc = xloc.bar_time, style = label.style_label_up, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
         if fL < pL and fC > pL
-            array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = 1, style = f_lstyle(styleStop)))
+            array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
             array.push(_lb, label.new(tEnd, fL, "STOP " + str.tostring(fL, format.mintick), xloc = xloc.bar_time, style = label.style_label_down, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
