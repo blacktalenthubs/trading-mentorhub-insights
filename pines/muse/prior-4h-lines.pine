@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.13 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.14 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -40,11 +40,14 @@
 //     on the broken level and was replaced). If the candle's far
 //     extreme is not beyond the entry (a gap-and-go that never came
 //     back), no stop is drawn — the candle offered no risk point.
+//     If the stop lands on a frame line (within 0.1% — e.g. a sweep
+//     that barely crossed the prior high), they MERGE like the frame
+//     lines do: one line, the tag gains STOP — "HIGH + STOP 1728.46".
 //   • Tags carry the price, so the level can be checked at a glance.
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.13", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.14", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -144,6 +147,12 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                 array.set(ix, j, array.get(ix, j + 1))
                 array.set(ix, j + 1, tmp)
     int g = 0
+    // drawn groups, remembered so a STOP landing on one can merge
+    // into its tag instead of drawing a second line
+    string[] gNames = array.new_string()
+    float[]  gPrice = array.new_float()
+    string[] gConf  = array.new_string()
+    label[]  gLabel = array.new_label()
     while g < 4
         int firstIx = array.get(ix, g)
         float gPrice = array.get(pr, firstIx)
@@ -180,10 +189,16 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                 if inp
                     tag += (tag == "" ? "" : " + ") + array.get(nm, p)
             float repPrice = array.get(pr, rep)
-            tag += " " + str.tostring(repPrice, format.mintick) + f_conf(repPrice)
+            string tagNames = tag
+            string confStr = f_conf(repPrice)
+            tag += " " + str.tostring(repPrice, format.mintick) + confStr
             string st = hasH ? label.style_label_up : hasL ? label.style_label_down : label.style_label_left
             array.push(_ln, line.new(tPriorOpen, repPrice, tEnd, repPrice, xloc = xloc.bar_time, color = array.get(cl, rep), width = array.get(wd, rep), style = f_lstyle(array.get(sy, rep))))
             array.push(_lb, label.new(tEnd, repPrice, tag, xloc = xloc.bar_time, style = st, color = array.get(cl, rep), textcolor = f_txtcol(array.get(cl, rep)), size = size.small))
+            array.push(gNames, tagNames)
+            array.push(gPrice, repPrice)
+            array.push(gConf, confStr)
+            array.push(gLabel, array.get(_lb, array.size(_lb) - 1))
         g := h
     // STOP lines — the forming candle's far extreme, never the entry
     // level itself (a stop at the entry is a zero-risk non-trade):
@@ -196,9 +211,23 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     if showStop and not na(fH) and not na(fL) and not na(fC)
         if (fH > pH and fC < pH) or fC < pL
             if fH > pL
-                array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
-                array.push(_lb, label.new(tEnd, fH, "STOP " + str.tostring(fH, format.mintick), xloc = xloc.bar_time, style = label.style_label_up, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
+                bool mergedH = false
+                if array.size(gPrice) > 0
+                    for k = 0 to array.size(gPrice) - 1
+                        if not mergedH and math.abs(fH - array.get(gPrice, k)) / array.get(gPrice, k) * 100 <= confPct
+                            label.set_text(array.get(gLabel, k), array.get(gNames, k) + " + STOP " + str.tostring(array.get(gPrice, k), format.mintick) + array.get(gConf, k))
+                            mergedH := true
+                if not mergedH
+                    array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
+                    array.push(_lb, label.new(tEnd, fH, "STOP " + str.tostring(fH, format.mintick), xloc = xloc.bar_time, style = label.style_label_up, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
         if (fL < pL and fC > pL) or fC > pH
             if fL < pH
-                array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
-                array.push(_lb, label.new(tEnd, fL, "STOP " + str.tostring(fL, format.mintick), xloc = xloc.bar_time, style = label.style_label_down, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
+                bool mergedL = false
+                if array.size(gPrice) > 0
+                    for k = 0 to array.size(gPrice) - 1
+                        if not mergedL and math.abs(fL - array.get(gPrice, k)) / array.get(gPrice, k) * 100 <= confPct
+                            label.set_text(array.get(gLabel, k), array.get(gNames, k) + " + STOP " + str.tostring(array.get(gPrice, k), format.mintick) + array.get(gConf, k))
+                            mergedL := true
+                if not mergedL
+                    array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
+                    array.push(_lb, label.new(tEnd, fL, "STOP " + str.tostring(fL, format.mintick), xloc = xloc.bar_time, style = label.style_label_down, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
