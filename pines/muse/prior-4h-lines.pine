@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.8 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.9 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -36,11 +36,26 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.8", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.9", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
-showStop = input.bool(true, "STOP line at a manipulation wick", tooltip = "When the forming candle wicks through the prior high or low and price comes back inside, draw a line at the wick's extreme tagged STOP — the level that kills the reclaim.")
+
+// Every line can be hidden and restyled (solid / dashed / dotted) in
+// the settings. A merged line takes the settings of its
+// highest-priority VISIBLE member and is tagged with the visible
+// names only; hide every member and the line is not drawn at all.
+gL = "Lines — show / hide · style"
+showHigh   = input.bool(true,  "HIGH",  inline = "lh", group = gL)
+styleHigh  = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lh", group = gL)
+showLow    = input.bool(true,  "LOW",   inline = "ll", group = gL)
+styleLow   = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "ll", group = gL)
+showOpen   = input.bool(true,  "OPEN",  inline = "lo", group = gL)
+styleOpen  = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lo", group = gL)
+showClose  = input.bool(true,  "CLOSE", inline = "lc", group = gL)
+styleClose = input.string("solid",  "", options = ["solid", "dashed", "dotted"], inline = "lc", group = gL)
+showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "When the forming candle wicks through the prior high or low and price comes back inside, draw a line at the wick's extreme tagged STOP — the level that kills the reclaim.")
+styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 
 c_high  = #FF0000
 c_low   = #43A047
@@ -49,6 +64,7 @@ c_close = #424242
 c_stop  = #FF9800
 confPct = 0.1  // shared tolerance %: confluence tags + merging the candle's own lines
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
+f_lstyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
 // forming candle's close time — settled [1] + lookahead, the same idiom as
@@ -104,6 +120,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     float[]  pr = array.from(pH, pL, pO, pC)
     color[]  cl = array.from(c_high, c_low, c_open, c_close)
     int[]    wd = array.from(2, 2, 1, 1)
+    bool[]   en = array.from(showHigh, showLow, showOpen, showClose)
+    string[] sy = array.from(styleHigh, styleLow, styleOpen, styleClose)
     int[]    ix = array.from(0, 1, 2, 3)
     for i = 0 to 2
         for j = 0 to 2 - i
@@ -121,38 +139,45 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         while h < 4 and math.abs(array.get(pr, array.get(ix, h)) - gPrice) / gPrice * 100 <= confPct
             array.push(members, array.get(ix, h))
             h += 1
-        int rep = firstIx
-        bool hasH = false
-        bool hasL = false
+        // visible members only — a merged line answers to the
+        // highest-priority member that is switched on
+        int[] emembers = array.new_int()
         for m = 0 to array.size(members) - 1
-            int mi = array.get(members, m)
-            if mi < rep
-                rep := mi
-            if mi == 0
-                hasH := true
-            if mi == 1
-                hasL := true
-        string tag = ""
-        for p = 0 to 3
-            bool inp = false
-            for m = 0 to array.size(members) - 1
-                if array.get(members, m) == p
-                    inp := true
-            if inp
-                tag += (tag == "" ? "" : " + ") + array.get(nm, p)
-        float repPrice = array.get(pr, rep)
-        tag += " " + str.tostring(repPrice, format.mintick) + f_conf(repPrice)
-        string st = hasH ? label.style_label_up : hasL ? label.style_label_down : label.style_label_left
-        array.push(_ln, line.new(tPriorOpen, repPrice, tEnd, repPrice, xloc = xloc.bar_time, color = array.get(cl, rep), width = array.get(wd, rep)))
-        array.push(_lb, label.new(tEnd, repPrice, tag, xloc = xloc.bar_time, style = st, color = array.get(cl, rep), textcolor = f_txtcol(array.get(cl, rep)), size = size.small))
+            if array.get(en, array.get(members, m))
+                array.push(emembers, array.get(members, m))
+        if array.size(emembers) > 0
+            int rep = array.get(emembers, 0)
+            bool hasH = false
+            bool hasL = false
+            for m = 0 to array.size(emembers) - 1
+                int mi = array.get(emembers, m)
+                if mi < rep
+                    rep := mi
+                if mi == 0
+                    hasH := true
+                if mi == 1
+                    hasL := true
+            string tag = ""
+            for p = 0 to 3
+                bool inp = false
+                for m = 0 to array.size(emembers) - 1
+                    if array.get(emembers, m) == p
+                        inp := true
+                if inp
+                    tag += (tag == "" ? "" : " + ") + array.get(nm, p)
+            float repPrice = array.get(pr, rep)
+            tag += " " + str.tostring(repPrice, format.mintick) + f_conf(repPrice)
+            string st = hasH ? label.style_label_up : hasL ? label.style_label_down : label.style_label_left
+            array.push(_ln, line.new(tPriorOpen, repPrice, tEnd, repPrice, xloc = xloc.bar_time, color = array.get(cl, rep), width = array.get(wd, rep), style = f_lstyle(array.get(sy, rep))))
+            array.push(_lb, label.new(tEnd, repPrice, tag, xloc = xloc.bar_time, style = st, color = array.get(cl, rep), textcolor = f_txtcol(array.get(cl, rep)), size = size.small))
         g := h
     // STOP lines: the forming candle wicked through a prior line and
     // price is back inside — the wick's extreme is the stop for the
     // reclaim. Drawn only while that manipulation wick stands.
     if showStop and not na(fH) and not na(fL) and not na(fC)
         if fH > pH and fC < pH
-            array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = 1, style = line.style_dashed))
+            array.push(_ln, line.new(tFormOpen, fH, tEnd, fH, xloc = xloc.bar_time, color = c_stop, width = 1, style = f_lstyle(styleStop)))
             array.push(_lb, label.new(tEnd, fH, "STOP " + str.tostring(fH, format.mintick), xloc = xloc.bar_time, style = label.style_label_up, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
         if fL < pL and fC > pL
-            array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = 1, style = line.style_dashed))
+            array.push(_ln, line.new(tFormOpen, fL, tEnd, fL, xloc = xloc.bar_time, color = c_stop, width = 1, style = f_lstyle(styleStop)))
             array.push(_lb, label.new(tEnd, fL, "STOP " + str.tostring(fL, format.mintick), xloc = xloc.bar_time, style = label.style_label_down, color = c_stop, textcolor = f_txtcol(c_stop), size = size.small))
