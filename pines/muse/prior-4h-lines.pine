@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.5 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.6 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -20,11 +20,15 @@
 //     low (PDH / PDL) or the prior week's high or low (PWH / PWL), the tag
 //     says so — "HIGH 1728.46 + PWH" — the same callout the signal cards
 //     make. Toggle in the settings.
+//   • MERGED LINES: when the candle's own values coincide within 0.1% —
+//     the open at the high, the open at the low — only ONE line is drawn,
+//     tagged with both names: "HIGH + OPEN 1728.46". No stacked lines,
+//     no double tags (v2026.11.22.6).
 //   • Tags carry the price, so the level can be checked at a glance.
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.5", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.6", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -32,6 +36,7 @@ showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip
 c_high = #FF0000
 c_low  = #43A047
 c_open = #787B86
+confPct = 0.1  // shared tolerance %: confluence tags + merging the candle's own lines
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
@@ -52,13 +57,13 @@ pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
 f_conf(float price) =>
     string s = ""
     if showConf
-        if not na(pdh) and math.abs(price - pdh) / price * 100 <= 0.1
+        if not na(pdh) and math.abs(price - pdh) / price * 100 <= confPct
             s += " + PDH"
-        if not na(pdl) and math.abs(price - pdl) / price * 100 <= 0.1
+        if not na(pdl) and math.abs(price - pdl) / price * 100 <= confPct
             s += " + PDL"
-        if not na(pwh) and math.abs(price - pwh) / price * 100 <= 0.1
+        if not na(pwh) and math.abs(price - pwh) / price * 100 <= confPct
             s += " + PWH"
-        if not na(pwl) and math.abs(price - pwl) / price * 100 <= 0.1
+        if not na(pwl) and math.abs(price - pwl) / price * 100 <= confPct
             s += " + PWL"
     s
 
@@ -75,9 +80,29 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(tPrio
             label.delete(array.get(_lb, i))
         array.clear(_lb)
     int tEnd = tClose + extend_h * 3600 * 1000
-    array.push(_ln, line.new(tPriorOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
-    array.push(_ln, line.new(tPriorOpen, pL, tEnd, pL, xloc = xloc.bar_time, color = c_low, width = 2))
-    array.push(_ln, line.new(tPriorOpen, pO, tEnd, pO, xloc = xloc.bar_time, color = c_open, width = 1))
-    array.push(_lb, label.new(tEnd, pH, "HIGH " + str.tostring(pH, format.mintick) + f_conf(pH), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
-    array.push(_lb, label.new(tEnd, pL, "LOW " + str.tostring(pL, format.mintick) + f_conf(pL), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.small))
-    array.push(_lb, label.new(tEnd, pO, "OPEN " + str.tostring(pO, format.mintick) + f_conf(pO), xloc = xloc.bar_time, style = label.style_label_left, color = c_open, textcolor = f_txtcol(c_open), size = size.small))
+    // Merge the candle's own lines when their values coincide (within
+    // confPct): one line, one tag naming every part. The merged line
+    // sits at the extreme it contains (HIGH first, then LOW).
+    bool oEqH = math.abs(pO - pH) / pH * 100 <= confPct
+    bool oEqL = math.abs(pO - pL) / pL * 100 <= confPct
+    bool hEqL = math.abs(pH - pL) / pH * 100 <= confPct
+    if hEqL
+        array.push(_ln, line.new(tPriorOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
+        array.push(_lb, label.new(tEnd, pH, "HIGH + LOW + OPEN " + str.tostring(pH, format.mintick) + f_conf(pH), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
+    else if oEqH
+        array.push(_ln, line.new(tPriorOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
+        array.push(_ln, line.new(tPriorOpen, pL, tEnd, pL, xloc = xloc.bar_time, color = c_low, width = 2))
+        array.push(_lb, label.new(tEnd, pH, "HIGH + OPEN " + str.tostring(pH, format.mintick) + f_conf(pH), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
+        array.push(_lb, label.new(tEnd, pL, "LOW " + str.tostring(pL, format.mintick) + f_conf(pL), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.small))
+    else if oEqL
+        array.push(_ln, line.new(tPriorOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
+        array.push(_ln, line.new(tPriorOpen, pL, tEnd, pL, xloc = xloc.bar_time, color = c_low, width = 2))
+        array.push(_lb, label.new(tEnd, pH, "HIGH " + str.tostring(pH, format.mintick) + f_conf(pH), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
+        array.push(_lb, label.new(tEnd, pL, "LOW + OPEN " + str.tostring(pL, format.mintick) + f_conf(pL), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.small))
+    else
+        array.push(_ln, line.new(tPriorOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
+        array.push(_ln, line.new(tPriorOpen, pL, tEnd, pL, xloc = xloc.bar_time, color = c_low, width = 2))
+        array.push(_ln, line.new(tPriorOpen, pO, tEnd, pO, xloc = xloc.bar_time, color = c_open, width = 1))
+        array.push(_lb, label.new(tEnd, pH, "HIGH " + str.tostring(pH, format.mintick) + f_conf(pH), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
+        array.push(_lb, label.new(tEnd, pL, "LOW " + str.tostring(pL, format.mintick) + f_conf(pL), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.small))
+        array.push(_lb, label.new(tEnd, pO, "OPEN " + str.tostring(pO, format.mintick) + f_conf(pO), xloc = xloc.bar_time, style = label.style_label_left, color = c_open, textcolor = f_txtcol(c_open), size = size.small))
