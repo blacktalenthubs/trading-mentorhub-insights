@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.18 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.19 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -27,14 +27,16 @@
 //     the open at the high, the open at the low — only ONE line is drawn,
 //     tagged with both names: "HIGH + OPEN 1728.46". No stacked lines,
 //     no double tags (v2026.11.22.6). Lines are drawn only when needed.
-//   • RECLAIM ARROWS (v2026.11.22.16): when a level is LOST and then
-//     RECLAIMED — both judged on completed 15-minute closes — a small
-//     arrow in the level's colour marks the reclaiming 15m bar: under
-//     it pointing up when price reclaimed upward, above it pointing
-//     down when price reclaimed downward. Applies to HIGH, LOW and
-//     CLOSE. Every lost → reclaim pair gets its arrow, so a level
-//     price chops across shows its flip-flops. Arrows belong to the
-//     current candle's frame and clear when the frame rolls.
+//   • CROSSING ARROWS (v2026.11.22.16; losses added v2026.11.22.19):
+//     every completed 15-minute close that crosses a level gets a
+//     small arrow in the level's colour on that 15m bar — under it
+//     pointing up for a close crossing upward, above it pointing
+//     down for a close crossing downward. Crossings alternate by
+//     construction: the first is the LOSS (the level taken), the
+//     next is the RECLAIM, then a fresh loss, and so on — so a level
+//     price chops across shows its flip-flops as alternating arrows.
+//     Applies to HIGH, LOW and CLOSE. Arrows belong to the current
+//     candle's frame and clear when the frame rolls.
 //   • STOP LINES (faint yellow, dashed by default — restyle in
 //     settings; the STOP tag sits at the END of the line, with the
 //     other tags):
@@ -62,7 +64,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.18", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.19", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -88,7 +90,7 @@ widthClose = input.int(1, "", minval = 1, maxval = 10, inline = "lc", group = gL
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "Auto STOP line at the forming candle's far extreme while a trade is live: its high for a short-side trade, its low for a long-side trade. Never the entry level itself.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
-showRec    = input.bool(true, "Arrows: lost → reclaim (15m close)", group = gL, tooltip = "Small arrow on the 15m bar that reclaims a lost HIGH, LOW or CLOSE level. Follows each level's own show / hide above.")
+showRec    = input.bool(true, "Arrows: lost → reclaim (15m close)", group = gL, tooltip = "Small arrow on every 15m close that crosses a HIGH, LOW or CLOSE level — the loss and the reclaim alike. Follows each level's own show / hide above.")
 
 c_high  = #FF0000
 c_low   = #43A047
@@ -99,16 +101,17 @@ confPct = 0.1  // shared tolerance %: confluence tags + merging the candle's own
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 f_lstyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 
-// One step of a level's lost → reclaim state machine, fed with
-// completed 15m closes. Returns [new side, new lost flag, reclaimed?]:
-// the first close across the level is the LOSS; the next close back
-// across it is the RECLAIM; then the cycle restarts.
+// One step of a level's crossing state machine, fed with completed
+// 15m closes. Returns [new side, new lost flag, reclaimed?, crossed?]:
+// the first close across the level is the LOSS, the next close back
+// across it is the RECLAIM, then the cycle restarts. Every crossing
+// (loss or reclaim) earns an arrow.
 f_flip(int side, bool lost, float price, float level) =>
     int ns = price > level ? 1 : price < level ? -1 : side
     bool flip = side != 0 and ns != 0 and ns != side
     bool rec = flip and lost
     bool nlost = flip ? not lost : lost
-    [ns, nlost, rec]
+    [ns, nlost, rec, flip]
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
 // forming candle's close time — settled [1] + lookahead, the same idiom as
@@ -321,18 +324,18 @@ if not na(c15) and not na(t15) and t15 != lastT15 and not na(pH) and not na(pL) 
     if not na(stopLP) and not stopLDead and c15 < stopLP
         stopLDead := true
     if showRec
-        [nsH, nlH, recH] = f_flip(sideH, lostH, c15, pH)
+        [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c15, pH)
         sideH := nsH
         lostH := nlH
-        [nsL, nlL, recL] = f_flip(sideL, lostL, c15, pL)
+        [nsL, nlL, recL, flipL] = f_flip(sideL, lostL, c15, pL)
         sideL := nsL
         lostL := nlL
-        [nsC, nlC, recC] = f_flip(sideC, lostC, c15, pC)
+        [nsC, nlC, recC, flipC] = f_flip(sideC, lostC, c15, pC)
         sideC := nsC
         lostC := nlC
-        if recH and showHigh
-            array.push(_arw, label.new(t15, nsH == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.tiny))
-        if recL and showLow
-            array.push(_arw, label.new(t15, nsL == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.tiny))
-        if recC and showClose
-            array.push(_arw, label.new(t15, nsC == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.tiny))
+        if flipH and showHigh
+            array.push(_arw, label.new(t15, nsH == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
+        if flipL and showLow
+            array.push(_arw, label.new(t15, nsL == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
+        if flipC and showClose
+            array.push(_arw, label.new(t15, nsC == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.small))
