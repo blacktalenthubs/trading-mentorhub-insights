@@ -64,9 +64,9 @@ dStyle  = input.string("dashed", "style", options = ["solid", "dashed", "dotted"
 // ── Moving averages (SMA 8 / 21 / 50 / 200) ──────────────────────────────────
 // Four SMAs you can individually uncheck, re-length, recolor and re-width. One shared
 // drawing style. Independent of the volume profile above — purely overlaid trend lines.
-gMA = "Moving averages (SMA)"
+gMA = "Moving averages (SMA · flat)"
 maSrc   = input.source(close, "Source", group = gMA)
-maStyle = input.string("line", "Line style (all MAs)", options = ["line", "stepline", "circles", "cross"], group = gMA, tooltip = "Drawing style shared by all four SMAs.")
+maStyle = input.string("solid", "Line style (all MAs)", options = ["solid", "dashed", "dotted"], group = gMA, tooltip = "Drawing style shared by all four SMAs. Each MA is drawn as a FLAT horizontal line at its current value (like the VP levels), not a curve.")
 // per-MA row: show? · length · color · width
 ma1On  = input.bool(true,  "SMA", inline = "ma1", group = gMA)
 ma1Len = input.int(8,   "len",   inline = "ma1", minval = 1, group = gMA)
@@ -88,8 +88,12 @@ ma4W   = input.int(2, "w",        inline = "ma4", minval = 1, maxval = 6, group 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
 f_lnStyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
-// plot() needs an INPUT-qualified style (a function returns series), so resolve it inline here.
-maStyleP = maStyle == "stepline" ? plot.style_stepline : maStyle == "circles" ? plot.style_circles : maStyle == "cross" ? plot.style_cross : plot.style_line
+
+// SMA values (computed every bar; drawn FLAT at the current value on the last bar)
+sma1 = ta.sma(maSrc, ma1Len)
+sma2 = ta.sma(maSrc, ma2Len)
+sma3 = ta.sma(maSrc, ma3Len)
+sma4 = ta.sma(maSrc, ma4Len)
 
 // Build a volume profile from fine sub-bars (h/l/v). Pure: no globals, all via params.
 // Returns [pocPrice, vah, val, hvnPrices[], lvnPrices[]]. Prices na / arrays empty when not enough data.
@@ -356,13 +360,17 @@ if barstate.islast
         if dPoc
             f_level(vpLn, vpLb, _xL, _xR, dP, "D-POC", dPocCol, dWidth, dStyle, tagSize, showTags)
 
+    // Flat SMAs: current value drawn as a horizontal level (uncheck / re-length / recolor / re-width above).
+    if ma1On
+        f_level(vpLn, vpLb, _xL, _xR, sma1, "SMA " + str.tostring(ma1Len), ma1Col, ma1W, maStyle, tagSize, showTags)
+    if ma2On
+        f_level(vpLn, vpLb, _xL, _xR, sma2, "SMA " + str.tostring(ma2Len), ma2Col, ma2W, maStyle, tagSize, showTags)
+    if ma3On
+        f_level(vpLn, vpLb, _xL, _xR, sma3, "SMA " + str.tostring(ma3Len), ma3Col, ma3W, maStyle, tagSize, showTags)
+    if ma4On
+        f_level(vpLn, vpLb, _xL, _xR, sma4, "SMA " + str.tostring(ma4Len), ma4Col, ma4W, maStyle, tagSize, showTags)
+
 // ── Alerts on the WEEKLY key levels (the structural ones) ────────────────────
 alertcondition(not na(wPocLvl) and low <= wPocLvl and high >= wPocLvl, "Price at weekly POC", "{{ticker}} trading at the weekly Volume Profile POC")
 alertcondition(not na(wVahLvl) and low <= wVahLvl and high >= wVahLvl, "Price at weekly VAH", "{{ticker}} trading at the weekly Value Area High")
 alertcondition(not na(wValLvl) and low <= wValLvl and high >= wValLvl, "Price at weekly VAL", "{{ticker}} trading at the weekly Value Area Low")
-
-// ── Moving averages: uncheck any, change length / color / width, shared style ─
-plot(ma1On ? ta.sma(maSrc, ma1Len) : na, "SMA 8",   color = ma1Col, linewidth = ma1W, style = maStyleP)
-plot(ma2On ? ta.sma(maSrc, ma2Len) : na, "SMA 21",  color = ma2Col, linewidth = ma2W, style = maStyleP)
-plot(ma3On ? ta.sma(maSrc, ma3Len) : na, "SMA 50",  color = ma3Col, linewidth = ma3W, style = maStyleP)
-plot(ma4On ? ta.sma(maSrc, ma4Len) : na, "SMA 200", color = ma4Col, linewidth = ma4W, style = maStyleP)
