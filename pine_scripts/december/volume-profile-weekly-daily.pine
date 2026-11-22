@@ -88,7 +88,8 @@ ma4W   = input.int(2, "w",        inline = "ma4", minval = 1, maxval = 6, group 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
 f_lnStyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
-f_plotStyle(string s) => s == "stepline" ? plot.style_stepline : s == "circles" ? plot.style_circles : s == "cross" ? plot.style_cross : plot.style_line
+// plot() needs an INPUT-qualified style (a function returns series), so resolve it inline here.
+maStyleP = maStyle == "stepline" ? plot.style_stepline : maStyle == "circles" ? plot.style_circles : maStyle == "cross" ? plot.style_cross : plot.style_line
 
 // Build a volume profile from fine sub-bars (h/l/v). Pure: no globals, all via params.
 // Returns [pocPrice, vah, val, hvnPrices[], lvnPrices[]]. Prices na / arrays empty when not enough data.
@@ -361,7 +362,7 @@ alertcondition(not na(wVahLvl) and low <= wVahLvl and high >= wVahLvl, "Price at
 alertcondition(not na(wValLvl) and low <= wValLvl and high >= wValLvl, "Price at weekly VAL", "{{ticker}} trading at the weekly Value Area Low")
 
 // ── Moving averages: uncheck any, change length / color / width, shared style ─
-plot(ma1On ? ta.sma(maSrc, ma1Len) : na, "SMA 8",   color = ma1Col, linewidth = ma1W, style = f_plotStyle(maStyle))
-plot(ma2On ? ta.sma(maSrc, ma2Len) : na, "SMA 21",  color = ma2Col, linewidth = ma2W, style = f_plotStyle(maStyle))
-plot(ma3On ? ta.sma(maSrc, ma3Len) : na, "SMA 50",  color = ma3Col, linewidth = ma3W, style = f_plotStyle(maStyle))
-plot(ma4On ? ta.sma(maSrc, ma4Len) : na, "SMA 200", color = ma4Col, linewidth = ma4W, style = f_plotStyle(maStyle))
+plot(ma1On ? ta.sma(maSrc, ma1Len) : na, "SMA 8",   color = ma1Col, linewidth = ma1W, style = maStyleP)
+plot(ma2On ? ta.sma(maSrc, ma2Len) : na, "SMA 21",  color = ma2Col, linewidth = ma2W, style = maStyleP)
+plot(ma3On ? ta.sma(maSrc, ma3Len) : na, "SMA 50",  color = ma3Col, linewidth = ma3W, style = maStyleP)
+plot(ma4On ? ta.sma(maSrc, ma4Len) : na, "SMA 200", color = ma4Col, linewidth = ma4W, style = maStyleP)
