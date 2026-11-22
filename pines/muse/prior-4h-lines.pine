@@ -1,35 +1,39 @@
 //@version=6
-// prior-4h-lines v2026.11.22.1 — version is in the indicator title too: if the chart legend
+// prior-4h-lines v2026.11.22.2 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
-// PRIOR 4H LINES — the rolling prior-candle frame: the HIGH and LOW of the LAST
-// COMPLETED 4H candle, drawn across the candle now forming. When a 4H candle
-// closes, the lines move to it — it becomes the prior — and so on, candle after
-// candle. The new candle is traded against the prior candle, nothing else.
+// PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and CLOSE of
+// the LAST COMPLETED 4H candle, drawn across the candle now forming. When a
+// 4H candle closes, the lines move to it — it becomes the prior — and so on,
+// candle after candle. The new candle is traded against the prior candle,
+// nothing else.
 //
 //   • HIGH line (red), tag SHORT above it — the line shorts trigger at.
 //   • LOW line (green), tag LONG below it — the line longs trigger at.
+//   • CLOSE line (gray), tag CLOSE beside it — where the prior candle settled.
 //   • Tags carry the price, so the level can be checked at a glance.
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("Prior 4H Lines · v2026.11.22.1", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Prior 4H Lines · v2026.11.22.2", shorttitle = "Prior 4H Lines", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the two lines reach past the current 4H candle's close, so the tags stay readable.")
 
-c_high = #FF0000
-c_low  = #43A047
+c_high  = #FF0000
+c_low   = #43A047
+c_close = #787B86
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 
-// Prior completed 4H candle's HIGH/LOW + the forming candle's open/close times —
-// settled [1] + lookahead, the same idiom as 4h-prior-rails and day-signals.
+// Prior completed 4H candle's HIGH/LOW/CLOSE + the forming candle's open/close
+// times — settled [1] + lookahead, the same idiom as 4h-prior-rails and
+// day-signals.
 tid = syminfo.tickerid
-[pH, pL, tOpen, tClose] = request.security(tid, "240", [high[1], low[1], time, time_close], lookahead = barmerge.lookahead_on)
+[pH, pL, pC, tOpen, tClose] = request.security(tid, "240", [high[1], low[1], close[1], time, time_close], lookahead = barmerge.lookahead_on)
 
 // ── draw — rebuilt on the last bar (delete-then-redraw, the house pattern) ──
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
-if barstate.islast and not na(pH) and not na(pL) and not na(tOpen) and not na(tClose)
+if barstate.islast and not na(pH) and not na(pL) and not na(pC) and not na(tOpen) and not na(tClose)
     if array.size(_ln) > 0
         for i = 0 to array.size(_ln) - 1
             line.delete(array.get(_ln, i))
@@ -41,5 +45,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(tOpen) and not na(tC
     int tEnd = tClose + extend_h * 3600 * 1000
     array.push(_ln, line.new(tOpen, pH, tEnd, pH, xloc = xloc.bar_time, color = c_high, width = 2))
     array.push(_ln, line.new(tOpen, pL, tEnd, pL, xloc = xloc.bar_time, color = c_low, width = 2))
+    array.push(_ln, line.new(tOpen, pC, tEnd, pC, xloc = xloc.bar_time, color = c_close, width = 1))
     array.push(_lb, label.new(tEnd, pH, "SHORT " + str.tostring(pH, format.mintick), xloc = xloc.bar_time, style = label.style_label_up, color = c_high, textcolor = f_txtcol(c_high), size = size.small))
     array.push(_lb, label.new(tEnd, pL, "LONG " + str.tostring(pL, format.mintick), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.small))
+    array.push(_lb, label.new(tEnd, pC, "CLOSE " + str.tostring(pC, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_close, textcolor = f_txtcol(c_close), size = size.small))
