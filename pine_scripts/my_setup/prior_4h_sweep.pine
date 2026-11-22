@@ -1,0 +1,227 @@
+//@version=5
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIOR 4H SWEEP — trade the next 4h candle off the one that just closed.
+// ─────────────────────────────────────────────────────────────────────────────
+// The reference is ALWAYS the last COMPLETED 4h candle — its HIGH, LOW and CLOSE.
+// Unlike the frozen "yesterday's last 4h", this one ROLLS: the instant a new 4h
+// candle closes, the lines jump to it. You are always reading the freshest 4h
+// footprint while you trade the forming one underneath it.
+//
+// Two ways price interacts with a 4h HIGH or LOW, and each one is a trade:
+//
+//   ① MANIPULATION  (sweep + reclaim — the A+ setup)
+//      Price pokes a level with a WICK, grabs the stops sitting beyond it, then
+//      CLOSES back through. That poke was a liquidity grab, so you FADE it.
+//        • wick ABOVE the 4h HIGH, close back under  →  SHORT   stop = the wick HIGH
+//        • wick BELOW the 4h LOW,  close back over   →  LONG    stop = the wick LOW
+//      The swept wick is the stop because if price reclaims it, the grab was real
+//      and you're wrong. Tight stop, the opposite 4h level is the natural target.
+//      The reclaim can be the SAME 15m bar (poke + close back) or a bar or two
+//      later (poke, looks like a break, then fails back through) — both caught.
+//
+//   ② CLEAN BREAK  (no manipulation — just go with it)
+//      No wick-and-reclaim: price just CLOSES clean through the level and holds.
+//        • confirmed close ABOVE the 4h HIGH  →  LONG    stop = the prior 4h LOW
+//        • confirmed close BELOW the 4h LOW   →  SHORT   stop = the prior 4h HIGH
+//      Here the stop is the OPPOSITE 4h extreme — the most recent 4h low/high —
+//      a structural stop, because a clean break should not come back inside the
+//      whole prior candle.
+//
+// The two are mutually exclusive on any one bar (a bar can't close both above and
+// below a level), so there's never a conflicting LONG+SHORT on the same level.
+//
+// RUN THIS ON YOUR TRIGGER CHART — 15-MINUTE RECOMMENDED. The "15m close" you use
+// to confirm a reclaim/break IS the chart-bar close here, so the chart timeframe
+// is the confirmation timeframe. The 4h levels come settled [1] + lookahead →
+// non-repainting; RTH ticker keeps pre/post prints out.
+//
+// ONE long and ONE short per 4h candle (reset at each 4h roll), so a level that
+// gets poked six times sends one message per side, not six.
+//
+// ALERTS — rules p4h_long / p4h_short, same JSON payload shape as the rest of the
+// setup. Bind ONE alert on this study: condition "Any alert() function call",
+// webhook on.
+// ─────────────────────────────────────────────────────────────────────────────
+indicator("Prior 4H Sweep", "4H-SWP", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ── Inputs ───────────────────────────────────────────────────────────────────
+gS       = "Structure"
+structTF = input.timeframe("240", "Prior-candle timeframe", group = gS, tooltip = "Source of the HIGH/LOW/CLOSE levels. 240 = 4h. The levels roll to the newest completed candle at every close of this timeframe.")
+
+gL       = "Levels"
+showHi   = input.bool(true,  "High",  inline = "l1", group = gL)
+showLo   = input.bool(true,  "Low",   inline = "l1", group = gL)
+showCl   = input.bool(true,  "Close", inline = "l1", group = gL)
+supCol   = input.color(#26a69a, "Support (price above)",  group = gL)
+resCol   = input.color(#ef5350, "Resistance (price below)", group = gL)
+clCol    = input.color(#9598a1, "Close line",            group = gL)
+lvlW     = input.int(2, "Line width", minval = 1, maxval = 5, group = gL)
+lvlStyle = input.string("Solid", "Line style", options = ["Solid", "Dashed", "Dotted"], group = gL)
+lineLen  = input.int(60, "Line length left (bars)",  minval = 5, maxval = 500, group = gL)
+rightPad = input.int(14, "Extend right (bars)",      minval = 0, maxval = 100, group = gL)
+tagSize  = input.string("Small", "Tag size", options = ["Tiny", "Small", "Normal", "Large"], group = gL)
+showPx   = input.bool(true, "Show price on tags", group = gL)
+
+gE       = "Entries"
+useManip = input.bool(true, "Manipulation (sweep + reclaim) reversals", group = gE)
+useBreak = input.bool(true, "Clean-break momentum entries",             group = gE)
+trHi     = input.bool(true, "Trade the 4h HIGH", inline = "t", group = gE)
+trLo     = input.bool(true, "Trade the 4h LOW",  inline = "t", group = gE)
+showMarks= input.bool(true, "Mark entries + stops on the chart", group = gE)
+showStop = input.bool(true, "Draw the stop line when an entry fires", group = gE)
+stopCol  = input.color(#f7a600, "Stop", inline = "c", group = gE)
+longCol  = input.color(#26a69a, "Long", inline = "c", group = gE)
+shortCol = input.color(#ef5350, "Short", inline = "c", group = gE)
+
+gA       = "Alerts"
+enAl     = input.bool(true,  "Fire platform alerts", group = gA, tooltip = "Bind ONE alert on this study: condition 'Any alert() function call', webhook on. Rules p4h_long / p4h_short.")
+alLong   = input.bool(true,  "Longs",  inline = "a", group = gA)
+alShort  = input.bool(true,  "Shorts", inline = "a", group = gA)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+f_tsz(string s)     => s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large : size.small
+f_lnStyle(string s) => s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
+
+// ── The rolling prior 4h candle. Settled [1] + lookahead → non-repainting;
+//    RTH ticker keeps pre/post out. No day-freeze: these walk to the newest
+//    completed 4h candle, which is exactly what we want here.
+rthTid = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pH, pL, pC] = request.security(rthTid, structTF, [high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+
+newCandle = (ta.change(pH) != 0 or ta.change(pL) != 0) and not na(pH) and not na(pL)
+
+// ── Per-candle sweep state + one-fire-per-side dedup (reset at each 4h roll) ──
+var bool  armedHi = false
+var bool  armedLo = false
+var float wickHi  = na
+var float wickLo  = na
+var bool  fManipS = false
+var bool  fManipL = false
+var bool  fBreakL = false
+var bool  fBreakS = false
+if newCandle
+    armedHi := false
+    armedLo := false
+    wickHi  := na
+    wickLo  := na
+    fManipS := false
+    fManipL := false
+    fBreakL := false
+    fBreakS := false
+
+// ── Payload (same schema as the rest of the setup) ───────────────────────────
+f_nl() => "4H H " + str.tostring(pH, format.mintick) + " · 4H L " + str.tostring(pL, format.mintick) + " · 4H C " + str.tostring(pC, format.mintick)
+
+f_pay(string rule, string dir, string lvlNm, float lvl, float stp, string note) =>
+    '{"symbol":"' + syminfo.ticker + '","price":"' + str.tostring(close, format.mintick) + '","rule":"' + rule + '","direction":"' + dir + '","level":"' + lvlNm + '","interval":"' + timeframe.period + '","entry":"' + str.tostring(close, format.mintick) + '","stop":"' + str.tostring(stp, format.mintick) + '","note":"' + note + '","nearby_levels":"' + f_nl() + '"}'
+
+// ── Draw an entry label + its stop line (persistent; TV caps at max counts) ──
+f_sig(bool isLong, string typ, float entryPx, float stopPx, color dirCol, color stopC, int pad, string tszS, bool drawSL) =>
+    _tsz = f_tsz(tszS)
+    _y   = isLong ? low : high
+    _st  = isLong ? label.style_label_up : label.style_label_down
+    label.new(bar_index, _y, (isLong ? "LONG" : "SHORT") + " · " + typ + "\n@ " + str.tostring(entryPx, format.mintick) + "   SL " + str.tostring(stopPx, format.mintick), style = _st, color = dirCol, textcolor = color.white, size = _tsz)
+    if drawSL
+        line.new(bar_index, stopPx, bar_index + pad, stopPx, color = stopC, width = 1, style = line.style_dashed)
+        label.new(bar_index + pad, stopPx, "SL " + str.tostring(stopPx, format.mintick), style = label.style_label_left, color = color.new(stopC, 100), textcolor = stopC, size = size.tiny)
+
+// ── Signals — evaluate only on CONFIRMED bars so nothing repaints intrabar ───
+conf = barstate.isconfirmed and not na(pH) and not na(pL)
+if conf
+    // arm the sweep + track the swept wick extreme for this candle
+    if high > pH
+        armedHi := true
+        wickHi  := na(wickHi) ? high : math.max(wickHi, high)
+    if low < pL
+        armedLo := true
+        wickLo  := na(wickLo) ? low : math.min(wickLo, low)
+
+    // ① MANIPULATION — swept the level with a wick, closed back through → fade
+    manipS = useManip and trHi and armedHi and close < pH     // swept HIGH, reclaimed down → SHORT
+    manipL = useManip and trLo and armedLo and close > pL     // swept LOW,  reclaimed up   → LONG
+    // ② CLEAN BREAK — confirmed close through, came from the other side → go with it
+    breakL = useBreak and trHi and close > pH and open <= pH  // close above HIGH → LONG,  stop = prior LOW
+    breakS = useBreak and trLo and close < pL and open >= pL  // close below LOW  → SHORT, stop = prior HIGH
+
+    if manipS and not fManipS
+        fManipS := true
+        if showMarks
+            f_sig(false, "sweep", close, wickHi, shortCol, stopCol, rightPad, tagSize, showStop)
+        if enAl and alShort
+            alert(f_pay("p4h_short", "SHORT", "4H HIGH", pH, wickHi, "SWEEP + REJECT of the prior 4h HIGH " + str.tostring(pH, format.mintick) + " — wicked above and closed back under. Fade the liquidity grab. Stop above the swept wick " + str.tostring(wickHi, format.mintick) + ". Target the prior 4h LOW " + str.tostring(pL, format.mintick) + "."), alert.freq_once_per_bar_close)
+    if breakL and not fBreakL
+        fBreakL := true
+        if showMarks
+            f_sig(true, "break", close, pL, longCol, stopCol, rightPad, tagSize, showStop)
+        if enAl and alLong
+            alert(f_pay("p4h_long", "BUY", "4H HIGH", pH, pL, "CLEAN BREAK above the prior 4h HIGH " + str.tostring(pH, format.mintick) + " — confirmed " + timeframe.period + " close through, no reclaim. Stop at the prior 4h LOW " + str.tostring(pL, format.mintick) + "."), alert.freq_once_per_bar_close)
+    if manipL and not fManipL
+        fManipL := true
+        if showMarks
+            f_sig(true, "sweep", close, wickLo, longCol, stopCol, rightPad, tagSize, showStop)
+        if enAl and alLong
+            alert(f_pay("p4h_long", "BUY", "4H LOW", pL, wickLo, "SWEEP + RECLAIM of the prior 4h LOW " + str.tostring(pL, format.mintick) + " — wicked below and closed back over. Fade the liquidity grab. Stop below the swept wick " + str.tostring(wickLo, format.mintick) + ". Target the prior 4h HIGH " + str.tostring(pH, format.mintick) + "."), alert.freq_once_per_bar_close)
+    if breakS and not fBreakS
+        fBreakS := true
+        if showMarks
+            f_sig(false, "break", close, pH, shortCol, stopCol, rightPad, tagSize, showStop)
+        if enAl and alShort
+            alert(f_pay("p4h_short", "SHORT", "4H LOW", pL, pH, "CLEAN BREAKDOWN below the prior 4h LOW " + str.tostring(pL, format.mintick) + " — confirmed " + timeframe.period + " close through, no reclaim. Stop at the prior 4h HIGH " + str.tostring(pH, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── Rolling level lines (right-edge only; redrawn in place each last bar) ─────
+var line  hiLn = na
+var line  loLn = na
+var line  clLn = na
+var label hiLb = na
+var label loLb = na
+var label clLb = na
+if barstate.islast and not na(pH) and not na(pL)
+    x1 = bar_index - lineLen
+    x2 = bar_index + rightPad
+    // create once
+    if na(hiLn)
+        hiLn := line.new(x1, pH, x2, pH, width = lvlW)
+        loLn := line.new(x1, pL, x2, pL, width = lvlW)
+        clLn := line.new(x1, pC, x2, pC, width = 1, style = line.style_dotted)
+        hiLb := label.new(x2, pH, "", style = label.style_label_left, textcolor = color.white)
+        loLb := label.new(x2, pL, "", style = label.style_label_left, textcolor = color.white)
+        clLb := label.new(x2, pC, "", style = label.style_label_left, textcolor = color.white)
+    hiSup = close > pH
+    loSup = close > pL
+    hiC = hiSup ? supCol : resCol
+    loC = loSup ? supCol : resCol
+    _tsz = f_tsz(tagSize)
+    _sty = f_lnStyle(lvlStyle)
+    // HIGH
+    line.set_xy1(hiLn, x1, pH)
+    line.set_xy2(hiLn, x2, pH)
+    line.set_color(hiLn, showHi ? hiC : color.new(hiC, 100))
+    line.set_width(hiLn, lvlW)
+    line.set_style(hiLn, _sty)
+    label.set_xy(hiLb, x2, pH)
+    label.set_color(hiLb, hiC)
+    label.set_size(hiLb, _tsz)
+    label.set_text(hiLb, showHi ? (hiSup ? "▲ " : "▼ ") + "4H HIGH" + (showPx ? "  " + str.tostring(pH, format.mintick) : "") : "")
+    // LOW
+    line.set_xy1(loLn, x1, pL)
+    line.set_xy2(loLn, x2, pL)
+    line.set_color(loLn, showLo ? loC : color.new(loC, 100))
+    line.set_width(loLn, lvlW)
+    line.set_style(loLn, _sty)
+    label.set_xy(loLb, x2, pL)
+    label.set_color(loLb, loC)
+    label.set_size(loLb, _tsz)
+    label.set_text(loLb, showLo ? (loSup ? "▲ " : "▼ ") + "4H LOW" + (showPx ? "  " + str.tostring(pL, format.mintick) : "") : "")
+    // CLOSE (context)
+    line.set_xy1(clLn, x1, pC)
+    line.set_xy2(clLn, x2, pC)
+    line.set_color(clLn, showCl ? clCol : color.new(clCol, 100))
+    label.set_xy(clLb, x2, pC)
+    label.set_color(clLb, color.new(clCol, 100))
+    label.set_textcolor(clLb, clCol)
+    label.set_size(clLb, _tsz)
+    label.set_text(clLb, showCl ? "4H CLOSE" + (showPx ? "  " + str.tostring(pC, format.mintick) : "") : "")
+
+// ── Gentle reminder if the chart timeframe is too high to confirm cleanly ─────
+if barstate.islastconfirmedhistory and timeframe.in_seconds(timeframe.period) >= timeframe.in_seconds(structTF)
+    label.new(bar_index, high, "⚠ Run on a chart BELOW " + structTF + " (15m recommended) — entries confirm on chart-bar closes.", style = label.style_label_down, color = color.new(color.orange, 0), textcolor = color.white, size = size.small)
