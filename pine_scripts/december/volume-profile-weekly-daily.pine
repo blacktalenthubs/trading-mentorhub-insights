@@ -61,9 +61,34 @@ dLvnCol = input.color(#EF9A9A, "LVN", inline = "d2", group = gD)
 dWidth  = input.int(1, "Daily line width", inline = "ds", minval = 1, maxval = 6, group = gD)
 dStyle  = input.string("dashed", "style", options = ["solid", "dashed", "dotted"], inline = "ds", group = gD, tooltip = "Default dashed so the daily set is easy to tell apart from the bold weekly set.")
 
+// ── Moving averages (SMA 8 / 21 / 50 / 200) ──────────────────────────────────
+// Four SMAs you can individually uncheck, re-length, recolor and re-width. One shared
+// drawing style. Independent of the volume profile above — purely overlaid trend lines.
+gMA = "Moving averages (SMA)"
+maSrc   = input.source(close, "Source", group = gMA)
+maStyle = input.string("line", "Line style (all MAs)", options = ["line", "stepline", "circles", "cross"], group = gMA, tooltip = "Drawing style shared by all four SMAs.")
+// per-MA row: show? · length · color · width
+ma1On  = input.bool(true,  "SMA", inline = "ma1", group = gMA)
+ma1Len = input.int(8,   "len",   inline = "ma1", minval = 1, group = gMA)
+ma1Col = input.color(#26A69A, "", inline = "ma1", group = gMA)
+ma1W   = input.int(1, "w",        inline = "ma1", minval = 1, maxval = 6, group = gMA)
+ma2On  = input.bool(true,  "SMA", inline = "ma2", group = gMA)
+ma2Len = input.int(21,  "len",   inline = "ma2", minval = 1, group = gMA)
+ma2Col = input.color(#FB8C00, "", inline = "ma2", group = gMA)
+ma2W   = input.int(1, "w",        inline = "ma2", minval = 1, maxval = 6, group = gMA)
+ma3On  = input.bool(true,  "SMA", inline = "ma3", group = gMA)
+ma3Len = input.int(50,  "len",   inline = "ma3", minval = 1, group = gMA)
+ma3Col = input.color(#2962FF, "", inline = "ma3", group = gMA)
+ma3W   = input.int(2, "w",        inline = "ma3", minval = 1, maxval = 6, group = gMA)
+ma4On  = input.bool(true,  "SMA", inline = "ma4", group = gMA)
+ma4Len = input.int(200, "len",   inline = "ma4", minval = 1, group = gMA)
+ma4Col = input.color(#AB47BC, "", inline = "ma4", group = gMA)
+ma4W   = input.int(2, "w",        inline = "ma4", minval = 1, maxval = 6, group = gMA)
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
 f_lnStyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+f_plotStyle(string s) => s == "stepline" ? plot.style_stepline : s == "circles" ? plot.style_circles : s == "cross" ? plot.style_cross : plot.style_line
 
 // Build a volume profile from fine sub-bars (h/l/v). Pure: no globals, all via params.
 // Returns [pocPrice, vah, val, hvnPrices[], lvnPrices[]]. Prices na / arrays empty when not enough data.
@@ -334,3 +359,9 @@ if barstate.islast
 alertcondition(not na(wPocLvl) and low <= wPocLvl and high >= wPocLvl, "Price at weekly POC", "{{ticker}} trading at the weekly Volume Profile POC")
 alertcondition(not na(wVahLvl) and low <= wVahLvl and high >= wVahLvl, "Price at weekly VAH", "{{ticker}} trading at the weekly Value Area High")
 alertcondition(not na(wValLvl) and low <= wValLvl and high >= wValLvl, "Price at weekly VAL", "{{ticker}} trading at the weekly Value Area Low")
+
+// ── Moving averages: uncheck any, change length / color / width, shared style ─
+plot(ma1On ? ta.sma(maSrc, ma1Len) : na, "SMA 8",   color = ma1Col, linewidth = ma1W, style = f_plotStyle(maStyle))
+plot(ma2On ? ta.sma(maSrc, ma2Len) : na, "SMA 21",  color = ma2Col, linewidth = ma2W, style = f_plotStyle(maStyle))
+plot(ma3On ? ta.sma(maSrc, ma3Len) : na, "SMA 50",  color = ma3Col, linewidth = ma3W, style = f_plotStyle(maStyle))
+plot(ma4On ? ta.sma(maSrc, ma4Len) : na, "SMA 200", color = ma4Col, linewidth = ma4W, style = f_plotStyle(maStyle))
