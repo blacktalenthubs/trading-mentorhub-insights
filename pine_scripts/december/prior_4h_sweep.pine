@@ -143,7 +143,7 @@ f_entry(bool isLong, float stopPx, color dirCol, color stopC, string tszS, bool 
     _lb = label.new(bar_index, _y, isLong ? "LONG" : "SHORT", style = _st, color = dirCol, textcolor = color.white, size = f_tsz(tszS))
     line _ln = na
     if drawSL
-        _ln := line.new(bar_index, stopPx, bar_index, stopPx, color = stopC, width = 1, style = line.style_dashed, extend = extend.right)
+        _ln := line.new(bar_index, stopPx, bar_index + 2, stopPx, color = stopC, width = 1, style = line.style_dashed)
     [_ln, _lb]
 
 // ── Signals — evaluate only on CONFIRMED bars so nothing repaints intrabar ───
@@ -227,6 +227,11 @@ if conf
             actLb := b
         if enAl and alShort
             alert(f_pay("p4h_short", "SHORT", "4H LOW", pL, pH, "Clean breakdown below 4h LOW " + str.tostring(pL, format.mintick) + ". Stop " + str.tostring(pH, format.mintick) + "."), alert.freq_once_per_bar_close)
+
+// ── Trail the active stop line to the right edge (BOUNDED — never an infinite
+//    ray, which would drag the auto-scale and compress the chart).
+if barstate.islast and not na(actLn)
+    line.set_x2(actLn, bar_index + rightPad)
 
 // ── Rolling level lines (right-edge only; redrawn in place each last bar) ─────
 var line  hiLn = na
