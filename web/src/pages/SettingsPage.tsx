@@ -520,7 +520,7 @@ function AlertTypesSection() {
 
   const GROUP_ORDER = ["Day Trade", "Swing Trade", "Notices"];
   const GROUP_DESC: Record<string, string> = {
-    "Day Trade": "The scanner signals — in and out the same session. Daily & hourly 20/200 SMA support holds, PDH breakout, PDL reclaim, PWH breakout, PWL reclaim. Nothing else fires.",
+    "Day Trade": "The prior-4H model — trade the forming 4H candle against the last completed 4H candle's high/low and the unbroken RANGE. A 10m close through a level is a break (go-with); a sweep-and-reclaim is a fade. Delivered from TradingView (bind 4h-signals-only per symbol on 10m). The old SMA/PDH/PDL scanner is off.",
     "Swing Trade": "Hold days into weeks — all deduped. 5/20 EMA cross · RSI-30 reclaim · 200 SMA reclaim · 200 EMA reclaim · 30-week MA bounce.",
   };
   // One toggle per signal FAMILY (category). Friendly label; fallback = the category name.
