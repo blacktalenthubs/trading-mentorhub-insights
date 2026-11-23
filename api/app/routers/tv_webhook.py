@@ -2144,6 +2144,14 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
     _sess_reason = session_suppress_reason(
         sig.symbol, allow_premarket=_allow_pre, allow_afterhours=_allow_post, exempt=_rth_exempt,
     )
+    # 4H model is a 24h method (2026-11-23, trader trades the overnight session): the
+    # prior-4H / RANGE break+fade types are explicitly judged on the 24h tape, so they
+    # bypass the RTH session gate on EVERY symbol — otherwise an overnight equity signal
+    # (e.g. NVDA break of the prior-4H low at 9pm ET) is suppressed as outside_rth and
+    # never reaches Telegram. SPY/QQQ were already exempt; this extends 24h to the whole
+    # 4H book without per-symbol rth_exempt maintenance.
+    if _sess_reason and _bare_rule in _FOURH_TYPES:
+        _sess_reason = None
     if _sess_reason:
         logger.info(
             "TV webhook: %s suppressed %s for %s",
