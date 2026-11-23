@@ -836,6 +836,16 @@ ENABLED_RULES: set[str] = {
     "auto_stop_out",
 }
 
+# ── SCANNER SILENCED (2026-11-23, trader directive) ──────────────────────────
+# "turn scanner signals completely off — no other alerts except the 4H TV model."
+# The whole live-scanner book above is the delivery gate (ENABLED_RULES); emptying
+# it stops the worker from delivering ANY scanner alert (support holds, reclaims,
+# breakouts, rejections, AND the stop_loss_hit / auto_stop_out exit notices). The
+# prior-4H / RANGE day-trade signals run entirely through TradingView → /tv/webhook
+# (the fourh_* types), NOT this scanner, so they are unaffected. The full set is
+# preserved above (and in git history) — restore the scanner by deleting this line.
+ENABLED_RULES = set()
+
 
 # ============================================================================
 # Phase 3a (2026-04-23) — NOTICE_ONLY_RULES.
