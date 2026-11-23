@@ -14,7 +14,7 @@
 //   • HIGH line (red), tag "HIGH <price>" — the prior candle's top.
 //   • LOW line (green), tag "LOW <price>" — the prior candle's bottom.
 //   • OPEN line (gray), tag "OPEN <price>" — where the prior candle started;
-//     its reclaim or loss is judged on 15-minute closes.
+//     its reclaim or loss is judged on 10-minute closes.
 //   • CLOSE line (dark gray), tag "CLOSE <price>" — where the prior candle
 //     settled. A visual reference only (price stalling above or below it
 //     is the read); it is not an entry line (added v2026.11.22.8).
@@ -37,11 +37,11 @@
 //     range trade later; they stay drawn until a completed candle
 //     closes outside her (added v2026.11.22.20). Toggle in settings.
 //   • CROSSING ARROWS (v2026.11.22.16; losses added v2026.11.22.19;
-//     step engine fixed v2026.11.22.21 — the security-fetched 15m bar
+//     step engine fixed v2026.11.22.21 — the security-fetched 10m bar
 //     time never arrived, so the machines never stepped; they now
 //     step on the completed bar's own close / low / high changing):
-//     every completed 15-minute close that crosses a level gets a
-//     small arrow in the level's colour on that 15m bar — under it
+//     every completed 10-minute close that crosses a level gets a
+//     small arrow in the level's colour on that 10m bar — under it
 //     pointing up for a close crossing upward, above it pointing
 //     down for a close crossing downward. Crossings alternate by
 //     construction: the first is the LOSS (the level taken), the
@@ -65,7 +65,7 @@
 //     If the stop lands on a frame line (within 0.1% — e.g. a sweep
 //     that barely crossed the prior high), they MERGE like the frame
 //     lines do: one line, the tag gains STOP — "HIGH + STOP 1728.46".
-//     Once a stop is TAKEN OUT — a completed 15m close beyond it —
+//     Once a stop is TAKEN OUT — a completed 10m close beyond it —
 //     the line is removed for the rest of the candle: the trade is
 //     invalidated (v2026.11.22.17). A merged tag reverts to the plain
 //     frame tag at the same moment. Until it is taken out the stop
@@ -76,7 +76,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.26", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.22.27", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -105,10 +105,10 @@ widthRange = input.int(1, "", minval = 1, maxval = 10, inline = "lr", group = gL
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "Auto STOP line at the forming candle's far extreme while a trade is live: its high for a short-side trade, its low for a long-side trade. Never the entry level itself.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
-showRec    = input.bool(true, "Arrows: lost → reclaim (15m close)", group = gL, tooltip = "Small arrow on every 15m close that crosses a HIGH, LOW or CLOSE level — the loss and the reclaim alike. Follows each level's own show / hide above.")
+showRec    = input.bool(true, "Arrows: lost → reclaim (10m close)", group = gL, tooltip = "Small arrow on every 10m close that crosses a HIGH, LOW or CLOSE level — the loss and the reclaim alike. Follows each level's own show / hide above.")
 
 // ── Signal alerts (prior-4H HIGH & LOW only) ──────────────────────
-// Fire a webhook-ready alert on every 15m close that crosses the prior 4H
+// Fire a webhook-ready alert on every 10m close that crosses the prior 4H
 // HIGH or LOW. Break (go-with) and sweep-reclaim / reject (fade) are both
 // emitted, judged on the CLOSE (so a gap-through still fires), and a level
 // re-arms the instant it crosses back — the crossing machine alternates by
@@ -116,7 +116,7 @@ showRec    = input.bool(true, "Arrows: lost → reclaim (15m close)", group = gL
 // and point the webhook at /tv/webhook. Prior-4H high/low only — OPEN / CLOSE
 // / RANGE lines are drawing context, never signals.
 gA = "Signal alerts (webhook)"
-alertsOn = input.bool(true, "Send break / fade alerts (prior-4H high & low)", group = gA, tooltip = "ON = emit an alert() on each 15m close that breaks or reclaims/rejects the prior 4H high or low. Break of low → SHORT (stop = forming high); reclaim of low → LONG (stop = forming low); break of high → LONG (stop = forming low); reject of high → SHORT (stop = forming high).")
+alertsOn = input.bool(true, "Send break / fade alerts (prior-4H + RANGE high & low)", group = gA, tooltip = "ON = emit an alert() on each 10m close that breaks or reclaims/rejects the prior 4H high/low AND the RANGE high/low (mother candle) — all through the SAME break/reclaim logic. Break of a low → SHORT (stop = forming high); reclaim of a low → LONG (stop = forming low); break of a high → LONG (stop = forming low); reject of a high → SHORT (stop = forming high). RANGE alerts need the RANGE toggle on.")
 
 c_high  = #FF0000
 c_low   = #43A047
@@ -128,7 +128,7 @@ f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.1
 f_lstyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
 
 // One step of a level's crossing state machine, fed with completed
-// 15m closes. Returns [new side, new lost flag, reclaimed?, crossed?]:
+// 10m closes. Returns [new side, new lost flag, reclaimed?, crossed?]:
 // the first close across the level is the LOSS, the next close back
 // across it is the RECLAIM, then the cycle restarts. Every crossing
 // (loss or reclaim) earns an arrow.
@@ -144,7 +144,7 @@ f_flip(int side, bool lost, float price, float level) =>
 // can strip the prefix. Targets are omitted — the webhook computes them from
 // entry + stop + direction.
 f_sigJSON(string ruleName, string dir, float entryP, float stopP) =>
-    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","price":"' + str.tostring(entryP, format.mintick) + '","rule":"' + ruleName + '","direction":"' + dir + '","interval":"15","entry":"' + str.tostring(entryP, format.mintick) + '","stop":"' + str.tostring(stopP, format.mintick) + '"}'
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","price":"' + str.tostring(entryP, format.mintick) + '","rule":"' + ruleName + '","direction":"' + dir + '","interval":"10","entry":"' + str.tostring(entryP, format.mintick) + '","stop":"' + str.tostring(stopP, format.mintick) + '"}'
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
 // forming candle's close time — settled [1] + lookahead, the same idiom as
@@ -154,14 +154,14 @@ tid = syminfo.tickerid
 // The FORMING 4H candle's live values (for the manipulation-wick STOP
 // line) — read unshifted with lookahead_on; only used on the last bar.
 [fH, fL, fC, tFormOpen] = request.security(tid, "240", [high, low, close, time], lookahead = barmerge.lookahead_on)
-// The last COMPLETED 15-minute bar (for the lost → reclaim arrows) —
-// judged on 15m closes on any chart timeframe. No bar time is
+// The last COMPLETED 10-minute bar (for the lost → reclaim arrows) —
+// judged on 10m closes on any chart timeframe. No bar time is
 // fetched with it: in live testing the security-fetched time[1]
 // came back na and silently stopped the arrow machines from ever
 // stepping (v2026.11.22.21) — the machines step on the bar's own
 // close / low / high changing instead, and arrows are stamped with
 // the chart's own previous-bar time.
-[c15, l15, h15] = request.security(tid, "15", [close[1], low[1], high[1]], lookahead = barmerge.lookahead_on)
+[c10, l10, h10] = request.security(tid, "10", [close[1], low[1], high[1]], lookahead = barmerge.lookahead_on)
 
 // Older completed 4H candles (offsets 2–9) for the RANGE walk below.
 [h2, h3, h4, h5, h6, h7, h8, h9] = request.security(tid, "240", [high[2], high[3], high[4], high[5], high[6], high[7], high[8], high[9]], lookahead = barmerge.lookahead_on)
@@ -227,7 +227,7 @@ var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
 // Locked STOP prices for the forming candle + taken-out flags. A
 // stop locks at the far extreme the moment its trade case goes live
-// and then does not move; a completed 15m close beyond the lock
+// and then does not move; a completed 10m close beyond the lock
 // takes it out, and nothing else removes it before the frame rolls.
 var float stopSP = na
 var bool  stopSDead = false
@@ -327,7 +327,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     if showStop and not na(fH) and not na(fL) and not na(fC)
         // A stop is born when its trade case goes live, locks at the
         // candle's far extreme, and then STAYS — drawn at the lock
-        // until a 15m close takes it out (checked in the 15m block)
+        // until a 10m close takes it out (checked in the 10m block)
         // or the frame rolls. The case flipping or fading does not
         // remove it.
         bool shortLive = (fH > pH and fC < pH) or fC < pL
@@ -377,21 +377,31 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             array.push(_ln, line.new(rT, rngLo, tEnd, rngLo, xloc = xloc.bar_time, color = c_low, width = widthRange, style = f_lstyle(styleRange)))
             array.push(_lb, label.new(tEnd, rngLo, "RANGE LOW " + str.tostring(rngLo, format.mintick) + f_conf(rngLo), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.tiny))
 
-// ── Lost → reclaim arrows (HIGH / LOW / CLOSE, 15m closes) ─────────
-// Runs on every bar: each NEW completed 15m bar steps the three
+// ── Lost → reclaim arrows (HIGH / LOW / CLOSE, 10m closes) ─────────
+// Runs on every bar: each NEW completed 10m bar steps the three
 // state machines once. State and arrows reset when the 4H frame
 // rolls (a new prior candle = a new set of levels).
 var label[] _arw = array.new_label()
 var int frameKey = na
-var float lastC15 = na
-var float lastL15 = na
-var float lastH15 = na
+var float lastC10 = na
+var float lastL10 = na
+var float lastH10 = na
 var int sideH = 0
 var bool lostH = false
 var int sideL = 0
 var bool lostL = false
 var int sideC = 0
 var bool lostC = false
+// RANGE (unbroken mother candle) crossing machines — SAME break/reclaim logic as the
+// prior-4H high/low, judged on 10m closes. Reset when the range level itself changes
+// (a new mother, or the range dies), tracked by its own key below — the range lives
+// independently of the 4H frame.
+var int sideRH = 0
+var bool lostRH = false
+var int sideRL = 0
+var bool lostRL = false
+var float lastRngHi = na
+var float lastRngLo = na
 
 if not na(tPriorOpen) and tPriorOpen != frameKey
     frameKey := tPriorOpen
@@ -405,49 +415,84 @@ if not na(tPriorOpen) and tPriorOpen != frameKey
     stopSDead := false
     stopLP := na
     stopLDead := false
-    lastC15 := na
-    lastL15 := na
-    lastH15 := na
+    lastC10 := na
+    lastL10 := na
+    lastH10 := na
     if array.size(_arw) > 0
         for i = 0 to array.size(_arw) - 1
             label.delete(array.get(_arw, i))
         array.clear(_arw)
 
-// Each NEW completed 15m bar: check the locked stops (a 15m close
+// Each NEW completed 10m bar: check the locked stops (a 10m close
 // beyond a stop takes it out — the line is removed for the rest of
 // the candle) and step the lost → reclaim machines. A new completed
 // bar is recognised by its close / low / high differing from the
 // last sampled one — no fetched bar time is involved (see the
 // fetch note above).
-if not na(c15) and not na(pH) and not na(pL) and not na(pC) and (na(lastC15) or c15 != lastC15 or l15 != lastL15 or h15 != lastH15)
-    lastC15 := c15
-    lastL15 := l15
-    lastH15 := h15
-    if not na(stopSP) and not stopSDead and c15 > stopSP
+if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or c10 != lastC10 or l10 != lastL10 or h10 != lastH10)
+    lastC10 := c10
+    lastL10 := l10
+    lastH10 := h10
+    if not na(stopSP) and not stopSDead and c10 > stopSP
         stopSDead := true
-    if not na(stopLP) and not stopLDead and c15 < stopLP
+    if not na(stopLP) and not stopLDead and c10 < stopLP
         stopLDead := true
-    // Step the crossing machines EVERY new 15m bar (needed for both arrows and
+    // Step the crossing machines EVERY new 10m bar (needed for both arrows and
     // alerts — not gated by showRec, or the state would freeze when arrows are off).
     int ax = na(time[1]) ? time : time[1]
-    [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c15, pH)
+    [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c10, pH)
     sideH := nsH
     lostH := nlH
-    [nsL, nlL, recL, flipL] = f_flip(sideL, lostL, c15, pL)
+    [nsL, nlL, recL, flipL] = f_flip(sideL, lostL, c10, pL)
     sideL := nsL
     lostL := nlL
-    [nsC, nlC, recC, flipC] = f_flip(sideC, lostC, c15, pC)
+    [nsC, nlC, recC, flipC] = f_flip(sideC, lostC, c10, pC)
     sideC := nsC
     lostC := nlC
+    // RANGE machines — reset when the range level changes (new mother / range died / first
+    // appearance), then step the SAME break/reclaim machine on the range high & low. na
+    // range = no step. NB: `value != na` is na (falsy) in Pine, so na transitions are
+    // handled explicitly rather than with a bare `!=`.
+    bool rhChanged = (na(rngHi) and not na(lastRngHi)) or (not na(rngHi) and (na(lastRngHi) or rngHi != lastRngHi))
+    if rhChanged
+        lastRngHi := rngHi
+        sideRH := 0
+        lostRH := false
+    bool rlChanged = (na(rngLo) and not na(lastRngLo)) or (not na(rngLo) and (na(lastRngLo) or rngLo != lastRngLo))
+    if rlChanged
+        lastRngLo := rngLo
+        sideRL := 0
+        lostRL := false
+    int nsRH = sideRH
+    bool flipRH = false
+    int nsRL = sideRL
+    bool flipRL = false
+    if not na(rngHi)
+        [_nsrh, _nlrh, _recrh, _fliprh] = f_flip(sideRH, lostRH, c10, rngHi)
+        sideRH := _nsrh
+        lostRH := _nlrh
+        nsRH := _nsrh
+        flipRH := _fliprh
+    if not na(rngLo)
+        [_nsrl, _nlrl, _recrl, _fliprl] = f_flip(sideRL, lostRL, c10, rngLo)
+        sideRL := _nsrl
+        lostRL := _nlrl
+        nsRL := _nsrl
+        flipRL := _fliprl
     // Arrows (visual): HIGH / LOW / CLOSE crossings.
     if showRec
         if flipH and showHigh
-            array.push(_arw, label.new(ax, nsH == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
+            array.push(_arw, label.new(ax, nsH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
         if flipL and showLow
-            array.push(_arw, label.new(ax, nsL == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
+            array.push(_arw, label.new(ax, nsL == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
         if flipC and showClose
-            array.push(_arw, label.new(ax, nsC == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.small))
-    // Signal alerts — prior-4H HIGH & LOW only (CLOSE/OPEN/RANGE are context, never signals).
+            array.push(_arw, label.new(ax, nsC == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.small))
+        if flipRH and showRange
+            array.push(_arw, label.new(ax, nsRH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsRH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
+        if flipRL and showRange
+            array.push(_arw, label.new(ax, nsRL == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsRL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
+    // Signal alerts — prior-4H HIGH & LOW and the RANGE high & low, all through the SAME
+    // break/reclaim machine and the SAME fourh_* types (OPEN / CLOSE stay drawing context).
     // Break = go-with (close through the level); reclaim / reject = fade (close back across).
     // Stop is the forming 4H candle's far extreme: HIGH for shorts, LOW for longs.
     if alertsOn
@@ -455,15 +500,31 @@ if not na(c15) and not na(pH) and not na(pL) and not na(pC) and (na(lastC15) or 
         if flipL
             if nsL == -1 and not na(fH)
                 // closed below the prior 4H low → break down (go-with SHORT), stop = forming high
-                alert(f_sigJSON("fourh_breakdn", "SHORT", c15, fH), alert.freq_once_per_bar)
+                alert(f_sigJSON("fourh_breakdn", "SHORT", c10, fH), alert.freq_once_per_bar)
             else if nsL == 1 and not na(fL)
                 // reclaimed back above the prior 4H low → sweep-reclaim (fade LONG), stop = forming low
-                alert(f_sigJSON("fourh_reclaim", "BUY", c15, fL), alert.freq_once_per_bar)
+                alert(f_sigJSON("fourh_reclaim", "BUY", c10, fL), alert.freq_once_per_bar)
         // Prior-4H HIGH
         if flipH
             if nsH == 1 and not na(fL)
                 // closed above the prior 4H high → break up (go-with LONG), stop = forming low
-                alert(f_sigJSON("fourh_breakup", "BUY", c15, fL), alert.freq_once_per_bar)
+                alert(f_sigJSON("fourh_breakup", "BUY", c10, fL), alert.freq_once_per_bar)
             else if nsH == -1 and not na(fH)
                 // rejected back below the prior 4H high → failed break (fade SHORT), stop = forming high
-                alert(f_sigJSON("fourh_reject", "SHORT", c15, fH), alert.freq_once_per_bar)
+                alert(f_sigJSON("fourh_reject", "SHORT", c10, fH), alert.freq_once_per_bar)
+        // RANGE LOW (same logic as the prior-4H low)
+        if flipRL
+            if nsRL == -1 and not na(fH)
+                // closed below the range low → break down (go-with SHORT), stop = forming high
+                alert(f_sigJSON("fourh_breakdn", "SHORT", c10, fH), alert.freq_once_per_bar)
+            else if nsRL == 1 and not na(fL)
+                // reclaimed back above the range low → sweep-reclaim (fade LONG), stop = forming low
+                alert(f_sigJSON("fourh_reclaim", "BUY", c10, fL), alert.freq_once_per_bar)
+        // RANGE HIGH (same logic as the prior-4H high)
+        if flipRH
+            if nsRH == 1 and not na(fL)
+                // closed above the range high → break up (go-with LONG), stop = forming low
+                alert(f_sigJSON("fourh_breakup", "BUY", c10, fL), alert.freq_once_per_bar)
+            else if nsRH == -1 and not na(fH)
+                // rejected back below the range high → failed break (fade SHORT), stop = forming high
+                alert(f_sigJSON("fourh_reject", "SHORT", c10, fH), alert.freq_once_per_bar)
