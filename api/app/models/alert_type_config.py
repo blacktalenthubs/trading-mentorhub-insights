@@ -67,6 +67,16 @@ _MA_TOGGLES = (
 # default_enabled only applies on FIRST insert — `enabled` is never
 # overwritten by seeding, so user toggles persist across deploys.
 _BASE_CATALOG: list[tuple[str, str, str, bool]] = [
+    # ── Prior-4H day-trade model (UN-RETIRED 2026-11-22) ──────────────────────
+    # The 4h-signals-only pine emits these on every 15m CLOSE that crosses the PRIOR 4H
+    # high/low (close-based → gap-throughs fire; the crossing machine re-arms each cross).
+    # Break = go-with, reclaim/reject = fade. Stop = the forming 4H candle's far extreme.
+    # Bind ONE alert per symbol ("Any alert() call") → /tv/webhook. In _FOURH_TYPES
+    # (isolated dedup, 120-min cooldown, day_trade feed). Default ON; per-user opt-in still applies.
+    ("fourh_breakdn", "4H break-down (short) — a 15m close broke BELOW the prior 4H low (go-with). Stop = the forming 4H candle's high. Bind 4h-signals-only per symbol on 15m.", "Day", True),
+    ("fourh_reclaim", "4H reclaim (long) — price swept BELOW the prior 4H low then a 15m close reclaimed above it (fade). Stop = the forming 4H candle's low. Bind 4h-signals-only per symbol on 15m.", "Day", True),
+    ("fourh_breakup", "4H break-up (long) — a 15m close broke ABOVE the prior 4H high (go-with). Stop = the forming 4H candle's low. Bind 4h-signals-only per symbol on 15m.", "Day", True),
+    ("fourh_reject", "4H rejection (short) — price poked ABOVE the prior 4H high then a 15m close rejected back below it (fade). Stop = the forming 4H candle's high. Bind 4h-signals-only per symbol on 15m.", "Day", True),
     # W/M/Q level interactions (30m) — the wmq_levels arrows, per-user watchlist (2026-08-06)
     # swing_wq_reclaim_long / swing_wq_reject_short RETIRED 2026-08-07 → OBSOLETE (level reaction ≠ trend; visual lines only)
     # candle_ping_equity / candle_ping_crypto / levels_hourly RETIRED 2026-09-12 (user: "keep swing,
@@ -546,7 +556,9 @@ OBSOLETE_ALERT_TYPES: tuple[str, ...] = (
     # Pine day types as unknown_type; the seed purges user_alert_type_prefs for these so the scheduled
     # push notices (gated only on that pref) actually stop for anyone already opted in.
     "candle_ping_equity", "candle_ping_crypto", "levels_hourly",
-    "fourh_reclaim", "fourh_reject", "fourh_breakup", "fourh_breakdn",
+    # fourh_reclaim/reject/breakup/breakdn UN-RETIRED 2026-11-22 (user: route the prior-4H
+    # model back through TV → webhook; the 4h-signals-only pine now emits these on prior-4H
+    # high/low crossings). Re-added to _BASE_CATALOG as the "Day" bucket; delivery per-user opt-in.
     "last4h_long", "last4h_short",
     "open_bracket", "structural_breakout", "planned_level_touch",
     # 2026-08-18 — consolidated to TWO day signals: Open Bracket + 4H. These are subsumed by open_bracket
