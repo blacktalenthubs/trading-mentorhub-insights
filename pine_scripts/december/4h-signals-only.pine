@@ -3,6 +3,10 @@
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
+// v2026.11.22.30: all on-chart arrows removed — the chart shows only the level LINES + tags; crossings exist purely to drive the alerts.
+// v2026.11.23.31: MIN STOP DISTANCE gate (default 0.10%). A signal whose stop (the forming 4H candle's extreme) sits closer than
+//   that to entry is SKIPPED — kills the near-zero-stop / absurd-R cards that fire right at a 4H roll (e.g. MU 624.43 stop 624.38 → 891R).
+//   f_okStop also absorbs the old `not na()` stop guards. The server applies the same floor as a backstop for any stale chart copy.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -76,7 +80,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.30", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.23.31", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -116,6 +120,7 @@ widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL
 // / RANGE lines are drawing context, never signals.
 gA = "Signal alerts (webhook)"
 alertsOn = input.bool(true, "Send break / fade alerts (prior-4H + RANGE high & low)", group = gA, tooltip = "ON = emit an alert() on each 10m close that breaks or reclaims/rejects the prior 4H high/low AND the RANGE high/low (mother candle) — all through the SAME break/reclaim logic. Break of a low → SHORT (stop = forming high); reclaim of a low → LONG (stop = forming low); break of a high → LONG (stop = forming low); reject of a high → SHORT (stop = forming high). RANGE alerts need the RANGE toggle on.")
+minStopPct = input.float(0.10, "Min stop distance (%)", minval = 0.0, step = 0.01, group = gA, tooltip = "A signal is SKIPPED when its stop (the forming 4H candle's far extreme) sits closer than this % to entry. Right at a 4H roll the forming candle has barely any range, so its extreme ≈ price → a near-zero stop and absurd R (e.g. a 'stop 0.01% away' card). 0.10% drops those degenerate signals at the source. Set 0 to disable.")
 
 c_high  = #FF0000
 c_low   = #43A047
@@ -144,6 +149,12 @@ f_flip(int side, bool lost, float price, float level) =>
 // entry + stop + direction.
 f_sigJSON(string ruleName, string dir, float entryP, float stopP) =>
     '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","price":"' + str.tostring(entryP, format.mintick) + '","rule":"' + ruleName + '","direction":"' + dir + '","interval":"10","entry":"' + str.tostring(entryP, format.mintick) + '","stop":"' + str.tostring(stopP, format.mintick) + '"}'
+
+// A signal is only valid when its stop sits a real distance from entry. At a 4H
+// roll the forming candle's extreme (the stop) is ~= price, so the stop is a few
+// ticks away and the implied R is nonsense — this gate skips those. Doubles as the
+// na guard (replaces the old `not na(stopP)` checks at each alert site).
+f_okStop(float entryP, float stopP) => not na(entryP) and not na(stopP) and entryP != 0.0 and (math.abs(entryP - stopP) / math.abs(entryP)) * 100.0 >= minStopPct
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
 // forming candle's close time — settled [1] + lookahead, the same idiom as
@@ -490,35 +501,35 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
     // Break = go-with (close through the level); reclaim / reject = fade (close back across).
     // Stop is the forming 4H candle's far extreme: HIGH for shorts, LOW for longs.
     if alertsOn and not _firstOfFrame
-        // Prior-4H LOW
+        // Prior-4H LOW  (f_okStop = real stop distance AND the na guard)
         if flipL
-            if nsL == -1 and not na(fH)
+            if nsL == -1 and f_okStop(c10, fH)
                 // closed below the prior 4H low → break down (go-with SHORT), stop = forming high
                 alert(f_sigJSON("fourh_breakdn", "SHORT", c10, fH), alert.freq_once_per_bar)
-            else if nsL == 1 and not na(fL)
+            else if nsL == 1 and f_okStop(c10, fL)
                 // reclaimed back above the prior 4H low → sweep-reclaim (fade LONG), stop = forming low
                 alert(f_sigJSON("fourh_reclaim", "BUY", c10, fL), alert.freq_once_per_bar)
         // Prior-4H HIGH
         if flipH
-            if nsH == 1 and not na(fL)
+            if nsH == 1 and f_okStop(c10, fL)
                 // closed above the prior 4H high → break up (go-with LONG), stop = forming low
                 alert(f_sigJSON("fourh_breakup", "BUY", c10, fL), alert.freq_once_per_bar)
-            else if nsH == -1 and not na(fH)
+            else if nsH == -1 and f_okStop(c10, fH)
                 // rejected back below the prior 4H high → failed break (fade SHORT), stop = forming high
                 alert(f_sigJSON("fourh_reject", "SHORT", c10, fH), alert.freq_once_per_bar)
         // RANGE LOW (same logic as the prior-4H low)
         if flipRL
-            if nsRL == -1 and not na(fH)
+            if nsRL == -1 and f_okStop(c10, fH)
                 // closed below the range low → break down (go-with SHORT), stop = forming high
                 alert(f_sigJSON("fourh_breakdn", "SHORT", c10, fH), alert.freq_once_per_bar)
-            else if nsRL == 1 and not na(fL)
+            else if nsRL == 1 and f_okStop(c10, fL)
                 // reclaimed back above the range low → sweep-reclaim (fade LONG), stop = forming low
                 alert(f_sigJSON("fourh_reclaim", "BUY", c10, fL), alert.freq_once_per_bar)
         // RANGE HIGH (same logic as the prior-4H high)
         if flipRH
-            if nsRH == 1 and not na(fL)
+            if nsRH == 1 and f_okStop(c10, fL)
                 // closed above the range high → break up (go-with LONG), stop = forming low
                 alert(f_sigJSON("fourh_breakup", "BUY", c10, fL), alert.freq_once_per_bar)
-            else if nsRH == -1 and not na(fH)
+            else if nsRH == -1 and f_okStop(c10, fH)
                 // rejected back below the range high → failed break (fade SHORT), stop = forming high
                 alert(f_sigJSON("fourh_reject", "SHORT", c10, fH), alert.freq_once_per_bar)

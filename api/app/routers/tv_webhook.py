@@ -2162,6 +2162,32 @@ async def _dispatch_signal(sig) -> dict[str, Any]:
             suppressed_reason=_sess_reason,
         )
 
+    # DEGENERATE-STOP BACKSTOP (2026-11-23) — a 4H signal whose stop sits within
+    # FOURH_MIN_STOP_PCT of entry is a frame-roll artifact: right at a 4H roll the
+    # forming candle (whose far extreme IS the stop) has ~no range, so stop ≈ entry
+    # and the implied R is nonsense (e.g. MU 624.43 / stop 624.38 → 891R; AMZN
+    # entry==stop → 0R). The pine now gates these at source (min-stop input); this is
+    # the server backstop so a chart still running an older copy can't leak them.
+    # Recorded as 'degenerate_stop' (visible in Not-routed), not silently dropped.
+    if _bare_rule in _FOURH_TYPES:
+        _min_stop_pct = float(_envf("FOURH_MIN_STOP_PCT", 0.10))
+        try:
+            _e = float(sig.entry) if sig.entry not in (None, "") else None
+            _s = float(sig.stop) if sig.stop not in (None, "") else None
+        except (TypeError, ValueError):
+            _e = _s = None
+        if _min_stop_pct > 0 and _e and _s and _e != 0:
+            _stop_pct = abs(_e - _s) / abs(_e) * 100.0
+            if _stop_pct < _min_stop_pct:
+                logger.info(
+                    "TV webhook: %s %s stop %.4f is %.4f%% from entry %.4f (<%.3f%%) — degenerate frame-roll signal, dropping",
+                    alert_type_full, sig.symbol, _s, _stop_pct, _e, _min_stop_pct,
+                )
+                return await _persist_unrouted(
+                    sig, alert_type_full, session_date,
+                    suppressed_reason="degenerate_stop",
+                )
+
     # Alert types that bypass SYMBOL_SESSION_DEDUP. These are either
     # genuinely-fresh signals on the same symbol (Pine re-arms internally)
     # or structural-level events whose meaning is independent of any
