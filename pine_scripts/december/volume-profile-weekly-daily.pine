@@ -26,9 +26,14 @@ showTags = input.bool(true, "Show price tags", group = gS)
 
 // ── Proximity (de-clutter the nodes around current price) ────────────────────
 gPx       = "Proximity (de-clutter nodes)"
-proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = for HVN/LVN nodes, keep the N nearest ABOVE price and the N nearest BELOW price, hiding the rest far away (e.g. SPY's deep W-HVN stack down to 505). POC / VAH / VAL are ALWAYS shown. Applies to both the weekly and daily node sets.")
-proxBelow = input.int(3, "Nodes to keep BELOW price", minval = 0, maxval = 30, group = gPx, tooltip = "How many of the nearest nodes below current price to keep (per set). 0 = hide all below.")
-proxAbove = input.int(3, "Nodes to keep ABOVE price (0 = all)", minval = 0, maxval = 30, group = gPx, tooltip = "How many of the nearest nodes above current price to keep (per set). Capping this stops far-away upper nodes from stretching the chart's auto-scale (shrinking the candles). 0 = keep every node above.")
+proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = de-clutter HVN/LVN nodes around current price, hiding the ones far away (e.g. SPY's deep W-HVN stack down to 505). POC / VAH / VAL are ALWAYS shown. Applies to both the weekly and daily node sets. Pick how to measure 'near' with Mode below.")
+proxMode  = input.string("Percent", "Mode", options = ["Percent", "Count"], group = gPx, tooltip = "Percent = keep nodes within a % distance of price (scales with the stock — recommended). Count = keep a fixed number of nearest nodes each side.")
+// Percent mode: keep nodes within this % band of current price.
+proxPctBelow = input.float(3.0, "% band BELOW price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep nodes whose price is within this % below current price. 0 = keep every node below.")
+proxPctAbove = input.float(3.0, "% band ABOVE price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep nodes whose price is within this % above current price. 0 = keep every node above. Capping this stops far upper nodes from stretching the chart's auto-scale.")
+// Count mode: keep this many nearest nodes each side.
+proxBelow = input.int(3, "# nodes BELOW price", minval = 0, maxval = 30, group = gPx, tooltip = "Count mode: how many of the nearest nodes below current price to keep (per set). 0 = hide all below.")
+proxAbove = input.int(3, "# nodes ABOVE price (0 = all)", minval = 0, maxval = 30, group = gPx, tooltip = "Count mode: how many of the nearest nodes above current price to keep (per set). 0 = keep every node above.")
 
 // ── Weekly profile (big-picture structure) ───────────────────────────────────
 gW = "Weekly profile (bold / solid · W- tags)"
@@ -220,6 +225,20 @@ f_proxThresh(hvnP, lvnP, px, keepBelow, keepAbove) =>
     _abvThr = keepAbove <= 0 ? 1e18 : array.size(_abv) >= keepAbove ? array.get(_abv, keepAbove - 1) : 1e18
     [_belThr, _abvThr]
 
+// Proximity cutoffs honoring the Mode input: Percent = % band of price, Count = N nearest each side.
+// Same contract as f_proxThresh: a below-node shows when price >= belThr; an above-node when price <= abvThr.
+f_proxCut(hvnP, lvnP, px) =>
+    float _belThr = na
+    float _abvThr = na
+    if proxMode == "Percent"
+        _belThr := proxPctBelow <= 0 ? -1e18 : px * (1.0 - proxPctBelow / 100.0)
+        _abvThr := proxPctAbove <= 0 ?  1e18 : px * (1.0 + proxPctAbove / 100.0)
+    else
+        [_b, _a] = f_proxThresh(hvnP, lvnP, px, proxBelow, proxAbove)
+        _belThr := _b
+        _abvThr := _a
+    [_belThr, _abvThr]
+
 // Draw every node in a price array, honoring the proximity gate (proxOn): px = current price.
 f_nodes(ln, lb, xl, xr, prices, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
     if array.size(prices) > 0
@@ -331,7 +350,7 @@ if barstate.islast
         wPocLvl := wP
         wVahLvl := wVah
         wValLvl := wVal
-        [wBelThr, wAbvThr] = f_proxThresh(wHvnP, wLvnP, close, proxBelow, proxAbove)
+        [wBelThr, wAbvThr] = f_proxCut(wHvnP, wLvnP, close)
         if wHvn
             f_nodes(vpLn, vpLb, _xL, _xRW, wHvnP, "W-HVN", wHvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
         if wLvn
@@ -353,7 +372,7 @@ if barstate.islast
                 array.push(dL, array.get(subL, _i))
                 array.push(dV, array.get(subV, _i))
         [dP, dVah, dVal, dHvnP, dLvnP] = f_profile(dH, dL, dV, columns, vaPct, hvnPct, lvnPct)
-        [dBelThr, dAbvThr] = f_proxThresh(dHvnP, dLvnP, close, proxBelow, proxAbove)
+        [dBelThr, dAbvThr] = f_proxCut(dHvnP, dLvnP, close)
         if dHvn
             f_nodes(vpLn, vpLb, _xL, _xR, dHvnP, "D-HVN", dHvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
         if dLvn
