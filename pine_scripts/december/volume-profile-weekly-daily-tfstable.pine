@@ -1,0 +1,348 @@
+//@version=5
+// Volume Profile · Weekly + Daily (TF-STABLE) — same WEEKLY + DAILY volume-by-price
+// structure (POC / VAH / VAL / HVN / LVN) as the original VP W+D, but built so the levels
+// are IDENTICAL on every chart timeframe (4H, 1H, daily, weekly …) instead of shifting.
+//
+// Why this version exists:
+//   The original builds each profile from fine intraday sub-bars collected off the CHART.
+//   A 4H chart loads far fewer calendar weeks than a daily chart, so the deep weekly window
+//   (e.g. 150 weeks) can't fill → the weekly levels shift when you change timeframe.
+//
+// How this one fixes it:
+//   Each profile is computed INSIDE a request.security() call on its OWN timeframe —
+//   the weekly set from WEEKLY bars, the daily set from DAILY bars — so it runs on that
+//   timeframe's own history regardless of the chart you're viewing. Each bar's volume is
+//   spread across its high–low range to form the profile. Trade-off vs the original: a bit
+//   coarser (per weekly/daily bar, not per 30m sub-bar) in exchange for being TF-stable.
+indicator("Volume Profile · W+D (TF-stable)", "VP W+D·TF", overlay = true,
+     max_labels_count = 500, max_lines_count = 500)
+
+// ── Shared ───────────────────────────────────────────────────────────────────
+gS = "Shared"
+columns = input.int(35, "Columns (price rows)", minval = 5, maxval = 200, group = gS)
+vaPct   = input.float(70, "Value Area %", minval = 1, maxval = 100, group = gS)
+hvnPct  = input.float(55, "HVN ≥ % of the peak row", minval = 10, maxval = 100, group = gS, tooltip = "A local peak is a shelf only if it's at least this % of the biggest (POC) row.")
+lvnPct  = input.float(25, "LVN ≤ % of the peak row", minval = 1,  maxval = 90,  group = gS, tooltip = "A local valley is a fast/thin zone only if it's at or below this % of the biggest row.")
+lineLen = input.int(120, "Line length (bars left of price)", minval = 10, maxval = 5000, group = gS, tooltip = "Every level line runs this many bars to the LEFT of price; all the same length, tag at the right end.")
+rightPad = input.int(8, "Right padding (bars past price)", minval = 0, maxval = 60, group = gS)
+tagSize = input.string("small", "Tag text size", options = ["tiny", "small", "normal", "large"], group = gS)
+showTags = input.bool(true, "Show price tags", group = gS)
+
+// ── Proximity (de-clutter the levels around current price) ───────────────────
+gPx       = "Proximity (de-clutter nodes)"
+proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = de-clutter the levels around current price, hiding the ones far away. Applies to both the weekly and daily sets. Pick how to measure 'near' with Mode below; choose which level types it gates with 'Also gate' below.")
+proxVa    = input.bool(true, "Also gate POC / VAH / VAL (not just HVN/LVN)", group = gPx, tooltip = "ON = the proximity band also hides a far-away POC / VAH / VAL. OFF = POC/VAH/VAL are always shown and only HVN/LVN nodes get de-cluttered.")
+proxMode  = input.string("Percent", "Mode", options = ["Percent", "Count"], group = gPx, tooltip = "Percent = keep levels within a % distance of price (scales with the stock — recommended). Count = keep a fixed number of nearest HVN/LVN nodes each side (POC/VAH/VAL use the nearest node's reach as the band).")
+proxPctBelow = input.float(3.0, "% band BELOW price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep levels whose price is within this % below current price. 0 = keep every level below.")
+proxPctAbove = input.float(3.0, "% band ABOVE price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep levels whose price is within this % above current price. 0 = keep every level above. Capping this stops far upper levels from stretching the chart's auto-scale.")
+proxBelow = input.int(3, "# nodes BELOW price", minval = 0, maxval = 30, group = gPx, tooltip = "Count mode: how many of the nearest nodes below current price to keep (per set). 0 = hide all below.")
+proxAbove = input.int(3, "# nodes ABOVE price (0 = all)", minval = 0, maxval = 30, group = gPx, tooltip = "Count mode: how many of the nearest nodes above current price to keep (per set). 0 = keep every node above.")
+
+// ── Weekly profile (big-picture structure) ───────────────────────────────────
+gW = "Weekly profile (bold / solid · W- tags)"
+showW   = input.bool(true, "Show weekly", group = gW)
+wBars   = input.int(150, "Weekly window (weeks)", minval = 4, maxval = 2000, group = gW)
+wPoc    = input.bool(true, "POC",     inline = "w1", group = gW)
+wVa     = input.bool(true, "VAH/VAL", inline = "w1", group = gW)
+wHvn    = input.bool(true, "HVN",     inline = "w1", group = gW)
+wLvn    = input.bool(true, "LVN",     inline = "w1", group = gW)
+wPocCol = input.color(#D32F2F, "POC", inline = "w2", group = gW)
+wVaCol  = input.color(#F57C00, "VA",  inline = "w2", group = gW)
+wHvnCol = input.color(#00897B, "HVN", inline = "w2", group = gW)
+wLvnCol = input.color(#C62828, "LVN", inline = "w2", group = gW)
+wWidth  = input.int(3, "Weekly line width", inline = "ws", minval = 1, maxval = 6, group = gW)
+wStyle  = input.string("solid", "style", options = ["solid", "dashed", "dotted"], inline = "ws", group = gW)
+wExtendR = input.int(16, "Weekly extra right extension (bars)", minval = 0, maxval = 200, group = gW, tooltip = "The weekly lines run this many bars FURTHER RIGHT than the daily lines, so the W- tag sits to the right of the D- tag when a weekly and daily level overlap — both stay readable. 0 = same right edge as daily.")
+
+// ── Daily profile (tactical structure) ───────────────────────────────────────
+gD = "Daily profile (thin / dashed · D- tags)"
+showD   = input.bool(true, "Show daily", group = gD)
+dBars   = input.int(150, "Daily window (days)", minval = 5, maxval = 2000, group = gD, tooltip = "150 matches the standalone daily Volume Profile (Bars Back 150). Lower it (e.g. 40–60) for a tighter, more tactical daily read.")
+dPoc    = input.bool(true, "POC",     inline = "d1", group = gD)
+dVa     = input.bool(true, "VAH/VAL", inline = "d1", group = gD)
+dHvn    = input.bool(true, "HVN",     inline = "d1", group = gD)
+dLvn    = input.bool(true, "LVN",     inline = "d1", group = gD)
+dPocCol = input.color(#EF9A9A, "POC", inline = "d2", group = gD)
+dVaCol  = input.color(#FFCC80, "VA",  inline = "d2", group = gD)
+dHvnCol = input.color(#80CBC4, "HVN", inline = "d2", group = gD)
+dLvnCol = input.color(#EF9A9A, "LVN", inline = "d2", group = gD)
+dWidth  = input.int(1, "Daily line width", inline = "ds", minval = 1, maxval = 6, group = gD)
+dStyle  = input.string("dashed", "style", options = ["solid", "dashed", "dotted"], inline = "ds", group = gD, tooltip = "Default dashed so the daily set is easy to tell apart from the bold weekly set.")
+
+// ── Moving averages (SMA 8 / 21 / 50 / 200) ──────────────────────────────────
+// Four SMAs you can individually uncheck, re-length, recolor and re-width. One shared
+// drawing style. Independent of the volume profile above — purely overlaid trend lines.
+gMA = "Moving averages (SMA · flat)"
+maSrc   = input.source(close, "Source", group = gMA)
+maTF    = input.string("Chart", "Lock SMAs to", options = ["Chart", "Daily", "Weekly"], group = gMA, tooltip = "Timeframe the SMAs are computed on, regardless of the chart's own timeframe. 'Chart' uses the current chart bars; 'Daily' / 'Weekly' pull the daily / weekly SMA onto whatever chart you're viewing (e.g. the daily 200 SMA while on a 30m chart).")
+maStyle = input.string("solid", "Line style (all MAs)", options = ["solid", "dashed", "dotted"], group = gMA, tooltip = "Drawing style shared by all four SMAs. Each MA is drawn as a FLAT horizontal line at its current value (like the VP levels), not a curve.")
+// per-MA row: show? · length · color · width
+ma1On  = input.bool(true,  "SMA", inline = "ma1", group = gMA)
+ma1Len = input.int(8,   "len",   inline = "ma1", minval = 1, group = gMA)
+ma1Col = input.color(#26A69A, "", inline = "ma1", group = gMA)
+ma1W   = input.int(1, "w",        inline = "ma1", minval = 1, maxval = 6, group = gMA)
+ma2On  = input.bool(true,  "SMA", inline = "ma2", group = gMA)
+ma2Len = input.int(21,  "len",   inline = "ma2", minval = 1, group = gMA)
+ma2Col = input.color(#FB8C00, "", inline = "ma2", group = gMA)
+ma2W   = input.int(1, "w",        inline = "ma2", minval = 1, maxval = 6, group = gMA)
+ma3On  = input.bool(true,  "SMA", inline = "ma3", group = gMA)
+ma3Len = input.int(50,  "len",   inline = "ma3", minval = 1, group = gMA)
+ma3Col = input.color(#2962FF, "", inline = "ma3", group = gMA)
+ma3W   = input.int(2, "w",        inline = "ma3", minval = 1, maxval = 6, group = gMA)
+ma4On  = input.bool(true,  "SMA", inline = "ma4", group = gMA)
+ma4Len = input.int(200, "len",   inline = "ma4", minval = 1, group = gMA)
+ma4Col = input.color(#AB47BC, "", inline = "ma4", group = gMA)
+ma4W   = input.int(2, "w",        inline = "ma4", minval = 1, maxval = 6, group = gMA)
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+f_lblSize(string s) => s == "tiny" ? size.tiny : s == "small" ? size.small : s == "large" ? size.large : size.normal
+f_lnStyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+
+// SMA values (computed every bar; drawn FLAT at the current value on the last bar).
+_maTF = maTF == "Daily" ? "D" : maTF == "Weekly" ? "W" : timeframe.period
+sma1 = maTF == "Chart" ? ta.sma(maSrc, ma1Len) : request.security(syminfo.tickerid, _maTF, ta.sma(maSrc, ma1Len), lookahead = barmerge.lookahead_off)
+sma2 = maTF == "Chart" ? ta.sma(maSrc, ma2Len) : request.security(syminfo.tickerid, _maTF, ta.sma(maSrc, ma2Len), lookahead = barmerge.lookahead_off)
+sma3 = maTF == "Chart" ? ta.sma(maSrc, ma3Len) : request.security(syminfo.tickerid, _maTF, ta.sma(maSrc, ma3Len), lookahead = barmerge.lookahead_off)
+sma4 = maTF == "Chart" ? ta.sma(maSrc, ma4Len) : request.security(syminfo.tickerid, _maTF, ta.sma(maSrc, ma4Len), lookahead = barmerge.lookahead_off)
+
+// Build a volume profile from bars (h/l/v arrays). Pure: no globals, all via params.
+// Each bar's volume is spread across the price rows its [low, high] overlaps.
+// Returns [pocPrice, vah, val, hvnPrices[], lvnPrices[]]. na / empty when not enough data.
+f_profile(h, l, v, cols, vaP, hvP, lvP) =>
+    _hvnP = array.new_float()
+    _lvnP = array.new_float()
+    float _pocPrice = na
+    float _vah = na
+    float _val = na
+    _nb = array.size(h)
+    if _nb >= 2
+        _hi = array.get(h, 0)
+        _lo = array.get(l, 0)
+        for _b = 0 to _nb - 1
+            _hi := math.max(_hi, array.get(h, _b))
+            _lo := math.min(_lo, array.get(l, _b))
+        _rng = _hi - _lo
+        if _rng > 0
+            _bs = _rng / cols
+            vol = array.new_float(cols, 0.0)
+            // distribute each bar's volume across the rows its range overlaps, weighted by overlap
+            for _b = 0 to _nb - 1
+                _bLo = array.get(l, _b)
+                _bHi = array.get(h, _b)
+                _bV  = nz(array.get(v, _b))
+                _loI = math.max(0, math.min(cols - 1, int(math.floor((_bLo - _lo) / _bs))))
+                _hiI = math.max(0, math.min(cols - 1, int(math.floor((_bHi - _lo) / _bs))))
+                if _bHi <= _bLo
+                    array.set(vol, _loI, array.get(vol, _loI) + _bV)
+                else
+                    for _k = _loI to _hiI
+                        _rBot = _lo + _k * _bs
+                        _rTop = _rBot + _bs
+                        _ov = math.min(_bHi, _rTop) - math.max(_bLo, _rBot)
+                        if _ov > 0
+                            array.set(vol, _k, array.get(vol, _k) + _bV * _ov / (_bHi - _bLo))
+            // totals, POC, peak row
+            _total = 0.0
+            _maxV  = 0.0
+            _poc   = 0
+            for _k = 0 to cols - 1
+                _vv = array.get(vol, _k)
+                _total += _vv
+                if _vv > _maxV
+                    _maxV := _vv
+                    _poc  := _k
+            // value area: grow out from POC comparing the next two rows up vs down
+            _vaVol  = array.get(vol, _poc)
+            _up     = _poc
+            _dn     = _poc
+            _target = _total * vaP / 100.0
+            _go     = _total > 0
+            while _go
+                if _vaVol >= _target
+                    _go := false
+                else
+                    _upN = math.min(2, cols - 1 - _up)
+                    _dnN = math.min(2, _dn)
+                    if _upN <= 0 and _dnN <= 0
+                        _go := false
+                    else
+                        _upS = (_upN >= 1 ? array.get(vol, _up + 1) : 0.0) + (_upN >= 2 ? array.get(vol, _up + 2) : 0.0)
+                        _dnS = (_dnN >= 1 ? array.get(vol, _dn - 1) : 0.0) + (_dnN >= 2 ? array.get(vol, _dn - 2) : 0.0)
+                        if _upN > 0 and (_dnN <= 0 or _upS >= _dnS)
+                            for _j = 1 to _upN
+                                _up := _up + 1
+                                _vaVol := _vaVol + array.get(vol, _up)
+                        else
+                            for _j = 1 to _dnN
+                                _dn := _dn - 1
+                                _vaVol := _vaVol + array.get(vol, _dn)
+            _vah := _lo + (_up + 1) * _bs
+            _val := _lo + _dn * _bs
+            _pocPrice := _lo + (_poc + 0.5) * _bs
+            // HVN shelves / LVN valleys (exclude the POC row)
+            _hvnMin = _maxV * hvP / 100.0
+            _lvnMax = _maxV * lvP / 100.0
+            for _k = 1 to cols - 2
+                _vk = array.get(vol, _k)
+                _vp = array.get(vol, _k - 1)
+                _vn = array.get(vol, _k + 1)
+                _price = _lo + (_k + 0.5) * _bs
+                _isHVN = _vk >= _vp and _vk >= _vn and _vk >= _hvnMin and _k != _poc
+                _isLVN = _vk <= _vp and _vk <= _vn and _vk <= _lvnMax and _vk > 0 and _k != _poc
+                if _isHVN
+                    array.push(_hvnP, _price)
+                else if _isLVN
+                    array.push(_lvnP, _price)
+    [_pocPrice, _vah, _val, _hvnP, _lvnP]
+
+// Accumulate the last `len` bars of whatever timeframe this runs in, then build the profile.
+// Called INSIDE request.security(.., "W"/"D", ..) so it runs on the weekly / daily series
+// itself — identical on every chart timeframe, and deep (not tied to the chart's intraday
+// history). Returns the same tuple as f_profile.
+f_htfProfile(len, cols, vaP, hvP, lvP) =>
+    var float[] _H = array.new_float(0)
+    var float[] _L = array.new_float(0)
+    var float[] _V = array.new_float(0)
+    // Push once per CLOSED bar only. Pushing on the realtime bar would re-run every tick and
+    // duplicate it (Pine doesn't roll back array mutations intra-bar). The current forming
+    // week/day is negligible against the window, so we include only confirmed bars.
+    if barstate.isconfirmed
+        array.push(_H, high)
+        array.push(_L, low)
+        array.push(_V, nz(volume))
+        while array.size(_H) > len
+            array.shift(_H)
+            array.shift(_L)
+            array.shift(_V)
+    f_profile(_H, _L, _V, cols, vaP, hvP, lvP)
+
+// Draw one flat level line + right-side tag into the shared stores.
+f_level(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag) =>
+    if not na(price)
+        array.push(ln, line.new(xl, price, xr, price, color = c, width = w, style = f_lnStyle(sty)))
+        if tag
+            array.push(lb, label.new(xr, price, txt + " " + str.tostring(price, format.mintick), style = label.style_label_left, color = c, textcolor = color.white, size = f_lblSize(tsz)))
+
+// Proximity cutoffs for a node set: keep the keepBelow nearest below px and the keepAbove nearest above.
+// Returns [belowThr, aboveThr]: a below-node shows when price >= belowThr; an above-node when price <= aboveThr.
+f_proxThresh(hvnP, lvnP, px, keepBelow, keepAbove) =>
+    _bel = array.new_float()
+    _abv = array.new_float()
+    if array.size(hvnP) > 0
+        for _i = 0 to array.size(hvnP) - 1
+            _p = array.get(hvnP, _i)
+            if _p < px
+                array.push(_bel, _p)
+            else
+                array.push(_abv, _p)
+    if array.size(lvnP) > 0
+        for _i = 0 to array.size(lvnP) - 1
+            _p = array.get(lvnP, _i)
+            if _p < px
+                array.push(_bel, _p)
+            else
+                array.push(_abv, _p)
+    array.sort(_bel, order.descending)  // nearest-below first
+    array.sort(_abv, order.ascending)   // nearest-above first
+    _belThr = keepBelow <= 0 ? 1e18 : array.size(_bel) >= keepBelow ? array.get(_bel, keepBelow - 1) : -1e18
+    _abvThr = keepAbove <= 0 ? 1e18 : array.size(_abv) >= keepAbove ? array.get(_abv, keepAbove - 1) : 1e18
+    [_belThr, _abvThr]
+
+// Proximity cutoffs honoring the Mode input: Percent = % band of price, Count = N nearest each side.
+// Same contract as f_proxThresh: a below-node shows when price >= belThr; an above-node when price <= abvThr.
+f_proxCut(hvnP, lvnP, px) =>
+    float _belThr = na
+    float _abvThr = na
+    if proxMode == "Percent"
+        _belThr := proxPctBelow <= 0 ? -1e18 : px * (1.0 - proxPctBelow / 100.0)
+        _abvThr := proxPctAbove <= 0 ?  1e18 : px * (1.0 + proxPctAbove / 100.0)
+    else
+        [_b, _a] = f_proxThresh(hvnP, lvnP, px, proxBelow, proxAbove)
+        _belThr := _b
+        _abvThr := _a
+    [_belThr, _abvThr]
+
+// True when a level is inside the proximity band (above-price → ≤ abvThr; below-price → ≥ belThr).
+f_inProx(_p, px, belThr, abvThr) => _p >= px ? _p <= abvThr : _p >= belThr
+
+// Draw every node in a price array, honoring the proximity gate (proxOn): px = current price.
+f_nodes(ln, lb, xl, xr, prices, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
+    if array.size(prices) > 0
+        for _i = 0 to array.size(prices) - 1
+            _p = array.get(prices, _i)
+            if not proxOn or f_inProx(_p, px, belThr, abvThr)
+                f_level(ln, lb, xl, xr, _p, txt, c, w, sty, tsz, tag)
+
+// Draw a single level, honoring the proximity gate (used for POC / VAH / VAL when proxVa is on).
+f_levelG(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
+    if not proxOn or f_inProx(price, px, belThr, abvThr)
+        f_level(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag)
+
+// ── Compute both profiles on their OWN timeframe (TF-stable) ─────────────────
+[wP, wVah, wVal, wHvnP, wLvnP] = request.security(syminfo.tickerid, "W", f_htfProfile(wBars, columns, vaPct, hvnPct, lvnPct), lookahead = barmerge.lookahead_off)
+[dP, dVah, dVal, dHvnP, dLvnP] = request.security(syminfo.tickerid, "D", f_htfProfile(dBars, columns, vaPct, hvnPct, lvnPct), lookahead = barmerge.lookahead_off)
+
+// latest weekly levels kept for the alert conditions (set every bar so alerts can fire realtime)
+wPocLvl = wP
+wVahLvl = wVah
+wValLvl = wVal
+
+// ── Draw both profiles on the last bar ───────────────────────────────────────
+var array<line>  vpLn = array.new_line()
+var array<label> vpLb = array.new_label()
+
+if barstate.islast
+    if array.size(vpLn) > 0
+        for _i = 0 to array.size(vpLn) - 1
+            line.delete(array.get(vpLn, _i))
+    if array.size(vpLb) > 0
+        for _i = 0 to array.size(vpLb) - 1
+            label.delete(array.get(vpLb, _i))
+    array.clear(vpLn)
+    array.clear(vpLb)
+
+    _xL  = math.max(bar_index - lineLen, bar_index - 9000)
+    _xR  = bar_index + rightPad
+    _xRW = bar_index + rightPad + wExtendR   // weekly lines/tags extend further right so W- tags clear the D- tags
+
+    // Weekly profile (from weekly bars).
+    if showW
+        [wBelThr, wAbvThr] = f_proxCut(wHvnP, wLvnP, close)
+        if wHvn
+            f_nodes(vpLn, vpLb, _xL, _xRW, wHvnP, "W-HVN", wHvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
+        if wLvn
+            f_nodes(vpLn, vpLb, _xL, _xRW, wLvnP, "W-LVN", wLvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
+        if wVa
+            f_levelG(vpLn, vpLb, _xL, _xRW, wVah, "W-VAH", wVaCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
+            f_levelG(vpLn, vpLb, _xL, _xRW, wVal, "W-VAL", wVaCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
+        if wPoc
+            f_levelG(vpLn, vpLb, _xL, _xRW, wP, "W-POC", wPocCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
+
+    // Daily profile (from daily bars).
+    if showD
+        [dBelThr, dAbvThr] = f_proxCut(dHvnP, dLvnP, close)
+        if dHvn
+            f_nodes(vpLn, vpLb, _xL, _xR, dHvnP, "D-HVN", dHvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
+        if dLvn
+            f_nodes(vpLn, vpLb, _xL, _xR, dLvnP, "D-LVN", dLvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
+        if dVa
+            f_levelG(vpLn, vpLb, _xL, _xR, dVah, "D-VAH", dVaCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
+            f_levelG(vpLn, vpLb, _xL, _xR, dVal, "D-VAL", dVaCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
+        if dPoc
+            f_levelG(vpLn, vpLb, _xL, _xR, dP, "D-POC", dPocCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
+
+    // Flat SMAs: current value drawn as a horizontal level (uncheck / re-length / recolor / re-width above).
+    maPfx = maTF == "Daily" ? "D-" : maTF == "Weekly" ? "W-" : ""
+    if ma1On
+        f_level(vpLn, vpLb, _xL, _xR, sma1, maPfx + "SMA " + str.tostring(ma1Len), ma1Col, ma1W, maStyle, tagSize, showTags)
+    if ma2On
+        f_level(vpLn, vpLb, _xL, _xR, sma2, maPfx + "SMA " + str.tostring(ma2Len), ma2Col, ma2W, maStyle, tagSize, showTags)
+    if ma3On
+        f_level(vpLn, vpLb, _xL, _xR, sma3, maPfx + "SMA " + str.tostring(ma3Len), ma3Col, ma3W, maStyle, tagSize, showTags)
+    if ma4On
+        f_level(vpLn, vpLb, _xL, _xR, sma4, maPfx + "SMA " + str.tostring(ma4Len), ma4Col, ma4W, maStyle, tagSize, showTags)
+
+// ── Alerts on the WEEKLY key levels (the structural ones) ────────────────────
+alertcondition(not na(wPocLvl) and low <= wPocLvl and high >= wPocLvl, "Price at weekly POC", "{{ticker}} trading at the weekly Volume Profile POC")
+alertcondition(not na(wVahLvl) and low <= wVahLvl and high >= wVahLvl, "Price at weekly VAH", "{{ticker}} trading at the weekly Value Area High")
+alertcondition(not na(wValLvl) and low <= wValLvl and high >= wValLvl, "Price at weekly VAL", "{{ticker}} trading at the weekly Value Area Low")
