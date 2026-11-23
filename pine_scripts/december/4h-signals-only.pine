@@ -76,7 +76,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.29", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.22.30", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -105,7 +105,6 @@ widthRange = input.int(1, "", minval = 1, maxval = 10, inline = "lr", group = gL
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "Auto STOP line at the forming candle's far extreme while a trade is live: its high for a short-side trade, its low for a long-side trade. Never the entry level itself.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
-showRec    = input.bool(true, "Arrows: lost → reclaim (10m close)", group = gL, tooltip = "Small arrow on every 10m close that crosses a HIGH, LOW or CLOSE level — the loss and the reclaim alike. Follows each level's own show / hide above.")
 
 // ── Signal alerts (prior-4H HIGH & LOW only) ──────────────────────
 // Fire a webhook-ready alert on every 10m close that crosses the prior 4H
@@ -377,11 +376,11 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             array.push(_ln, line.new(rT, rngLo, tEnd, rngLo, xloc = xloc.bar_time, color = c_low, width = widthRange, style = f_lstyle(styleRange)))
             array.push(_lb, label.new(tEnd, rngLo, "RANGE LOW " + str.tostring(rngLo, format.mintick) + f_conf(rngLo), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.tiny))
 
-// ── Lost → reclaim arrows (HIGH / LOW / CLOSE, 10m closes) ─────────
-// Runs on every bar: each NEW completed 10m bar steps the three
-// state machines once. State and arrows reset when the 4H frame
-// rolls (a new prior candle = a new set of levels).
-var label[] _arw = array.new_label()
+// ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
+// Runs on every bar: each NEW completed 10m bar steps the state
+// machines once. State resets when the 4H frame rolls (a new prior
+// candle = a new set of levels). These drive the ALERTS; there are
+// no on-chart arrows (removed v2026.11.22.30).
 var int frameKey = na
 var float lastC10 = na
 var float lastL10 = na
@@ -423,10 +422,6 @@ if not na(tPriorOpen) and tPriorOpen != frameKey
     lastC10 := na
     lastL10 := na
     lastH10 := na
-    if array.size(_arw) > 0
-        for i = 0 to array.size(_arw) - 1
-            label.delete(array.get(_arw, i))
-        array.clear(_arw)
 
 // Each NEW completed 10m bar: check the locked stops (a 10m close
 // beyond a stop takes it out — the line is removed for the rest of
@@ -442,9 +437,7 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
         stopSDead := true
     if not na(stopLP) and not stopLDead and c10 < stopLP
         stopLDead := true
-    // Step the crossing machines EVERY new 10m bar (needed for both arrows and
-    // alerts — not gated by showRec, or the state would freeze when arrows are off).
-    int ax = na(time[1]) ? time : time[1]
+    // Step the crossing machines on EVERY new 10m bar — these drive the alerts.
     [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c10, pH)
     sideH := nsH
     lostH := nlH
@@ -490,19 +483,8 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
     // needs a side to be established first, so nothing genuine is lost on bar one.
     bool _firstOfFrame = na(_sigFrame) or tPriorOpen != _sigFrame
     _sigFrame := tPriorOpen
-    // Arrows (visual): HIGH / LOW / RANGE crossings.
-    if showRec and not _firstOfFrame
-        if flipH and showHigh
-            array.push(_arw, label.new(ax, nsH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
-        if flipL and showLow
-            array.push(_arw, label.new(ax, nsL == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
-        // CLOSE line is visual context only — no crossing arrow and no alert (signals
-        // fire on HIGH / LOW / RANGE only). The close machine still steps above so the
-        // CLOSE line can stay drawn, but it never marks or alerts.
-        if flipRH and showRange
-            array.push(_arw, label.new(ax, nsRH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsRH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
-        if flipRL and showRange
-            array.push(_arw, label.new(ax, nsRL == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsRL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
+    // No on-chart arrows (removed v2026.11.22.30) — the chart shows only the level
+    // LINES + tags; the crossings above exist purely to drive the alerts below.
     // Signal alerts — prior-4H HIGH & LOW and the RANGE high & low, all through the SAME
     // break/reclaim machine and the SAME fourh_* types (OPEN / CLOSE stay drawing context).
     // Break = go-with (close through the level); reclaim / reject = fade (close back across).
