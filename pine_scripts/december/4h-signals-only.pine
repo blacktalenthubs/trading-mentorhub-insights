@@ -76,7 +76,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.27", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.22.28", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -485,8 +485,9 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
             array.push(_arw, label.new(ax, nsH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
         if flipL and showLow
             array.push(_arw, label.new(ax, nsL == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
-        if flipC and showClose
-            array.push(_arw, label.new(ax, nsC == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.small))
+        // CLOSE line is visual context only — no crossing arrow and no alert (signals
+        // fire on HIGH / LOW / RANGE only). The close machine still steps above so the
+        // CLOSE line can stay drawn, but it never marks or alerts.
         if flipRH and showRange
             array.push(_arw, label.new(ax, nsRH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsRH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
         if flipRL and showRange
