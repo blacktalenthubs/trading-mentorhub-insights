@@ -76,7 +76,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.28", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.22.29", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -402,6 +402,11 @@ var int sideRL = 0
 var bool lostRL = false
 var float lastRngHi = na
 var float lastRngLo = na
+// The 4H frame the LAST signal step ran against. On the first 10m bar of a NEW frame
+// every prior-4H level (and the mother-candle RANGE, which only moves at a roll) jumps,
+// and the crossing machines are mid-reset — that first bar is suppressed so a level
+// jumping past price can't fake a flip (the 00:00-ET phantom fourh_reject on every name).
+var int _sigFrame = na
 
 if not na(tPriorOpen) and tPriorOpen != frameKey
     frameKey := tPriorOpen
@@ -479,8 +484,14 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
         lostRL := _nlrl
         nsRL := _nsrl
         flipRL := _fliprl
-    // Arrows (visual): HIGH / LOW / CLOSE crossings.
-    if showRec
+    // First 10m step of a new 4H frame? If so, the levels just jumped and the machines
+    // only just re-established their sides — suppress arrows AND alerts for this one bar
+    // so a level crossing past price at the roll can't fire a phantom signal. A real flip
+    // needs a side to be established first, so nothing genuine is lost on bar one.
+    bool _firstOfFrame = na(_sigFrame) or tPriorOpen != _sigFrame
+    _sigFrame := tPriorOpen
+    // Arrows (visual): HIGH / LOW / RANGE crossings.
+    if showRec and not _firstOfFrame
         if flipH and showHigh
             array.push(_arw, label.new(ax, nsH == 1 ? l10 : h10, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
         if flipL and showLow
@@ -496,7 +507,7 @@ if not na(c10) and not na(pH) and not na(pL) and not na(pC) and (na(lastC10) or 
     // break/reclaim machine and the SAME fourh_* types (OPEN / CLOSE stay drawing context).
     // Break = go-with (close through the level); reclaim / reject = fade (close back across).
     // Stop is the forming 4H candle's far extreme: HIGH for shorts, LOW for longs.
-    if alertsOn
+    if alertsOn and not _firstOfFrame
         // Prior-4H LOW
         if flipL
             if nsL == -1 and not na(fH)
