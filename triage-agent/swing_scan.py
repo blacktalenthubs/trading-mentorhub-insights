@@ -502,6 +502,13 @@ def push_swing_alerts(dsn, new_setups):
 def _push_swing_telegram(dsn, new_setups):
     """Post each swing setup to every linked user's Telegram, labeled SWING with the entry reasons."""
     import os, psycopg2
+    # SIGNALS-ONLY delivery (2026-11-23): when FOURH_ONLY_DELIVERY is on (default), the SWING /
+    # MoBO direct push is muted so only the prior-4H webhook signals reach Telegram. The scan
+    # still runs and persists to the app feed; it just doesn't push. Set FOURH_ONLY_DELIVERY=false
+    # to restore. (This is the direct-push path — it bypasses the triage live.py delivery gate.)
+    if os.environ.get("FOURH_ONLY_DELIVERY", "true").lower() == "true":
+        log.info("swing push: muted (signals-only delivery; %d setups not pushed)", len(new_setups or []))
+        return
     try:
         import requests
     except Exception:

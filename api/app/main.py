@@ -611,7 +611,11 @@ async def lifespan(app: FastAPI):
                     # TELEGRAM_CHAT_ID, which isn't set on this worker. Only send when
                     # there's something to report (skip the empty premarket ping).
                     _sent = 0
-                    if send_telegram and (_rep["gaps"] or _rep["setups"]):
+                    # SIGNALS-ONLY (2026-11-23): mute the gap-scan Telegram push when
+                    # FOURH_ONLY_DELIVERY is on (default) — the Today dashboard still
+                    # refreshes (_g_pub above); only the Telegram ping is suppressed.
+                    _signals_only = os.environ.get("FOURH_ONLY_DELIVERY", "true").lower() == "true"
+                    if send_telegram and not _signals_only and (_rep["gaps"] or _rep["setups"]):
                         _msg = _g_tg(_rep, _date)
                         try:
                             from sqlalchemy import select as _sel
@@ -1095,7 +1099,10 @@ async def lifespan(app: FastAPI):
         # watchlist, but most names sit far from weekly value so it stays quiet. Read-only.
         try:
             _wva_env = os.environ.get("WEEKLY_VP_ALERTS_ENABLED", "true").strip().lower()
-            if _wva_env not in ("false", "0", "no", "off"):
+            # SIGNALS-ONLY (2026-11-23): skip the weekly-value Telegram job entirely while
+            # FOURH_ONLY_DELIVERY is on (default) — only the prior-4H signals should deliver.
+            _wva_signals_only = os.environ.get("FOURH_ONLY_DELIVERY", "true").lower() == "true"
+            if _wva_env not in ("false", "0", "no", "off") and not _wva_signals_only:
                 from apscheduler.triggers.cron import CronTrigger as _CronWA
                 from zoneinfo import ZoneInfo as _ZIWA
                 _etwa = _ZIWA("America/New_York")

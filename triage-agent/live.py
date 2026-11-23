@@ -61,6 +61,14 @@ DAILY_USD_CAP   = float(os.environ.get("TRIAGE_DAILY_USD_CAP", "1.50"))
 # Premarket / EOD scheduler — set ENABLE_PREMARKET_BRIEF=true to activate.
 # Default false so existing deploys aren't surprised by new behavior.
 ENABLE_PREMARKET_BRIEF = os.environ.get("ENABLE_PREMARKET_BRIEF", "false").lower() == "true"
+
+# SIGNALS-ONLY DELIVERY (2026-11-23, user: "scanner signals completely turn off, no other
+# alerts should come except [the prior-4H 10m model]"). When on (default), only the prior-4H
+# webhook family (alert_type contains "fourh") is PUSHED to Telegram; every other alert is still
+# fetched, triaged and audited (nothing is lost — the app feed / Not-routed stays intact), it
+# just isn't delivered. One lever, fully reversible: set FOURH_ONLY_DELIVERY=false to restore
+# full delivery. Matches tv_fourh_breakup / reclaim / breakup / reject + any fourh_* variant.
+FOURH_ONLY_DELIVERY = os.environ.get("FOURH_ONLY_DELIVERY", "true").lower() == "true"
 PREMARKET_HOUR_ET   = int(os.environ.get("PREMARKET_HOUR_ET", "8"))
 PREMARKET_MINUTE_ET = int(os.environ.get("PREMARKET_MINUTE_ET", "30"))
 EOD_HOUR_ET         = int(os.environ.get("EOD_HOUR_ET", "16"))
@@ -303,6 +311,16 @@ def route(alert, result, dry_run=False):
         "post_mode":      POST_MODE,
         "dry_run":        dry_run,
     }
+
+    # SIGNALS-ONLY delivery gate — mute everything that isn't the prior-4H webhook family.
+    # The row is still triaged + audited above (feed intact); it just isn't pushed to Telegram.
+    _at = (alert.get("alert_type") or "").lower()
+    if FOURH_ONLY_DELIVERY and "fourh" not in _at:
+        audit["telegram_sent"] = "muted_signals_only"
+        logger.info("%s #%s %s (%s) — muted (signals-only delivery)",
+                    verdict, alert["id"], alert["symbol"], alert.get("alert_type"))
+        write_audit(audit)
+        return
 
     if dry_run:
         logger.info("[DRY-RUN] %s #%s %s — would post (mode=%s)",
