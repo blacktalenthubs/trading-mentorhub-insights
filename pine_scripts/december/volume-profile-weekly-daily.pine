@@ -26,8 +26,9 @@ showTags = input.bool(true, "Show price tags", group = gS)
 
 // ── Proximity (de-clutter the nodes around current price) ────────────────────
 gPx       = "Proximity (de-clutter nodes)"
-proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = de-clutter HVN/LVN nodes around current price, hiding the ones far away (e.g. SPY's deep W-HVN stack down to 505). POC / VAH / VAL are ALWAYS shown. Applies to both the weekly and daily node sets. Pick how to measure 'near' with Mode below.")
-proxMode  = input.string("Percent", "Mode", options = ["Percent", "Count"], group = gPx, tooltip = "Percent = keep nodes within a % distance of price (scales with the stock — recommended). Count = keep a fixed number of nearest nodes each side.")
+proxGate  = input.bool(false, "Only show nodes near price", group = gPx, tooltip = "ON = de-clutter the levels around current price, hiding the ones far away (e.g. SPY's W-VAL far down at 505). Applies to both the weekly and daily sets. Pick how to measure 'near' with Mode below; choose which level types it gates with 'Also gate' below.")
+proxVa    = input.bool(true, "Also gate POC / VAH / VAL (not just HVN/LVN)", group = gPx, tooltip = "ON = the proximity band also hides a far-away POC / VAH / VAL (e.g. SPY's W-VAL at 505 while price is ~690). OFF = POC/VAH/VAL are always shown and only HVN/LVN nodes get de-cluttered (the old behavior).")
+proxMode  = input.string("Percent", "Mode", options = ["Percent", "Count"], group = gPx, tooltip = "Percent = keep levels within a % distance of price (scales with the stock — recommended). Count = keep a fixed number of nearest HVN/LVN nodes each side (POC/VAH/VAL use the nearest node's reach as the band).")
 // Percent mode: keep nodes within this % band of current price.
 proxPctBelow = input.float(3.0, "% band BELOW price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep nodes whose price is within this % below current price. 0 = keep every node below.")
 proxPctAbove = input.float(3.0, "% band ABOVE price (0 = all)", minval = 0, maxval = 100, step = 0.5, group = gPx, tooltip = "Percent mode: keep nodes whose price is within this % above current price. 0 = keep every node above. Capping this stops far upper nodes from stretching the chart's auto-scale.")
@@ -239,14 +240,21 @@ f_proxCut(hvnP, lvnP, px) =>
         _abvThr := _a
     [_belThr, _abvThr]
 
+// True when a level is inside the proximity band (above-price → ≤ abvThr; below-price → ≥ belThr).
+f_inProx(_p, px, belThr, abvThr) => _p >= px ? _p <= abvThr : _p >= belThr
+
 // Draw every node in a price array, honoring the proximity gate (proxOn): px = current price.
 f_nodes(ln, lb, xl, xr, prices, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
     if array.size(prices) > 0
         for _i = 0 to array.size(prices) - 1
             _p = array.get(prices, _i)
-            _show = not proxOn or (_p >= px ? _p <= abvThr : _p >= belThr)
-            if _show
+            if not proxOn or f_inProx(_p, px, belThr, abvThr)
                 f_level(ln, lb, xl, xr, _p, txt, c, w, sty, tsz, tag)
+
+// Draw a single level, honoring the proximity gate (used for POC / VAH / VAL when proxVa is on).
+f_levelG(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag, proxOn, px, belThr, abvThr) =>
+    if not proxOn or f_inProx(price, px, belThr, abvThr)
+        f_level(ln, lb, xl, xr, price, txt, c, w, sty, tsz, tag)
 
 // ── Fine sub-bars, tagged with their weekly + daily period (for windowing) ───
 chartSecs = timeframe.in_seconds(timeframe.period)
@@ -356,10 +364,10 @@ if barstate.islast
         if wLvn
             f_nodes(vpLn, vpLb, _xL, _xRW, wLvnP, "W-LVN", wLvnCol, wWidth, wStyle, tagSize, showTags, proxGate, close, wBelThr, wAbvThr)
         if wVa
-            f_level(vpLn, vpLb, _xL, _xRW, wVah, "W-VAH", wVaCol, wWidth, wStyle, tagSize, showTags)
-            f_level(vpLn, vpLb, _xL, _xRW, wVal, "W-VAL", wVaCol, wWidth, wStyle, tagSize, showTags)
+            f_levelG(vpLn, vpLb, _xL, _xRW, wVah, "W-VAH", wVaCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
+            f_levelG(vpLn, vpLb, _xL, _xRW, wVal, "W-VAL", wVaCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
         if wPoc
-            f_level(vpLn, vpLb, _xL, _xRW, wP, "W-POC", wPocCol, wWidth, wStyle, tagSize, showTags)
+            f_levelG(vpLn, vpLb, _xL, _xRW, wP, "W-POC", wPocCol, wWidth, wStyle, tagSize, showTags, proxGate and proxVa, close, wBelThr, wAbvThr)
 
     // Daily profile: sub-bars whose daily tag is within the daily window.
     if showD and _nSub > 0 and not na(dWinStart)
@@ -378,10 +386,10 @@ if barstate.islast
         if dLvn
             f_nodes(vpLn, vpLb, _xL, _xR, dLvnP, "D-LVN", dLvnCol, dWidth, dStyle, tagSize, showTags, proxGate, close, dBelThr, dAbvThr)
         if dVa
-            f_level(vpLn, vpLb, _xL, _xR, dVah, "D-VAH", dVaCol, dWidth, dStyle, tagSize, showTags)
-            f_level(vpLn, vpLb, _xL, _xR, dVal, "D-VAL", dVaCol, dWidth, dStyle, tagSize, showTags)
+            f_levelG(vpLn, vpLb, _xL, _xR, dVah, "D-VAH", dVaCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
+            f_levelG(vpLn, vpLb, _xL, _xR, dVal, "D-VAL", dVaCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
         if dPoc
-            f_level(vpLn, vpLb, _xL, _xR, dP, "D-POC", dPocCol, dWidth, dStyle, tagSize, showTags)
+            f_levelG(vpLn, vpLb, _xL, _xR, dP, "D-POC", dPocCol, dWidth, dStyle, tagSize, showTags, proxGate and proxVa, close, dBelThr, dAbvThr)
 
     // Flat SMAs: current value drawn as a horizontal level (uncheck / re-length / recolor / re-width above).
     maPfx = maTF == "Daily" ? "D-" : maTF == "Weekly" ? "W-" : ""
