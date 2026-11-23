@@ -76,7 +76,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.22.25", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.22.26", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -107,6 +107,17 @@ styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"],
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
 showRec    = input.bool(true, "Arrows: lost → reclaim (15m close)", group = gL, tooltip = "Small arrow on every 15m close that crosses a HIGH, LOW or CLOSE level — the loss and the reclaim alike. Follows each level's own show / hide above.")
 
+// ── Signal alerts (prior-4H HIGH & LOW only) ──────────────────────
+// Fire a webhook-ready alert on every 15m close that crosses the prior 4H
+// HIGH or LOW. Break (go-with) and sweep-reclaim / reject (fade) are both
+// emitted, judged on the CLOSE (so a gap-through still fires), and a level
+// re-arms the instant it crosses back — the crossing machine alternates by
+// design. Bind ONE alert per symbol on this indicator with "Any alert() call"
+// and point the webhook at /tv/webhook. Prior-4H high/low only — OPEN / CLOSE
+// / RANGE lines are drawing context, never signals.
+gA = "Signal alerts (webhook)"
+alertsOn = input.bool(true, "Send break / fade alerts (prior-4H high & low)", group = gA, tooltip = "ON = emit an alert() on each 15m close that breaks or reclaims/rejects the prior 4H high or low. Break of low → SHORT (stop = forming high); reclaim of low → LONG (stop = forming low); break of high → LONG (stop = forming low); reject of high → SHORT (stop = forming high).")
+
 c_high  = #FF0000
 c_low   = #43A047
 c_open  = #787B86
@@ -127,6 +138,13 @@ f_flip(int side, bool lost, float price, float level) =>
     bool rec = flip and lost
     bool nlost = flip ? not lost : lost
     [ns, nlost, rec, flip]
+
+// Build a /tv/webhook-ready JSON payload for one signal. Prices are strings
+// (the adapter casts them); symbol + exchange are split so normalize_symbol
+// can strip the prefix. Targets are omitted — the webhook computes them from
+// entry + stop + direction.
+f_sigJSON(string ruleName, string dir, float entryP, float stopP) =>
+    '{"symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","price":"' + str.tostring(entryP, format.mintick) + '","rule":"' + ruleName + '","direction":"' + dir + '","interval":"15","entry":"' + str.tostring(entryP, format.mintick) + '","stop":"' + str.tostring(stopP, format.mintick) + '"}'
 
 // Prior completed 4H candle's HIGH/LOW/OPEN and its open time, plus the
 // forming candle's close time — settled [1] + lookahead, the same idiom as
@@ -409,20 +427,43 @@ if not na(c15) and not na(pH) and not na(pL) and not na(pC) and (na(lastC15) or 
         stopSDead := true
     if not na(stopLP) and not stopLDead and c15 < stopLP
         stopLDead := true
+    // Step the crossing machines EVERY new 15m bar (needed for both arrows and
+    // alerts — not gated by showRec, or the state would freeze when arrows are off).
+    int ax = na(time[1]) ? time : time[1]
+    [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c15, pH)
+    sideH := nsH
+    lostH := nlH
+    [nsL, nlL, recL, flipL] = f_flip(sideL, lostL, c15, pL)
+    sideL := nsL
+    lostL := nlL
+    [nsC, nlC, recC, flipC] = f_flip(sideC, lostC, c15, pC)
+    sideC := nsC
+    lostC := nlC
+    // Arrows (visual): HIGH / LOW / CLOSE crossings.
     if showRec
-        int ax = na(time[1]) ? time : time[1]
-        [nsH, nlH, recH, flipH] = f_flip(sideH, lostH, c15, pH)
-        sideH := nsH
-        lostH := nlH
-        [nsL, nlL, recL, flipL] = f_flip(sideL, lostL, c15, pL)
-        sideL := nsL
-        lostL := nlL
-        [nsC, nlC, recC, flipC] = f_flip(sideC, lostC, c15, pC)
-        sideC := nsC
-        lostC := nlC
         if flipH and showHigh
             array.push(_arw, label.new(ax, nsH == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsH == 1 ? label.style_label_up : label.style_label_down, color = c_high, size = size.small))
         if flipL and showLow
             array.push(_arw, label.new(ax, nsL == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsL == 1 ? label.style_label_up : label.style_label_down, color = c_low, size = size.small))
         if flipC and showClose
             array.push(_arw, label.new(ax, nsC == 1 ? l15 : h15, "", xloc = xloc.bar_time, style = nsC == 1 ? label.style_label_up : label.style_label_down, color = c_close, size = size.small))
+    // Signal alerts — prior-4H HIGH & LOW only (CLOSE/OPEN/RANGE are context, never signals).
+    // Break = go-with (close through the level); reclaim / reject = fade (close back across).
+    // Stop is the forming 4H candle's far extreme: HIGH for shorts, LOW for longs.
+    if alertsOn
+        // Prior-4H LOW
+        if flipL
+            if nsL == -1 and not na(fH)
+                // closed below the prior 4H low → break down (go-with SHORT), stop = forming high
+                alert(f_sigJSON("fourh_breakdn", "SHORT", c15, fH), alert.freq_once_per_bar)
+            else if nsL == 1 and not na(fL)
+                // reclaimed back above the prior 4H low → sweep-reclaim (fade LONG), stop = forming low
+                alert(f_sigJSON("fourh_reclaim", "BUY", c15, fL), alert.freq_once_per_bar)
+        // Prior-4H HIGH
+        if flipH
+            if nsH == 1 and not na(fL)
+                // closed above the prior 4H high → break up (go-with LONG), stop = forming low
+                alert(f_sigJSON("fourh_breakup", "BUY", c15, fL), alert.freq_once_per_bar)
+            else if nsH == -1 and not na(fH)
+                // rejected back below the prior 4H high → failed break (fade SHORT), stop = forming high
+                alert(f_sigJSON("fourh_reject", "SHORT", c15, fH), alert.freq_once_per_bar)
