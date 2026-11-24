@@ -1,5 +1,11 @@
 //@version=5
-// TBA Patterns + Anchored VWAP — v2026.11.23.3
+// TBA Patterns + Anchored VWAP — v2026.11.23.4
+// v2026.11.23.4 — the Day and Structure rows now use Victor's simple
+// rule (2026-11-23): the open vs yesterday's high/low. Open inside
+// yesterday's range = range day, no direction yet; open above PDH =
+// outside day up, bullish, buy pullback; open below PDL = bearish.
+// Structure reads the same yardstick live (above PDH / inside / below
+// PDL). The ATR/pinned-close test from .1 is gone — too complicated.
 // v2026.11.23.3 — the 20 / 50 / 200 SMA now plot in Victor's colours
 // at width 4, solid: 20 purple, 50 yellow, 200 red (the 200's circle
 // style is gone). Only the colour defaults and plot widths changed.
@@ -24,7 +30,7 @@
 // v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
 // support, rules swing_sma<N>_support) next to the TBA breakout hook, for
 // Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
-indicator("TBA Patterns + Anchored VWAP v2026.11.23.3", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+indicator("TBA Patterns + Anchored VWAP v2026.11.23.4", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -979,21 +985,20 @@ if showLvlHook and barstate.isconfirmed and retPmh and not retPmh[1]
 // ── Day structure + plan state (Victor, 2026-11-23: the Trading Plan's day
 // read and chart rules in the HUD, in plain words) ──
 // Judged on the DAILY series so the rows read the same on any chart TF.
-// Day type is the plan's own read: a gap of 0.30% or more is a gap day,
-// anything smaller is a range open. Structure is where the day sits so
-// far: on a day whose range already covers a full ATR, a close pinned
-// near the high (low) is a trend day up (down); anything else is range
-// so far. Plan state is the plan's chart rules in priority order: a
-// falling 20 overhead is the first resistance; reclaiming it with price
-// above the 200 is out of the downtrend; below the 50 is day-trade only.
-[dC, dO, dPC, dH, dL, dAtr, dS20, dS20dn, dS50, dS200] = request.security(syminfo.tickerid, "D", [close, open, close[1], high, low, ta.atr(14), ta.sma(close, 20), ta.sma(close, 20) < ta.sma(close, 20)[5], ta.sma(close, 50), ta.sma(close, 200)], lookahead=barmerge.lookahead_off)
-dGapPct = not na(dO) and not na(dPC) and dPC > 0 ? (dO / dPC - 1) * 100 : na
-dayTxt  = na(dGapPct) ? "-" : dGapPct >= 0.30 ? "Gap up +" + str.tostring(dGapPct, "#.0") + "% - pullback only" : dGapPct <= -0.30 ? "Gap down " + str.tostring(dGapPct, "#.0") + "% - let it settle" : "Range open - trade less, small"
-dayCol  = na(dGapPct) ? color.gray : dGapPct >= 0.30 ? color.lime : dGapPct <= -0.30 ? color.red : color.yellow
-dPos    = not na(dC) and not na(dH) and not na(dL) and dH > dL ? (dC - dL) / (dH - dL) : na
-dWide   = not na(dAtr) and dAtr > 0 and not na(dH) and not na(dL) ? (dH - dL) >= dAtr : false
-strTxt  = na(dPos) ? "-" : dWide and dPos >= 0.7 and dC > dO ? "Trending up" : dWide and dPos <= 0.3 and dC < dO ? "Trending down" : "Range so far"
-strCol  = strTxt == "Trending up" ? color.lime : strTxt == "Trending down" ? color.red : strTxt == "Range so far" ? color.yellow : color.gray
+// The day read is Victor's, kept simple: the open against YESTERDAY's
+// high and low. An open inside yesterday's range is a range day — no
+// clear direction yet. An open above the prior day high is an outside
+// day to the upside: bullish, buy the pullback. An open below the prior
+// day low is an outside day to the downside: bearish. Structure is the
+// same yardstick read live: where price sits now vs yesterday's range.
+// Plan state is the plan's chart rules in priority order: a falling 20
+// overhead is the first resistance; reclaiming it with price above the
+// 200 is out of the downtrend; below the 50 is day-trade only.
+[dC, dO, dPdh, dPdl, dS20, dS20dn, dS50, dS200] = request.security(syminfo.tickerid, "D", [close, open, high[1], low[1], ta.sma(close, 20), ta.sma(close, 20) < ta.sma(close, 20)[5], ta.sma(close, 50), ta.sma(close, 200)], lookahead=barmerge.lookahead_off)
+dayTxt  = na(dO) or na(dPdh) or na(dPdl) ? "-" : dO > dPdh ? "Opened above PDH - bullish, buy pullback" : dO < dPdl ? "Opened below PDL - bearish" : "Range open - inside yesterday, no direction yet"
+dayCol  = dayTxt == "Opened above PDH - bullish, buy pullback" ? color.lime : dayTxt == "Opened below PDL - bearish" ? color.red : dayTxt == "-" ? color.gray : color.yellow
+strTxt  = na(dC) or na(dPdh) or na(dPdl) ? "-" : dC > dPdh ? "Above PDH" : dC < dPdl ? "Below PDL" : "Inside yesterday's range"
+strCol  = strTxt == "Above PDH" ? color.lime : strTxt == "Below PDL" ? color.red : strTxt == "-" ? color.gray : color.yellow
 planTxt = na(dC) or na(dS20) ? "-" : dS20dn and dC < dS20 ? "Falling 20 overhead - first resistance" : dS20dn and dC >= dS20 and not na(dS200) and dC > dS200 ? "Out of downtrend - 20 reclaimed, above 200" : not na(dS50) and dC < dS50 ? "Below the 50 - day trade only" : not na(dS200) and dC < dS200 ? "Below the 200 - needs a close back above" : "Above the 50 & 200 - trend ok"
 planCol = planTxt == "Above the 50 & 200 - trend ok" or planTxt == "Out of downtrend - 20 reclaimed, above 200" ? color.lime : planTxt == "Below the 50 - day trade only" ? color.orange : planTxt == "-" ? color.gray : color.red
 
