@@ -18,6 +18,8 @@
 //   no-repaint), drawn like PDH/PDL and skipped when a frame line already sits there. Lines only — no new alerts.
 // v2026.11.24.4: HUD gains a TREND row read off the two prior 4H candles — higher high AND higher low = TRENDING ▲;
 //   lower high AND lower low = DOWNTRENDING ▼; anything else = SIDEWAYS. (Still above the envelope-bounds row.)
+// v2026.11.24.5: 2nd-candle standalone tags moved to the RIGHT (tEnd) so every tag sits on the same side; and a
+//   "Swing: hide if > % from price" gate (default 5%) hides a swing high/low that's too far from price to be actionable.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -91,7 +93,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.24.4", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.24.5", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -147,6 +149,7 @@ widthSwLo  = input.int(1, "", minval = 1, maxval = 10, inline = "lsl", group = g
 c_swhi     = input.color(#FF6D00, "Swing-hi colour", inline = "csw", group = gL)
 c_swlo     = input.color(#00ACC1, "Swing-lo colour", inline = "csw", group = gL)
 swLen      = input.int(3, "Swing pivot strength (4H bars)", minval = 1, maxval = 10, group = gL, tooltip = "Bars to the left AND right that must be lower (swing high) / higher (swing low) to confirm a 4H pivot. Higher = fewer, bigger swings.")
+swMaxPct   = input.float(5.0, "Swing: hide if > % from price", minval = 0.0, step = 0.5, group = gL, tooltip = "Hide a swing high / low that sits more than this % from the current price — far structure isn't actionable. 0 = always show.")
 
 // ── Range HUD ─────────────────────────────────────────────────────
 // A small corner panel reading the LIVE price against the last two 4H candles'
@@ -470,7 +473,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     // line it sits on (within confPct → its name is appended to that line's tag, "HIGH + HIGH·2", no
     // stacked duplicate) or, standalone, draws its own line from that candle's open (t2) through tEnd so
     // it rolls forward alongside prior-1. Same colours as prior-1; dotted by default to read apart;
-    // standalone tags sit at the LEFT (t2) so they don't crowd the prior-1 tags at tEnd. The per-line
+    // standalone tags sit at the RIGHT (tEnd), the same side as every other tag. The per-line
     // toggles (HIGH/LOW/OPEN/CLOSE) govern both frames; show2nd is the master for this candle.
     if show2nd and not na(h2) and not na(l2) and not na(o2) and not na(c2) and not na(t2)
         string[] c2nm = array.from("HIGH·2", "LOW·2", "OPEN·2", "CLOSE·2")
@@ -491,7 +494,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                 if not mergedC
                     color cc = array.get(c2cl, ci)
                     array.push(_ln, line.new(t2, cp, tEnd, cp, xloc = xloc.bar_time, color = cc, width = width2nd, style = f_lstyle(style2nd)))
-                    array.push(_lb, label.new(t2, cp, cnm + " " + str.tostring(cp, format.mintick), xloc = xloc.bar_time, style = label.style_label_right, color = cc, textcolor = f_txtcol(cc), size = size.tiny))
+                    array.push(_lb, label.new(tEnd, cp, cnm + " " + str.tostring(cp, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = cc, textcolor = f_txtcol(cc), size = size.tiny))
     // PDH / PDL rails — prior-day RTH context, drawn the SAME way as the 4H frame lines (v2026.11.24.2):
     // a segment from the frame open (tPriorOpen) through tEnd, not a full-width extend-both ray. A side
     // is SKIPPED when a frame / group line already sits on it (within confPct) — it's already tagged
@@ -516,7 +519,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             array.push(_lb, label.new(tEnd, pdl, "PDL " + str.tostring(pdl, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdl, textcolor = f_txtcol(c_pdl), size = size.tiny))
     // SWING HIGH / LOW (4H pivots) — structural base levels, drawn like PDH/PDL (frame open → tEnd).
     // A side is SKIPPED when a frame / group line already sits on it (within confPct), no stacked lines.
-    if showSwHi and not na(swHi)
+    if showSwHi and not na(swHi) and (swMaxPct == 0 or (close != 0 and math.abs(swHi - close) / close * 100 <= swMaxPct))
         bool drawSH = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
@@ -525,7 +528,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         if drawSH
             array.push(_ln, line.new(tPriorOpen, swHi, tEnd, swHi, xloc = xloc.bar_time, color = c_swhi, width = widthSwHi, style = f_lstyle(styleSwHi)))
             array.push(_lb, label.new(tEnd, swHi, "SWING HI " + str.tostring(swHi, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swhi, textcolor = f_txtcol(c_swhi), size = size.tiny))
-    if showSwLo and not na(swLo)
+    if showSwLo and not na(swLo) and (swMaxPct == 0 or (close != 0 and math.abs(swLo - close) / close * 100 <= swMaxPct))
         bool drawSL = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
