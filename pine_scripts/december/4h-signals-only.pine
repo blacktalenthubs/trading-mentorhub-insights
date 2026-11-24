@@ -80,7 +80,12 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.23.31", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+// v2026.11.24.1: PDH / PDL rails added — prior-day REGULAR-SESSION high/low, drawn like the
+//   frame lines and kept alive on a 24h / extended-hours chart. They roll the moment the regular
+//   session CLOSES (not at the next open), so the RTH context isn't lost overnight / pre-market
+//   (e.g. NVDA RTH low 156 stays drawn at 156 until the next regular session closes). The
+//   confluence tags (" + PDH" / " + PDL") now reference the RTH levels too. Lines-only — no new alerts.
+indicator("4h-signals-only · v2026.11.24.1", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -109,6 +114,17 @@ widthRange = input.int(1, "", minval = 1, maxval = 10, inline = "lr", group = gL
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "Auto STOP line at the forming candle's far extreme while a trade is live: its high for a short-side trade, its low for a long-side trade. Never the entry level itself.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
+// PDH / PDL — prior-day REGULAR-SESSION rails. Daily context kept alive on a 24h chart;
+// drawn full-width (like a key level), dotted by default so a daily rail reads differently
+// from a solid 4H frame line. Roll at the regular-session CLOSE (see the pdh/pdl computation below).
+showPDH    = input.bool(true,  "PDH — prior-day RTH high", inline = "lpdh", group = gL, tooltip = "Prior-day REGULAR-SESSION high, kept drawn on a 24h / extended chart. Rolls the moment the regular session closes, not at the next open.")
+stylePDH   = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "lpdh", group = gL)
+widthPDH   = input.int(2, "", minval = 1, maxval = 10, inline = "lpdh", group = gL)
+showPDL    = input.bool(true,  "PDL — prior-day RTH low", inline = "lpdl", group = gL, tooltip = "Prior-day REGULAR-SESSION low, kept drawn on a 24h / extended chart. Rolls the moment the regular session closes, not at the next open.")
+stylePDL   = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "lpdl", group = gL)
+widthPDL   = input.int(2, "", minval = 1, maxval = 10, inline = "lpdl", group = gL)
+c_pdh      = input.color(#EF5350, "PDH colour", inline = "cpd", group = gL)
+c_pdl      = input.color(#26A69A, "PDL colour", inline = "cpd", group = gL)
 
 // ── Signal alerts (prior-4H HIGH & LOW only) ──────────────────────
 // Fire a webhook-ready alert on every 10m close that crosses the prior 4H
@@ -210,10 +226,22 @@ if showRange and not na(pH) and not na(pL)
         rngLo := accLo
         rngT := array.get(cT, mother)
 
-// Confluence levels — prior completed day / week high & low, same settled
-// [1] + lookahead idiom.
-pdh = request.security(tid, "D", high[1], lookahead = barmerge.lookahead_on)
-pdl = request.security(tid, "D", low[1],  lookahead = barmerge.lookahead_on)
+// Prior-day high/low from the REGULAR SESSION only, so the RTH context survives on a 24h /
+// extended-hours chart (the chart ticker `tid` would fold in pre/post-market prints). The line
+// holds the last RTH session's H/L and rolls the instant a new regular session CLOSES (16:00 ET),
+// NOT at the next open — so overnight you keep the session that just finished.
+//   • during RTH:  prior completed RTH day (locked [1], no repaint)
+//   • once closed: today's just-closed RTH day, held through the overnight + pre-market, then
+//                  seamlessly becomes "prior" when the next RTH day opens.
+// `time >= time_close` is the close gate: chart-timeframe independent, no lookahead leak in the
+// used path (the current-day [0] values are only read once the day has closed).
+rthTkr = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdH1, pdL1]             = request.security(rthTkr, "D", [high[1], low[1]],       lookahead = barmerge.lookahead_on)
+[pdH0, pdL0, rthCloseT]  = request.security(rthTkr, "D", [high, low, time_close], lookahead = barmerge.lookahead_on)
+rthClosed = not na(rthCloseT) and time >= rthCloseT
+pdh = rthClosed ? pdH0 : pdH1
+pdl = rthClosed ? pdL0 : pdL1
+// Prior week high/low — chart ticker (unchanged).
 pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
 
@@ -386,6 +414,27 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         if rLoDraw
             array.push(_ln, line.new(rT, rngLo, tEnd, rngLo, xloc = xloc.bar_time, color = c_low, width = widthRange, style = f_lstyle(styleRange)))
             array.push(_lb, label.new(tEnd, rngLo, "RANGE LOW " + str.tostring(rngLo, format.mintick) + f_conf(rngLo), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.tiny))
+    // PDH / PDL rails — the regular-session prior-day context, drawn full-width so it stays
+    // visible on the 24h chart. A side is SKIPPED when a frame / group line already sits on it
+    // (within confPct) — it's already tagged " + PDH" / " + PDL" there, so no stacked lines.
+    if showPDH and not na(pdh)
+        bool drawPDH = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(pdh - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawPDH := false
+        if drawPDH
+            array.push(_ln, line.new(tPriorOpen, pdh, tEnd, pdh, xloc = xloc.bar_time, extend = extend.both, color = c_pdh, width = widthPDH, style = f_lstyle(stylePDH)))
+            array.push(_lb, label.new(tEnd, pdh, "PDH " + str.tostring(pdh, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdh, textcolor = f_txtcol(c_pdh), size = size.tiny))
+    if showPDL and not na(pdl)
+        bool drawPDL = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(pdl - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawPDL := false
+        if drawPDL
+            array.push(_ln, line.new(tPriorOpen, pdl, tEnd, pdl, xloc = xloc.bar_time, extend = extend.both, color = c_pdl, width = widthPDL, style = f_lstyle(stylePDL)))
+            array.push(_lb, label.new(tEnd, pdl, "PDL " + str.tostring(pdl, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdl, textcolor = f_txtcol(c_pdl), size = size.tiny))
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
