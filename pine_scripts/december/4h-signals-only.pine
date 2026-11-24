@@ -16,6 +16,8 @@
 //   ABOVE (broke the 2-candle high) or BELOW (broke the 2-candle low).
 // v2026.11.24.3: SWING HIGH / SWING LOW base levels — the most recent confirmed 4H pivot high / low (strength input,
 //   no-repaint), drawn like PDH/PDL and skipped when a frame line already sits there. Lines only — no new alerts.
+// v2026.11.24.4: HUD gains a TREND row read off the two prior 4H candles — higher high AND higher low = TRENDING ▲;
+//   lower high AND lower low = DOWNTRENDING ▼; anything else = SIDEWAYS. (Still above the envelope-bounds row.)
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -89,7 +91,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.24.3", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.24.4", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -532,9 +534,12 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         if drawSL
             array.push(_ln, line.new(tPriorOpen, swLo, tEnd, swLo, xloc = xloc.bar_time, color = c_swlo, width = widthSwLo, style = f_lstyle(styleSwLo)))
             array.push(_lb, label.new(tEnd, swLo, "SWING LO " + str.tostring(swLo, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swlo, textcolor = f_txtcol(c_swlo), size = size.tiny))
-    // ── Range HUD — live price vs the last TWO 4H candles' envelope ──
-    // envTop = max(prior-1 high, prior-2 high) · envBot = min(prior-1 low, prior-2 low).
-    // IN RANGE = chopping inside the two candles (no break — wait); ABOVE / BELOW = broke out.
+    // ── Range HUD — live price vs the last TWO 4H candles ────────────
+    // Row 1 LOCATION: envTop = max(prior-1 high, prior-2 high), envBot = min(prior-1 low, prior-2 low).
+    //   IN RANGE = chopping inside the two candles (no break — wait); ABOVE / BELOW = broke out.
+    // Row 2 TREND (structure of the two prior candles): higher high AND higher low = TRENDING UP;
+    //   lower high AND lower low = DOWNTRENDING; anything else (inside / overlap / mixed) = SIDEWAYS.
+    // Row 3: the envelope bounds.
     if showHUD
         float envTop = math.max(pH, na(h2) ? pH : h2)
         float envBot = math.min(pL, na(l2) ? pL : l2)
@@ -549,9 +554,23 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         else
             hudTxt := "IN RANGE"
             hudBg  := color.new(#FB8C00, 20)
-        var table _hud = table.new(f_hudpos(hudPos), 1, 2, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        // Trend from the last two 4H candles — HH+HL up, LH+LL down, else sideways.
+        string trendTxt = "SIDEWAYS"
+        color  trendBg  = color.new(#FB8C00, 35)
+        if not na(h2) and not na(l2)
+            if pH > h2 and pL > l2
+                trendTxt := "TRENDING ▲"
+                trendBg  := color.new(c_low, 35)
+            else if pH < h2 and pL < l2
+                trendTxt := "DOWNTRENDING ▼"
+                trendBg  := color.new(c_high, 35)
+            else
+                trendTxt := "SIDEWAYS"
+                trendBg  := color.new(#FB8C00, 35)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 3, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
         table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
-        table.cell(_hud, 0, 1, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
+        table.cell(_hud, 0, 1, trendTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = trendBg)
+        table.cell(_hud, 0, 2, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
