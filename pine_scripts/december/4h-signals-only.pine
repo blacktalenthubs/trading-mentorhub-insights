@@ -7,6 +7,15 @@
 // v2026.11.23.31: MIN STOP DISTANCE gate (default 0.10%). A signal whose stop (the forming 4H candle's extreme) sits closer than
 //   that to entry is SKIPPED — kills the near-zero-stop / absurd-R cards that fire right at a 4H roll (e.g. MU 624.43 stop 624.38 → 891R).
 //   f_okStop also absorbs the old `not na()` stop guards. The server applies the same floor as a backstop for any stale chart copy.
+// v2026.11.24.1: PDH / PDL rails — prior-day REGULAR-SESSION high/low, kept alive on a 24h chart; roll at the RTH close.
+// v2026.11.24.2: 2nd prior 4H candle added as CONTEXT LINES — HIGH·2 / LOW·2 / OPEN·2 / CLOSE·2 of the candle BEFORE the
+//   last completed one, so two prior candles roll forward after each 4H close (lines only — no new alerts). A candle-2
+//   level within 0.1% of a prior-1 frame line MERGES into that line's tag ("HIGH + HIGH·2"), no stacked duplicate. PDH / PDL now
+//   draw the SAME way as the 4H frame lines: a segment from the frame open through tEnd, not a full-width extend-both ray.
+//   And a corner HUD reads the current price against the last two 4H candles' envelope: IN RANGE (chopping inside — wait),
+//   ABOVE (broke the 2-candle high) or BELOW (broke the 2-candle low).
+// v2026.11.24.3: SWING HIGH / SWING LOW base levels — the most recent confirmed 4H pivot high / low (strength input,
+//   no-repaint), drawn like PDH/PDL and skipped when a frame line already sits there. Lines only — no new alerts.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -80,7 +89,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.23.31", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.24.3", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -109,6 +118,43 @@ widthRange = input.int(1, "", minval = 1, maxval = 10, inline = "lr", group = gL
 showStop   = input.bool(true,  "STOP (manipulation wick)", inline = "ls", group = gL, tooltip = "Auto STOP line at the forming candle's far extreme while a trade is live: its high for a short-side trade, its low for a long-side trade. Never the entry level itself.")
 styleStop  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "ls", group = gL)
 widthStop  = input.int(1, "", minval = 1, maxval = 10, inline = "ls", group = gL)
+// 2nd prior 4H candle — the candle BEFORE the last completed one, as CONTEXT lines (no alerts).
+// One master toggle + shared style / width; its HIGH·2 / LOW·2 / OPEN·2 / CLOSE·2 use the same
+// colours as the prior-1 frame, dotted by default so the two frames read apart.
+show2nd    = input.bool(true,  "2nd prior candle (HIGH·2 / LOW·2 / OPEN·2 / CLOSE·2)", inline = "l2", group = gL, tooltip = "Draw the 4H candle BEFORE the last completed one, so two prior candles roll forward after each close. Context lines only — no signals fire off it.")
+style2nd   = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "l2", group = gL)
+width2nd   = input.int(1, "", minval = 1, maxval = 10, inline = "l2", group = gL)
+// PDH / PDL — prior-day REGULAR-SESSION rails, kept alive on a 24h chart; roll at the RTH close.
+// Drawn the SAME way as the 4H frame lines (v2026.11.24.2): a segment from the frame open through tEnd.
+showPDH    = input.bool(true,  "PDH — prior-day RTH high", inline = "lpdh", group = gL, tooltip = "Prior-day REGULAR-SESSION high, kept drawn on a 24h / extended chart. Rolls the moment the regular session closes, not at the next open.")
+stylePDH   = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "lpdh", group = gL)
+widthPDH   = input.int(2, "", minval = 1, maxval = 10, inline = "lpdh", group = gL)
+showPDL    = input.bool(true,  "PDL — prior-day RTH low", inline = "lpdl", group = gL, tooltip = "Prior-day REGULAR-SESSION low, kept drawn on a 24h / extended chart. Rolls the moment the regular session closes, not at the next open.")
+stylePDL   = input.string("dotted", "", options = ["solid", "dashed", "dotted"], inline = "lpdl", group = gL)
+widthPDL   = input.int(2, "", minval = 1, maxval = 10, inline = "lpdl", group = gL)
+c_pdh      = input.color(#EF5350, "PDH colour", inline = "cpd", group = gL)
+c_pdl      = input.color(#26A69A, "PDL colour", inline = "cpd", group = gL)
+// SWING HIGH / LOW — the most recent CONFIRMED 4H pivot high / low: the structural base price is
+// building off. Drawn like PDH/PDL (frame open → tEnd). Strength = the pivot bars set below.
+showSwHi   = input.bool(true,  "Swing high (4H pivot)", inline = "lsh", group = gL, tooltip = "The most recent confirmed 4H SWING HIGH (pivot) — a structural base level.")
+styleSwHi  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "lsh", group = gL)
+widthSwHi  = input.int(1, "", minval = 1, maxval = 10, inline = "lsh", group = gL)
+showSwLo   = input.bool(true,  "Swing low (4H pivot)",  inline = "lsl", group = gL, tooltip = "The most recent confirmed 4H SWING LOW (pivot) — a structural base level.")
+styleSwLo  = input.string("dashed", "", options = ["solid", "dashed", "dotted"], inline = "lsl", group = gL)
+widthSwLo  = input.int(1, "", minval = 1, maxval = 10, inline = "lsl", group = gL)
+c_swhi     = input.color(#FF6D00, "Swing-hi colour", inline = "csw", group = gL)
+c_swlo     = input.color(#00ACC1, "Swing-lo colour", inline = "csw", group = gL)
+swLen      = input.int(3, "Swing pivot strength (4H bars)", minval = 1, maxval = 10, group = gL, tooltip = "Bars to the left AND right that must be lower (swing high) / higher (swing low) to confirm a 4H pivot. Higher = fewer, bigger swings.")
+
+// ── Range HUD ─────────────────────────────────────────────────────
+// A small corner panel reading the LIVE price against the last two 4H candles'
+// envelope (max high / min low of the prior-1 + prior-2 candles): IN RANGE when
+// price is chopping inside it (no break yet — wait), ABOVE when it broke the
+// 2-candle high, BELOW when it broke the 2-candle low.
+gH = "Range HUD"
+showHUD = input.bool(true, "Show range HUD", group = gH, tooltip = "A corner panel: IN RANGE (price inside the last two 4H candles' high/low — chop, wait), ABOVE (broke the 2-candle high) or BELOW (broke the 2-candle low).")
+hudPos  = input.string("Top Right", "HUD position", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Middle Right", "Middle Left"], group = gH)
+hudSize = input.string("Normal", "HUD text size", options = ["Tiny", "Small", "Normal", "Large", "Huge"], group = gH)
 
 // ── Signal alerts (prior-4H HIGH & LOW only) ──────────────────────
 // Fire a webhook-ready alert on every 10m close that crosses the prior 4H
@@ -130,6 +176,8 @@ c_stop  = color.new(#FFEB3B, 35)
 confPct = 0.1  // shared tolerance %: confluence tags + merging the candle's own lines
 f_txtcol(color c) => (color.r(c) * 0.299 + color.g(c) * 0.587 + color.b(c) * 0.114) > 150 ? color.black : color.white
 f_lstyle(string s) => s == "dashed" ? line.style_dashed : s == "dotted" ? line.style_dotted : line.style_solid
+f_hudpos(string p) => p == "Top Left" ? position.top_left : p == "Top Right" ? position.top_right : p == "Bottom Left" ? position.bottom_left : p == "Bottom Right" ? position.bottom_right : p == "Middle Left" ? position.middle_left : position.middle_right
+f_hudsize(string s) => s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Large" ? size.large : s == "Huge" ? size.huge : size.normal
 
 // One step of a level's crossing state machine, fed with completed
 // 10m closes. Returns [new side, new lost flag, reclaimed?, crossed?]:
@@ -177,6 +225,8 @@ tid = syminfo.tickerid
 [h2, h3, h4, h5, h6, h7, h8, h9] = request.security(tid, "240", [high[2], high[3], high[4], high[5], high[6], high[7], high[8], high[9]], lookahead = barmerge.lookahead_on)
 [l2, l3, l4, l5, l6, l7, l8, l9] = request.security(tid, "240", [low[2], low[3], low[4], low[5], low[6], low[7], low[8], low[9]], lookahead = barmerge.lookahead_on)
 [t2, t3, t4, t5, t6, t7, t8, t9] = request.security(tid, "240", [time[2], time[3], time[4], time[5], time[6], time[7], time[8], time[9]], lookahead = barmerge.lookahead_on)
+// 2nd prior 4H candle's OPEN / CLOSE (its HIGH = h2, LOW = l2, open time = t2 come from the arrays above).
+[o2, c2] = request.security(tid, "240", [open[2], close[2]], lookahead = barmerge.lookahead_on)
 
 // ── RANGE — the unbroken mother candle ────────────────────────────
 // Walk back from the prior candle: an older candle that fully
@@ -210,12 +260,33 @@ if showRange and not na(pH) and not na(pL)
         rngLo := accLo
         rngT := array.get(cT, mother)
 
-// Confluence levels — prior completed day / week high & low, same settled
-// [1] + lookahead idiom.
-pdh = request.security(tid, "D", high[1], lookahead = barmerge.lookahead_on)
-pdl = request.security(tid, "D", low[1],  lookahead = barmerge.lookahead_on)
+// Prior-day high/low from the REGULAR SESSION only, so the RTH context survives on a 24h /
+// extended-hours chart (the chart ticker `tid` would fold in pre/post-market prints). The level
+// holds the last RTH session's H/L and rolls the instant a new regular session CLOSES (16:00 ET),
+// NOT at the next open — so overnight you keep the session that just finished.
+//   • during RTH:  prior completed RTH day (locked [1], no repaint)
+//   • once closed: today's just-closed RTH day, held through the overnight + pre-market, then
+//                  seamlessly becomes "prior" when the next RTH day opens.
+rthTkr = ticker.new(syminfo.prefix, syminfo.ticker, session.regular)
+[pdH1, pdL1]             = request.security(rthTkr, "D", [high[1], low[1]],       lookahead = barmerge.lookahead_on)
+[pdH0, pdL0, rthCloseT]  = request.security(rthTkr, "D", [high, low, time_close], lookahead = barmerge.lookahead_on)
+rthClosed = not na(rthCloseT) and time >= rthCloseT
+pdh = rthClosed ? pdH0 : pdH1
+pdl = rthClosed ? pdL0 : pdL1
+// Prior week high/low — chart ticker (unchanged).
 pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+// Most recent CONFIRMED 4H swing high / low (pivots), held forward — the structural base. Computed
+// on the 4H series; NO lookahead (a pivot confirms swLen bars after its peak — the honest, no-repaint
+// value). na except on the bar a pivot confirms, so the last non-na is held in swHi / swLo.
+[ph4, pl4] = request.security(tid, "240", [ta.pivothigh(high, swLen, swLen), ta.pivotlow(low, swLen, swLen)], lookahead = barmerge.lookahead_off)
+var float swHi = na
+var float swLo = na
+if not na(ph4)
+    swHi := ph4
+if not na(pl4)
+    swLo := pl4
 
 // " + PDH + PWL" style suffix for a price sitting within 0.1% of a
 // confluence level; empty when nothing stacks.
@@ -279,6 +350,10 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     float[]  grpPriceArr = array.new_float()
     string[] grpConfArr  = array.new_string()
     label[]  grpLabelArr = array.new_label()
+    // Extra names merged onto a frame line AFTER it's drawn (STOP, HIGH·2 …), accumulated so
+    // several merges onto the same line compose instead of overwriting each other. The label is
+    // rebuilt as <names><extra> <price><conf> each time something merges in.
+    string[] grpExtraArr = array.new_string()
     while g < 4
         int firstIx = array.get(ix, g)
         float gPrice = array.get(pr, firstIx)
@@ -325,6 +400,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             array.push(grpPriceArr, repPrice)
             array.push(grpConfArr, confStr)
             array.push(grpLabelArr, array.get(_lb, array.size(_lb) - 1))
+            array.push(grpExtraArr, "")
         g := h
     // STOP lines — the forming candle's far extreme, never the entry
     // level itself (a stop at the entry is a zero-risk non-trade):
@@ -348,7 +424,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             if array.size(grpPriceArr) > 0
                 for k = 0 to array.size(grpPriceArr) - 1
                     if not mergedH and math.abs(stopSP - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
-                        label.set_text(array.get(grpLabelArr, k), array.get(grpNamesArr, k) + " + STOP " + str.tostring(array.get(grpPriceArr, k), format.mintick) + array.get(grpConfArr, k))
+                        array.set(grpExtraArr, k, array.get(grpExtraArr, k) + " + STOP")
+                        label.set_text(array.get(grpLabelArr, k), array.get(grpNamesArr, k) + array.get(grpExtraArr, k) + " " + str.tostring(array.get(grpPriceArr, k), format.mintick) + array.get(grpConfArr, k))
                         mergedH := true
             if not mergedH
                 array.push(_ln, line.new(tFormOpen, stopSP, tEnd, stopSP, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
@@ -361,7 +438,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             if array.size(grpPriceArr) > 0
                 for k = 0 to array.size(grpPriceArr) - 1
                     if not mergedL and math.abs(stopLP - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
-                        label.set_text(array.get(grpLabelArr, k), array.get(grpNamesArr, k) + " + STOP " + str.tostring(array.get(grpPriceArr, k), format.mintick) + array.get(grpConfArr, k))
+                        array.set(grpExtraArr, k, array.get(grpExtraArr, k) + " + STOP")
+                        label.set_text(array.get(grpLabelArr, k), array.get(grpNamesArr, k) + array.get(grpExtraArr, k) + " " + str.tostring(array.get(grpPriceArr, k), format.mintick) + array.get(grpConfArr, k))
                         mergedL := true
             if not mergedL
                 array.push(_ln, line.new(tFormOpen, stopLP, tEnd, stopLP, xloc = xloc.bar_time, color = c_stop, width = widthStop, style = f_lstyle(styleStop)))
@@ -386,6 +464,94 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         if rLoDraw
             array.push(_ln, line.new(rT, rngLo, tEnd, rngLo, xloc = xloc.bar_time, color = c_low, width = widthRange, style = f_lstyle(styleRange)))
             array.push(_lb, label.new(tEnd, rngLo, "RANGE LOW " + str.tostring(rngLo, format.mintick) + f_conf(rngLo), xloc = xloc.bar_time, style = label.style_label_down, color = c_low, textcolor = f_txtcol(c_low), size = size.tiny))
+    // 2nd prior 4H candle — CONTEXT lines (no alerts). Each level either MERGES into a prior-1 frame
+    // line it sits on (within confPct → its name is appended to that line's tag, "HIGH + HIGH·2", no
+    // stacked duplicate) or, standalone, draws its own line from that candle's open (t2) through tEnd so
+    // it rolls forward alongside prior-1. Same colours as prior-1; dotted by default to read apart;
+    // standalone tags sit at the LEFT (t2) so they don't crowd the prior-1 tags at tEnd. The per-line
+    // toggles (HIGH/LOW/OPEN/CLOSE) govern both frames; show2nd is the master for this candle.
+    if show2nd and not na(h2) and not na(l2) and not na(o2) and not na(c2) and not na(t2)
+        string[] c2nm = array.from("HIGH·2", "LOW·2", "OPEN·2", "CLOSE·2")
+        float[]  c2pr = array.from(h2, l2, o2, c2)
+        color[]  c2cl = array.from(c_high, c_low, c_open, c_close)
+        bool[]   c2en = array.from(showHigh, showLow, showOpen, showClose)
+        for ci = 0 to 3
+            if array.get(c2en, ci)
+                float cp = array.get(c2pr, ci)
+                string cnm = array.get(c2nm, ci)
+                bool mergedC = false
+                if array.size(grpPriceArr) > 0
+                    for k = 0 to array.size(grpPriceArr) - 1
+                        if not mergedC and math.abs(cp - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                            array.set(grpExtraArr, k, array.get(grpExtraArr, k) + " + " + cnm)
+                            label.set_text(array.get(grpLabelArr, k), array.get(grpNamesArr, k) + array.get(grpExtraArr, k) + " " + str.tostring(array.get(grpPriceArr, k), format.mintick) + array.get(grpConfArr, k))
+                            mergedC := true
+                if not mergedC
+                    color cc = array.get(c2cl, ci)
+                    array.push(_ln, line.new(t2, cp, tEnd, cp, xloc = xloc.bar_time, color = cc, width = width2nd, style = f_lstyle(style2nd)))
+                    array.push(_lb, label.new(t2, cp, cnm + " " + str.tostring(cp, format.mintick), xloc = xloc.bar_time, style = label.style_label_right, color = cc, textcolor = f_txtcol(cc), size = size.tiny))
+    // PDH / PDL rails — prior-day RTH context, drawn the SAME way as the 4H frame lines (v2026.11.24.2):
+    // a segment from the frame open (tPriorOpen) through tEnd, not a full-width extend-both ray. A side
+    // is SKIPPED when a frame / group line already sits on it (within confPct) — it's already tagged
+    // " + PDH" / " + PDL" there, so no stacked lines.
+    if showPDH and not na(pdh)
+        bool drawPDH = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(pdh - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawPDH := false
+        if drawPDH
+            array.push(_ln, line.new(tPriorOpen, pdh, tEnd, pdh, xloc = xloc.bar_time, color = c_pdh, width = widthPDH, style = f_lstyle(stylePDH)))
+            array.push(_lb, label.new(tEnd, pdh, "PDH " + str.tostring(pdh, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdh, textcolor = f_txtcol(c_pdh), size = size.tiny))
+    if showPDL and not na(pdl)
+        bool drawPDL = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(pdl - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawPDL := false
+        if drawPDL
+            array.push(_ln, line.new(tPriorOpen, pdl, tEnd, pdl, xloc = xloc.bar_time, color = c_pdl, width = widthPDL, style = f_lstyle(stylePDL)))
+            array.push(_lb, label.new(tEnd, pdl, "PDL " + str.tostring(pdl, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdl, textcolor = f_txtcol(c_pdl), size = size.tiny))
+    // SWING HIGH / LOW (4H pivots) — structural base levels, drawn like PDH/PDL (frame open → tEnd).
+    // A side is SKIPPED when a frame / group line already sits on it (within confPct), no stacked lines.
+    if showSwHi and not na(swHi)
+        bool drawSH = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(swHi - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawSH := false
+        if drawSH
+            array.push(_ln, line.new(tPriorOpen, swHi, tEnd, swHi, xloc = xloc.bar_time, color = c_swhi, width = widthSwHi, style = f_lstyle(styleSwHi)))
+            array.push(_lb, label.new(tEnd, swHi, "SWING HI " + str.tostring(swHi, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swhi, textcolor = f_txtcol(c_swhi), size = size.tiny))
+    if showSwLo and not na(swLo)
+        bool drawSL = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                if math.abs(swLo - array.get(grpPriceArr, k)) / array.get(grpPriceArr, k) * 100 <= confPct
+                    drawSL := false
+        if drawSL
+            array.push(_ln, line.new(tPriorOpen, swLo, tEnd, swLo, xloc = xloc.bar_time, color = c_swlo, width = widthSwLo, style = f_lstyle(styleSwLo)))
+            array.push(_lb, label.new(tEnd, swLo, "SWING LO " + str.tostring(swLo, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swlo, textcolor = f_txtcol(c_swlo), size = size.tiny))
+    // ── Range HUD — live price vs the last TWO 4H candles' envelope ──
+    // envTop = max(prior-1 high, prior-2 high) · envBot = min(prior-1 low, prior-2 low).
+    // IN RANGE = chopping inside the two candles (no break — wait); ABOVE / BELOW = broke out.
+    if showHUD
+        float envTop = math.max(pH, na(h2) ? pH : h2)
+        float envBot = math.min(pL, na(l2) ? pL : l2)
+        string hudTxt = na
+        color  hudBg  = na
+        if close > envTop
+            hudTxt := "ABOVE 4H RANGE"
+            hudBg  := color.new(c_low, 20)
+        else if close < envBot
+            hudTxt := "BELOW 4H RANGE"
+            hudBg  := color.new(c_high, 20)
+        else
+            hudTxt := "IN RANGE"
+            hudBg  := color.new(#FB8C00, 20)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 2, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
+        table.cell(_hud, 0, 1, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
