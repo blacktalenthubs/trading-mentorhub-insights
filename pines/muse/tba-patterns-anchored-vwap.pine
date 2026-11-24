@@ -1,5 +1,9 @@
 //@version=5
-// TBA Patterns + Anchored VWAP — v2026.11.23.1
+// TBA Patterns + Anchored VWAP — v2026.11.23.2
+// v2026.11.23.2 — SMA defaults: only the 20 / 50 / 200 SMA show by
+// default; the 5 and 8 SMA now default off, like every EMA and the
+// weekly SMAs already did (Victor, 2026-11-23). No colour, width or
+// style default changed.
 // v2026.11.23.1 — HUD gains the Trading Plan rows (Victor, 2026-11-23):
 // Day (gap up / gap down / range open at his 0.30% lines, with the plan's
 // instruction), Structure (trending up / down vs range so far, judged on
@@ -17,7 +21,7 @@
 // v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
 // support, rules swing_sma<N>_support) next to the TBA breakout hook, for
 // Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
-indicator("TBA Patterns + Anchored VWAP v2026.11.23.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+indicator("TBA Patterns + Anchored VWAP v2026.11.23.2", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -119,7 +123,7 @@ colE200  = input.color(color.black,  "200E",inline="ec", group=gE)
 
 gS = "SMAs (5 / 8 / 20 / 50 / 200)"
 showS5   = input.bool(false, "5 SMA",  inline="s",  group=gS)
-showS8   = input.bool(true, "8 SMA",   inline="s",  group=gS)
+showS8   = input.bool(false, "8 SMA",   inline="s",  group=gS)
 showS20  = input.bool(true, "20 SMA",  inline="s",  group=gS)
 showS50  = input.bool(true, "50 SMA",  inline="s",  group=gS)
 showS200 = input.bool(true, "200 SMA", inline="s",  group=gS)
