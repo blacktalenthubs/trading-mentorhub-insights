@@ -1,5 +1,12 @@
 //@version=5
-// TBA Patterns + Anchored VWAP — v2026.10.29.2
+// TBA Patterns + Anchored VWAP — v2026.11.23.1
+// v2026.11.23.1 — HUD gains the Trading Plan rows (Victor, 2026-11-23):
+// Day (gap up / gap down / range open at his 0.30% lines, with the plan's
+// instruction), Structure (trending up / down vs range so far, judged on
+// the daily bar), and Plan (his chart rules in plain words: falling 20
+// overhead = first resistance; 20 reclaimed above the 200 = out of the
+// downtrend; below the 50 = day trade only). RSI row now names the
+// 30-35 lane. Display only — nothing here fires or blocks an alert.
 // v2026.10.29.2 — PWH/PMH gain their BREAKOUT alerts next to the retests
 // (Victor: "we need breakout then" — the breakout is the claim, the retest
 // is the proof; both fire). Rules swing_pwh_breakout / swing_pmh_breakout.
@@ -10,7 +17,7 @@
 // v2026.10.28.1 — added the SMA support webhook family (8/21/50 daily SMA
 // support, rules swing_sma<N>_support) next to the TBA breakout hook, for
 // Victor's Pine-vs-scanner evaluation. No dedup in the Pine by design.
-indicator("TBA Patterns + Anchored VWAP v2026.10.29.2", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
+indicator("TBA Patterns + Anchored VWAP v2026.11.23.1", overlay=true, max_bars_back=500, max_lines_count=30, max_labels_count=50)
 
 g1 = "Swings"
 pivLen  = input.int(5, "Swing pivot length", minval=2, group=g1)
@@ -962,9 +969,30 @@ if showLvlHook and barstate.isconfirmed and brkPmh
 if showLvlHook and barstate.isconfirmed and retPmh and not retPmh[1]
     alert(f_lvlMsg("swing_pmh_breakout_retest", low, "PMH breakout retest - tested " + str.tostring(lvlPmh, format.mintick) + " from above, closed above"), alert.freq_once_per_bar_close)
 
+// ── Day structure + plan state (Victor, 2026-11-23: the Trading Plan's day
+// read and chart rules in the HUD, in plain words) ──
+// Judged on the DAILY series so the rows read the same on any chart TF.
+// Day type is the plan's own read: a gap of 0.30% or more is a gap day,
+// anything smaller is a range open. Structure is where the day sits so
+// far: on a day whose range already covers a full ATR, a close pinned
+// near the high (low) is a trend day up (down); anything else is range
+// so far. Plan state is the plan's chart rules in priority order: a
+// falling 20 overhead is the first resistance; reclaiming it with price
+// above the 200 is out of the downtrend; below the 50 is day-trade only.
+[dC, dO, dPC, dH, dL, dAtr, dS20, dS20dn, dS50, dS200] = request.security(syminfo.tickerid, "D", [close, open, close[1], high, low, ta.atr(14), ta.sma(close, 20), ta.sma(close, 20) < ta.sma(close, 20)[5], ta.sma(close, 50), ta.sma(close, 200)], lookahead=barmerge.lookahead_off)
+dGapPct = not na(dO) and not na(dPC) and dPC > 0 ? (dO / dPC - 1) * 100 : na
+dayTxt  = na(dGapPct) ? "-" : dGapPct >= 0.30 ? "Gap up +" + str.tostring(dGapPct, "#.0") + "% - pullback only" : dGapPct <= -0.30 ? "Gap down " + str.tostring(dGapPct, "#.0") + "% - let it settle" : "Range open - trade less, small"
+dayCol  = na(dGapPct) ? color.gray : dGapPct >= 0.30 ? color.lime : dGapPct <= -0.30 ? color.red : color.yellow
+dPos    = not na(dC) and not na(dH) and not na(dL) and dH > dL ? (dC - dL) / (dH - dL) : na
+dWide   = not na(dAtr) and dAtr > 0 and not na(dH) and not na(dL) ? (dH - dL) >= dAtr : false
+strTxt  = na(dPos) ? "-" : dWide and dPos >= 0.7 and dC > dO ? "Trending up" : dWide and dPos <= 0.3 and dC < dO ? "Trending down" : "Range so far"
+strCol  = strTxt == "Trending up" ? color.lime : strTxt == "Trending down" ? color.red : strTxt == "Range so far" ? color.yellow : color.gray
+planTxt = na(dC) or na(dS20) ? "-" : dS20dn and dC < dS20 ? "Falling 20 overhead - first resistance" : dS20dn and dC >= dS20 and not na(dS200) and dC > dS200 ? "Out of downtrend - 20 reclaimed, above 200" : not na(dS50) and dC < dS50 ? "Below the 50 - day trade only" : not na(dS200) and dC < dS200 ? "Below the 200 - needs a close back above" : "Above the 50 & 200 - trend ok"
+planCol = planTxt == "Above the 50 & 200 - trend ok" or planTxt == "Out of downtrend - 20 reclaimed, above 200" ? color.lime : planTxt == "Below the 50 - day trade only" ? color.orange : planTxt == "-" ? color.gray : color.red
+
 // HUD
 posT = hudPos == "Middle Right" ? position.middle_right : hudPos == "Bottom Right" ? position.bottom_right : hudPos == "Top Left" ? position.top_left : hudPos == "Bottom Left" ? position.bottom_left : position.top_right
-var table hud = table.new(posT, 2, 6, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
+var table hud = table.new(posT, 2, 9, bgcolor=color.new(#0d1318, 5), frame_color=color.new(color.gray, 60), frame_width=1, border_color=color.new(color.gray, 85), border_width=1)
 
 hudTxt = hudSize == "Small" ? size.small : hudSize == "Large" ? size.large : hudSize == "Huge" ? size.huge : size.normal
 f_row(t, r, key, val, c) =>
@@ -975,8 +1003,8 @@ if showHUD and barstate.islast
     // Interpretive context ONLY — the prices (support / resistance / recent low / TBA /
     // inner TBA / pattern stop) are drawn as lines on the chart, so they're not repeated here.
     tfTag   = lockLevels ? " (" + levelTf + ")" : ""
-    rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi >= 50 ? " bullish" : " bearish")
-    rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 30 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
+    rsiTxt  = na(Lrsi) ? "-" : str.tostring(Lrsi, "#.0") + (Lrsi >= 70 ? " overbought" : Lrsi <= 30 ? " oversold" : Lrsi <= 35 ? " in the 30-35 lane" : Lrsi >= 50 ? " bullish" : " bearish")
+    rsiCol  = na(Lrsi) ? color.gray : Lrsi >= 70 ? color.red : Lrsi <= 35 ? color.lime : Lrsi >= 50 ? color.lime : color.orange
     // Lean HUD (trader directive 2026-10-04): pattern + status + RSI + YTD only. Ext·20SMA, the
     // volume row and the Zanger volume-ratio block were cut — prices/levels live on the chart lines.
     f_row(hud, 0, "PATTERN HUD", syminfo.ticker + tfTag, color.white)
@@ -987,6 +1015,11 @@ if showHUD and barstate.islast
     // Market row added at Victor's direction 2026-10-11 (supersedes the lean-HUD cut for this row).
     if showMkt
         f_row(hud, 5, "Market", mktTxt, mktCol)
+    // Trading Plan rows (Victor, 2026-11-23): the day's type and structure,
+    // and where the name sits against the plan's chart rules — plain words.
+    f_row(hud, 6, "Day", dayTxt, dayCol)
+    f_row(hud, 7, "Structure", strTxt, strCol)
+    f_row(hud, 8, "Plan", planTxt, planCol)
     // © bolofbaba
 // merged section: Anchored VWAP (from standalone script)
 // merged section: inputs, calculations, plots and labels follow
