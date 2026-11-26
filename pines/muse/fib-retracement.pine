@@ -1,50 +1,43 @@
 //@version=5
-// fib-retracement v2026.11.25.2 — version is in the strategy title too: if the chart legend
+// fib-retracement v2026.11.25.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
-// FIB RETRACEMENT — day-trade experiment (Victor, 2026-11-25, holiday build).
-// Draws fib retracement levels off the most recent CONFIRMED pivot swing and,
-// as a strategy, tests ONE entry idea in Victor's own doctrine:
+// FIB LEVELS — do they act as support / resistance? (Victor, 2026-11-25)
+// Rebuilt from the .1/.2 strategy tester at Victor's word: he wants to SEE,
+// automatically, how fib levels behave as support and resistance. The tester
+// is parked in git history (.2) until the levels prove worth testing.
 //
-//   • The swing is built only from confirmed pivots (ta.pivothigh / pivotlow,
-//     right-bars confirmation) — levels never repaint and a backtest never
-//     sees a level before a live chart would have shown it.
-//   • LONG (up leg): a bar wicks down into the entry zone (default the 61.8%
-//     level) and CLOSES back above it — a reclaim, judged on the close.
-//     Entry fills at that confirming close (process_orders_on_close).
-//   • STOP: a completed CLOSE through the next fib level down (default the
-//     78.6% level) — the anchor is the invalidation, wicks do not kill it.
-//   • TARGET: the swing high (the 0% end of the leg). Frozen at entry, so a
-//     leg that later extends never moves a live trade's stop or target.
-//   • SHORT mirrors on a down leg: wick up into the zone, close back below,
-//     stop = close through the next level up, target = the swing low.
-//   • One entry per leg. No volume gate — volume is context, never a filter.
-//
-// The entry-zone input (38.2 / 50 / 61.8) is the experiment knob: run the
-// Strategy Tester once per zone on the same symbol and timeframe and compare
-// trade counts and net results before believing any one zone works.
-// Confluence: the HUD names it in plain words when the entry level sits
-// within 0.15% of the PDH, PDL or a daily 20 / 50 / 200 SMA — fib is treated
-// as a zone marker that must line up with real structure, never a trigger
-// on its own.
-// Defaults are set for SPY / QQQ / SMH on a 15-minute chart, RTH entries
-// only (08:30–15:00 America/Chicago). Turn the session off for ETH.
+//   • AUTO ANCHOR, no hand-drawing. Three modes: the last confirmed pivot
+//     swing (pivots confirm right-bars later — the grid never repaints),
+//     yesterday's range (PDH/PDL), or the high/low of the last N bars.
+//   • Lines extend BOTH ways across the whole chart, so the grid is always
+//     on screen. A level under price is coloured as support, over price as
+//     resistance, and the level being tested right now turns orange.
+//   • BEHAVIOUR IS COUNTED on completed closes, Victor's doctrine: a level
+//     is only support while a close defends it. A touch that closes back on
+//     the level's side is a DEFENSE (support holds / resistance rejects);
+//     a completed close through it is a BREAK. Counts reset when the anchor
+//     moves (a new swing or a new day = a new grid).
+//   • Every level's right-edge label says what it is doing in plain words:
+//     "61.8% 712.40 — support, held 2 of 3". The HUD names the nearest level
+//     above and below, whether price is testing one now, the strongest
+//     level on the grid, and whether a near level lines up with the PDH,
+//     PDL or a daily 20 / 50 / 200 SMA.
+//   • The 50%–61.8% band is shaded — the deep pullback zone to watch.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("Fib Retracement — day trade test v2026.11.25.2", overlay = true, initial_capital = 100000, default_qty_type = strategy.fixed, default_qty_value = 100, pyramiding = 0, commission_type = strategy.commission.percent, commission_value = 0.02, slippage = 2, process_orders_on_close = true, max_lines_count = 100, max_labels_count = 100, max_bars_back = 5000)
+indicator("Fib Levels — support / resistance v2026.11.25.3", overlay = true, max_lines_count = 100, max_labels_count = 200, max_boxes_count = 10, max_bars_back = 5000)
 
 // ── Inputs ──
-grpSwing = "Swing"
-leftLen  = input.int(10, "Pivot bars left",  minval = 2, group = grpSwing)
-rightLen = input.int(10, "Pivot bars right", minval = 2, group = grpSwing, tooltip = "A pivot is only used after this many bars confirm it — no repainting, no lookahead.")
-grpEntry = "Entry test"
-zonePick = input.string("61.8", "Entry zone", options = ["38.2", "50", "61.8"], group = grpEntry, tooltip = "The retracement level that must be wicked into and reclaimed on a close.")
-allowLong  = input.bool(true,  "Test longs",  group = grpEntry)
-allowShort = input.bool(true,  "Test shorts", group = grpEntry)
-grpSess = "Session"
-useSess = input.bool(true, "Day session only", group = grpSess)
-sessStr = input.session("0830-1500", "Session", group = grpSess)
-grpHud = "HUD"
-showHud = input.bool(true, "Show HUD", group = grpHud)
+grpA = "Anchor"
+anchorMode = input.string("Auto swing", "Draw fib on", options = ["Auto swing", "Prior day", "Lookback"], group = grpA)
+leftLen    = input.int(5,   "Swing pivot bars left",  minval = 2, group = grpA)
+rightLen   = input.int(5,   "Swing pivot bars right", minval = 2, group = grpA, tooltip = "Auto swing only. A pivot is used only after this many bars confirm it — no repainting.")
+lookLen    = input.int(100, "Lookback bars",          minval = 20, group = grpA, tooltip = "Lookback mode only.")
+grpB = "Behaviour"
+tolPct     = input.float(0.10, "Test zone (% of price)", minval = 0.01, step = 0.05, group = grpB, tooltip = "How close a bar must come to a level to count as a test of it.")
+markEvents = input.bool(true, "Mark holds and breaks on the chart", group = grpB)
+grpH = "HUD"
+showHud    = input.bool(true, "Show HUD", group = grpH)
 
 // ── Settled daily references (day-signals idiom: [1] + lookahead_on) ──
 tid = syminfo.tickerid
@@ -54,17 +47,15 @@ dSma20  = request.security(tid, "D", ta.sma(close, 20)[1],  lookahead = barmerge
 dSma50  = request.security(tid, "D", ta.sma(close, 50)[1],  lookahead = barmerge.lookahead_on)
 dSma200 = request.security(tid, "D", ta.sma(close, 200)[1], lookahead = barmerge.lookahead_on)
 
-// ── Confirmed pivots → the last two, by occurrence bar (scalar zigzag-lite) ──
+// ── Auto swing: last two confirmed pivots, by occurrence bar ──
 ph = ta.pivothigh(high, leftLen, rightLen)
 pl = ta.pivotlow(low, leftLen, rightLen)
-
-var int   p1Type  = 0            // older pivot: 1 = high, -1 = low
+var int   p1Type  = 0
 var float p1Price = na
 var int   p1Bar   = na
-var int   p2Type  = 0            // newer pivot — the leg ends here
+var int   p2Type  = 0
 var float p2Price = na
 var int   p2Bar   = na
-
 int   newType  = 0
 float newPrice = na
 int   newBar   = na
@@ -76,14 +67,12 @@ else if not na(pl)
     newType  := -1
     newPrice := pl
     newBar   := bar_index - rightLen
-
 if newType != 0
     if p2Type == 0
         p2Type  := newType
         p2Price := newPrice
         p2Bar   := newBar
     else if newType == p2Type
-        // Same kind again: keep the more extreme one as the leg end.
         if (newType == 1 and newPrice > p2Price) or (newType == -1 and newPrice < p2Price)
             p2Price := newPrice
             p2Bar   := newBar
@@ -95,139 +84,127 @@ if newType != 0
         p2Price := newPrice
         p2Bar   := newBar
 
-legOn    = p1Type != 0 and p2Type != 0 and p1Type != p2Type and p1Price != p2Price
-legStart = p1Price               // where the swing began
-legEnd   = p2Price               // where it ended (0% for a pullback)
-legDir   = p2Type                // 1 = up leg (low → high), -1 = down leg
+// ── Anchor high / low for the chosen mode ──
+swingOn = p1Type != 0 and p2Type != 0 and p1Type != p2Type and p1Price != p2Price
+float aHi = na
+float aLo = na
+string aTxt = ""
+if anchorMode == "Auto swing" and swingOn
+    aHi  := math.max(p1Price, p2Price)
+    aLo  := math.min(p1Price, p2Price)
+    aTxt := "Swing " + str.tostring(p1Price, format.mintick) + " → " + str.tostring(p2Price, format.mintick)
+else if anchorMode == "Prior day" and not na(pdh) and not na(pdl) and pdh != pdl
+    aHi  := pdh
+    aLo  := pdl
+    aTxt := "Yesterday's range " + str.tostring(pdl, format.mintick) + " – " + str.tostring(pdh, format.mintick)
+else if anchorMode == "Lookback"
+    aHi  := ta.highest(high, lookLen)
+    aLo  := ta.lowest(low, lookLen)
+    aTxt := "Last " + str.tostring(lookLen) + " bars " + str.tostring(aLo, format.mintick) + " – " + str.tostring(aHi, format.mintick)
+gridOn = not na(aHi) and not na(aLo) and aHi > aLo
 
-// Fib level for ratio r along the leg: r = 0 at legEnd, r = 1 at legStart.
-f_lvl(r) => legEnd + (legStart - legEnd) * r
+// ── The grid: 7 levels, behaviour counters per level ──
+ratios = array.from(0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0)
+var int[]   tests = array.new_int(7, 0)
+var int[]   defs  = array.new_int(7, 0)
+var int[]   brks  = array.new_int(7, 0)
+var bool[]  wasIn = array.new_bool(7, false)
+var float lastAHi = na
+var float lastALo = na
+if gridOn and (na(lastAHi) or aHi != lastAHi or aLo != lastALo)
+    lastAHi := aHi
+    lastALo := aLo
+    for i = 0 to 6
+        array.set(tests, i, 0)
+        array.set(defs,  i, 0)
+        array.set(brks,  i, 0)
+        array.set(wasIn, i, false)
 
-entryR = zonePick == "38.2" ? 0.382 : zonePick == "50" ? 0.5 : 0.618
-stopR  = zonePick == "38.2" ? 0.5   : zonePick == "50" ? 0.618 : 0.786
-float entryLvl = legOn ? f_lvl(entryR) : na
-float stopLvl  = legOn ? f_lvl(stopR)  : na
+f_lvl(i) => aHi - array.get(ratios, i) * (aHi - aLo)
+f_pct(i) => str.tostring(array.get(ratios, i) * 100, "#.#") + "%"
 
-// ── Drawing: one fixed set of lines/labels, moved when the leg changes ──
-cFib   = color.new(color.gray, 30)
-cEntry = color.new(#FF9800, 0)
-cStop  = color.new(color.red, 20)
-var line lnLeg  = na
-var line ln0    = na
-var line ln236  = na
-var line ln382  = na
-var line ln50   = na
-var line ln618  = na
-var line ln786  = na
-var line ln100  = na
-var label lb0   = na
-var label lb236 = na
-var label lb382 = na
-var label lb50  = na
-var label lb618 = na
-var label lb786 = na
-var label lb100 = na
+// Behaviour text for one level, judged against the last close.
+f_behav(i) =>
+    lvl = f_lvl(i)
+    t = array.get(tests, i)
+    d = array.get(defs, i)
+    b = array.get(brks, i)
+    s = ""
+    if t == 0 and b == 0
+        s := close >= lvl ? "support — not tested yet" : "resistance — not tested yet"
+    else if close >= lvl
+        s := "support — held " + str.tostring(d) + " of " + str.tostring(t) + (b > 0 ? " · broke " + str.tostring(b) + "×" : "")
+    else
+        s := "resistance — rejected " + str.tostring(d) + " of " + str.tostring(t) + (b > 0 ? " · broke " + str.tostring(b) + "×" : "")
+    s
 
-f_setline(ln, y, c, w, st) =>
-    line.set_xy1(ln, p2Bar, y)
-    line.set_xy2(ln, p2Bar + 10, y)
-    line.set_color(ln, c)
-    line.set_width(ln, w)
-    line.set_style(ln, st)
+// ── Count tests / defenses / breaks on confirmed bars ──
+if gridOn and barstate.isconfirmed
+    for i = 0 to 6
+        lvl = f_lvl(i)
+        z = lvl * tolPct / 100.0
+        inZone = low <= lvl + z and high >= lvl - z
+        fresh = inZone and not array.get(wasIn, i)
+        if fresh and close >= lvl and low <= lvl + z
+            // Approached from above and the close stayed over it: defended.
+            array.set(tests, i, array.get(tests, i) + 1)
+            array.set(defs,  i, array.get(defs, i) + 1)
+            if markEvents
+                label.new(bar_index, low, "held", style = label.style_label_up, color = color.new(color.green, 20), textcolor = color.white, size = size.tiny)
+        else if fresh and close < lvl and high >= lvl - z
+            // Approached from below and the close stayed under it: rejected.
+            array.set(tests, i, array.get(tests, i) + 1)
+            array.set(defs,  i, array.get(defs, i) + 1)
+            if markEvents
+                label.new(bar_index, high, "rejected", style = label.style_label_down, color = color.new(color.red, 20), textcolor = color.white, size = size.tiny)
+        if close < lvl - z and close[1] >= lvl - z
+            array.set(brks, i, array.get(brks, i) + 1)
+            if markEvents
+                label.new(bar_index, high, "broke down", style = label.style_label_down, color = color.new(#616161, 0), textcolor = color.white, size = size.tiny)
+        if close > lvl + z and close[1] <= lvl + z
+            array.set(brks, i, array.get(brks, i) + 1)
+            if markEvents
+                label.new(bar_index, low, "broke up", style = label.style_label_up, color = color.new(#616161, 0), textcolor = color.white, size = size.tiny)
+        array.set(wasIn, i, inZone)
 
-f_setlabel(lb, y, txt, c) =>
-    label.set_xy(lb, p2Bar + 10, y)
-    label.set_text(lb, txt)
-    label.set_color(lb, color.new(color.black, 100))
-    label.set_textcolor(lb, c)
-    label.set_style(lb, label.style_label_left)
-    label.set_size(lb, size.small)
+// ── Drawing: fixed line/label set, moved with the anchor, coloured by role ──
+var line[]  lns = array.new_line(7)
+var label[] lbs = array.new_label(7)
+var box zoneBox = na
+cSup  = color.new(#2e7d32, 10)
+cRes  = color.new(#b71c1c, 10)
+cTest = color.new(#FF9800, 0)
+cEdge = color.new(color.gray, 40)
+if gridOn
+    if na(zoneBox)
+        zoneBox := box.new(bar_index - 50, f_lvl(3), bar_index + 50, f_lvl(4), border_color = color.new(color.gray, 100), bgcolor = color.new(#FFEB3B, 92))
+    box.set_lefttop(zoneBox, bar_index - 50, f_lvl(3))
+    box.set_rightbottom(zoneBox, bar_index + 50, f_lvl(4))
+    for i = 0 to 6
+        lvl = f_lvl(i)
+        z = lvl * tolPct / 100.0
+        testing = low <= lvl + z and high >= lvl - z
+        c = testing ? cTest : close >= lvl ? cSup : cRes
+        w = (i == 0 or i == 6) ? 1 : 2
+        ln = array.get(lns, i)
+        if na(ln)
+            ln := line.new(bar_index - 50, lvl, bar_index + 50, lvl, xloc = xloc.bar_index, extend = extend.both, color = c, width = w, style = (i == 0 or i == 6) ? line.style_dashed : line.style_solid)
+            array.set(lns, i, ln)
+        else
+            line.set_xy1(ln, bar_index - 50, lvl)
+            line.set_xy2(ln, bar_index + 50, lvl)
+            line.set_color(ln, c)
+        lb = array.get(lbs, i)
+        txt = f_pct(i) + " " + str.tostring(lvl, format.mintick) + " — " + f_behav(i)
+        if na(lb)
+            lb := label.new(bar_index, lvl, txt, style = label.style_label_left, color = color.new(color.black, 100), textcolor = c, size = size.small)
+            array.set(lbs, i, lb)
+        else
+            label.set_xy(lb, bar_index, lvl)
+            label.set_text(lb, txt)
+            label.set_textcolor(lb, c)
 
-var int drawnLegEndBar = na
-var int drawnLegStartBar = na
-if legOn and (p2Bar != drawnLegEndBar or p1Bar != drawnLegStartBar)
-    drawnLegEndBar   := p2Bar
-    drawnLegStartBar := p1Bar
-    if na(lnLeg)
-        lnLeg := line.new(p1Bar, legStart, p2Bar, legEnd, color = color.new(color.teal, 0), width = 2)
-        ln0   := line.new(p2Bar, f_lvl(0.0),   p2Bar + 10, f_lvl(0.0),   extend.right, color = cFib, style = line.style_dashed)
-        ln236 := line.new(p2Bar, f_lvl(0.236), p2Bar + 10, f_lvl(0.236), extend.right, color = cFib)
-        ln382 := line.new(p2Bar, f_lvl(0.382), p2Bar + 10, f_lvl(0.382), extend.right, color = cFib)
-        ln50  := line.new(p2Bar, f_lvl(0.5),   p2Bar + 10, f_lvl(0.5),   extend.right, color = cFib)
-        ln618 := line.new(p2Bar, f_lvl(0.618), p2Bar + 10, f_lvl(0.618), extend.right, color = cFib)
-        ln786 := line.new(p2Bar, f_lvl(0.786), p2Bar + 10, f_lvl(0.786), extend.right, color = cFib)
-        ln100 := line.new(p2Bar, f_lvl(1.0),   p2Bar + 10, f_lvl(1.0),   extend.right, color = cFib, style = line.style_dashed)
-        lb0   := label.new(p2Bar + 10, f_lvl(0.0),   "")
-        lb236 := label.new(p2Bar + 10, f_lvl(0.236), "")
-        lb382 := label.new(p2Bar + 10, f_lvl(0.382), "")
-        lb50  := label.new(p2Bar + 10, f_lvl(0.5),   "")
-        lb618 := label.new(p2Bar + 10, f_lvl(0.618), "")
-        lb786 := label.new(p2Bar + 10, f_lvl(0.786), "")
-        lb100 := label.new(p2Bar + 10, f_lvl(1.0),   "")
-    line.set_xy1(lnLeg, p1Bar, legStart)
-    line.set_xy2(lnLeg, p2Bar, legEnd)
-    f_setline(ln0,   f_lvl(0.0),   cFib,   1, line.style_dashed)
-    f_setline(ln236, f_lvl(0.236), cFib,   1, line.style_solid)
-    f_setline(ln382, f_lvl(0.382), entryR == 0.382 ? cEntry : cFib, entryR == 0.382 ? 2 : 1, line.style_solid)
-    f_setline(ln50,  f_lvl(0.5),   entryR == 0.5   ? cEntry : cFib, entryR == 0.5   ? 2 : 1, line.style_solid)
-    f_setline(ln618, f_lvl(0.618), entryR == 0.618 ? cEntry : cFib, entryR == 0.618 ? 2 : 1, line.style_solid)
-    f_setline(ln786, f_lvl(0.786), stopR  == 0.786 ? cStop  : cFib, stopR  == 0.786 ? 2 : 1, line.style_solid)
-    f_setline(ln100, f_lvl(1.0),   cFib,   1, line.style_dashed)
-    f_setlabel(lb0,   f_lvl(0.0),   "0% · "      + str.tostring(f_lvl(0.0),   format.mintick) + (legDir == 1 ? " · swing high" : " · swing low"), color.silver)
-    f_setlabel(lb236, f_lvl(0.236), "23.6% · "   + str.tostring(f_lvl(0.236), format.mintick), color.gray)
-    f_setlabel(lb382, f_lvl(0.382), "38.2% · "   + str.tostring(f_lvl(0.382), format.mintick), entryR == 0.382 ? cEntry : color.gray)
-    f_setlabel(lb50,  f_lvl(0.5),   "50% · "     + str.tostring(f_lvl(0.5),   format.mintick), entryR == 0.5   ? cEntry : color.gray)
-    f_setlabel(lb618, f_lvl(0.618), "61.8% · "   + str.tostring(f_lvl(0.618), format.mintick), entryR == 0.618 ? cEntry : color.gray)
-    f_setlabel(lb786, f_lvl(0.786), "78.6% · "   + str.tostring(f_lvl(0.786), format.mintick), stopR  == 0.786 ? cStop  : color.gray)
-    f_setlabel(lb100, f_lvl(1.0),   "100% · "    + str.tostring(f_lvl(1.0),   format.mintick) + (legDir == 1 ? " · swing low" : " · swing high"), color.silver)
-
-// ── Entries: wick into the zone, close back across — his reclaim shape ──
-inSess = not useSess or not na(time(timeframe.period, sessStr, "America/Chicago"))
-var int   tradedLegBar = na
-var float openStop   = na
-var float openTarget = na
-
-longSignal  = legOn and legDir == 1  and allowLong  and inSess and barstate.isconfirmed and strategy.position_size == 0 and p2Bar != tradedLegBar and low <= entryLvl and close > entryLvl
-shortSignal = legOn and legDir == -1 and allowShort and inSess and barstate.isconfirmed and strategy.position_size == 0 and p2Bar != tradedLegBar and high >= entryLvl and close < entryLvl
-
-if longSignal
-    tradedLegBar := p2Bar
-    openStop     := stopLvl
-    openTarget   := legEnd
-    strategy.entry("Long", strategy.long, comment = "Fib " + zonePick + " reclaim")
-
-if shortSignal
-    tradedLegBar := p2Bar
-    openStop     := stopLvl
-    openTarget   := legEnd
-    strategy.entry("Short", strategy.short, comment = "Fib " + zonePick + " reclaim")
-
-// ── Exits: both judged on completed closes against the frozen levels ──
-if strategy.position_size > 0 and barstate.isconfirmed
-    if close < openStop
-        strategy.close("Long", comment = "Stop — close through the stop level")
-        openStop   := na
-        openTarget := na
-    else if close >= openTarget
-        strategy.close("Long", comment = "Target — swing high reached")
-        openStop   := na
-        openTarget := na
-
-if strategy.position_size < 0 and barstate.isconfirmed
-    if close > openStop
-        strategy.close("Short", comment = "Stop — close through the stop level")
-        openStop   := na
-        openTarget := na
-    else if close <= openTarget
-        strategy.close("Short", comment = "Target — swing low reached")
-        openStop   := na
-        openTarget := na
-
-plotshape(longSignal,  title = "Fib long",  style = shape.triangleup,   location = location.belowbar, color = color.new(color.green, 0), size = size.small)
-plotshape(shortSignal, title = "Fib short", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0),   size = size.small)
-
-// ── HUD: plain words only — what the leg is, where price sits in it, and
-//    whether the entry level lines up with real structure ──
+// ── HUD: plain words — anchor, nearest above/below, live test, best level ──
 f_conf(lvl) =>
     s = ""
     tol = lvl * 0.0015
@@ -243,35 +220,54 @@ f_conf(lvl) =>
         s := "daily 200 SMA " + str.tostring(dSma200, format.mintick)
     s
 
-var table hud = showHud ? table.new(position.top_right, 2, 4, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
-
+var table hud = showHud ? table.new(position.top_right, 2, 5, bgcolor = color.new(#0d1318, 5), frame_color = color.new(color.gray, 60), frame_width = 1, border_color = color.new(color.gray, 85), border_width = 1) : na
 if showHud and barstate.islast
-    if legOn
-        depth = (legEnd - close) / (legEnd - legStart)
-        zoneTxt = depth < 0 ? "Past the swing end — leg still running" :
-           depth < 0.236 ? "Barely pulled back" :
-           depth < 0.382 ? "Shallow pullback" :
-           depth < 0.5   ? "Middle pullback" :
-           depth < 0.618 ? "Deep pullback — the defend zone" :
-           depth < 0.786 ? "Very deep — last-stand area" :
-           depth <= 1.0  ? "Almost back to the swing start" : "Leg failed — past the swing start"
-        legTxt = (legDir == 1 ? "Up leg " : "Down leg ") + str.tostring(legStart, format.mintick) + " → " + str.tostring(legEnd, format.mintick)
-        conf = f_conf(entryLvl)
-        confTxt = conf != "" ? "Entry level lines up with " + conf : "Entry level lines up with nothing — fib alone"
-        table.cell(hud, 0, 0, "Leg",      text_color = color.silver, text_size = size.small, text_halign = text.align_left)
-        table.cell(hud, 1, 0, legTxt,     text_color = color.white,  text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 1, "Zone now", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
-        table.cell(hud, 1, 1, zoneTxt,    text_color = color.white,  text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 2, "Entry",    text_color = color.silver, text_size = size.small, text_halign = text.align_left)
-        table.cell(hud, 1, 2, zonePick + "% at " + str.tostring(entryLvl, format.mintick) + " · stop " + str.tostring(stopLvl, format.mintick) + " · target " + str.tostring(legEnd, format.mintick), text_color = color.white, text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 3, "Lines up", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
-        table.cell(hud, 1, 3, confTxt,    text_color = conf != "" ? color.new(#7ee787, 0) : color.gray, text_size = size.small, text_halign = text.align_right)
+    if gridOn
+        aboveTxt = "None — price is over the top of the grid"
+        belowTxt = "None — price is under the bottom of the grid"
+        nowTxt = "Between levels — no test live"
+        bestTxt = "No defenses yet on this grid"
+        bestD = 0
+        confTxt = "Nearest levels line up with nothing"
+        for i = 0 to 6
+            lvl = f_lvl(i)
+            z = lvl * tolPct / 100.0
+            if lvl > close
+                // Loop runs high→low price, so the LAST level still over price is the nearest above.
+                aboveTxt := f_pct(i) + " " + str.tostring(lvl, format.mintick) + " — " + f_behav(i)
+            if lvl <= close
+                // first level at/under price in high→low order is the nearest below; only set once
+                if belowTxt == "None — price is under the bottom of the grid"
+                    belowTxt := f_pct(i) + " " + str.tostring(lvl, format.mintick) + " — " + f_behav(i)
+            if low <= lvl + z and high >= lvl - z
+                nowTxt := "Testing the " + f_pct(i) + " level now"
+            d = array.get(defs, i)
+            if d > bestD
+                bestD := d
+                bestTxt := f_pct(i) + " at " + str.tostring(lvl, format.mintick) + " — defended " + str.tostring(d) + " time" + (d == 1 ? "" : "s") + ", strongest on this grid"
+        for i = 0 to 6
+            lvl = f_lvl(i)
+            cf = f_conf(lvl)
+            if cf != "" and confTxt == "Nearest levels line up with nothing" and math.abs(lvl - close) <= (aHi - aLo) * 0.5
+                confTxt := f_pct(i) + " lines up with " + cf
+        table.cell(hud, 0, 0, "Fib on",    text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 0, aTxt,        text_color = color.white,  text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 1, "Above",     text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 1, aboveTxt,    text_color = color.white,  text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 2, "Below",     text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 2, belowTxt,    text_color = color.white,  text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 3, "Now",       text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 3, nowTxt,      text_color = color.white,  text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 4, "Strongest", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 4, bestTxt + " · " + confTxt, text_color = color.white, text_size = size.small, text_halign = text.align_right)
     else
-        table.cell(hud, 0, 0, "Leg",      text_color = color.silver, text_size = size.small, text_halign = text.align_left)
-        table.cell(hud, 1, 0, "Waiting for a confirmed swing", text_color = color.white, text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 1, "Zone now", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 0, 0, "Fib on",    text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 0, "No grid yet — waiting for the anchor", text_color = color.white, text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 1, "Above",     text_color = color.silver, text_size = size.small, text_halign = text.align_left)
         table.cell(hud, 1, 1, "—", text_color = color.white, text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 2, "Entry",    text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 0, 2, "Below",     text_color = color.silver, text_size = size.small, text_halign = text.align_left)
         table.cell(hud, 1, 2, "—", text_color = color.white, text_size = size.small, text_halign = text.align_right)
-        table.cell(hud, 0, 3, "Lines up", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 0, 3, "Now",       text_color = color.silver, text_size = size.small, text_halign = text.align_left)
         table.cell(hud, 1, 3, "—", text_color = color.white, text_size = size.small, text_halign = text.align_right)
+        table.cell(hud, 0, 4, "Strongest", text_color = color.silver, text_size = size.small, text_halign = text.align_left)
+        table.cell(hud, 1, 4, "—", text_color = color.white, text_size = size.small, text_halign = text.align_right)
