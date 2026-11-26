@@ -1,5 +1,5 @@
 //@version=5
-// fib-retracement v2026.11.25.1 — version is in the strategy title too: if the chart legend
+// fib-retracement v2026.11.25.2 — version is in the strategy title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // FIB RETRACEMENT — day-trade experiment (Victor, 2026-11-25, holiday build).
@@ -30,7 +30,7 @@
 // Defaults are set for SPY / QQQ / SMH on a 15-minute chart, RTH entries
 // only (08:30–15:00 America/Chicago). Turn the session off for ETH.
 // ─────────────────────────────────────────────────────────────────────────────
-strategy("Fib Retracement — day trade test v2026.11.25.1", overlay = true, initial_capital = 100000, default_qty_type = strategy.fixed, default_qty_value = 100, pyramiding = 0, commission_type = strategy.commission.percent, commission_value = 0.02, slippage = 2, process_orders_on_close = true, max_lines_count = 100, max_labels_count = 100, max_bars_back = 5000)
+strategy("Fib Retracement — day trade test v2026.11.25.2", overlay = true, initial_capital = 100000, default_qty_type = strategy.fixed, default_qty_value = 100, pyramiding = 0, commission_type = strategy.commission.percent, commission_value = 0.02, slippage = 2, process_orders_on_close = true, max_lines_count = 100, max_labels_count = 100, max_bars_back = 5000)
 
 // ── Inputs ──
 grpSwing = "Swing"
@@ -65,9 +65,9 @@ var int   p2Type  = 0            // newer pivot — the leg ends here
 var float p2Price = na
 var int   p2Bar   = na
 
-newType  = 0
-newPrice = na
-newBar   = na
+int   newType  = 0
+float newPrice = na
+int   newBar   = na
 if not na(ph)
     newType  := 1
     newPrice := ph
@@ -105,8 +105,8 @@ f_lvl(r) => legEnd + (legStart - legEnd) * r
 
 entryR = zonePick == "38.2" ? 0.382 : zonePick == "50" ? 0.5 : 0.618
 stopR  = zonePick == "38.2" ? 0.5   : zonePick == "50" ? 0.618 : 0.786
-entryLvl = legOn ? f_lvl(entryR) : na
-stopLvl  = legOn ? f_lvl(stopR)  : na
+float entryLvl = legOn ? f_lvl(entryR) : na
+float stopLvl  = legOn ? f_lvl(stopR)  : na
 
 // ── Drawing: one fixed set of lines/labels, moved when the leg changes ──
 cFib   = color.new(color.gray, 30)
