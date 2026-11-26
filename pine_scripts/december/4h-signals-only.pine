@@ -1,5 +1,5 @@
 //@version=6
-// prior-4h-lines v2026.11.22.25 — version is in the indicator title too: if the chart legend
+// 4h-signals-only v2026.11.26.1 — version is in the indicator title too: if the chart legend
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
@@ -20,6 +20,8 @@
 //   lower high AND lower low = DOWNTRENDING ▼; anything else = SIDEWAYS. (Still above the envelope-bounds row.)
 // v2026.11.24.5: 2nd-candle standalone tags moved to the RIGHT (tEnd) so every tag sits on the same side; and a
 //   "Swing: hide if > % from price" gate (default 5%) hides a swing high/low that's too far from price to be actionable.
+// v2026.11.26.1: HUD gains a SENTIMENT row — the prior session's CBOE index put/call ratio (USI:PCI
+//   daily, classified FEAR / NEUTRAL / COMPLACENT exactly as the signal cards' Sentiment line). Label only.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -93,7 +95,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.24.5", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.26.1", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -281,6 +283,19 @@ pdl = rthClosed ? pdL0 : pdL1
 // Prior week high/low — chart ticker (unchanged).
 pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
+
+// Market sentiment (Victor, 2026-11-26): the prior session's CBOE index
+// put/call ratio — TradingView's USI:PCI daily series, the same series
+// market_sentiment.py reads off CBOE's page, classified the same way:
+// FEAR = heavy hedging, COMPLACENT = hedges light or draining,
+// NEUTRAL = in between. HUD label only — drives no alert, no line.
+[pcCur, pcOld] = request.security("USI:PCI", "D", [close[1], close[6]], lookahead = barmerge.lookahead_on)
+float  pcChg5    = na(pcCur) or na(pcOld) ? na : math.round((pcCur - pcOld) * 1000) / 1000
+bool   pcFear    = not na(pcCur) and (pcCur >= 1.20 or (pcCur >= 1.15 and not na(pcChg5) and pcChg5 > 0))
+bool   pcComp    = not na(pcCur) and (pcCur <= 0.95 or (pcCur <= 1.10 and not na(pcChg5) and pcChg5 <= -0.10))
+string sentState = na(pcCur) ? "no data" : pcFear ? "FEAR" : pcComp ? "COMPLACENT" : "NEUTRAL"
+string sentTxt   = na(pcCur) ? "Sentiment: no data" : "Sentiment: " + sentState + " · P/C " + str.tostring(pcCur, "0.00")
+color  sentBg    = sentState == "FEAR" ? color.new(#E53935, 35) : sentState == "COMPLACENT" ? color.new(#00897B, 35) : color.new(color.gray, 35)
 
 // Most recent CONFIRMED 4H swing high / low (pivots), held forward — the structural base. Computed
 // on the 4H series; NO lookahead (a pivot confirms swLen bars after its peak — the honest, no-repaint
@@ -570,10 +585,11 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             else
                 trendTxt := "SIDEWAYS"
                 trendBg  := color.new(#FB8C00, 35)
-        var table _hud = table.new(f_hudpos(hudPos), 1, 3, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 4, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
         table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
         table.cell(_hud, 0, 1, trendTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = trendBg)
         table.cell(_hud, 0, 2, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
+        table.cell(_hud, 0, 3, sentTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = sentBg)
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
