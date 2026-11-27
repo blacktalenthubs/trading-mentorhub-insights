@@ -1,5 +1,5 @@
 //@version=6
-// weekly-10-30-sma v2026.11.27.2 — version is in the indicator title too: if the chart legend
+// weekly-10-30-sma v2026.11.27.3 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // Just the 10 and 30 SMA — the Stan Weinstein stage lines. On a WEEKLY chart
@@ -11,7 +11,9 @@
 // v2026.11.27.2: HUD calls the stage automatically from price vs the 30 and
 //   the 30's slope — rising / flat / falling over the slope lookback, with a
 //   long lookback to split basing from topping when the 30 is flat.
-indicator("10 / 30 SMA · v2026.11.27.2", shorttitle = "10/30 SMA", overlay = true)
+// v2026.11.27.3: HUD position is a setting (top / middle / bottom, left or
+//   right), and the HUD gains Daily RSI and Weekly RSI rows under the stage.
+indicator("10 / 30 SMA · v2026.11.27.3", shorttitle = "10/30 SMA", overlay = true)
 
 lenFast = input.int(10, "Fast SMA", minval = 1)
 lenSlow = input.int(30, "Slow SMA", minval = 1)
@@ -26,6 +28,8 @@ plot(slow, title = "30 SMA", color = color.new(#FF0000, 0), linewidth = 2)
 slopeLen = input.int(3, "30 slope lookback (bars)", minval = 1, group = "Stage")
 longLen  = input.int(26, "30 long lookback (bars)", minval = 5, group = "Stage")
 flatPct  = input.float(0.1, "Flat band %", minval = 0.0, step = 0.05, group = "Stage", tooltip = "The 30 counts as flat while it moves less than this % over the lookback.")
+hudPos   = input.string(position.top_right, "HUD position", options = [position.top_left, position.top_center, position.top_right, position.middle_left, position.middle_center, position.middle_right, position.bottom_left, position.bottom_center, position.bottom_right], group = "Stage")
+rsiLen   = input.int(14, "RSI length", minval = 2, group = "Stage")
 
 // direction of a series vs its value n bars ago: 1 rising, -1 falling, 0 flat
 f_dir(float v, float ref) => na(v) or na(ref) or ref == 0 ? 0 : v > ref * (1 + flatPct / 100) ? 1 : v < ref * (1 - flatPct / 100) ? -1 : 0
@@ -45,7 +49,13 @@ sMean = stage == 2 ? "Price above a rising 30 — the buy zone" :
      stage == 1 ? "Price under a flat 30 — basing after a decline" : "Not enough history yet"
 sCol = stage == 2 ? color.new(#009688, 0) : stage == 4 ? color.new(#C62828, 0) : stage == 3 ? color.new(#E65100, 0) : stage == 1 ? color.new(#546E7A, 0) : color.new(#424242, 0)
 
-var table hud = table.new(position.top_right, 1, 2, bgcolor = color.new(#111418, 0), border_width = 1, border_color = color.new(#FFFFFF, 75))
+// Daily + weekly RSI for the HUD (values only — nothing is gated on them).
+dRsi = request.security(syminfo.tickerid, "D", ta.rsi(close, rsiLen))
+wRsi = request.security(syminfo.tickerid, "W", ta.rsi(close, rsiLen))
+
+var table hud = table.new(hudPos, 1, 4, bgcolor = color.new(#111418, 0), border_width = 1, border_color = color.new(#FFFFFF, 75))
 if barstate.islast
     table.cell(hud, 0, 0, sName, bgcolor = sCol, text_color = color.white, text_size = size.normal)
     table.cell(hud, 0, 1, sMean, text_color = color.new(#FFFFFF, 10), text_size = size.small)
+    table.cell(hud, 0, 2, "Daily RSI: " + (na(dRsi) ? "—" : str.tostring(dRsi, "0.0")), text_color = color.new(#FFFFFF, 10), text_size = size.small)
+    table.cell(hud, 0, 3, "Weekly RSI: " + (na(wRsi) ? "—" : str.tostring(wRsi, "0.0")), text_color = color.new(#FFFFFF, 10), text_size = size.small)
