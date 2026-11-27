@@ -1,5 +1,5 @@
 //@version=6
-// 4h-signals-only v2026.11.27.1 — version is in the indicator title too: if the chart legend
+// 4h-signals-only v2026.11.27.2 — version is in the indicator title too: if the chart legend
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
@@ -25,6 +25,10 @@
 // v2026.11.27.1: HUD gains a VIX row UNDER the sentiment row — the LIVE CBOE:VIX daily value read as
 //   MARKET CONDITION (calm / normal / elevated / panic, plus direction over 5 sessions), Victor's
 //   separate read: never mixed with the P/C sentiment state. Same bands as vix_condition.py. Label only.
+// v2026.11.27.2: % PROXIMITY on PDH / PDL / SWING HIGH / SWING LOW — each tag shows the level's
+//   distance from price ("PDH 718.43 (0.8%)"), and a level farther than the gate % is NOT drawn:
+//   far levels compress the chart. Two gates — regular stocks (default 5%) and SPY/QQQ (default
+//   1.5%: a 3% gap on SPY is a lot, on a regular stock it isn't). Replaces the swing-only gate.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -98,7 +102,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.27.1", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.27.2", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -154,7 +158,11 @@ widthSwLo  = input.int(1, "", minval = 1, maxval = 10, inline = "lsl", group = g
 c_swhi     = input.color(#FF6D00, "Swing-hi colour", inline = "csw", group = gL)
 c_swlo     = input.color(#00ACC1, "Swing-lo colour", inline = "csw", group = gL)
 swLen      = input.int(3, "Swing pivot strength (4H bars)", minval = 1, maxval = 10, group = gL, tooltip = "Bars to the left AND right that must be lower (swing high) / higher (swing low) to confirm a 4H pivot. Higher = fewer, bigger swings.")
-swMaxPct   = input.float(5.0, "Swing: hide if > % from price", minval = 0.0, step = 0.5, group = gL, tooltip = "Hide a swing high / low that sits more than this % from the current price — far structure isn't actionable. 0 = always show.")
+// % PROXIMITY gate for PDH / PDL / SWING HIGH / SWING LOW (Victor, 2026-11-27): a level farther
+// than the gate % from price is not drawn — far levels compress the chart. SPY/QQQ get a tighter
+// gate: a 3% gap on SPY is a lot, on a regular stock it isn't. 0 = always show.
+proxStockPct = input.float(5.0, "Hide PDH/PDL/Swing if > % away (stocks)", minval = 0.0, step = 0.5, group = gL, tooltip = "PDH / PDL / swing high / swing low farther than this % from the current price are hidden. Their tags show the distance while they are drawn. 0 = always show.")
+proxIndexPct = input.float(1.5, "Hide PDH/PDL/Swing if > % away (SPY/QQQ)", minval = 0.0, step = 0.25, group = gL, tooltip = "The SPY / QQQ version of the gate above — tighter, because index points travel less in a day. 0 = always show.")
 
 // ── Range HUD ─────────────────────────────────────────────────────
 // A small corner panel reading the LIVE price against the last two 4H candles'
@@ -341,6 +349,14 @@ f_conf(float price) =>
         if not na(pwl) and math.abs(price - pwl) / price * 100 <= confPct
             s += " + PWL"
     s
+
+// % proximity of a level to the current price (Victor, 2026-11-27): SPY/QQQ
+// use the tighter index gate, everything else the stock gate. A level is
+// drawn only inside its gate; its tag carries the distance while it shows.
+bool  isIdxSym = syminfo.ticker == "SPY" or syminfo.ticker == "QQQ"
+float proxPct  = isIdxSym ? proxIndexPct : proxStockPct
+f_prox(float price) => proxPct == 0 or na(price) or close == 0 or math.abs(price - close) / close * 100 <= proxPct
+f_proxTag(float price) => na(price) or close == 0 ? "" : " (" + str.tostring(math.abs(price - close) / close * 100, "0.0") + "%)"
 
 // ── draw — rebuilt on the last bar (delete-then-redraw, the house pattern) ──
 var line[]  _ln = array.new_line()
@@ -533,7 +549,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
     // a segment from the frame open (tPriorOpen) through tEnd, not a full-width extend-both ray. A side
     // is SKIPPED when a frame / group line already sits on it (within confPct) — it's already tagged
     // " + PDH" / " + PDL" there, so no stacked lines.
-    if showPDH and not na(pdh)
+    if showPDH and not na(pdh) and f_prox(pdh)
         bool drawPDH = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
@@ -541,8 +557,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                     drawPDH := false
         if drawPDH
             array.push(_ln, line.new(tPriorOpen, pdh, tEnd, pdh, xloc = xloc.bar_time, color = c_pdh, width = widthPDH, style = f_lstyle(stylePDH)))
-            array.push(_lb, label.new(tEnd, pdh, "PDH " + str.tostring(pdh, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdh, textcolor = f_txtcol(c_pdh), size = size.tiny))
-    if showPDL and not na(pdl)
+            array.push(_lb, label.new(tEnd, pdh, "PDH " + str.tostring(pdh, format.mintick) + f_proxTag(pdh), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdh, textcolor = f_txtcol(c_pdh), size = size.tiny))
+    if showPDL and not na(pdl) and f_prox(pdl)
         bool drawPDL = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
@@ -550,10 +566,10 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                     drawPDL := false
         if drawPDL
             array.push(_ln, line.new(tPriorOpen, pdl, tEnd, pdl, xloc = xloc.bar_time, color = c_pdl, width = widthPDL, style = f_lstyle(stylePDL)))
-            array.push(_lb, label.new(tEnd, pdl, "PDL " + str.tostring(pdl, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdl, textcolor = f_txtcol(c_pdl), size = size.tiny))
+            array.push(_lb, label.new(tEnd, pdl, "PDL " + str.tostring(pdl, format.mintick) + f_proxTag(pdl), xloc = xloc.bar_time, style = label.style_label_left, color = c_pdl, textcolor = f_txtcol(c_pdl), size = size.tiny))
     // SWING HIGH / LOW (4H pivots) — structural base levels, drawn like PDH/PDL (frame open → tEnd).
     // A side is SKIPPED when a frame / group line already sits on it (within confPct), no stacked lines.
-    if showSwHi and not na(swHi) and (swMaxPct == 0 or (close != 0 and math.abs(swHi - close) / close * 100 <= swMaxPct))
+    if showSwHi and not na(swHi) and f_prox(swHi)
         bool drawSH = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
@@ -561,8 +577,8 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                     drawSH := false
         if drawSH
             array.push(_ln, line.new(tPriorOpen, swHi, tEnd, swHi, xloc = xloc.bar_time, color = c_swhi, width = widthSwHi, style = f_lstyle(styleSwHi)))
-            array.push(_lb, label.new(tEnd, swHi, "SWING HI " + str.tostring(swHi, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swhi, textcolor = f_txtcol(c_swhi), size = size.tiny))
-    if showSwLo and not na(swLo) and (swMaxPct == 0 or (close != 0 and math.abs(swLo - close) / close * 100 <= swMaxPct))
+            array.push(_lb, label.new(tEnd, swHi, "SWING HI " + str.tostring(swHi, format.mintick) + f_proxTag(swHi), xloc = xloc.bar_time, style = label.style_label_left, color = c_swhi, textcolor = f_txtcol(c_swhi), size = size.tiny))
+    if showSwLo and not na(swLo) and f_prox(swLo)
         bool drawSL = true
         if array.size(grpPriceArr) > 0
             for k = 0 to array.size(grpPriceArr) - 1
@@ -570,7 +586,7 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
                     drawSL := false
         if drawSL
             array.push(_ln, line.new(tPriorOpen, swLo, tEnd, swLo, xloc = xloc.bar_time, color = c_swlo, width = widthSwLo, style = f_lstyle(styleSwLo)))
-            array.push(_lb, label.new(tEnd, swLo, "SWING LO " + str.tostring(swLo, format.mintick), xloc = xloc.bar_time, style = label.style_label_left, color = c_swlo, textcolor = f_txtcol(c_swlo), size = size.tiny))
+            array.push(_lb, label.new(tEnd, swLo, "SWING LO " + str.tostring(swLo, format.mintick) + f_proxTag(swLo), xloc = xloc.bar_time, style = label.style_label_left, color = c_swlo, textcolor = f_txtcol(c_swlo), size = size.tiny))
     // ── Range HUD — live price vs the last TWO 4H candles ────────────
     // Row 1 LOCATION: envTop = max(prior-1 high, prior-2 high), envBot = min(prior-1 low, prior-2 low).
     //   IN RANGE = chopping inside the two candles (no break — wait); ABOVE / BELOW = broke out.
