@@ -1,5 +1,5 @@
 //@version=6
-// 4h-signals-only v2026.11.27.2 — version is in the indicator title too: if the chart legend
+// 4h-signals-only v2026.11.27.3 — version is in the indicator title too: if the chart legend
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
@@ -29,6 +29,11 @@
 //   distance from price ("PDH 718.43 (0.8%)"), and a level farther than the gate % is NOT drawn:
 //   far levels compress the chart. Two gates — regular stocks (default 5%) and SPY/QQQ (default
 //   1.5%: a 3% gap on SPY is a lot, on a regular stock it isn't). Replaces the swing-only gate.
+// v2026.11.27.3: OVERNIGHT GAP — the most recent one: the last RTH session's open vs the prior
+//   RTH close (same regular-session ticker as PDH/PDL), drawn as a shaded zone with its two edge
+//   lines and a plain tag — GAP UP / GAP DOWN, the size in %, UNFILLED / FILLED (filled = price
+//   traded back to the prior close, judged on the chart's own bars, extended hours included).
+//   A HUD row under VIX reads the same gap. Same proximity gate as PDH/PDL. Lines only, no alerts.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -102,7 +107,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.27.2", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.27.3", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 50)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -163,6 +168,12 @@ swLen      = input.int(3, "Swing pivot strength (4H bars)", minval = 1, maxval =
 // gate: a 3% gap on SPY is a lot, on a regular stock it isn't. 0 = always show.
 proxStockPct = input.float(5.0, "Hide PDH/PDL/Swing if > % away (stocks)", minval = 0.0, step = 0.5, group = gL, tooltip = "PDH / PDL / swing high / swing low farther than this % from the current price are hidden. Their tags show the distance while they are drawn. 0 = always show.")
 proxIndexPct = input.float(1.5, "Hide PDH/PDL/Swing if > % away (SPY/QQQ)", minval = 0.0, step = 0.25, group = gL, tooltip = "The SPY / QQQ version of the gate above — tighter, because index points travel less in a day. 0 = always show.")
+// OVERNIGHT GAP — the most recent one (last RTH session's open vs the prior RTH close), drawn as
+// a shaded zone between its two edges. Filled = price traded back to the prior close.
+showGap    = input.bool(true,  "Overnight gap (most recent)", inline = "lgap", group = gL, tooltip = "The most recent overnight gap: the last RTH session's open vs the prior RTH close, drawn as a shaded zone. The tag reads GAP UP / GAP DOWN, the size in %, and UNFILLED / FILLED (filled = price traded back to the prior close, extended hours included). Lines only — no alerts.")
+styleGap   = input.string("solid", "", options = ["solid", "dashed", "dotted"], inline = "lgap", group = gL)
+widthGap   = input.int(1, "", minval = 1, maxval = 10, inline = "lgap", group = gL)
+c_gap      = input.color(#AB47BC, "Gap colour", inline = "cgap", group = gL)
 
 // ── Range HUD ─────────────────────────────────────────────────────
 // A small corner panel reading the LIVE price against the last two 4H candles'
@@ -295,6 +306,13 @@ pdl = rthClosed ? pdL0 : pdL1
 pwh = request.security(tid, "W", high[1], lookahead = barmerge.lookahead_on)
 pwl = request.security(tid, "W", low[1],  lookahead = barmerge.lookahead_on)
 
+// Most recent OVERNIGHT GAP — the last RTH session's open vs the RTH close before it, off the
+// same regular-session ticker as PDH/PDL. The mapped daily bar is always the most recent session
+// that has OPENED (today once it opens; the just-closed session overnight and pre-market), so
+// this pair is always the latest gap there is. The held state + fill tracking sit below, with
+// the other held levels.
+[gapOpen, gapPrevClose, gapSessT] = request.security(rthTkr, "D", [open, close[1], time], lookahead = barmerge.lookahead_on)
+
 // Market sentiment (Victor, 2026-11-26): the prior session's CBOE index
 // put/call ratio — TradingView's USI:PCI daily series, the same series
 // market_sentiment.py reads off CBOE's page, classified the same way:
@@ -335,6 +353,29 @@ if not na(ph4)
 if not na(pl4)
     swLo := pl4
 
+// Overnight gap state — resets when a new RTH session opens (a new gap replaces the old), then
+// watches the chart's own bars for the fill: a gap UP fills when price trades down to the prior
+// close (the zone's bottom edge), a gap DOWN when it trades up to it. A trade through the edge
+// is the fill (the standard gap-fill read) — no close needed. Extended hours count (24h chart).
+var int   gapKey    = na
+var float gapTop    = na
+var float gapBot    = na
+var float gapPct    = na
+var bool  gapUp     = false
+var bool  gapFilled = false
+if not na(gapSessT) and not na(gapOpen) and not na(gapPrevClose) and (na(gapKey) or gapSessT != gapKey)
+    gapKey    := gapSessT
+    gapTop    := math.max(gapOpen, gapPrevClose)
+    gapBot    := math.min(gapOpen, gapPrevClose)
+    gapPct    := gapPrevClose != 0 ? (gapOpen - gapPrevClose) / gapPrevClose * 100 : na
+    gapUp     := gapOpen > gapPrevClose
+    gapFilled := false
+if not na(gapTop) and gapTop > gapBot and not gapFilled
+    if gapUp and low <= gapBot
+        gapFilled := true
+    else if not gapUp and high >= gapTop
+        gapFilled := true
+
 // " + PDH + PWL" style suffix for a price sitting within 0.1% of a
 // confluence level; empty when nothing stacks.
 f_conf(float price) =>
@@ -361,6 +402,7 @@ f_proxTag(float price) => na(price) or close == 0 ? "" : " (" + str.tostring(mat
 // ── draw — rebuilt on the last bar (delete-then-redraw, the house pattern) ──
 var line[]  _ln = array.new_line()
 var label[] _lb = array.new_label()
+var box[]   _bx = array.new_box()
 // Locked STOP prices for the forming candle + taken-out flags. A
 // stop locks at the far extreme the moment its trade case goes live
 // and then does not move; a completed 10m close beyond the lock
@@ -378,6 +420,10 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         for i = 0 to array.size(_lb) - 1
             label.delete(array.get(_lb, i))
         array.clear(_lb)
+    if array.size(_bx) > 0
+        for i = 0 to array.size(_bx) - 1
+            box.delete(array.get(_bx, i))
+        array.clear(_bx)
     int tEnd = tClose + extend_h * 3600 * 1000
     // Draw HIGH / LOW / OPEN / CLOSE, merging any whose values
     // coincide (within confPct of the group's first price) into ONE
@@ -587,6 +633,28 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         if drawSL
             array.push(_ln, line.new(tPriorOpen, swLo, tEnd, swLo, xloc = xloc.bar_time, color = c_swlo, width = widthSwLo, style = f_lstyle(styleSwLo)))
             array.push(_lb, label.new(tEnd, swLo, "SWING LO " + str.tostring(swLo, format.mintick) + f_proxTag(swLo), xloc = xloc.bar_time, style = label.style_label_left, color = c_swlo, textcolor = f_txtcol(c_swlo), size = size.tiny))
+    // OVERNIGHT GAP zone — the most recent gap, shaded between its two edges (the session open
+    // and the prior RTH close), from that session's open through tEnd. An edge is SKIPPED when a
+    // frame / group line already sits on it (within confPct) — no stacked lines. The zone greys
+    // out once filled. Same proximity gate as PDH/PDL: hidden when both edges are far from price.
+    if showGap and not na(gapTop) and gapTop > gapBot and (f_prox(gapTop) or f_prox(gapBot))
+        color gapCol = gapFilled ? color.new(color.gray, 20) : c_gap
+        bool drawGT = true
+        bool drawGB = true
+        if array.size(grpPriceArr) > 0
+            for k = 0 to array.size(grpPriceArr) - 1
+                float gp2 = array.get(grpPriceArr, k)
+                if math.abs(gapTop - gp2) / gp2 * 100 <= confPct
+                    drawGT := false
+                if math.abs(gapBot - gp2) / gp2 * 100 <= confPct
+                    drawGB := false
+        array.push(_bx, box.new(gapKey, gapTop, tEnd, gapBot, xloc = xloc.bar_time, border_width = 0, bgcolor = color.new(gapFilled ? color.gray : c_gap, 88)))
+        if drawGT
+            array.push(_ln, line.new(gapKey, gapTop, tEnd, gapTop, xloc = xloc.bar_time, color = gapCol, width = widthGap, style = f_lstyle(styleGap)))
+        if drawGB
+            array.push(_ln, line.new(gapKey, gapBot, tEnd, gapBot, xloc = xloc.bar_time, color = gapCol, width = widthGap, style = f_lstyle(styleGap)))
+        string gapTag = (gapUp ? "GAP UP +" : "GAP DOWN ") + str.tostring(gapPct, "0.00") + "% · " + (gapFilled ? "FILLED" : "UNFILLED")
+        array.push(_lb, label.new(tEnd, (gapTop + gapBot) / 2, gapTag, xloc = xloc.bar_time, style = label.style_label_left, color = gapCol, textcolor = f_txtcol(gapCol), size = size.tiny))
     // ── Range HUD — live price vs the last TWO 4H candles ────────────
     // Row 1 LOCATION: envTop = max(prior-1 high, prior-2 high), envBot = min(prior-1 low, prior-2 low).
     //   IN RANGE = chopping inside the two candles (no break — wait); ABOVE / BELOW = broke out.
@@ -620,12 +688,16 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             else
                 trendTxt := "SIDEWAYS"
                 trendBg  := color.new(#FB8C00, 35)
-        var table _hud = table.new(f_hudpos(hudPos), 1, 5, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        // Row 6 GAP: the most recent overnight gap, same read as the zone tag.
+        string gapTxt = na(gapTop) or gapTop <= gapBot or na(gapPct) ? "Gap: none" : "Gap: " + (gapPct >= 0 ? "+" : "") + str.tostring(gapPct, "0.00") + "% " + (gapUp ? "up" : "down") + " · " + (gapFilled ? "filled" : "unfilled")
+        color  gapBg  = na(gapTop) or gapTop <= gapBot or gapFilled ? color.new(color.gray, 35) : gapUp ? color.new(#00897B, 35) : color.new(#E53935, 35)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 6, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
         table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
         table.cell(_hud, 0, 1, trendTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = trendBg)
         table.cell(_hud, 0, 2, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
         table.cell(_hud, 0, 3, sentTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = sentBg)
         table.cell(_hud, 0, 4, vixTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = vixBg)
+        table.cell(_hud, 0, 5, gapTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = gapBg)
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
