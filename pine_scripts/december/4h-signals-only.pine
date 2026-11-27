@@ -1,5 +1,5 @@
 //@version=6
-// 4h-signals-only v2026.11.26.1 — version is in the indicator title too: if the chart legend
+// 4h-signals-only v2026.11.27.1 — version is in the indicator title too: if the chart legend
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
@@ -22,6 +22,9 @@
 //   "Swing: hide if > % from price" gate (default 5%) hides a swing high/low that's too far from price to be actionable.
 // v2026.11.26.1: HUD gains a SENTIMENT row — the prior session's CBOE index put/call ratio (USI:PCI
 //   daily, classified FEAR / NEUTRAL / COMPLACENT exactly as the signal cards' Sentiment line). Label only.
+// v2026.11.27.1: HUD gains a VIX row UNDER the sentiment row — the LIVE CBOE:VIX daily value read as
+//   MARKET CONDITION (calm / normal / elevated / panic, plus direction over 5 sessions), Victor's
+//   separate read: never mixed with the P/C sentiment state. Same bands as vix_condition.py. Label only.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -95,7 +98,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.26.1", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("4h-signals-only · v2026.11.27.1", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -296,6 +299,22 @@ bool   pcComp    = not na(pcCur) and (pcCur <= 0.95 or (pcCur <= 1.10 and not na
 string sentState = na(pcCur) ? "no data" : pcFear ? "FEAR" : pcComp ? "COMPLACENT" : "NEUTRAL"
 string sentTxt   = na(pcCur) ? "Sentiment: no data" : "Sentiment: " + sentState + " · P/C " + str.tostring(pcCur, "0.00")
 color  sentBg    = sentState == "FEAR" ? color.new(#E53935, 35) : sentState == "COMPLACENT" ? color.new(#00897B, 35) : color.new(color.gray, 35)
+
+// VIX market condition (Victor, 2026-11-27): a SEPARATE read from the
+// sentiment row above — never mixed with the P/C state. VIX hints at
+// MARKET CONDITION (what kind of tape it is), read LIVE off the forming
+// CBOE:VIX daily bar, with the same bands as vix_condition.py (the
+// morning card's VIX line, which reads completed sessions): under 15
+// calm, 15–20 normal, 20–30 elevated, 30+ panic. Direction over 5
+// sessions refines it: elevated/panic and falling = fear receding;
+// calm and spiking (2+ points in a day) = calm breaking. Label only.
+[vixNow, vixPrev1, vixPrev5] = request.security("CBOE:VIX", "D", [close, close[1], close[5]], lookahead = barmerge.lookahead_on)
+float  vixChg5   = na(vixNow) or na(vixPrev5) ? na : vixNow - vixPrev5
+float  vixChg1   = na(vixNow) or na(vixPrev1) ? na : vixNow - vixPrev1
+string vixBand   = na(vixNow) ? "" : vixNow < 15 ? "calm" : vixNow < 20 ? "normal" : vixNow < 30 ? "elevated" : "panic"
+string vixDir    = na(vixNow) ? "" : (vixBand == "elevated" or vixBand == "panic") and not na(vixChg5) and vixChg5 <= -1.0 ? "falling, fear receding" : vixBand == "calm" and not na(vixChg1) and vixChg1 >= 2.0 ? "spiking, calm breaking" : na(vixChg5) ? "steady" : vixChg5 >= 1.0 ? "rising" : vixChg5 <= -1.0 ? "falling" : "steady"
+string vixTxt    = na(vixNow) ? "VIX: no data" : "VIX: " + str.tostring(vixNow, "0.0") + " · " + vixBand + " · " + vixDir
+color  vixBg     = vixBand == "panic" ? color.new(#E53935, 35) : vixBand == "elevated" ? color.new(#FB8C00, 35) : vixBand == "calm" ? color.new(#00897B, 35) : color.new(color.gray, 35)
 
 // Most recent CONFIRMED 4H swing high / low (pivots), held forward — the structural base. Computed
 // on the 4H series; NO lookahead (a pivot confirms swLen bars after its peak — the honest, no-repaint
@@ -585,11 +604,12 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
             else
                 trendTxt := "SIDEWAYS"
                 trendBg  := color.new(#FB8C00, 35)
-        var table _hud = table.new(f_hudpos(hudPos), 1, 4, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 5, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
         table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
         table.cell(_hud, 0, 1, trendTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = trendBg)
         table.cell(_hud, 0, 2, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
         table.cell(_hud, 0, 3, sentTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = sentBg)
+        table.cell(_hud, 0, 4, vixTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = vixBg)
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
