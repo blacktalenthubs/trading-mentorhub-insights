@@ -1,5 +1,5 @@
 //@version=6
-// weekly-10-30-sma v2026.11.27.3 — version is in the indicator title too: if the chart legend
+// weekly-10-30-sma v2026.11.27.4 — version is in the indicator title too: if the chart legend
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // Just the 10 and 30 SMA — the Stan Weinstein stage lines. On a WEEKLY chart
@@ -13,7 +13,9 @@
 //   long lookback to split basing from topping when the 30 is flat.
 // v2026.11.27.3: HUD position is a setting (top / middle / bottom, left or
 //   right), and the HUD gains Daily RSI and Weekly RSI rows under the stage.
-indicator("10 / 30 SMA · v2026.11.27.3", shorttitle = "10/30 SMA", overlay = true)
+// v2026.11.27.4: line style per Victor — 10 is solid GREEN width 4, 30 is
+//   solid RED width 4.
+indicator("10 / 30 SMA · v2026.11.27.4", shorttitle = "10/30 SMA", overlay = true)
 
 lenFast = input.int(10, "Fast SMA", minval = 1)
 lenSlow = input.int(30, "Slow SMA", minval = 1)
@@ -21,8 +23,8 @@ lenSlow = input.int(30, "Slow SMA", minval = 1)
 fast = ta.sma(close, lenFast)
 slow = ta.sma(close, lenSlow)
 
-plot(fast, title = "10 SMA", color = color.new(#2962FF, 0), linewidth = 2)
-plot(slow, title = "30 SMA", color = color.new(#FF0000, 0), linewidth = 2)
+plot(fast, title = "10 SMA", color = color.new(#4CAF50, 0), linewidth = 4)
+plot(slow, title = "30 SMA", color = color.new(#FF0000, 0), linewidth = 4)
 
 // ── Stage call ──────────────────────────────────────────────────────────────
 slopeLen = input.int(3, "30 slope lookback (bars)", minval = 1, group = "Stage")
