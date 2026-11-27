@@ -1,0 +1,17 @@
+//@version=6
+// weekly-10-30-sma v2026.11.27.1 — version is in the indicator title too: if the chart legend
+// does not show this exact version, the chart is running an older copy.
+// ─────────────────────────────────────────────────────────────────────────────
+// Just the 10 and 30 SMA — the Stan Weinstein stage lines. On a WEEKLY chart
+// they are the 10-week and 30-week averages from the stage chart:
+//   price above a RISING 30 = Stage 2 (advancing, the buy zone)
+//   price below a FALLING 30 = Stage 4 (declining — no longs)
+//   the 10 crossing under the 30 while the 30 starts curving down is the
+//   early Stage 4 warning.
+indicator("10 / 30 SMA · v2026.11.27.1", shorttitle = "10/30 SMA", overlay = true)
+
+lenFast = input.int(10, "Fast SMA", minval = 1)
+lenSlow = input.int(30, "Slow SMA", minval = 1)
+
+plot(ta.sma(close, lenFast), title = "10 SMA", color = color.new(#2962FF, 0), linewidth = 2)
+plot(ta.sma(close, lenSlow), title = "30 SMA", color = color.new(#FF0000, 0), linewidth = 2)
