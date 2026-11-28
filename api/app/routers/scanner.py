@@ -32,6 +32,15 @@ router = APIRouter()
 _rank_cache: Dict[int, Tuple[float, List[dict]]] = {}
 _RANK_CACHE_TTL = 180  # 3 minutes
 
+# ── Scan cache (user_id -> (timestamp, symbol fingerprint, results)) ──
+# /scan runs the full signal engine over ~116 symbols and was computed live
+# on EVERY call, while the client refetches every 60s — so every cold app
+# open sat on a spinner waiting for a full compute (Victor, 2026-11-28:
+# "the data loads too long before it shows"). 60s TTL matches the client's
+# refetch cadence: repeat calls inside the minute serve the cached result.
+_scan_cache: Dict[int, Tuple[float, frozenset, List[dict]]] = {}
+_SCAN_CACHE_TTL = 60  # seconds
+
 
 async def _get_user_symbols(user: User, db: AsyncSession) -> List[str]:
     result = await db.execute(
@@ -104,6 +113,13 @@ async def scan(
     if not all_symbols:
         return []
 
+    # Serve the cached scan when it's fresh and the symbol set is unchanged.
+    fingerprint = frozenset(s.strip().upper() for s in all_symbols)
+    now = time.time()
+    cached = _scan_cache.get(user.id)
+    if cached and (now - cached[0]) < _SCAN_CACHE_TTL and cached[1] == fingerprint:
+        return cached[2]
+
     # Run CPU-bound scanner in thread pool
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(None, partial(run_scan, all_symbols))
@@ -119,6 +135,7 @@ async def scan(
         if source != "watchlist" and not idea_qualifies(r):
             continue
         tagged.append(r)
+    _scan_cache[user.id] = (now, fingerprint, tagged)
     return tagged
 
 
