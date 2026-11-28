@@ -13,8 +13,10 @@ Auth: shared secret in the `X-Rumi-Secret` header, compared against the
 `RUMI_INGEST_SECRET` env var. When the env var is unset the endpoint
 returns 503 — a forgotten caller can never write rows.
 
-Owner: the user whose email matches `RUMI_OWNER_EMAIL`; when unset, the
-earliest account (id order) — the founder account on a personal deploy.
+Owner: the user whose email matches `RUMI_OWNER_EMAIL`; when unset,
+DEFAULT_OWNER_EMAIL (Victor's login); last resort the earliest account.
+Visibility does NOT depend on the owner — the feed's read endpoints serve
+rumi_* rows to every logged-in user (see alerts.py `_feed_scope_clause`).
 
 Idempotent: a signal whose (user, alert_type, symbol, session_date,
 created_at) already exists is skipped, so the poster can retry / re-run a
@@ -69,15 +71,23 @@ def _check_secret(header_value: Optional[str]) -> None:
         raise HTTPException(401, "bad rumi secret")
 
 
+# Victor's desk login — the canonical owner of the Rumi log (Victor,
+# 2026-11-28: "always only vbolofidne@gmail.com"). Visibility no longer
+# depends on this (the feed serves rumi_* rows to every logged-in user);
+# the owner is bookkeeping for the rows themselves.
+DEFAULT_OWNER_EMAIL = "vbolofidne@gmail.com"
+
+
 async def _owner(db: AsyncSession) -> User:
-    email = os.environ.get("RUMI_OWNER_EMAIL", "").strip()
-    if email:
-        user = (await db.execute(
-            select(User).where(User.email == email)
-        )).scalars().first()
-        if user is not None:
-            return user
-        logger.warning("rumi ingest: RUMI_OWNER_EMAIL %s not found", email)
+    email = os.environ.get("RUMI_OWNER_EMAIL", "").strip() \
+        or DEFAULT_OWNER_EMAIL
+    user = (await db.execute(
+        select(User).where(User.email == email)
+    )).scalars().first()
+    if user is not None:
+        return user
+    logger.warning("rumi ingest: owner email %s not found, "
+                   "falling back to earliest account", email)
     user = (await db.execute(
         select(User).order_by(User.id).limit(1)
     )).scalars().first()
