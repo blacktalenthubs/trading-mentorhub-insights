@@ -481,6 +481,7 @@ function SignalFeedTab({
   focusOnly = false,
   onFocusOnlyChange,
   weekMode = false,
+  rumiScope = false,
 }: {
   alerts?: Alert[];
   alertsError: unknown;
@@ -488,6 +489,9 @@ function SignalFeedTab({
   signalDate?: string;
   // Week view: the feed holds a whole week's alerts (oldest-first); insert day headers.
   weekMode?: boolean;
+  // Rumi scope: the feed is pinned to Rumi's lane signals (the header scope
+  // toggle Day | Week | Rumi owns the switch; the Day/Swing control hides).
+  rumiScope?: boolean;
   assetFilter?: "all" | "stocks" | "crypto";
   onAssetFilterChange?: (a: "all" | "stocks" | "crypto") => void;
   // The user's starred Focus symbols (from the watchlist). Drives the
@@ -573,7 +577,10 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing" | "rumi">("day");
+  const [view, setView] = useState<"day" | "swing">("day");
+  // In Rumi scope the feed pins to the Rumi book regardless of the Day/Swing
+  // state (the scope toggle in the panel header is the switch).
+  const shownView = rumiScope ? "rumi" : view;
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -680,7 +687,7 @@ function SignalFeedTab({
   const rumiAlerts = (alerts ?? []).filter(
     (a) => isRumiSignal(a.alert_type) && !isExitAlert(a.alert_type),
   );
-  const feedAlerts = view === "day" ? dayAlerts : view === "swing" ? swingAlerts : rumiAlerts;
+  const feedAlerts = shownView === "day" ? dayAlerts : shownView === "swing" ? swingAlerts : rumiAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -715,7 +722,7 @@ function SignalFeedTab({
   // (the empty-state copy below explains "star symbols first" in that case).
   // Focus applies to the DAY feed only (the setting is about day-trade delivery);
   // swing signals always show in full.
-  if (focusOnly && hasFocus && view === "day") {
+  if (focusOnly && hasFocus && shownView === "day") {
     filtered = filtered.filter((a) => focusUpper.has((a.symbol || "").toUpperCase()));
   }
 
@@ -972,7 +979,7 @@ function SignalFeedTab({
     (assetFilter !== "all" ? 1 : 0) +
     (gradeFilter !== "all" ? 1 : 0) +
     (hiddenTypes.size > 0 ? 1 : 0) +
-    (focusOnly && view === "day" ? 1 : 0);
+    (focusOnly && shownView === "day" ? 1 : 0);
   function clearAllFilters() {
     onAssetFilterChange?.("all");
     changeGradeFilter("all");
@@ -985,25 +992,32 @@ function SignalFeedTab({
     <div className="flex-1 flex flex-col min-h-0">
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
-        <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"], ["rumi", "Rumi signals"]] as const).map(([id, label], i) => (
-            <button
-              key={id}
-              onClick={() => setView(id)}
-              title={id === "day"
-                ? "Day trades — out by the close. 4H reactions + gap-and-go + breakouts (folded in by style)."
-                : id === "swing"
-                ? "Swing trades — held multiple days while the thesis holds. SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims, breakouts."
-                : "Rumi signals — the agent-run 4H / VP / SMA lanes, logged here for review. Not part of the Day/Swing books."}
-              className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-            >
-              {label}{" "}
-              <span className="opacity-70 font-normal">
-                {id === "day" ? dayAlerts.length : id === "swing" ? swingAlerts.length : rumiAlerts.length}
-              </span>
-            </button>
-          ))}
-        </div>
+        {rumiScope ? (
+          <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
+            <span className="px-2.5 py-1 bg-accent text-bg-base">
+              Rumi signals{" "}
+              <span className="opacity-70 font-normal">{rumiAlerts.length}</span>
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
+            {([["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
+              <button
+                key={id}
+                onClick={() => setView(id)}
+                title={id === "day"
+                  ? "Day trades — out by the close. 4H reactions + gap-and-go + breakouts (folded in by style)."
+                  : "Swing trades — held multiple days while the thesis holds. SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims, breakouts."}
+                className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+              >
+                {label}{" "}
+                <span className="opacity-70 font-normal">
+                  {id === "day" ? dayAlerts.length : swingAlerts.length}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* Week view grouping — per-name review (default) vs by-day. Week mode only. */}
         {weekMode && (
           <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
@@ -1055,7 +1069,7 @@ function SignalFeedTab({
           persisted filter, so without this a user can forget it's on and think signals
           are missing). Tappable to clear. Also warns if Focus is on but there are no
           starred symbols, in which case the filter can't apply and the full feed shows. */}
-      {focusOnly && view === "day" && (
+      {focusOnly && shownView === "day" && (
         <button
           onClick={() => setFocusOnlyPersist(false)}
           title="Focus filter is ON — tap to show all signals"
@@ -1260,8 +1274,8 @@ function SignalFeedTab({
               : focusOnly && !hasFocus
                 ? "No Focus symbols yet — star symbols in your watchlist to build a Focus list"
                 : focusOnly
-                  ? `No ${view === "day" ? "day-trade" : view === "swing" ? "swing" : "Rumi"} signals for your Focus symbols this session`
-                  : view === "rumi"
+                  ? `No ${shownView === "day" ? "day-trade" : shownView === "swing" ? "swing" : "Rumi"} signals for your Focus symbols this session`
+                  : shownView === "rumi"
                     ? "No Rumi signals this session"
                     : "No alerts this session"}
           </p>
@@ -1647,9 +1661,13 @@ export default function TradingPageV2() {
 
   // Signals feed — which session to view ("" = today/latest)
   const [signalDate, setSignalDate] = useState<string>("");
-  // Week view (weekend review): show the whole week's signals grouped by day for the
-  // selected symbol, rather than a single session. Anchored on the picked date (or latest).
-  const [weekMode, setWeekMode] = useState<boolean>(false);
+  // Feed scope (2026-11-28): "day" = a single session; "week" = the whole week
+  // grouped by day (weekend review); "rumi" = Rumi's lane signals for the week,
+  // pinned to the Rumi book inside the feed. weekMode (week-shaped data +
+  // grouping) is derived — week and rumi both read the week's alerts.
+  // Anchored on the picked date (or latest).
+  const [feedScope, setFeedScope] = useState<"day" | "week" | "rumi">("day");
+  const weekMode = feedScope !== "day";
   const { data: sessionDates } = useAlertSessionDates();
   const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
   const weekAnchor = signalDate || (sessionDates?.[0] ?? "");
@@ -2941,14 +2959,15 @@ export default function TradingPageV2() {
             </div>
             {rightTab !== "levels" && (
               <div className="ml-auto flex items-center gap-1.5">
-                {/* Day | Week — Week shows the selected symbol's whole week, grouped by day. */}
+                {/* Day | Week | Rumi — Week shows the whole week grouped by day;
+                    Rumi shows the agent lanes' signals for the week. */}
                 <div className="flex items-center rounded border border-border-subtle overflow-hidden text-[11px]">
-                  {([["day", "Day"], ["week", "Week"]] as const).map(([id, label]) => (
+                  {([["day", "Day"], ["week", "Week"], ["rumi", "Rumi"]] as const).map(([id, label]) => (
                     <button
                       key={id}
-                      onClick={() => setWeekMode(id === "week")}
-                      title={id === "week" ? "Review a whole week, grouped by day" : "A single session"}
-                      className={`px-2 py-1 transition-colors ${(id === "week") === weekMode ? "bg-accent text-bg-base font-semibold" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
+                      onClick={() => setFeedScope(id)}
+                      title={id === "week" ? "Review a whole week, grouped by day" : id === "rumi" ? "Rumi's 4H / VP / SMA lane signals for the week" : "A single session"}
+                      className={`px-2 py-1 transition-colors ${feedScope === id ? "bg-accent text-bg-base font-semibold" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
                     >
                       {label}
                     </button>
@@ -2985,6 +3004,7 @@ export default function TradingPageV2() {
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
                 weekMode={weekMode}
+                rumiScope={feedScope === "rumi"}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
                 focusSymbols={focusSymbols}
@@ -3034,11 +3054,11 @@ export default function TradingPageV2() {
             {rightTab !== "levels" && !mobileSignalsCollapsed && (
               <>
                 <div className="flex items-center rounded border border-border-subtle overflow-hidden text-[11px]">
-                  {([["day", "Day"], ["week", "Week"]] as const).map(([id, label]) => (
+                  {([["day", "Day"], ["week", "Week"], ["rumi", "Rumi"]] as const).map(([id, label]) => (
                     <button
                       key={id}
-                      onClick={() => setWeekMode(id === "week")}
-                      className={`px-1.5 py-0.5 transition-colors ${(id === "week") === weekMode ? "bg-accent text-bg-base font-semibold" : "bg-surface-0 text-text-muted"}`}
+                      onClick={() => setFeedScope(id)}
+                      className={`px-1.5 py-0.5 transition-colors ${feedScope === id ? "bg-accent text-bg-base font-semibold" : "bg-surface-0 text-text-muted"}`}
                     >
                       {label}
                     </button>
@@ -3074,6 +3094,7 @@ export default function TradingPageV2() {
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
                 weekMode={weekMode}
+                rumiScope={feedScope === "rumi"}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
                 focusSymbols={focusSymbols}
