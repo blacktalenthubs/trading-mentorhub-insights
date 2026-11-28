@@ -20,15 +20,11 @@ import {
   useAlertsForWeek,
   useWatchlist,
   useWatchlistGroups,
-  useSectorsWatchlist,
   useMasterWatchlistView,
   useMe,
   useAddSymbol,
-  useCopySectorsWatchlist,
   useRemoveSymbol,
   useToggleWatchlistFocus,
-  useSetFocusTier,
-  useClearWatchlistFocus,
   useLivePrices,
   useWatchlistRank,
   useWatchlistSignalsToday,
@@ -58,7 +54,6 @@ import { SkeletonRow } from "../components/ui/Skeleton";
 import {
   Search,
   Plus,
-  Check,
   X,
   Loader2,
   SlidersHorizontal,
@@ -70,7 +65,6 @@ import {
   ChevronDown,
   ChevronUp,
   Menu,
-  Sparkles,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -241,8 +235,6 @@ function CompactWatchlistRow({
   onRemove,
   onToggleFocus,
   focused,
-  tier,
-  onSetTier,
   livePrice,
   rankItem,
   collapsed,
@@ -254,8 +246,6 @@ function CompactWatchlistRow({
   onRemove?: () => void;
   onToggleFocus?: () => void;
   focused?: boolean;
-  tier?: number;                       // 1 = Core (Telegram), 2 = Watch (app only)
-  onSetTier?: (tier: 1 | 2) => void;
   livePrice?: { price: number; change_pct: number };
   rankItem?: WatchlistRankItem;
   collapsed: boolean;
@@ -304,41 +294,12 @@ function CompactWatchlistRow({
               ? "text-amber-400 hover:text-amber-300"
               : `text-text-faint hover:text-amber-400 ${reveal}`
           }`}
-          title={focused ? "Remove from today's focus" : "Add to today's focus"}
+          title={focused ? "Remove from favorites" : "Add to favorites"}
         >
           <svg className="h-3 w-3" fill={focused ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.196-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.783-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
           </svg>
         </button>
-      )}
-      {/* Tier control — focused: Core/Watch pill (tap to flip). Not focused: a direct
-          "Core | Watch" add so you choose the lane up front instead of defaulting to Watch. */}
-      {onSetTier && signal.source === "watchlist" && (
-        focused ? (
-          <button
-            onClick={(e) => { e.stopPropagation(); onSetTier((tier ?? 1) === 1 ? 2 : 1); }}
-            title={(tier ?? 1) === 1 ? "CORE — pings Telegram. Tap → Watch (app only)." : "WATCH — app feed only. Tap → Core (Telegram)."}
-            className={`shrink-0 mr-1 text-[8px] font-bold uppercase tracking-wide leading-none px-1 py-0.5 rounded border transition-colors ${
-              (tier ?? 1) === 1
-                ? "bg-bullish/15 text-bullish-text border-bullish/40 hover:bg-bullish/25"
-                : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary"}`}
-          >
-            {(tier ?? 1) === 1 ? "Core" : "Watch"}
-          </button>
-        ) : (
-          <span className={`shrink-0 mr-1 flex items-center gap-0.5 ${reveal}`}>
-            <button
-              onClick={(e) => { e.stopPropagation(); onSetTier(1); }}
-              title={`Add ${signal.symbol} to CORE (pings Telegram)`}
-              className="text-[8px] font-bold uppercase leading-none px-1 py-0.5 rounded border border-bullish/30 text-bullish-text hover:bg-bullish/15"
-            >Core</button>
-            <button
-              onClick={(e) => { e.stopPropagation(); onSetTier(2); }}
-              title={`Add ${signal.symbol} to WATCH (app feed only)`}
-              className="text-[8px] font-bold uppercase leading-none px-1 py-0.5 rounded border border-border-subtle text-text-muted hover:text-text-secondary"
-            >Watch</button>
-          </span>
-        )
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -508,15 +469,8 @@ function SignalFeedTab({
   const [showCollapsed, setShowCollapsed] = useState<boolean>(
     () => typeof window !== "undefined" && localStorage.getItem("show_collapsed") === "1",
   );
-  // Focus-tier feed filter: all · core (A, pinged Telegram) · watch (B, app-only). Lets the
-  // trader isolate the Core names at the open and the Watch names when they have eyes on the app.
-  const [tierFilter, setTierFilter] = useState<"all" | "core" | "watch">(
-    () => (typeof window !== "undefined" && (localStorage.getItem("feed_tier") as "all" | "core" | "watch")) || "all",
-  );
-  function setTierFilterPersist(v: "all" | "core" | "watch") {
-    setTierFilter(v);
-    try { localStorage.setItem("feed_tier", v); } catch { /* ignore */ }
-  }
+  // (The old All/Core/Watch tier filter was removed 2026-11-28 — Victor:
+  // "I don't need all that separation anymore.")
   function toggleShowCollapsed() {
     setShowCollapsed((p) => {
       const next = !p;
@@ -652,9 +606,7 @@ function SignalFeedTab({
   // (2026-09-30 trader: "why send these notice when there's no buy signal … not needed").
   // isExitAlert kept as an explicit belt-and-suspenders guard. Only the clean set ever pings.
   const feedAllRaw = (alerts ?? []).filter(
-    (a) => !isExitAlert(a.alert_type) && isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason)
-      && (tierFilter === "all"
-          || (tierFilter === "watch" ? a.channel === "app" : a.channel !== "app")),
+    (a) => !isExitAlert(a.alert_type) && isFeedSignal(a.alert_type) && (showCollapsed || !a.suppressed_reason),
   );
   // Count of suppressed ENTRY candidates hidden from the clean feed (not-sent + deduped) — toggle badge.
   const collapsedCount = (alerts ?? []).filter(
@@ -1102,23 +1054,6 @@ function SignalFeedTab({
             </button>
           )}
         </div>
-        {/* Focus-tier filter — Core (A, Telegram) vs Watch (B, app-only). */}
-        <div className="shrink-0 flex items-center rounded border border-border-subtle overflow-hidden">
-          {(["all", "core", "watch"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTierFilterPersist(t)}
-              title={t === "core" ? "Core (Tier A) — the names that ping Telegram"
-                : t === "watch" ? "Watch (Tier B) — app-only, never pinged" : "All tiers"}
-              className={`text-[10px] px-2 py-1 transition-colors ${
-                tierFilter === t
-                  ? "bg-accent/15 text-accent font-semibold"
-                  : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
-            >
-              {t === "all" ? "All" : t === "core" ? "Core" : "Watch"}
-            </button>
-          ))}
-        </div>
         <button
           onClick={() => setFiltersOpen((v) => !v)}
           className={`shrink-0 text-[10px] px-2 py-1 rounded border flex items-center gap-1 transition-colors ${
@@ -1495,11 +1430,11 @@ export default function TradingPageV2() {
     setSelectedSymbol(sym);
     localStorage.setItem("chart_selected_symbol", sym);
     setMobileWatchlistOpen(false);   // close watchlist drawer when symbol picked on mobile
-    // Picking a symbol = "show me the chart" → collapse the mobile signals panel so
-    // the chart goes full-height (it was compressed behind the open 17rem panel).
-    // Transient (no localStorage write) — the user's explicit chevron toggle still
-    // persists. Setter is stable, so it needs no dep. No-op on desktop (panel is lg:hidden).
-    setMobileSignalsCollapsed(true);
+    // NOTE: picking a signal must NOT collapse the mobile signals panel
+    // (Victor, 2026-11-28: "if I click on iwm signal the signal pane auto
+    // close I don't want them"). The panel used to unmount on every pick,
+    // which also reset the feed's scroll position and state. The trader
+    // collapses it himself with the chevron when he wants the full chart.
   }, []);
 
   /* ── Deep-link routing ──
@@ -1670,6 +1605,11 @@ export default function TradingPageV2() {
   const weekMode = feedScope !== "day";
   const { data: sessionDates } = useAlertSessionDates();
   const { data: pastAlerts, error: pastAlertsError } = useAlertsForDate(signalDate);
+  // Rumi scope date pick (2026-11-28, Victor): in Rumi scope the picker
+  // chooses a single DAY, not a week. "" = the whole week, grouped by day.
+  const [rumiDate, setRumiDate] = useState<string>("");
+  const rumiDayMode = feedScope === "rumi" && !!rumiDate;
+  const { data: rumiDateAlerts, error: rumiDateError } = useAlertsForDate(rumiDayMode ? rumiDate : "");
   const weekAnchor = signalDate || (sessionDates?.[0] ?? "");
   const { data: weekAlerts, error: weekAlertsError } = useAlertsForWeek(weekMode ? weekAnchor : "");
 
@@ -1698,15 +1638,10 @@ export default function TradingPageV2() {
   const addSymbol = useAddSymbol();
   const _removeSymbol = useRemoveSymbol(); void _removeSymbol;
   const toggleFocusMut = useToggleWatchlistFocus();
-  const clearFocusMut = useClearWatchlistFocus();
-  const setTierMut = useSetFocusTier();
+
   const watchlistSymbols = new Set(watchlistItems?.map((w) => w.symbol) ?? []);
   const focusSymbols = new Set(
     (watchlistItems ?? []).filter((w) => w.focus).map((w) => w.symbol),
-  );
-  // symbol → delivery tier (1=A Telegram, 2=B app-only). Default A if a focus row has no tier.
-  const tierBySymbol = new Map<string, number>(
-    (watchlistItems ?? []).filter((w) => w.focus).map((w) => [w.symbol, w.focus_tier ?? 1]),
   );
   // Signals-feed Focus filter — driven by the SETTING, not a feed tab. When the
   // user's "Focus only" alert setting (server-side daytrade_focus_only) is ON, the
@@ -1730,51 +1665,23 @@ export default function TradingPageV2() {
   const { data: wlGroups } = useWatchlistGroups();
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
-  // Focus filter — visual-only toggle for the sidebar. Persists in localStorage.
-  // Default OFF so the full list shows; user explicitly opts in to focus view.
-  // Sidebar view: all watchlist · Core (focus tier A) · Watch (focus tier B). Matches the feed +
-  // the per-row pill, so the whole app speaks one language — Core/Watch, not A/B.
-  const [wlView, setWlViewState] = useState<"all" | "core" | "watch">(() => {
-    if (typeof window === "undefined") return "all";
-    return (localStorage.getItem("watchlist_view") as "all" | "core" | "watch") || "all";
+  // Sidebar tabs (2026-11-28, Victor): exactly two — Favorites (his starred
+  // names) and Master (the curated platform list, admin). The old
+  // All/Core/Watch separation and the Editor's Picks block are gone:
+  // "Beside the charts, I want to see the master and favorite."
+  const [wlTab, setWlTabState] = useState<"fav" | "master">(() => {
+    if (typeof window === "undefined") return "fav";
+    return localStorage.getItem("watchlist_tab") === "master" ? "master" : "fav";
   });
-  const [masterView, setMasterView] = useState(false);  // admin: show the master watchlist as the list
-  function setWlView(v: "all" | "core" | "watch") {
-    setMasterView(false);
-    setWlViewState(v);
-    try { localStorage.setItem("watchlist_view", v); } catch { /* ignore */ }
+  function setWlTab(v: "fav" | "master") {
+    setWlTabState(v);
+    try { localStorage.setItem("watchlist_tab", v); } catch { /* ignore */ }
   }
+  const masterView = wlTab === "master";
 
-  /* ── Editor's Picks (admin's public watchlist) ── */
-  const { data: sectorsItems } = useSectorsWatchlist();
   const { data: me } = useMe();
   const isAdmin = !!me?.is_admin;
   const { data: masterData } = useMasterWatchlistView(isAdmin && masterView);
-  const copySectors = useCopySectorsWatchlist();
-  // Default-expanded — only collapsed if the user has explicitly collapsed
-  // it before (key set to "0"). New users see the picks immediately.
-  const [sectorsExpanded, setSectorsExpanded] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return localStorage.getItem("sectors_expanded") !== "0";
-  });
-  function toggleSectors() {
-    setSectorsExpanded((v) => {
-      try { localStorage.setItem("sectors_expanded", v ? "0" : "1"); } catch {}
-      return !v;
-    });
-  }
-  const missingSectorSymbols = (sectorsItems ?? [])
-    .map((s) => s.symbol)
-    .filter((s) => !watchlistSymbols.has(s));
-  function copyAllSectors() {
-    if (missingSectorSymbols.length === 0) return;
-    copySectors.mutate(undefined, {
-      onSuccess: () => {
-        toast.success(`Synced ${missingSectorSymbols.length} symbols + sector groups`);
-      },
-    });
-  }
-  const userWatchlistEmpty = (watchlistItems?.length ?? 0) === 0;
 
   const [searchFilter, setSearchFilter] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -1931,7 +1838,7 @@ export default function TradingPageV2() {
     ?.filter(
       (s) => !searchFilter || s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
     )
-    ?.filter((s) => wlView === "all" || tierBySymbol.get(s.symbol) === (wlView === "core" ? 1 : 2))
+    ?.filter((s) => focusSymbols.has(s.symbol))   // Favorites tab: starred names only
     ?.filter((s) => s.source === "watchlist")   // watchlist only — scanner "ideas" live on the Trade Ideas tab
     // User-chosen sort (persisted). %change/price pull from live prices.
     ?.slice()
@@ -1949,7 +1856,7 @@ export default function TradingPageV2() {
     });
 
   // The signals shown in the right panel — today/latest, or a chosen past session.
-  const activeAlerts = weekMode ? (weekAlerts ?? []) : signalDate ? (pastAlerts ?? []) : todayAlerts;
+  const activeAlerts = rumiDayMode ? (rumiDateAlerts ?? []) : weekMode ? (weekAlerts ?? []) : signalDate ? (pastAlerts ?? []) : todayAlerts;
   // Alert markers for the charted symbol (memoized so the chart doesn't redraw every render).
   const symbolAlertMarkers = useMemo(
     () => (activeAlerts ?? [])
@@ -1957,7 +1864,7 @@ export default function TradingPageV2() {
       .map((a) => ({ created_at: a.created_at, direction: a.direction, grade: a.grade })),
     [activeAlerts, selectedSymbol],
   );
-  const activeAlertsError = weekMode ? weekAlertsError : signalDate ? pastAlertsError : alertsError;
+  const activeAlertsError = rumiDayMode ? rumiDateError : weekMode ? weekAlertsError : signalDate ? pastAlertsError : alertsError;
   const feedCount = (activeAlerts ?? []).filter(
     (a) => isFeedSignal(a.alert_type) && a.suppressed_reason !== "type_not_enabled",
   ).length;
@@ -2013,7 +1920,6 @@ export default function TradingPageV2() {
             const lp = livePrices[sy];
             const chg = lp?.change_pct ?? null;
             const isFocused = focusSymbols.has(sy);
-            const inWl = watchlistSymbols.has(sy);
             return (
               <div
                 key={sy}
@@ -2021,48 +1927,12 @@ export default function TradingPageV2() {
               >
                 <button
                   onClick={(e) => { e.stopPropagation(); toggleFocusMut.mutate(sy); }}
-                  title={isFocused ? `Remove ${sy} from focus` : `Add ${sy} to focus`}
+                  title={isFocused ? `Remove ${sy} from favorites` : `Add ${sy} to favorites`}
                   className={isFocused ? "text-amber-400" : "text-text-faint transition-colors hover:text-amber-400"}
                 >
                   <Star className="h-3 w-3" fill={isFocused ? "currentColor" : "none"} />
                 </button>
-                {isFocused ? (() => {
-                  const _core = (tierBySymbol.get(sy) ?? 1) === 1;
-                  return (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: _core ? 2 : 1 }); }}
-                      title={_core
-                        ? `${sy} is CORE — pings Telegram. Tap to move to WATCH (app feed only).`
-                        : `${sy} is WATCH — app feed only, no ping. Tap to move to CORE (Telegram).`}
-                      className={`text-[9px] font-bold uppercase tracking-wide leading-none px-1.5 py-0.5 rounded border transition-colors ${
-                        _core
-                          ? "bg-bullish/15 text-bullish-text border-bullish/40 hover:bg-bullish/25"
-                          : "bg-surface-4 text-text-muted border-border-subtle hover:text-text-secondary hover:border-text-faint"}`}
-                    >
-                      {_core ? "Core" : "Watch"}
-                    </button>
-                  );
-                })() : (
-                  <span className="flex items-center gap-0.5">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: 1 }); }}
-                      title={`Add ${sy} to CORE (pings Telegram)`}
-                      className="text-[9px] font-bold uppercase leading-none px-1.5 py-0.5 rounded border border-bullish/30 text-bullish-text hover:bg-bullish/15 transition-colors"
-                    >Core</button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setTierMut.mutate({ symbol: sy, tier: 2 }); }}
-                      title={`Add ${sy} to WATCH (app feed only)`}
-                      className="text-[9px] font-bold uppercase leading-none px-1.5 py-0.5 rounded border border-border-subtle text-text-muted hover:text-text-secondary transition-colors"
-                    >Watch</button>
-                  </span>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); inWl ? _removeSymbol.mutate(sy) : addSymbol.mutate(sy); }}
-                  title={inWl ? `Remove ${sy} from your watchlist` : `Add ${sy} to your watchlist`}
-                  className={inWl ? "text-bullish-text" : "text-text-faint transition-colors hover:text-accent"}
-                >
-                  {inWl ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                </button>
+
                 <button onClick={() => selectSymbol(sy)} className="flex flex-1 items-center gap-2 text-left">
                   <span className="font-mono text-[11px] font-semibold text-text-primary">{sy}</span>
                   {chg != null && (
@@ -2088,8 +1958,6 @@ export default function TradingPageV2() {
       onRemove={() => _removeSymbol.mutate(s.symbol)}
       onToggleFocus={() => toggleFocusMut.mutate(s.symbol)}
       focused={focusSymbols.has(s.symbol)}
-      tier={tierBySymbol.get(s.symbol)}
-      onSetTier={(t) => setTierMut.mutate({ symbol: s.symbol, tier: t })}
       livePrice={livePrices[s.symbol]}
       rankItem={rankMap.get(s.symbol)}
       collapsed={!watchlistExpanded}
@@ -2172,65 +2040,32 @@ export default function TradingPageV2() {
           </div>
         </div>
 
-        {/* Focus filter chip — visual-only filter for today's focus list.
-            On the mobile drawer (mobileWatchlistOpen) ALWAYS show the chips, even when the
-            desktop sidebar is collapsed — otherwise mobile gets a long list with no filters. */}
+        {/* Sidebar tabs — Favorites (starred) and Master (admin) only.
+            Big tap targets so they are easy to hit on mobile. */}
         {watchlistExpanded && (
-          <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1 flex-wrap">
+          <div className="px-2 py-1.5 border-b border-border-subtle shrink-0 flex items-center gap-1.5">
             <button
-              onClick={() => setWlView("all")}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
-                !masterView && wlView === "all"
+              onClick={() => setWlTab("fav")}
+              className={`flex-1 text-[11px] font-semibold px-3 py-1.5 rounded-md border transition-colors ${
+                !masterView
                   ? "bg-accent/15 text-accent border-accent/40"
                   : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
               }`}
-              title="Show every watchlist symbol"
+              title="Your favorite (starred) stocks"
             >
-              All <span className="opacity-70 font-normal">{watchlistItems?.length ?? 0}</span>
-            </button>
-            <button
-              onClick={() => setWlView("core")}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
-                !masterView && wlView === "core"
-                  ? "bg-bullish/15 text-bullish-text border-bullish/40"
-                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
-              }`}
-              title="Core — the names that ping Telegram (focus tier A)"
-            >
-              Core <span className="opacity-70 font-normal">{[...tierBySymbol.values()].filter((t) => t === 1).length}</span>
-            </button>
-            <button
-              onClick={() => setWlView("watch")}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
-                !masterView && wlView === "watch"
-                  ? "bg-amber-400/15 text-amber-400 border-amber-400/40"
-                  : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
-              }`}
-              title="Watch — app feed only, no ping (focus tier B)"
-            >
-              Watch <span className="opacity-70 font-normal">{[...tierBySymbol.values()].filter((t) => t === 2).length}</span>
+              Favorites <span className="opacity-70 font-normal">{focusSymbols.size}</span>
             </button>
             {isAdmin && (
               <button
-                onClick={() => { setMasterView((v) => !v); setWlViewState("all"); }}
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${
+                onClick={() => setWlTab("master")}
+                className={`flex-1 text-[11px] font-semibold px-3 py-1.5 rounded-md border transition-colors ${
                   masterView
                     ? "bg-accent/15 text-accent border-accent/40"
                     : "bg-surface-2 text-text-muted border-border-subtle hover:bg-surface-3"
                 }`}
-                title="Master watchlist — the curated platform universe (admin-only)"
+                title="Master watchlist — the curated platform universe"
               >
-                Master <span className="opacity-70 font-normal">{masterData?.count ?? sectorsItems?.length ?? 0}</span>
-              </button>
-            )}
-            {focusSymbols.size > 0 && (
-              <button
-                onClick={() => clearFocusMut.mutate()}
-                disabled={clearFocusMut.isPending}
-                className="ml-auto text-[9px] text-text-faint hover:text-text-secondary disabled:opacity-30"
-                title="Clear all focus stars"
-              >
-                Reset
+                Master <span className="opacity-70 font-normal">{masterData?.count ?? 0}</span>
               </button>
             )}
           </div>
@@ -2299,7 +2134,7 @@ export default function TradingPageV2() {
           )}
           {/* Collapsed icon-rail → flat rows. Expanded → grouped by sector with
               collapsible headers (the mock's "groups mirror your watchlist sectors"). */}
-          {masterView
+          {(masterView && isAdmin)
             ? renderMasterList()
             : !watchlistExpanded
             ? filteredSignals?.map(renderWlRow)
@@ -2325,116 +2160,18 @@ export default function TradingPageV2() {
                   </div>
                 );
               })}
-        </div>
-
-        {/* Editor's Picks — admin's curated watchlist. Collapsible; auto-
-            expanded by default. Hero CTA at top when the user's personal
-            watchlist is empty (new accounts). "Copy all" bulk-adds every
-            missing symbol with one click. */}
-        {watchlistExpanded && sectorsItems && sectorsItems.length > 0 && (
-          <div className="border-t border-border-subtle shrink-0 max-h-[55%] overflow-hidden flex flex-col bg-surface-1">
-            {/* Empty-state hero — only shown when user has zero personal symbols */}
-            {userWatchlistEmpty && missingSectorSymbols.length > 0 && (
-              <div className="mx-2 mt-2 mb-1 p-2.5 rounded-md bg-accent/10 border border-accent/30">
-                <div className="flex items-start gap-2">
-                  <Sparkles className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10.5px] font-semibold text-text-primary leading-tight mb-0.5">
-                      Start with the editor's {missingSectorSymbols.length} picks
-                    </p>
-                    <p className="text-[9.5px] text-text-muted leading-snug mb-1.5">
-                      Curated by admin. You'll still get alerts on every symbol — this just adds them to your watchlist for quick charting.
-                    </p>
-                    <button
-                      onClick={copyAllSectors}
-                      disabled={copySectors.isPending}
-                      className="w-full flex items-center justify-center gap-1 px-2 py-1 rounded bg-accent text-bg-base text-[10px] font-semibold hover:bg-accent-hover disabled:opacity-50 transition-colors"
-                    >
-                      {copySectors.isPending ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Plus className="h-3 w-3" />
-                      )}
-                      Copy all to my watchlist
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between px-2 py-1.5 gap-1">
-              <button
-                onClick={toggleSectors}
-                className="flex-1 flex items-center gap-1 hover:opacity-80 transition-opacity text-left"
-                title="Editor's curated picks — admin updates appear here automatically"
-              >
-                <Sparkles className="h-3 w-3 text-accent" />
-                <span className="text-[10px] uppercase tracking-wide font-semibold text-text-secondary">
-                  Editor's Picks <span className="text-text-faint normal-case">{sectorsItems.length}</span>
-                </span>
-                <ChevronDown
-                  className={`h-3 w-3 text-text-faint transition-transform ${sectorsExpanded ? "" : "-rotate-90"}`}
-                />
-              </button>
-              {!userWatchlistEmpty && missingSectorSymbols.length > 0 && (
-                <button
-                  onClick={copyAllSectors}
-                  disabled={copySectors.isPending}
-                  className="text-[9px] px-1.5 py-0.5 rounded bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors font-semibold flex items-center gap-0.5"
-                  title={`Add ${missingSectorSymbols.length} missing symbols to my watchlist`}
-                >
-                  {copySectors.isPending ? (
-                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                  ) : (
-                    <Plus className="h-2.5 w-2.5" />
-                  )}
-                  Copy all
-                </button>
-              )}
+          {!masterView && !isLoading && (filteredSignals?.length ?? 0) === 0 && (
+            <div className="p-3 text-center text-[10px] leading-snug text-text-faint">
+              No favorites yet.<br />Star a stock and it shows up here.
             </div>
-            {sectorsExpanded && (
-              <div className="flex-1 overflow-y-auto no-scrollbar pb-1">
-                {sectorsItems.map((s) => {
-                  const owned = watchlistSymbols.has(s.symbol);
-                  return (
-                    <div
-                      key={s.id}
-                      className="flex items-center justify-between px-2 py-1 hover:bg-surface-2/40 transition-colors"
-                    >
-                      <button
-                        onClick={() => selectSymbol(s.symbol)}
-                        className="text-[11px] font-medium text-text-secondary hover:text-text-primary truncate"
-                      >
-                        {s.symbol}
-                      </button>
-                      {owned ? (
-                        <span className="text-[9px] text-text-faint">added</span>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            addSymbol.mutate(s.symbol);
-                          }}
-                          disabled={addSymbol.isPending}
-                          className="p-0.5 rounded text-accent hover:bg-accent/10 disabled:opacity-50"
-                          title={`Add ${s.symbol} to my watchlist`}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Footer */}
         {watchlistExpanded && (
           <div className="px-2 py-1.5 border-t border-border-subtle shrink-0 flex items-center justify-between">
             <span className="text-[9px] text-text-faint">
-              {watchlistItems?.length ?? 0} symbols
+              {masterView ? (masterData?.count ?? 0) : focusSymbols.size} symbols
             </span>
             {isFetching && <Loader2 className="h-2.5 w-2.5 animate-spin text-text-faint" />}
           </div>
@@ -2503,7 +2240,7 @@ export default function TradingPageV2() {
           </div>
 
           {/* Center: Timeframe pills */}
-          <div className="hidden sm:flex items-center bg-surface-2/50 p-0.5 rounded-lg border border-border-subtle">
+          <div className="hidden md:flex items-center bg-surface-2/50 p-0.5 rounded-lg border border-border-subtle">
             {TIMEFRAMES.map((t, i) => (
               <span key={t.label} className="flex items-center">
                 {i === 6 && (
@@ -2846,27 +2583,9 @@ export default function TradingPageV2() {
           ))}
         </div>
 
-        {/* Mobile: horizontal symbol pills — badge conviction / long-term ideas
-            the scanner folded in, so they're distinguishable here too (the
-            watchlist drawer with full controls is off-canvas on mobile). */}
-        <div className="flex gap-1.5 overflow-x-auto px-3 py-1.5 md:hidden shrink-0 no-scrollbar">
-          {signals?.map((s) => (
-            <button
-              key={s.symbol}
-              onClick={() => selectSymbol(s.symbol)}
-              className={`shrink-0 inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
-                selectedSymbol === s.symbol
-                  ? "bg-accent text-white"
-                  : "bg-surface-3 text-text-muted"
-              }`}
-            >
-              {s.symbol}
-              {selectedSymbol !== s.symbol && (
-                <IdeaBadge source={s.source} actionLabel={s.action_label} />
-              )}
-            </button>
-          ))}
-        </div>
+        {/* (The mobile horizontal symbol-pills strip was removed 2026-11-28 —
+            Victor: "at the top I don't want to see that horizontal display of
+            stocks, just the timeframe picked and indicator.") */}
 
         {/* Chart area — flex-1 to fill remaining space */}
         <div className="flex-1 min-h-0 relative">
@@ -2973,17 +2692,31 @@ export default function TradingPageV2() {
                     </button>
                   ))}
                 </div>
-                <select
-                  value={signalDate}
-                  onChange={(e) => setSignalDate(e.target.value)}
-                  title={weekMode ? "Pick any day in the week to review" : "Review a past session"}
-                  className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
-                >
-                  <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
-                  {(sessionDates ?? []).slice(1).map((d) => (
-                    <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
-                  ))}
-                </select>
+                {feedScope === "rumi" ? (
+                  <select
+                    value={rumiDate}
+                    onChange={(e) => setRumiDate(e.target.value)}
+                    title="Rumi signals for one day — or the whole week"
+                    className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
+                  >
+                    <option value="">Whole week</option>
+                    {(sessionDates ?? []).map((d) => (
+                      <option key={d} value={d}>{formatSessionDate(d)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={signalDate}
+                    onChange={(e) => setSignalDate(e.target.value)}
+                    title={weekMode ? "Pick any day in the week to review" : "Review a past session"}
+                    className="bg-surface-1 border border-border-subtle rounded px-2 py-1 text-[11px] text-text-secondary"
+                  >
+                    <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
+                    {(sessionDates ?? []).slice(1).map((d) => (
+                      <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
           </div>
@@ -3003,7 +2736,7 @@ export default function TradingPageV2() {
                 alertsError={activeAlertsError}
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
-                weekMode={weekMode}
+                weekMode={weekMode && !rumiDayMode}
                 rumiScope={feedScope === "rumi"}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
@@ -3064,16 +2797,29 @@ export default function TradingPageV2() {
                     </button>
                   ))}
                 </div>
-                <select
-                  value={signalDate}
-                  onChange={(e) => setSignalDate(e.target.value)}
-                  className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
-                >
-                  <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
-                  {(sessionDates ?? []).slice(1).map((d) => (
-                    <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
-                  ))}
-                </select>
+                {feedScope === "rumi" ? (
+                  <select
+                    value={rumiDate}
+                    onChange={(e) => setRumiDate(e.target.value)}
+                    className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+                  >
+                    <option value="">Whole week</option>
+                    {(sessionDates ?? []).map((d) => (
+                      <option key={d} value={d}>{formatSessionDate(d)}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    value={signalDate}
+                    onChange={(e) => setSignalDate(e.target.value)}
+                    className="bg-surface-0 border border-border-subtle rounded px-2 py-0.5 text-[11px] text-text-secondary"
+                  >
+                    <option value="">{weekMode ? `This week (of ${weekOfLabel(weekAnchor)})` : "Today"}</option>
+                    {(sessionDates ?? []).slice(1).map((d) => (
+                      <option key={d} value={d}>{weekMode ? `Week of ${weekOfLabel(d)}` : formatSessionDate(d)}</option>
+                    ))}
+                  </select>
+                )}
               </>
             )}
             <button onClick={toggleMobileSignals} aria-label={mobileSignalsCollapsed ? "Expand panel" : "Collapse panel"} className="p-0.5 text-text-muted">
@@ -3093,7 +2839,7 @@ export default function TradingPageV2() {
                 alertsError={activeAlertsError}
                 onSelectSymbol={selectSymbol}
                 signalDate={signalDate}
-                weekMode={weekMode}
+                weekMode={weekMode && !rumiDayMode}
                 rumiScope={feedScope === "rumi"}
                 assetFilter={assetFilter}
                 onAssetFilterChange={changeAssetFilter}
