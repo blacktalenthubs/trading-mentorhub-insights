@@ -54,6 +54,43 @@ const queryClient = new QueryClient({
   },
 });
 
+// Paint the watchlist instantly on cold opens (Victor, 2026-11-28: "the data
+// loads too long before it shows — maybe we cache this since we already have
+// the data?"). The scanner result is seeded from the last saved copy so the
+// rows render immediately, then invalidated so the normal fetch refreshes
+// them in the background. Seeds older than 12h are dropped. Any storage
+// failure (private mode, quota) just falls back to the old cold-load wait.
+const SCANNER_CACHE_KEY = "btb-scanner-cache-v1";
+try {
+  const raw = localStorage.getItem(SCANNER_CACHE_KEY);
+  if (raw) {
+    const parsed = JSON.parse(raw) as { savedAt?: number; data?: unknown };
+    if (
+      Array.isArray(parsed.data) &&
+      typeof parsed.savedAt === "number" &&
+      Date.now() - parsed.savedAt < 12 * 60 * 60 * 1000
+    ) {
+      queryClient.setQueryData(["scanner"], parsed.data);
+      void queryClient.invalidateQueries({ queryKey: ["scanner"] });
+    }
+  }
+} catch {
+  /* storage unavailable — cold load behaves as before */
+}
+queryClient.getQueryCache().subscribe((event) => {
+  const q = event.query;
+  if (q.queryKey[0] === "scanner" && q.state.status === "success" && q.state.data) {
+    try {
+      localStorage.setItem(
+        SCANNER_CACHE_KEY,
+        JSON.stringify({ savedAt: Date.now(), data: q.state.data }),
+      );
+    } catch {
+      /* quota/private mode — ignore */
+    }
+  }
+});
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user);
   if (!user) return <Navigate to="/" replace />;
