@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response as RawResponse
-from sqlalchemy import distinct, func, select
+from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -68,6 +68,19 @@ def _grade_filter_clause(user: User):
     return None  # no filter
 
 
+def _feed_scope_clause(user_id: int, grade_clause):
+    """Feed visibility: the caller's own alerts (grade filter applied — it is
+    noise control for the scanner firehose) PLUS Rumi's lane signals
+    (alert_type rumi_*). Rumi signals are a shared log every logged-in user
+    sees (Victor, 2026-11-28: "any users who logon should always see rumi
+    signals"), so neither the per-user scope nor the grade filter hides them.
+    """
+    own = Alert.user_id == user_id
+    if grade_clause is not None:
+        own = and_(own, grade_clause)
+    return or_(own, Alert.alert_type.like("rumi_%"))
+
+
 def _exclude_obsolete_clause():
     """Hide RETIRED alert types from the feed entirely — not just un-delivered.
     A bound TV alert can keep EMITTING a cut rule until it's re-pasted (e.g.
@@ -94,10 +107,9 @@ async def alerts_today(
 
     # Try today first
     base = select(Alert).where(
-        Alert.user_id == user.id, Alert.session_date == _today(), obsolete_clause
+        _feed_scope_clause(user.id, grade_clause),
+        Alert.session_date == _today(), obsolete_clause,
     )
-    if grade_clause is not None:
-        base = base.where(grade_clause)
     result = await db.execute(base.order_by(Alert.created_at.desc()))
     alerts = result.scalars().all()
 
@@ -105,17 +117,17 @@ async def alerts_today(
     if not alerts:
         latest = await db.execute(
             select(Alert.session_date)
-            .where(Alert.user_id == user.id)
+            .where(or_(Alert.user_id == user.id,
+                       Alert.alert_type.like("rumi_%")))
             .order_by(Alert.session_date.desc())
             .limit(1)
         )
         last_date = latest.scalar_one_or_none()
         if last_date:
             q2 = select(Alert).where(
-                Alert.user_id == user.id, Alert.session_date == last_date, obsolete_clause
+                _feed_scope_clause(user.id, grade_clause),
+                Alert.session_date == last_date, obsolete_clause,
             )
-            if grade_clause is not None:
-                q2 = q2.where(grade_clause)
             result2 = await db.execute(q2.order_by(Alert.created_at.desc()))
             alerts = result2.scalars().all()
 
@@ -177,12 +189,10 @@ async def alerts_for_date(
     grade_clause = _grade_filter_clause(user)
     scope_uid = await _history_user_id(user, db)
     q = select(Alert).where(
-        Alert.user_id == scope_uid,
+        _feed_scope_clause(scope_uid, grade_clause),
         Alert.session_date == session_date,
         _exclude_obsolete_clause(),
     )
-    if grade_clause is not None:
-        q = q.where(grade_clause)
     result = await db.execute(q.order_by(Alert.created_at.desc()).limit(3000))
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 
@@ -208,13 +218,11 @@ async def alerts_for_week(
     grade_clause = _grade_filter_clause(user)
     scope_uid = await _history_user_id(user, db)
     q = select(Alert).where(
-        Alert.user_id == scope_uid,
+        _feed_scope_clause(scope_uid, grade_clause),
         Alert.session_date >= monday.isoformat(),
         Alert.session_date <= sunday.isoformat(),
         _exclude_obsolete_clause(),
     )
-    if grade_clause is not None:
-        q = q.where(grade_clause)
     result = await db.execute(q.order_by(Alert.created_at.asc()).limit(10000))
     return [AlertResponse.from_orm_alert(a) for a in result.scalars().all()]
 
@@ -621,7 +629,8 @@ async def session_dates(
     scope_uid = await _history_user_id(user, db)
     result = await db.execute(
         select(distinct(Alert.session_date))
-        .where(Alert.user_id == scope_uid)
+        .where(or_(Alert.user_id == scope_uid,
+                   Alert.alert_type.like("rumi_%")))
         .order_by(Alert.session_date.desc())
         .limit(90)
     )
