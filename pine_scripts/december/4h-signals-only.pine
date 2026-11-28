@@ -1,5 +1,5 @@
 //@version=6
-// 4h-signals-only v2026.11.27.3 — version is in the indicator title too: if the chart legend
+// 4h-signals-only v2026.11.27.4 — version is in the indicator title too: if the chart legend
 // v2026.11.22.23: the v.22 event-log arrow redraw was reverted at Victor's call — in live use it dropped the line tags and never cleared past-frame arrows. This build is the v.21 behaviour (tags + flip-time arrows), version bumped.
 // v2026.11.22.24: line tags one font size smaller (size.tiny) — frame, STOP and RANGE tags; arrows unchanged.
 // v2026.11.22.25: indicator renamed to 4h-signals-only at Victor's ask; the version stays in the title so the legend check still works.
@@ -34,6 +34,9 @@
 //   lines and a plain tag — GAP UP / GAP DOWN, the size in %, UNFILLED / FILLED (filled = price
 //   traded back to the prior close, judged on the chart's own bars, extended hours included).
 //   A HUD row under VIX reads the same gap. Same proximity gate as PDH/PDL. Lines only, no alerts.
+// v2026.11.27.4: HUD gains a 10Y row UNDER the gap row — the LIVE TVC:US10Y daily yield, its
+//   day change in bp, and a plain zone word (under 4 loose, 4-5 normal, over 5 tight). The
+//   market's price of money as a context read, like the VIX and sentiment rows. Label only.
 // does not show this exact version, the chart is running an older copy.
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIOR 4H LINES — the rolling prior-candle frame: the HIGH, LOW and OPEN of
@@ -107,7 +110,7 @@
 //   • The 4H values are the chart's own 4H series (extended hours included —
 //     the 24h grid), read settled [1] so the lines never repaint mid-candle.
 // ─────────────────────────────────────────────────────────────────────────────
-indicator("4h-signals-only · v2026.11.27.3", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 50)
+indicator("4h-signals-only · v2026.11.27.4", shorttitle = "4h-signals-only", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 50)
 
 extend_h = input.int(4, "Extend lines past the candle close (hours)", minval = 0, maxval = 24, tooltip = "How far the lines reach past the current 4H candle's close, so the tags stay readable.")
 showConf = input.bool(true, "Tag confluence with PDH / PDL / PWH / PWL", tooltip = "When a prior-4H line sits within 0.1% of the prior day's or prior week's high/low, the tag names it.")
@@ -341,6 +344,19 @@ string vixBand   = na(vixNow) ? "" : vixNow < 15 ? "calm" : vixNow < 20 ? "norma
 string vixDir    = na(vixNow) ? "" : (vixBand == "elevated" or vixBand == "panic") and not na(vixChg5) and vixChg5 <= -1.0 ? "falling, fear receding" : vixBand == "calm" and not na(vixChg1) and vixChg1 >= 2.0 ? "spiking, calm breaking" : na(vixChg5) ? "steady" : vixChg5 >= 1.0 ? "rising" : vixChg5 <= -1.0 ? "falling" : "steady"
 string vixTxt    = na(vixNow) ? "VIX: no data" : "VIX: " + str.tostring(vixNow, "0.0") + " · " + vixBand + " · " + vixDir
 color  vixBg     = vixBand == "panic" ? color.new(#E53935, 35) : vixBand == "elevated" ? color.new(#FB8C00, 35) : vixBand == "calm" ? color.new(#00897B, 35) : color.new(color.gray, 35)
+
+// 10-year Treasury yield (Victor, 2026-11-27): the market's price of
+// money — the rate every other borrowing cost keys off. LIVE TVC:US10Y
+// daily value with the day change in bp and a plain zone word: under
+// 4% money is loose, 4-5% normal, over 5% tight (5.36% was the Oct-2026
+// spike, a 24-year high). Context read only, like the VIX row above.
+// HUD label only — drives no alert, no line.
+[y10Now, y10Prev] = request.security("TVC:US10Y", "D", [close, close[1]], lookahead = barmerge.lookahead_on)
+float  y10ChgBp  = na(y10Now) or na(y10Prev) ? na : (y10Now - y10Prev) * 100
+string y10Zone   = na(y10Now) ? "" : y10Now < 4.0 ? "loose" : y10Now <= 5.0 ? "normal" : "tight"
+string y10Dir    = na(y10ChgBp) ? "" : y10ChgBp >= 5 ? "rising" : y10ChgBp <= -5 ? "falling" : "steady"
+string y10Txt    = na(y10Now) ? "10Y: no data" : "10Y: " + str.tostring(y10Now, "0.00") + "% · " + y10Zone + " · " + y10Dir + (na(y10ChgBp) ? "" : " (" + (y10ChgBp >= 0 ? "+" : "") + str.tostring(y10ChgBp, "0") + "bp)")
+color  y10Bg     = y10Zone == "tight" ? color.new(#FB8C00, 35) : y10Zone == "loose" ? color.new(#00897B, 35) : color.new(color.gray, 35)
 
 // Most recent CONFIRMED 4H swing high / low (pivots), held forward — the structural base. Computed
 // on the 4H series; NO lookahead (a pivot confirms swLen bars after its peak — the honest, no-repaint
@@ -691,13 +707,14 @@ if barstate.islast and not na(pH) and not na(pL) and not na(pO) and not na(pC) a
         // Row 6 GAP: the most recent overnight gap, same read as the zone tag.
         string gapTxt = na(gapTop) or gapTop <= gapBot or na(gapPct) ? "Gap: none" : "Gap: " + (gapPct >= 0 ? "+" : "") + str.tostring(gapPct, "0.00") + "% " + (gapUp ? "up" : "down") + " · " + (gapFilled ? "filled" : "unfilled")
         color  gapBg  = na(gapTop) or gapTop <= gapBot or gapFilled ? color.new(color.gray, 35) : gapUp ? color.new(#00897B, 35) : color.new(#E53935, 35)
-        var table _hud = table.new(f_hudpos(hudPos), 1, 6, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
+        var table _hud = table.new(f_hudpos(hudPos), 1, 7, border_width = 1, frame_color = color.new(color.gray, 40), frame_width = 1)
         table.cell(_hud, 0, 0, hudTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = hudBg)
         table.cell(_hud, 0, 1, trendTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = trendBg)
         table.cell(_hud, 0, 2, str.tostring(envBot, format.mintick) + "  ↔  " + str.tostring(envTop, format.mintick), text_color = color.new(color.gray, 0), text_size = size.small, bgcolor = color.new(color.gray, 90))
         table.cell(_hud, 0, 3, sentTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = sentBg)
         table.cell(_hud, 0, 4, vixTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = vixBg)
         table.cell(_hud, 0, 5, gapTxt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = gapBg)
+        table.cell(_hud, 0, 6, y10Txt, text_color = color.white, text_size = f_hudsize(hudSize), bgcolor = y10Bg)
 
 // ── Crossing machines (HIGH / LOW / RANGE, 10m closes) ────────────
 // Runs on every bar: each NEW completed 10m bar steps the state
