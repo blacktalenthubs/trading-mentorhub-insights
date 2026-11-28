@@ -44,7 +44,7 @@ import type { WatchlistRankItem } from "../types";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { SignalResult, Alert } from "../types";
-import { formatSetup, isFeedSignal, isVolumeSignal, isExitAlert, setupBlurb } from "../lib/alertFormat";
+import { formatSetup, isFeedSignal, isVolumeSignal, isExitAlert, isRumiSignal, setupBlurb } from "../lib/alertFormat";
 import { DisclaimerFooter } from "../components/DisclaimerModal";
 import { toast } from "../components/Toast";
 import CandlestickChart from "../components/CandlestickChart";
@@ -170,21 +170,29 @@ const ALL_INDICATORS: IndicatorDef[] = [
   { key: "ema100", label: "EMA 100", color: "#a78bfa", group: "ema" },
   { key: "ema200", label: "EMA 200", color: "#34d399", group: "ema" },
   { key: "sma20", label: "SMA 20", color: "#38bdf8", group: "sma" },
-  { key: "sma50", label: "SMA 50", color: "#fb923c", group: "sma" },
+  // Victor's key SMA set (2026-11-27) — 8 deep green / 21 deep purple /
+  // 50 deep yellow / 200 deep red, plus the Weinstein 30-week (dashed deep
+  // orange in the chart, so it never reads as the 200).
+  { key: "sma8", label: "SMA 8", color: "#00C853", group: "sma" },
+  { key: "sma21", label: "SMA 21", color: "#7B1FA2", group: "sma" },
+  { key: "sma50", label: "SMA 50", color: "#F9A825", group: "sma" },
   { key: "sma100", label: "SMA 100", color: "#c084fc", group: "sma" },
-  { key: "sma200", label: "SMA 200", color: "#4ade80", group: "sma" },
+  { key: "sma200", label: "SMA 200", color: "#C62828", group: "sma" },
+  { key: "sma30w", label: "SMA 30W", color: "#E65100", group: "sma" },
   { key: "vwap", label: "VWAP", color: "#e879f9", group: "other" },
   { key: "fvbands", label: "FV Bands", color: "#fb923c", group: "other" },
   { key: "smz", label: "Smart Money Zones", color: "#2962ff", group: "other" },
 ];
 
 // Key EMAs always on by default: 8 / 21 / 50 / 100 / 200.
-const DEFAULT_INDICATORS = new Set(["ema8", "ema21", "ema50", "ema100", "ema200", "sma50"]);
+// Plus Victor's SMA set (2026-11-27): 8 / 21 / 50 / 200 + the 30-week.
+const DEFAULT_INDICATORS = new Set(["ema8", "ema21", "ema50", "ema100", "ema200", "sma8", "sma21", "sma50", "sma200", "sma30w"]);
 
 function loadSavedIndicators(): Set<string> | null {
   try {
-    // v2 key — bumped 2026-05-21 when the EMA defaults changed to 8/21/50/100/200.
-    const raw = localStorage.getItem("chart_indicators_v2");
+    // v3 key — bumped 2026-11-27 when Victor's SMA set (8/21/50/200 + 30W)
+    // joined the defaults. (v2 was bumped 2026-05-21 for the EMA defaults.)
+    const raw = localStorage.getItem("chart_indicators_v3");
     if (!raw) return null;
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr) || arr.length === 0) return null;
@@ -565,7 +573,7 @@ function SignalFeedTab({
   // 3 STYLE panels (day_trade / swing / long_term). Every alert is FILED by style —
   // delivered AND recorded-not-delivered (the latter shown dimmed + "NOT SENT"). Tracking
   // and delivery are separate; only Telegram/push are gated, the feed shows everything.
-  const [view, setView] = useState<"day" | "swing">("day");
+  const [view, setView] = useState<"day" | "swing" | "rumi">("day");
   // Premarket signals are persisted per session in market_reports[premarket_signals],
   // so honor the session date picker like the day/position feeds do (the alerts prop
   // is already date-filtered by the parent). No date selected → latest report.
@@ -666,7 +674,13 @@ function SignalFeedTab({
   const swingAlerts = feedAllRaw.filter(
     (a) => !_special(a.alert_type) && ((a as { style?: string }).style ?? "day_trade") !== "day_trade",
   );
-  const feedAlerts = view === "day" ? dayAlerts : swingAlerts;
+  // Rumi signals — the agent-run lanes (4H / VP / SMA) logged to the desk for
+  // review (2026-11-27). Read straight off the raw alerts: they are not
+  // isFeedSignal types, so they never enter the Day/Swing books above.
+  const rumiAlerts = (alerts ?? []).filter(
+    (a) => isRumiSignal(a.alert_type) && !isExitAlert(a.alert_type),
+  );
+  const feedAlerts = view === "day" ? dayAlerts : view === "swing" ? swingAlerts : rumiAlerts;
   // Counts per grade for the chip badges.
   const gradeCounts = feedAlerts.reduce(
     (acc, a) => {
@@ -972,18 +986,20 @@ function SignalFeedTab({
       {/* Row 1 — Signals / Not-routed segmented control + Sort */}
       <div className="px-3 pt-2 pb-1.5 shrink-0 flex items-center gap-2">
         <div className="flex items-center rounded-md border border-border-subtle overflow-hidden text-[10px] font-semibold">
-          {([["day", "Day"], ["swing", "Swing"]] as const).map(([id, label], i) => (
+          {([["day", "Day"], ["swing", "Swing"], ["rumi", "Rumi signals"]] as const).map(([id, label], i) => (
             <button
               key={id}
               onClick={() => setView(id)}
               title={id === "day"
                 ? "Day trades — out by the close. 4H reactions + gap-and-go + breakouts (folded in by style)."
-                : "Swing trades — held multiple days while the thesis holds. SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims, breakouts."}
+                : id === "swing"
+                ? "Swing trades — held multiple days while the thesis holds. SMA reclaims, RSI-30, 5/20 cross, weekly/monthly level reclaims, breakouts."
+                : "Rumi signals — the agent-run 4H / VP / SMA lanes, logged here for review. Not part of the Day/Swing books."}
               className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border-subtle" : ""} ${view === id ? "bg-accent text-bg-base" : "bg-surface-1 text-text-muted hover:bg-surface-2"}`}
             >
               {label}{" "}
               <span className="opacity-70 font-normal">
-                {id === "day" ? dayAlerts.length : swingAlerts.length}
+                {id === "day" ? dayAlerts.length : id === "swing" ? swingAlerts.length : rumiAlerts.length}
               </span>
             </button>
           ))}
@@ -1244,8 +1260,10 @@ function SignalFeedTab({
               : focusOnly && !hasFocus
                 ? "No Focus symbols yet — star symbols in your watchlist to build a Focus list"
                 : focusOnly
-                  ? `No ${view === "day" ? "day-trade" : "swing"} signals for your Focus symbols this session`
-                  : `No alerts this session`}
+                  ? `No ${view === "day" ? "day-trade" : view === "swing" ? "swing" : "Rumi"} signals for your Focus symbols this session`
+                  : view === "rumi"
+                    ? "No Rumi signals this session"
+                    : "No alerts this session"}
           </p>
         </div>
       ) : (
@@ -1759,7 +1777,7 @@ export default function TradingPageV2() {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      localStorage.setItem("chart_indicators_v2", JSON.stringify([...next]));
+      localStorage.setItem("chart_indicators_v3", JSON.stringify([...next]));
       return next;
     });
   }
