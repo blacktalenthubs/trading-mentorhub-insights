@@ -2268,12 +2268,14 @@ def create_app() -> FastAPI:
         fundamentals,  # Watchlist Details tab — fundamentals + analyst ratings + AI views
         daily,  # Daily Target self-reporting page (gated to one account)
         robinhood,  # Admin: UI-triggered fill import + read-only options greeks
+        rumi_signals,  # 2026-11-27 — agent lane signals logged for review
     )
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(watchlist.router, prefix="/api/v1/watchlist", tags=["watchlist"])
     app.include_router(scanner.router, prefix="/api/v1/scanner", tags=["scanner"])
     app.include_router(market.router, prefix="/api/v1/market", tags=["market"])
     app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
+    app.include_router(rumi_signals.router, prefix="/api/v1/rumi", tags=["rumi"])
     app.include_router(trades.router, prefix="/api/v1/trades", tags=["trades"])
     app.include_router(charts.router, prefix="/api/v1/charts", tags=["charts"])
     app.include_router(real_trades.router, prefix="/api/v1/real-trades", tags=["real-trades"])

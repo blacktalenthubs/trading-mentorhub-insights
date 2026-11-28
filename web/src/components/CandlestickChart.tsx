@@ -1,10 +1,10 @@
 /** Candlestick chart using lightweight-charts v5, with MA/VWAP overlays. */
 
 import { useEffect, useRef, useState, Component, type ReactNode } from "react";
-import { createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers, ColorType } from "lightweight-charts";
+import { createChart, CandlestickSeries, LineSeries, HistogramSeries, createSeriesMarkers, ColorType, LineStyle } from "lightweight-charts";
 import type { IChartApi, ISeriesApi } from "lightweight-charts";
 import type { OHLCBar, ChartLevel } from "../api/hooks";
-import { computeSMA, computeEMA, computeVWAP } from "../lib/indicators";
+import { computeSMA, computeEMA, computeVWAP, computeSMA30W } from "../lib/indicators";
 
 interface IndicatorConfig {
   key: string; // "sma20" | "sma50" | "ema9" | "vwap"
@@ -464,8 +464,9 @@ function CandlestickChartInner({
       // Which-line-is-which-MA label. Lives in the compact top-left legend
       // (below) instead of as a per-line value chip on the price axis — those
       // chips collided with each other and the gridlines.
-      const maLabel = emaMatch ? `EMA ${emaMatch[1]}` : smaMatch ? `SMA ${smaMatch[1]}` : ind.key === "vwap" ? "VWAP" : ind.key.toUpperCase();
-      if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
+      const maLabel = emaMatch ? `EMA ${emaMatch[1]}` : smaMatch ? `SMA ${smaMatch[1]}` : ind.key === "sma30w" ? "SMA 30W" : ind.key === "vwap" ? "VWAP" : ind.key.toUpperCase();
+      if (ind.key === "sma30w") lineData = computeSMA30W(closes);
+      else if (smaMatch) lineData = computeSMA(closes, parseInt(smaMatch[1]));
       else if (emaMatch) lineData = computeEMA(closes, parseInt(emaMatch[1]));
       else if (ind.key === "vwap" && sessionBars.length >= 3) {
         // VWAP only shows on today's session bars (not multi-day)
@@ -480,7 +481,10 @@ function CandlestickChartInner({
         });
         const lineSeries = chart.addSeries(LineSeries, {
           color: ind.color,
-          lineWidth: 1,
+          // Victor's key SMA set draws heavier so it reads at a glance; the
+          // 30-week is dashed so it never gets mistaken for a daily SMA.
+          lineWidth: (["sma8", "sma21", "sma50", "sma200", "sma30w"].includes(ind.key) ? 2 : 1) as any,
+          lineStyle: ind.key === "sma30w" ? LineStyle.Dashed : LineStyle.Solid,
           crosshairMarkerVisible: false,
           priceLineVisible: false,
           lastValueVisible: false,

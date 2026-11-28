@@ -19,6 +19,11 @@ export function isSwingAlert(alertType?: string): boolean {
 /** Short, human-readable setup name from a raw alert_type. SWING alerts get a
  *  "SWING ·" prefix so the swing book is visible at a glance in the feed. */
 export function formatSetup(alertType?: string): string {
+  // Rumi lane signals — card title names the lane ("Rumi · 4H"); the setup
+  // detail lives in the card's message (the lane's own Reason line).
+  if ((alertType ?? "").startsWith("rumi_")) {
+    return `Rumi · ${alertType!.slice(5).toUpperCase()}`;
+  }
   const t = (alertType ?? "").replace(/^tv_/, "").replace(/^ai_/, "");
   if (!t) return "Signal";
   // Breakout scanner — a previously-broken TBA that price pulled back to and held (the retest entry).
@@ -386,6 +391,13 @@ export function isScannerEntry(alertType?: string): boolean {
 const VOLUME_PROFILE_RE = /^(hourly|daily|weekly)_(poc|val|vah|vwap)_/;
 export function isVolumeSignal(alertType?: string): boolean {
   return VOLUME_PROFILE_RE.test(alertType ?? "");
+}
+
+/** Rumi signals — Victor's agent-run lanes (4H / VP / SMA engines), logged to
+ *  the desk via POST /api/v1/rumi/signals for review. They live in their own
+ *  "Rumi signals" feed tab and never mix into the Day/Swing books. */
+export function isRumiSignal(alertType?: string): boolean {
+  return (alertType ?? "").startsWith("rumi_");
 }
 
 /** Breakout scanner signals — the "Breakout" feed. Momentum pattern breaks (cup&handle,

@@ -28,6 +28,53 @@ export function computeSMA(
 }
 
 /**
+ * 30-week SMA (Weinstein) over daily or weekly bars, drawn as a stepped
+ * line: bars are grouped into calendar weeks (Mon-start, UTC) and each bar
+ * takes the mean of the last 30 weekly closes, its own week's latest close
+ * included (the forming week counts, like TradingView). On weekly bars it
+ * degenerates to a plain SMA(30). Needs 30 weeks of bars before the first
+ * value, so intraday fetches (a few days) draw nothing.
+ */
+export function computeSMA30W(
+  closes: { time: string | number; close: number }[],
+): TimeValue[] {
+  const weekKey = (t: string | number): string => {
+    const d =
+      typeof t === "number"
+        ? new Date(t * 1000)
+        : new Date(`${String(t).slice(0, 10)}T00:00:00Z`);
+    if (isNaN(+d)) return String(t);
+    const dow = (d.getUTCDay() + 6) % 7; // Mon=0
+    const mon = new Date(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow),
+    );
+    return mon.toISOString().slice(0, 10);
+  };
+  const weekCloses: number[] = [];
+  const barWeekIdx: number[] = [];
+  let curKey: string | null = null;
+  for (const b of closes) {
+    const k = weekKey(b.time);
+    if (k !== curKey) {
+      weekCloses.push(b.close);
+      curKey = k;
+    } else {
+      weekCloses[weekCloses.length - 1] = b.close;
+    }
+    barWeekIdx.push(weekCloses.length - 1);
+  }
+  const result: TimeValue[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    const w = barWeekIdx[i];
+    if (w < 29) continue;
+    let sum = 0;
+    for (let j = w - 29; j <= w; j++) sum += weekCloses[j];
+    result.push({ time: closes[i].time, value: sum / 30 });
+  }
+  return result;
+}
+
+/**
  * Exponential Moving Average.
  */
 export function computeEMA(
